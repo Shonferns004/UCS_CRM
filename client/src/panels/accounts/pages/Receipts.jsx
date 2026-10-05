@@ -314,6 +314,15 @@ export default function Receipts() {
       .catch(() => {})
   }, [])
 
+// Receipts record the FRO, never the CRM login agent working that FRO's data,
+// so the cell is just the stored name. Kept as a helper so the table and the
+// donor drawer read the same way.
+const agentCell = useCallback((d) => {
+  const raw = String(d['Agent Name'] || '').trim()
+  if (!raw) return <span style={{ color: '#d1d5db', fontSize: 11 }}>Not assigned</span>
+  return <span>{raw}</span>
+}, [])
+
   const parseReceiptNo = (d) => {
     const v = String(d['Receipt No.'] || '').trim()
     const n = parseInt(v, 10)
@@ -1035,6 +1044,7 @@ export default function Receipts() {
                 <th>Amount</th>
                 <th>Date</th>
                 <th>NGO</th>
+                <th>Agent</th>
                 <th>Delivery</th>
                 <th>Action</th>
               </tr>
@@ -1050,12 +1060,13 @@ export default function Receipts() {
                     <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:55, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                    <td><div className="sk" style={{ width:65, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:140, height:24, borderRadius:4 }} /></td>
                     <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
                   </tr>
                 ))
               ) : filteredDonors.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
+                <tr><td colSpan={10} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
               ) : filteredDonors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                 const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
                 const rowId = d.receipt_id;
@@ -1086,6 +1097,7 @@ export default function Receipts() {
                       return <span className="rx-ngo-tag" style={st}>{NGO_MAP[ng]?.label || ng}</span>
                     })()}
                   </td>
+                  <td style={{ fontSize:12, whiteSpace:'nowrap' }}>{agentCell(d)}</td>
                   <td style={{ whiteSpace:'nowrap' }}>
                     <WhatsAppDeliveryBadge receipt={d} />
                   </td>
@@ -1117,6 +1129,7 @@ export default function Receipts() {
                   <td style={{ padding:'9px 12px', color:'#059669' }}>
                     {formatIndianCurrency(filteredDonors.reduce((s, d) => s + Number(d['Amount'] || 0), 0))}
                   </td>
+                  <td></td>
                   <td></td>
                   <td></td>
                   <td style={{ padding:'9px 12px' }}>{filteredDonors.length} rows</td>
@@ -1228,11 +1241,22 @@ export default function Receipts() {
                   <label key={key} style={{ gridColumn:colSpan === 2 ? '1 / -1' : undefined, fontSize:11, color:'#6b7280', fontWeight:600, display:'flex', flexDirection:'column', gap:4 }}>
                     {label}
                     {type === 'select' ? (
-                      <select value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
-                        style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, background:'#fff' }}>
-                        <option value="">Not assigned</option>
-                        {froWorkers.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
-                      </select>
+                      (() => {
+                        // A receipt can hold a name that is no longer in the active
+                        // FRO list (a deactivated FRO, or one imported by hand).
+                        // Keep it selectable so the select never renders blank.
+                        const cur = editForm[key] || '';
+                        const opts = froWorkers.map(w => ({ value: w.name, label: w.name }));
+                        const known = new Set(opts.map(o => o.value));
+                        return (
+                          <select value={cur} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                            style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, background:'#fff' }}>
+                            <option value="">Not assigned</option>
+                            {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            {cur && !known.has(cur) && <option value={cur}>{cur} (current)</option>}
+                          </select>
+                        );
+                      })()
                     ) : type === 'mop' ? (
                       <select value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
                         style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, background:'#fff' }}>

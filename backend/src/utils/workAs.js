@@ -132,10 +132,33 @@ export function isCoveredAndAway({ coversByTarget, targetWorkerId, isSelfFresh, 
 // `painted` is the identity the UI is showing (the covered FRO under work-as);
 // `operator` is the human at the keyboard. Non-impersonating users have no
 // operator, so the painted id is used and nothing changes for them.
-export function liveRowWorkerId({ paintedId, operatorId }) {
+//
+// `isAgent` is the one deliberate exception, and it is not optional bookkeeping.
+// A login agent is not a second person at the keyboard — they are the assigned
+// FRO's hands, and the whole point of the feature is that the FRO shows up on the
+// performance board as the one working. Filing on the agent instead would write
+// the agent's uuid into fro_live_status.worker_id and fro_time_sessions.worker_id,
+// and both of those carry FOREIGN KEYS to workers(id): the agent has no workers
+// row, so the heartbeat would fail outright rather than merely be invisible. It
+// would also leave the FRO offline and their figures at zero, which is the exact
+// behaviour this branch exists to prevent.
+export function liveRowWorkerId({ paintedId, operatorId, isAgent }) {
   const painted = String(paintedId ?? '');
+  if (isAgent) return painted;
   const operator = operatorId == null || operatorId === '' ? '' : String(operatorId);
   return operator || painted;
+}
+
+// Is this request an agent session rather than a person manually acting as a FRO?
+//
+// The two are deliberately kept distinct all the way through the reporting path.
+// A manual work-as switch has a real operator who owns a row of their own and is
+// shown as covering somebody. An agent has no row of their own: their activity IS
+// the assigned FRO's activity, and the cover relationship is only a label on the
+// admin board. Confusing the two is what would put an agent uuid into a table
+// foreign-keyed to workers.
+export function isAgentSession(user) {
+  return !!(user?.agent_user_id);
 }
 
 // Split a request's worker context into the two identities that were previously
@@ -143,16 +166,24 @@ export function liveRowWorkerId({ paintedId, operatorId }) {
 // being worked); `human` follows the person at the keyboard (live counters, card
 // figures, presence). They are equal unless a work-as switch is active.
 export function splitWorkerContext(user) {
+  const isAgent = isAgentSession(user);
   const { imposterId, imposterName, chained } = resolveOperatorIdentity(user);
   const paintedId = user?.id;
-  const humanId = liveRowWorkerId({ paintedId, operatorId: imposterId });
+  const humanId = liveRowWorkerId({ paintedId, operatorId: imposterId, isAgent });
   return {
     chained,
+    isAgent,
     data: { id: paintedId, name: user?.name || '' },
     human: {
       id: humanId,
       name: String(humanId) === String(paintedId) ? (user?.name || '') : (imposterName || ''),
     },
+    // An agent is not "acting as" the FRO on the reporting side: both contexts
+    // resolve to the same person, which is what makes their session behave
+    // exactly like the FRO's own.
     isWorkAs: chained && String(humanId) !== String(paintedId),
+    // Present only on agent sessions, so the UI can say who is actually typing
+    // without inventing a second identity for the live row to point at.
+    agent: isAgent ? { id: String(user.agent_user_id), label: user.agent_label || '' } : null,
   };
 }

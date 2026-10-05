@@ -7,8 +7,9 @@ import { getBnfOperatorByLoginId, getBnfOperatorById, updateBnfOperator } from '
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
-import { releaseOperatorSessions, getActiveSessionsForTarget, clearOperatorCoverLabels, claimStations } from '../models/workAsSessionModel.js';
+import { releaseOperatorSessions, getActiveSessionsForTarget, clearOperatorCoverLabels, claimStations, releaseConflictingCovers } from '../models/workAsSessionModel.js';
 import { resolveOperatorIdentity } from '../utils/workAs.js';
+import { authenticateAgent, getActiveAgentByWorkerId, getAgentById, getAgentByLoginId, setAgentPasswordHash } from '../models/crmAgentModel.js';
 import { commitIdleOnExit } from '../services/froIdleCommit.js';
 import { closeOpenSession } from '../services/froTimeSessions.js';
 
@@ -17,6 +18,197 @@ dotenv.config();
 // CRMs / admin and salary portals get a rolling 24h session; the mobile
 // (Flutter) worker login override below emits tokens with no expiry.
 const TOKEN_EXPIRY = '24h';
+
+// Block a FRO's own login once an agent holds their account.
+//
+// The point of assigning an agent is that the FRO stops being the person at the
+// keyboard — otherwise the performance board cannot distinguish the two, and the
+// whole feature is decorative. Scoped as tightly as it can be:
+//
+//   - only a worker actually named by an ACTIVE agent is blocked, so every other
+//     FRO, and all ~20 non-FRO @ufs staff, are untouched;
+//   - only after the password has already been verified, so a wrong password
+//     still fails as a wrong password and nothing about the account is disclosed
+//     to someone who does not have it;
+//   - only where role resolves to 'fro', so an @ufs account of another kind is
+//     never caught by the branch that happens to handle it.
+//
+// The message names the agent rather than just failing, because an FRO suddenly
+// locked out of their own account has no other way to find out why.
+// An FRO never signs in as themselves. Full stop.
+//
+// FROs are operated through the agent assigned to them; letting the FRO's own
+// credentials stay live in parallel defeats the point of agents entirely,
+// because one can still work the account while the other holds it. Every worker
+// login branch calls this only after the password has matched and only for
+// department 'fro', so a wrong password still fails as a wrong password and
+// non-FRO staff are never affected.
+const rejectIfCoveredFro = async (worker) => {
+  if (!worker) return null;
+  let agent = null;
+  try {
+    agent = await getActiveAgentByWorkerId(worker.id);
+  } catch (e) {
+    // crm_agents absent before migration 172: there is no agent to name, but
+    // the FRO's own credentials are still not a login, so still block.
+    if (!/crm_agents.*does not exist|relation.*crm_agents/i.test(e?.message || '')) throw e;
+  }
+  return {
+    message: agent
+      ? `This account is operated by ${agent.label}. Sign in with their login instead.`
+      : 'FRO accounts sign in through their assigned agent. Ask your admin for the agent login.',
+    covered_by: agent?.label,
+  };
+};
+
+// Sign an agent in as the FRO they are assigned.
+//
+// The session is deliberately shaped exactly like a manual acting-FRO session —
+// FRO id, role and department, impersonation set, the operator recorded in
+// imposter_id/imposter_name — because that is what makes every downstream FRO
+// screen work unchanged. Two consequences of that shape are load-bearing and
+// worth stating:
+//
+//   - imposter_name is the AGENT LABEL, which is what stamps receipts raised in
+//     this session with "Agent 2" (see accountsController's agentStamp) instead
+//     of the FRO's name. worker_aliases then resolves that label back to the FRO
+//     so the money still lands in the right collection.
+//   - imposter_id is the agent's own uuid. workAsSessionModel.operator_user_id is
+//     text with no foreign key, so it stores happily; but liveRowWorkerId must never
+//     let that uuid reach a live row, which is why it special-cases agent sessions.
+//     See backend/src/utils/workAs.js.
+const issueAgentSession = async (agent, req, res) => {
+  const agentId = String(agent.id);
+  const workerId = String(agent.worker_id);
+  const target = await getWorkerById(workerId);
+  if (!target) {
+    return res.status(500).json({ message: 'The FRO assigned to this agent no longer exists.' });
+  }
+
+  // Start from a clean cover. A previous shift on the same machine that ended in
+  // a crash rather than a logout would otherwise leave a live session behind.
+  await clearOperatorCoverLabels(agentId);
+  await releaseOperatorSessions(agentId);
+
+  // Claim the FRO's stations so the cover relationship exists in
+  // work_as_sessions. That row is what freezes the FRO's idle while they are
+  // genuinely absent, and what keeps a second operator off their lists.
+  let actStations = null;
+  const withheldBy = [];
+  const { data: owned, error: ownErr } = await db
+    .from('fro_station_assignments')
+    .select('station, ngo_id')
+    .eq('fro_worker_id', workerId);
+  if (ownErr) throw ownErr;
+
+  if (owned && owned.length > 0) {
+    const allPairs = owned.map((a) => ({ ngo_id: a.ngo_id, station: a.station }));
+    let claim = await claimStations({
+      targetWorkerId: workerId,
+      pairs: allPairs,
+      operatorUserId: agentId,
+      operatorName: agent.label,
+    });
+
+    // A conflict here means somebody is manually acting as the same FRO right now.
+    // Refusing the login outright would be the strict reading, but the agent is the
+    // one who is actually rostered to this FRO and the other operator is not — so
+    // they get in on whatever stations are actually free and are told which ones
+    // they do not have. Locking a legitimate user out of their whole shift because
+    // an admin left a cover running is the worse failure.
+    if (claim.conflict?.length > 0) {
+      const taken = new Set(
+        claim.conflict
+          .filter((c) => c.station != null)
+          .map((c) => `${c.ngo_id ?? ''}|${String(c.station).trim()}`)
+      );
+      for (const c of claim.conflict) {
+        if (c.station != null) withheldBy.push(`${c.ngo_id ?? ''}|${String(c.station).trim()}`);
+      }
+      const remaining = allPairs.filter((p) => !taken.has(`${p.ngo_id ?? ''}|${String(p.station).trim()}`));
+      claim = remaining.length > 0
+        ? await claimStations({ targetWorkerId: workerId, pairs: remaining, operatorUserId: agentId, operatorName: agent.label })
+        : { ok: [], conflict: [] };
+    }
+    actStations = claim.ok;
+  }
+
+  // Author the cover label once, on the FRO's own row, so the admin board can say
+  // "Priya, being worked by Agent 2". Cosmetic hint only — work_as_sessions is the
+  // source of truth, and a failure here must not block the login.
+  try {
+    await db
+      .from('fro_live_status')
+      .update({ work_as_operator_id: agentId, work_as_operator_name: agent.label || null })
+      .eq('worker_id', workerId);
+  } catch (e) {
+    // Non-fatal: label only.
+  }
+
+  // Presence is recorded against the FRO, which is the whole reason this shows up
+  // on the performance board as the FRO being online.
+  //
+  // Skipped for /worker/login for the same reason every other login skips it:
+  // auth_sessions tracks the CRM web only, and an agent arriving through the
+  // Flutter route should not be the one login that quietly opts out of that rule.
+  if (req.route?.path !== '/worker/login') {
+    await touchLogin(workerId, target.name, 'fro');
+  }
+
+  const stationPayload = actStations && actStations.length > 0 ? { act_stations: actStations } : {};
+  const token = jwt.sign(
+    {
+      id: target.id,
+      login_id: target.login_id,
+      ngo_id: target.ngo_id,
+      email: target.email,
+      role: 'fro',
+      department: target.department || 'fro',
+      name: target.name,
+      // Deliberately NOT an impersonation session. The admin assigned one
+      // specific person to this FRO; that is the normal login, not a cover.
+      // Stamping impersonation:true made the FRO panel render an "owner vs
+      // acting" strip, which reads as if the agent is hijacking the account.
+      impersonation: false,
+      imposter_id: null,
+      imposter_name: null,
+      agent_user_id: agentId,
+      agent_label: agent.label,
+      ...stationPayload,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: TOKEN_EXPIRY }
+  );
+
+  return res.json({
+    token,
+    role: 'fro',
+    user: {
+      id: target.id,
+      name: target.name,
+      email: target.email,
+      login_id: target.login_id,
+      ngo_id: target.ngo_id,
+      role: 'fro',
+      department: target.department,
+      // Deliberately NOT an impersonation session. The admin assigned one
+      // specific person to this FRO; that is the normal login, not a cover.
+      // Stamping impersonation:true made the FRO panel render an "owner vs
+      // acting" strip, which reads as if the agent is hijacking the account.
+      impersonation: false,
+      imposter_id: null,
+      imposter_name: null,
+      agent_user_id: agentId,
+      agent_label: agent.label,
+      must_change_password: !!agent.must_change_password,
+      ...stationPayload,
+    },
+    message: `Signed in as ${agent.label}, working ${target.name}'s account`,
+    ...(withheldBy.length > 0
+      ? { warning: `Some stations are currently covered by another operator and were not assigned to you.`, withheld_stations: withheldBy }
+      : {}),
+  });
+};
 
 export const adminLogin = async (req, res) => {
   try {
@@ -179,6 +371,28 @@ async function recordCrmLogin(uid, nm, rl, routePath) {
 export const logout = async (req, res) => {
   try {
     const u = req.user || {};
+    // An agent's shift ends when they log out, so their cover has to end with it.
+    // Without this the stations stay reserved for the rest of the TTL and the FRO
+    // keeps reading as "covered and away" — so accrues no idle and no figures —
+    // until an admin manually clears it.
+    if (u.agent_user_id) {
+      const agentId = String(u.agent_user_id);
+      try {
+        await clearOperatorCoverLabels(agentId);
+        await releaseOperatorSessions(agentId);
+        // Unbrand the FRO this agent was working, for this agent only. Keyed on
+        // the operator id so a different cover on the same FRO is left alone.
+        if (u.impersonation && u.id != null) {
+          await db
+            .from('fro_live_status')
+            .update({ work_as_operator_id: null, work_as_operator_name: null })
+            .eq('worker_id', String(u.id))
+            .eq('work_as_operator_id', agentId);
+        }
+      } catch (e) {
+        console.warn('[auth] agent cover release failed:', e?.message || String(e));
+      }
+    }
     const uid = u.id;
     if (uid === undefined || uid === null) return res.json({ message: 'Logged out' });
     const key = String(uid);
@@ -249,6 +463,43 @@ export const unifiedLogin = async (req, res) => {
       });
     }
 
+    // CRM login agents resolve FIRST, ahead of every worker lookup.
+    //
+    // Placement is load-bearing in both directions. An agent's login_id is agentN,
+    // which no worker uses, so a later branch could never match it — but the
+    // reverse matters far more: the FRO an agent covers is an ordinary worker, so
+    // a later branch WOULD happily match a worker's identifier and let whoever
+    // typed it walk in as that FRO. Resolving agents first means the identifier
+    // decides which credential store is consulted at all.
+    {
+      let attempt;
+      try {
+        attempt = await authenticateAgent(identifier, password);
+      } catch (e) {
+        // crm_agents is a feature table that only exists once its migration runs.
+        // Treating a missing-table error as "no such agent" keeps normal worker
+        // logins working before the migration is applied.
+        if (/crm_agents.*does not exist|relation.*crm_agents/i.test(e?.message || '')) {
+          attempt = { ok: false, reason: 'not_found' };
+        } else {
+          throw e;
+        }
+      }
+      if (attempt.ok) return await issueAgentSession(attempt.agent, req, res);
+      // Only a clean "no such agent" falls through to the other stores. An agent
+      // that exists but is deactivated — or whose FRO is no longer active — must
+      // NOT fall through, or it would get another chance to authenticate through
+      // the worker tables and defeat the reason it was turned off.
+      if (attempt.reason !== 'not_found') {
+        const message = attempt.reason === 'inactive'
+          ? 'This agent login is deactivated.'
+          : attempt.reason === 'bad_password'
+            ? 'Invalid password'
+            : 'This agent login is unavailable because the assigned FRO account is not active.';
+        return res.status(attempt.reason === 'bad_password' ? 401 : 403).json({ message });
+      }
+    }
+
     if (isUfsLogin) {
       const worker = await getWorkerByLoginId(identifier);
       if (!worker) {
@@ -260,6 +511,12 @@ export const unifiedLogin = async (req, res) => {
       const isMatch = await bcrypt.compare(password, worker.password);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid password' });
+      }
+      // A covered FRO no longer signs in as themselves. Checked only after the
+      // password matched, so nothing is disclosed to a caller who does not hold it.
+      if (String(worker.department || '').toLowerCase().trim() === 'fro') {
+        const covered = await rejectIfCoveredFro(worker);
+        if (covered) return res.status(403).json(covered);
       }
       const dept = (worker.department || '').toLowerCase().trim();
       let role;
@@ -360,6 +617,13 @@ export const unifiedLogin = async (req, res) => {
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
         }
+        // Custom worker ids (ngo@fro and friends) reach the FROs too, so the
+        // covered-FRO block has to be applied here as well or it is trivially
+        // bypassed by using the FRO's alternate identifier.
+        if (String(workerByLogin.department || '').toLowerCase().trim() === 'fro') {
+          const covered = await rejectIfCoveredFro(workerByLogin);
+          if (covered) return res.status(403).json(covered);
+        }
         const dept = (workerByLogin.department || '').toLowerCase().trim();
         let wRole;
         if (dept === 'hr') wRole = 'hr';
@@ -396,6 +660,13 @@ export const unifiedLogin = async (req, res) => {
         const isMatch = await bcrypt.compare(password, workerByEmail.password);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
+        }
+        // 49 of the 53 FROs have an email on record and this is the branch they
+        // sign in through, so the covered-FRO block has to be here too or they
+        // would keep working their own accounts while nominally being covered.
+        if (String(workerByEmail.department || '').toLowerCase().trim() === 'fro') {
+          const covered = await rejectIfCoveredFro(workerByEmail);
+          if (covered) return res.status(403).json(covered);
         }
         const eDept = (workerByEmail.department || '').toLowerCase().trim();
         let eRole;
@@ -454,6 +725,13 @@ export const unifiedLogin = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid password' });
     }
+    // Fourth and last way into a worker account (bare login_id, no @). Same
+    // block, same reason: every remaining door has to be shut or the covered FRO
+    // simply walks in through whichever one was missed.
+    if (String(worker.department || '').toLowerCase().trim() === 'fro') {
+      const covered = await rejectIfCoveredFro(worker);
+      if (covered) return res.status(403).json(covered);
+    }
     const dept = (worker.department || '').toLowerCase().trim();
     let role;
     if (dept === 'hr') role = 'hr';
@@ -495,6 +773,19 @@ export const unifiedLogin = async (req, res) => {
 // take over their stations through this flow.
 export const impersonateFRO = async (req, res) => {
   try {
+    // An agent is bound to the one FRO they were assigned. Letting it use the
+    // manual switch would move it onto somebody else's account mid-shift, which
+    // is precisely the state the 1:1 assignment exists to prevent — and because
+    // an agent's heartbeat files under the painted FRO, it would credit the wrong
+    // person's figures rather than merely showing the wrong data. Checked before
+    // anything else so it cannot be reached by any combination of the checks
+    // below. The admin-facing flow is entirely unaffected.
+    if (req.user?.agent_user_id) {
+      return res.status(403).json({
+        message: 'Agent logins are tied to their assigned FRO and cannot switch accounts.',
+      });
+    }
+
     const { worker_id } = req.body;
     if (!worker_id) return res.status(400).json({ message: 'worker_id is required' });
 
@@ -649,6 +940,28 @@ export const impersonateFRO = async (req, res) => {
       // still named, on the very board that is meant to say who is covering whom.
       await clearOperatorCoverLabels(imposterId);
       await releaseOperatorSessions(imposterId);
+
+      // Explicit take-over. The default is still to refuse (claimStations returns
+      // the holders and we 409 below), because a station quietly changing hands is
+      // how two people end up working the same list. This is the escape hatch for
+      // the case where the conflict IS the problem: an agent has gone home or
+      // fallen over, their cover is still holding every station, and the work has
+      // to get done. Restricted to the admin-ish roles rather than to any FRO,
+      // since an FRO evicting an agent is a 1:1 violation wearing a disguise.
+      //
+      // Only holders whose claimed pairs overlap the requested ones are displaced,
+      // and only for THIS target — an operator legitimately covering a different
+      // station of the same FRO keeps it.
+      const TAKEOVER_ROLES = ['super_admin', 'master', 'admin', 'accounts', 'hr'];
+      let displaced = [];
+      if (req.body?.takeover === true && TAKEOVER_ROLES.includes(operatorRole)) {
+        displaced = await releaseConflictingCovers({
+          targetWorkerId: target.id,
+          pairs: wantedPairs,
+          keepOperatorId: imposterId,
+        });
+      }
+
       const claim = await claimStations({
         targetWorkerId: target.id,
         pairs: wantedPairs,
@@ -659,6 +972,11 @@ export const impersonateFRO = async (req, res) => {
         return res.status(409).json({
           message: 'Some selected stations are already being worked by others',
           conflicts: claim.conflict,
+          // Tells the UI whether to offer "take over" rather than only "cancel".
+          // Take-over is a real capability, not a hidden one, but it is only
+          // offered to the roles allowed to perform it.
+          takeover_allowed: TAKEOVER_ROLES.includes(operatorRole),
+          ...(displaced.length > 0 ? { displaced } : {}),
         });
       }
       actStations = claim.ok;
@@ -745,11 +1063,30 @@ export const impersonateFRO = async (req, res) => {
 // authorized by a fresh admin-generated 4-digit code anyway.
 export const getFroWorkersForImpersonation = async (req, res) => {
   try {
+    // A covered FRO is listed by its agent label ("Agent 2"), so an admin can see
+    // at a glance which accounts are spoken for before trying to work them.
+    //
+    // The label comes from crm_agents specifically, NOT from worker_aliases.
+    // worker_aliases already holds 55 rows that are just lowercased spellings of
+    // FRO names, and reading those as display labels would rewrite "Riddhi Patel"
+    // to "riddhi patel" across the whole picker — a cosmetic regression across all
+    // 53 FROs to fix 5 covered ones.
     const { rows, error } = await db._pool.query(
-      `SELECT id, name, login_id, ngo_id, department, is_active, employment_status
-         FROM workers
-        WHERE lower(btrim(coalesce(department, ''))) = 'fro'
-        ORDER BY name ASC`
+      `SELECT w.id, w.name, w.login_id, w.ngo_id, w.department, w.is_active, w.employment_status,
+              COALESCE(ag.label, w.name) AS display_name,
+              (ag.id IS NOT NULL) AS covered_by_agent,
+              ag.label AS agent_label
+         FROM workers w
+         LEFT JOIN LATERAL (
+           SELECT id, label
+             FROM crm_agents
+            WHERE worker_id = w.id AND is_active
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) ag ON TRUE
+        WHERE ag.id IS NOT NULL
+          AND lower(btrim(coalesce(w.department, ''))) = 'fro'
+        ORDER BY ag.label ASC`
     );
     if (error) throw error;
 
@@ -914,6 +1251,30 @@ export const changePassword = async (req, res) => {
     // Super admin & env user have no DB-backed identity to update.
     if (req.user.role === 'super_admin' || req.user.id == null || req.user.id === -1 || req.user.id === 0) {
       return res.status(403).json({ message: 'Password change is not supported for this account.' });
+    }
+
+    // An agent must be handled before the resolution below, and it is not a
+    // stylistic preference.
+    //
+    // An agent's token deliberately carries the ASSIGNED FRO's id and login_id,
+    // because that is what makes every FRO screen work for them. The generic path
+    // reads exactly those two fields, finds that worker, and rewrites the FRO's
+    // password. The result is an agent able to lock the FRO out of their own
+    // account with no admin action that could undo it, and an FRO whose working
+    // password silently stopped working. So agents authenticate against
+    // crm_agents, which is where their credential actually lives.
+    if (req.user.agent_user_id) {
+      const agent = await getAgentById(req.user.agent_user_id);
+      if (!agent) return res.status(404).json({ message: 'Account not found.' });
+      const creds = await getAgentByLoginId(agent.login_id);
+      if (!creds) return res.status(404).json({ message: 'Account not found.' });
+      const agentMatch = await bcrypt.compare(String(currentPassword), creds.password_hash);
+      if (!agentMatch) {
+        return res.status(401).json({ message: 'Current password is incorrect.' });
+      }
+      const agentSalt = await bcrypt.genSalt(10);
+      await setAgentPasswordHash(String(agent.id), await bcrypt.hash(String(newPassword), agentSalt));
+      return res.json({ message: 'Password changed successfully' });
     }
 
     let source = null; // { id, table, passwordColumn, currentHash }

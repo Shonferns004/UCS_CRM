@@ -9,6 +9,7 @@ import {
   resolveOperatorIdentity,
   liveRowWorkerId,
   splitWorkerContext,
+  isAgentSession,
   indexCovers,
   groupCoversByOperator,
   isCovered,
@@ -132,4 +133,90 @@ test('ids are compared as strings so a numeric operator id still matches', () =>
   const m = indexCovers([{ target_fro_worker_id: '42', operator_user_id: 7 }]);
   assert.equal(isCovered(m, 42), true);
   assert.equal(isCovered(m, '42'), true);
+});
+
+// ─── Login agents ───────────────────────────────────────────────────────────
+//
+// An agent session carries the ASSIGNED FRO's id (so every FRO screen works)
+// and the agent's own uuid in imposter_id (so the cover is attributable). The
+// generic rule files live rows on the operator, which is right for a person and
+// wrong here: the agent has no row in workers, and both fro_live_status and
+// fro_time_sessions carry FKs to workers(id). Filing on the agent would not just
+// hide the FRO from the performance board — the heartbeat write would fail.
+
+const AGENT_SESSION = {
+  id: 'priya-worker-id',
+  name: 'Priya',
+  login_id: 'priya@ufs',
+  role: 'fro',
+  impersonation: true,
+  imposter_id: 'agent-2-uuid',
+  imposter_name: 'Agent 2',
+  agent_user_id: 'agent-2-uuid',
+  agent_label: 'Agent 2',
+};
+
+test('an agent session is recognised as one', () => {
+  assert.equal(isAgentSession(AGENT_SESSION), true);
+  // A manual cover is not an agent, and must not be treated as one.
+  assert.equal(isAgentSession({ id: 'f1', impersonation: true, imposter_id: 'f2' }), false);
+  assert.equal(isAgentSession({ id: 'f1' }), false);
+  assert.equal(isAgentSession(null), false);
+});
+
+test('liveRowWorkerId files an agent under the FRO, never under the agent', () => {
+  // The regression this guards: 'agent-2-uuid' is not in workers, so this value
+  // would violate the foreign key on fro_live_status.worker_id.
+  assert.equal(
+    liveRowWorkerId({ paintedId: 'priya-worker-id', operatorId: 'agent-2-uuid', isAgent: true }),
+    'priya-worker-id'
+  );
+});
+
+test('an agent session files live work under the assigned FRO', () => {
+  const ctx = splitWorkerContext(AGENT_SESSION);
+  assert.equal(ctx.human.id, 'priya-worker-id');
+  assert.equal(ctx.data.id, 'priya-worker-id');
+  // The row is the FRO's, so it is labelled with the FRO's name — which is what
+  // puts "Priya online" on the board rather than "Agent 2".
+  assert.equal(ctx.human.name, 'Priya');
+  assert.equal(ctx.isAgent, true);
+  // Both contexts resolve to one person, so this is not a work-as switch for
+  // reporting purposes and the FRO panel behaves exactly as it does for Priya.
+  assert.equal(ctx.isWorkAs, false);
+});
+
+test('an agent session still records who is really typing', () => {
+  const ctx = splitWorkerContext(AGENT_SESSION);
+  assert.deepEqual(ctx.agent, { id: 'agent-2-uuid', label: 'Agent 2' });
+  // resolveOperatorIdentity is unchanged, so the cover remains attributable and
+  // the receipt stamp still picks up the agent label.
+  const op = resolveOperatorIdentity(AGENT_SESSION);
+  assert.equal(op.imposterName, 'Agent 2');
+});
+
+test('a manual cover is unaffected by the agent branch', () => {
+  // The regression this guards in the other direction: adding the agent case must
+  // not quietly repoint existing manual work-as at the covered FRO's row, which
+  // is the whole bug the operator-filing rule was written to fix.
+  const ctx = splitWorkerContext({
+    id: 'f2', name: 'Riya', impersonation: true,
+    imposter_id: 'f1', imposter_name: 'Priya',
+  });
+  assert.equal(ctx.human.id, 'f1');
+  assert.equal(ctx.human.name, 'Priya');
+  assert.equal(ctx.isWorkAs, true);
+  assert.equal(ctx.isAgent, false);
+  assert.equal(ctx.agent, null);
+});
+
+test('an agent session is row-for-row identical to the FRO signing in themselves', () => {
+  // This is the actual requirement: an agent's session must be indistinguishable
+  // from the FRO's own on the reporting side. Compared whole rather than
+  // field-by-field so any future divergence fails here.
+  const viaAgent = splitWorkerContext(AGENT_SESSION);
+  const viaFro = splitWorkerContext({ id: 'priya-worker-id', name: 'Priya', login_id: 'priya@ufs', role: 'fro' });
+  assert.deepEqual(viaAgent.human, viaFro.human);
+  assert.deepEqual(viaAgent.data, viaFro.data);
+  assert.equal(viaAgent.isWorkAs, viaFro.isWorkAs);
 });

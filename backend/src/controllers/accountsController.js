@@ -299,14 +299,18 @@ export const verifyLead = async (req, res) => {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
 
-    // Credit rule for the receipt's agent_name (drives FRO collection totals):
-    // while impersonating (Acting FRO), credit goes to the real operator
-    // (imposter_name) — same as Audit Manual Verify; otherwise to the FRO who
-    // owns the lead's assignment. Without this the receipt is created with a
-    // NULL agent_name and never shows in anyone's collection.
-    const agentStamp = (req.user?.impersonation && req.user.imposter_name)
-      ? req.user.imposter_name
-      : (log.fro_assignments?.workers?.name || null);
+// Credit rule for the receipt's agent_name (drives FRO collection totals):
+// while impersonating (Acting FRO), credit goes to the real operator
+// (imposter_name) — same as Audit Manual Verify; otherwise to the FRO who
+// owns the lead's assignment. Without this the receipt is created with a
+// NULL agent_name and never shows in anyone's collection.
+//
+// Receipts name the FRO, never the CRM login agent working that FRO's data:
+// agent_name is what collection reports group by, so a label here would split
+// one FRO's totals across several rows.
+const agentStamp = req.user?.impersonation && req.user.imposter_name
+  ? req.user.imposter_name
+  : (log.fro_assignments?.workers?.name || null);
 
     // The NGO a lead is assigned under is the per-lead truth for which project
     // (and therefore which receipt-number sequence) its money belongs to. The
@@ -2700,8 +2704,12 @@ export const importReceipts = async (req, res) => {
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
 
-    // Normalize agent_name to canonical worker names so collection queries
+// Normalize agent_name to canonical worker names so collection queries
     // match reliably (handles extra spaces, middle names, etc.)
+    //
+    // This also folds a CRM agent label ("Agent 2") down to the FRO's real name,
+    // because worker_aliases maps the label to that worker. Receipts are keyed by
+    // FRO, so an import naming an agent must land on their FRO.
     const rawAgentNames = [...new Set(uniqueRows.map(r => r.agent_name).filter(Boolean))];
     const agentNameMap = new Map();
     for (const raw of rawAgentNames) {
@@ -3949,21 +3957,26 @@ export const getDonorsList = async (req, res) => {
     }
 
     // "Agent" narrowing: donors with at least one live assignment belonging to
-    // the selected FRO agent (by name).
+    // the selected FRO agent (by name or CRM agent label).
     if (agent && String(agent).trim()) {
       const agentName = String(agent).trim();
+      // Resolve the label back to its worker: the picker sends "Agent 2", which
+      // matches no workers.name, so an ILIKE on workers alone returns nothing.
+      const resolvedWorkerId = await resolveAgentToWorker(agentName);
+      const agentIds = new Set();
+      if (resolvedWorkerId) agentIds.add(resolvedWorkerId);
       const { data: agentRows, error: agentErr } = await db
         .from('workers')
         .select('id')
         .ilike('name', agentName);
       if (agentErr) throw agentErr;
-      const agentIds = [...new Set((agentRows || []).map(w => w.id))];
+      for (const w of agentRows || []) if (w.id) agentIds.add(w.id);
       let agentDonorIds = [];
-      if (agentIds.length > 0) {
+      if (agentIds.size > 0) {
         const { data: agentAssigns, error: aaErr } = await db
           .from('fro_assignments')
           .select('donor_id')
-          .in('fro_worker_id', agentIds)
+          .in('fro_worker_id', [...agentIds])
           .not('status', 'eq', 'reassigned');
         if (aaErr) throw aaErr;
         agentDonorIds = [...new Set((agentAssigns || []).map(a => a.donor_id).filter(Boolean))];
@@ -5189,7 +5202,31 @@ export const getFroWorkersList = async (req, res) => {
       .eq('employment_status', 'active')
       .order('name', { ascending: true });
     if (error) throw error;
-    return res.json(data || []);
+    const workerIds = (data || []).map((w) => w.id);
+    let agentLabelMap = {};
+    if (workerIds.length > 0) {
+      const { data: agentRows, error: agentErr } = await db
+        .from('crm_agents')
+        .select('worker_id, label')
+        .in('worker_id', workerIds)
+        .eq('is_active', true);
+      if (agentErr) throw agentErr;
+      for (const a of agentRows || []) {
+        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
+      }
+    }
+    // Every active FRO stays in the list. Receipts record the FRO, not the CRM login
+    // agent working their data, so `name` is always the FRO's real name and every
+    // row already on file stays selectable. `agent_label` is carried alongside
+    // purely so callers can annotate which FROs are covered.
+    const result = (data || []).map((w) => ({
+      id: w.id,
+      name: w.name,
+      fro_name: w.name,
+      agent_label: agentLabelMap[w.id] || null,
+      display_name: w.name,
+    }));
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -5234,29 +5271,35 @@ export const updateReceipt = async (req, res) => {
     const newAmount = 'amount' in receiptPatch ? Number(receiptPatch.amount || 0) : oldAmount;
     const amountDelta = newAmount - oldAmount;
 
-    // Normalize agent_name on edit too (PG/Library/Suspense are category labels,
-    // not FRO names — keep them verbatim so the report rows stay intact).
-    if (receiptPatch.agent_name && !['suspense', 'pg', 'library'].includes(receiptPatch.agent_name.toLowerCase())) {
-      const canonical = await normalizeAgentName(receiptPatch.agent_name);
-      if (canonical) receiptPatch.agent_name = canonical;
+    // PG/Library/Suspense are category labels, not FRO names -- keep them
+    // verbatim so the report rows stay intact. Everything else is stored as
+    // typed: normalizing here would rewrite an agent label ("Agent 2") to the
+    // FRO's real name, because worker_aliases resolves the label back to that
+    // worker. That silently erased the agent from the receipt, and since the
+    // label and the name then compared unequal, it also tripped the FRO-change
+    // branch below and moved the donor's credit with no prompt.
+    if (receiptPatch.agent_name) {
+      receiptPatch.agent_name = String(receiptPatch.agent_name).trim();
     }
 
-    // Detect FRO change
+    // Detect FRO change by the resolved worker, not by the stored string: an
+    // agent label and the FRO's real name are two spellings of the same person,
+    // so switching between them must not be treated as a reassignment.
     const oldAgentName = (receipt.agent_name || '').trim();
     const newAgentName = (receiptPatch.agent_name ?? receipt.agent_name ?? '').trim();
-    const froChanged = oldAgentName !== newAgentName && newAgentName !== '';
+    const isCategoryLabel = (v) => ['suspense', 'pg', 'library', 'na'].includes(String(v || '').trim().toLowerCase());
+    let oldWorkerId = null;
+    let newWorkerId = null;
+    if (!isCategoryLabel(oldAgentName)) {
+      oldWorkerId = await resolveAgentToWorker(oldAgentName);
+    }
+    if (!isCategoryLabel(newAgentName)) {
+      newWorkerId = await resolveAgentToWorker(newAgentName);
+    }
+    const froChanged = oldWorkerId !== newWorkerId && newWorkerId !== null;
 
     if (froChanged) {
-      // Find old FRO worker
-      const { data: oldWorker } = await db
-        .from('workers').select('id, name').eq('name', oldAgentName).maybeSingle();
-
-      // Find new FRO worker
-      const { data: newWorker } = await db
-        .from('workers').select('id, name').eq('name', newAgentName).maybeSingle();
-      if (!newWorker) {
-        return res.status(400).json({ message: `FRO worker "${newAgentName}" not found` });
-      }
+      const newWorker = { id: newWorkerId };
 
       const amount = Number(receipt.amount || 0);
 

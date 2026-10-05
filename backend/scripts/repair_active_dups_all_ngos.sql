@@ -6,7 +6,7 @@
 --             OR fro_donor_logs.amount_collected > 0   (linked via assignment_id)
 --   Rule    = keep every money-bearing assignment group; for a (donor_id, ngo_id)
 --             group with no money, keep the "most worked" row (a row that has
---             logs / a last_contacted_at / a hidden_until, latest first) falling
+--             logs / a last_contacted_at, latest first) falling
 --             back to the earliest-assigned row.
 --   Action  = soft-mark the rest as 'reassigned' (no deletes, no touch of
 --             logs/receipts). Keeps the disposed/terminal row (which rightfully
@@ -54,7 +54,7 @@ END $$;
 -- Snapshot active rows.
 DROP TABLE IF EXISTS tmp_active_all;
 CREATE TEMP TABLE tmp_active_all AS
-SELECT a.id, a.donor_id, a.ngo_id, a.assigned_at, a.last_contacted_at, a.hidden_until, a.status
+SELECT a.id, a.donor_id, a.ngo_id, a.assigned_at, a.last_contacted_at, a.status
 FROM fro_assignments a
 WHERE (a.status IS NULL OR a.status <> 'reassigned');
 
@@ -88,9 +88,8 @@ FROM (
            PARTITION BY a.donor_id, a.ngo_id
            ORDER BY
              (CASE WHEN w.id IS NULL THEN 1 ELSE 0 END),   -- worked rows first
-             COALESCE(a.last_contacted_at, w.last_log_at) DESC NULLS LAST,
-             a.hidden_until DESC NULLS LAST,
-             a.assigned_at ASC NULLS LAST,
+COALESCE(a.last_contacted_at, w.last_log_at) DESC NULLS LAST,
+              a.assigned_at ASC NULLS LAST,
              a.id ASC
          ) AS rn
   FROM tmp_active_all a

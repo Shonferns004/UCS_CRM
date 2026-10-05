@@ -6,7 +6,7 @@ import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } fr
 import db from '../config/db.js';
 
 const TEMPLATE_PROJECT_MAP = {
-  bsct_receipt: 'bsct',
+  bsct_receipt_2: 'bsct',
   mann_receipt: 'mann',
   aflf_receipt: 'aflf',
   ashray_receipt: 'aflf',
@@ -433,53 +433,110 @@ export async function status(req, res) {
 }
 
 export async function sendDirect(req, res) {
+  console.log("req", req)
   try {
-    const { to, receiptNo, donorName, amount, templateName, templateLang, pdfBase64, project } = req.body;
-    if (!to) return res.status(400).json({ message: 'Phone number is required' });
+    const {
+      to,
+      receiptNo,
+      donorName,
+      amount,
+      templateName,
+      templateLang,
+      pdfBase64,
+      project,
+      receiptId,
+    } = req.body;
+
+    if (!to) {
+      return res.status(400).json({
+        message: 'Phone number is required',
+      });
+    }
 
     const phone = String(to).replace(/[^0-9]/g, '');
-    const tpl = templateName || 'bsct_receipt';
-    const lang = (templateLang || 'en').replace(/_.*/, '');
+    const tpl = templateName || 'bsct_receipt_2';
+    const lang = templateLang || 'en';
     const donorProject = project || TEMPLATE_PROJECT_MAP[tpl] || 'bsct';
-
     const account = await resolveAccount(donorProject);
-    if (!account) return res.status(400).json({ message: `No WhatsApp account configured for project "${donorProject}"` });
 
-    const ngoMap = { bsct_receipt:'BeingSevak', mann_receipt:'MannCare', aflf_receipt:'Ashray', ashray_receipt:'Ashray' }
-    const ngoPrefix = ngoMap[tpl] || 'Receipt'
+    if (!account) {
+      return res.status(400).json({
+        message: `No WhatsApp account configured for project "${donorProject}"`,
+      });
+    }
+
+    const ngoMap = {
+      bsct_receipt_2: 'BeingSevak',
+      mann_receipt: 'MannCare',
+      aflf_receipt: 'Ashray',
+      ashray_receipt: 'Ashray',
+    };
+
+    const ngoPrefix = ngoMap[tpl] || 'Receipt';
 
     let documentUrl = null;
     let displayName = null;
     let uploadError = null;
+
+    // ---------------------------------------------------------
+    // 1. CREATE / UPLOAD RECEIPT PDF
+    // ---------------------------------------------------------
+
     if (pdfBase64) {
       try {
         const buffer = Buffer.from(pdfBase64, 'base64');
-        const safeName = String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()
-        displayName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`
+
+        const safeName = String(donorName || 'Donor')
+          .replace(/[<>:"/\\|?*]/g, '_')
+          .trim();
+
+        displayName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`;
+
         const storagePath = `receipts/${receiptNo || Date.now()}.pdf`;
-        // One handle for the whole upload, so the account that actually receives
-        // the PDF is the account we later ask to serve it back.
+
         const store = db.storage.from('receipts');
-        let { error: upErr } = await store.upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
+
+        let { error: upErr } = await store.upload(
+          storagePath,
+          buffer,
+          {
+            contentType: 'application/pdf',
+            upsert: true,
+          }
+        );
+
         if (upErr) {
-          await db.storage.createBucket('receipts', { public: true });
-          const retry = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
+          await db.storage.createBucket('receipts', {
+            public: true,
+          });
+
+          const retry = await db.storage
+            .from('receipts')
+            .upload(
+              storagePath,
+              buffer,
+              {
+                contentType: 'application/pdf',
+                upsert: true,
+              }
+            );
+
           upErr = retry.error;
         }
+
         if (upErr) {
-          uploadError = upErr.message || 'PDF upload failed';
+          uploadError =
+            upErr.message || 'PDF upload failed';
         } else if (!store.accountName) {
-          uploadError = 'PDF uploaded but no storage account is configured to serve it back';
+          uploadError =
+            'PDF uploaded but no storage account is configured to serve it back';
         } else {
-          // The bucket's own URL cannot be used: it denies anonymous reads, and
-          // the credentials available here cannot grant them (no
-          // s3:PutBucketPolicy, no s3:PutObjectAcl). Meta gets a presigned S3
-          // URL instead -- the same object and the same host that served
-          // receipts before the bucket was locked down, with the credential
-          // carried in an expiring query string. The bucket stays private.
-          const presigned = await store.presignDownload(storagePath);
+          const presigned =
+            await store.presignDownload(storagePath);
+
           if (presigned.error) {
-            uploadError = `could not create a download link: ${presigned.error.message}`;
+            uploadError =
+              `could not create a download link: ${presigned.error.message}`;
           } else {
             documentUrl = presigned.data.url;
           }
@@ -487,20 +544,35 @@ export async function sendDirect(req, res) {
       } catch (e) {
         uploadError = e.message;
       }
-      if (uploadError) console.error('Failed to store PDF:', uploadError);
+
+      if (uploadError) {
+        console.error(
+          'Failed to store PDF:',
+          uploadError
+        );
+      }
     } else {
       uploadError = 'no receipt PDF was supplied';
     }
 
+    // ---------------------------------------------------------
+    // 2. PDF IS REQUIRED
+    // ---------------------------------------------------------
+
     if (!documentUrl) {
-      return res.status(400).json({ message: `Receipt PDF is required by template "${tpl}" but is unavailable: ${uploadError}` });
+      return res.status(400).json({
+        message:
+          `Receipt PDF is required by template "${tpl}" but is unavailable: ${uploadError}`,
+      });
     }
 
-    // Meta downloads the receipt PDF only *after* it accepts this request, so a
-    // dead link here surfaces minutes later as error 131053 with no way to trace
-    // it back to this call. Probe the exact URL we are about to hand Meta and
-    // stop now, while the operator is still watching the button.
-    const attachmentError = await preflightAttachment(documentUrl);
+    // ---------------------------------------------------------
+    // 3. CHECK PDF URL BEFORE SENDING TO META
+    // ---------------------------------------------------------
+
+    const attachmentError =
+      await preflightAttachment(documentUrl);
+
     if (attachmentError) {
       return res.status(422).json({
         message: attachmentError,
@@ -509,37 +581,167 @@ export async function sendDirect(req, res) {
       });
     }
 
+    // ---------------------------------------------------------
+    // 4. WHATSAPP TEMPLATE COMPONENTS
+    // ---------------------------------------------------------
+
     const components = [
-      { type: 'header', parameters: [{ type: 'document', document: { link: documentUrl, filename: displayName || 'receipt.pdf' } }] },
+      {
+        type: 'header',
+        parameters: [
+          {
+            type: 'document',
+            document: {
+              link: documentUrl,
+              filename:
+                displayName || 'receipt.pdf',
+            },
+          },
+        ],
+      },
     ];
 
-    const apiBase = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${account.phone_number_id}/messages`;
+    // ---------------------------------------------------------
+    // 5. BODY PARAMETER
+    //
+    // mann_receipt currently expects ONLY {{1}}
+    //
+    // {{1}} = donorName
+    // ---------------------------------------------------------
+
+    if (tpl === 'mann_receipt') {
+      components.push({
+        type: 'body',
+        parameters: [
+          {
+            type: 'text',
+            text: String(donorName || 'Donor'),
+          },
+        ],
+      });
+    }
+
+    // ---------------------------------------------------------
+    // 6. META WHATSAPP API URL
+    // ---------------------------------------------------------
+
+    const apiBase =
+      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${account.phone_number_id}/messages`;
+
+    // ---------------------------------------------------------
+    // 7. SEND MESSAGE TO WHATSAPP
+    // ---------------------------------------------------------
+
     const msgRes = await fetch(apiBase, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${account.access_token}`, 'Content-Type': 'application/json' },
+
+      headers: {
+        Authorization:
+          `Bearer ${account.access_token}`,
+        'Content-Type': 'application/json',
+      },
+
       body: JSON.stringify({
-        messaging_product: 'whatsapp', to: phone, type: 'template',
-        template: { name: tpl, language: { code: lang }, components },
+        messaging_product: 'whatsapp',
+
+        to: phone,
+
+        type: 'template',
+
+        template: {
+          name: tpl,
+
+          language: {
+            code: lang,
+          },
+
+          components,
+        },
       }),
     });
+
+    // ---------------------------------------------------------
+    // 8. READ META RESPONSE
+    // ---------------------------------------------------------
+
     const msgText = await msgRes.text();
-    if (!msgRes.ok) return res.status(400).json({ message: msgText });
+
+    if (!msgRes.ok) {
+      console.error(
+        'WhatsApp Meta API Error:',
+        msgText
+      );
+
+      return res.status(400).json({
+        success: false,
+        message: msgText,
+      });
+    }
+
     const result = JSON.parse(msgText);
-    // "accepted" is the strongest claim Meta has actually made at this point.
-    // delivered/read arrive later on the webhook and overwrite this row.
+
+    // ---------------------------------------------------------
+    // 9. SAVE WHATSAPP DELIVERY STATUS
+    // ---------------------------------------------------------
+
     await recordReceiptDelivery({
-      receiptId: req.body.receiptId, receiptNo, project: donorProject,
-      wamid: whatsappMessageId(result), status: 'accepted',
+      receiptId,
+      receiptNo,
+      project: donorProject,
+
+      wamid: whatsappMessageId(result),
+
+      status: 'accepted',
     });
-    const message = await recordReceiptInConversation({
-      phone, project: donorProject, receiptNo, documentUrl, displayName, sentBy: req.user?.id, result,
+
+    // ---------------------------------------------------------
+    // 10. RECORD MESSAGE IN CONVERSATION
+    // ---------------------------------------------------------
+
+    const message =
+      await recordReceiptInConversation({
+        phone,
+
+        project: donorProject,
+
+        receiptNo,
+
+        documentUrl,
+
+        displayName,
+
+        sentBy: req.user?.id,
+
+        result,
+      });
+
+    // ---------------------------------------------------------
+    // 11. SUCCESS RESPONSE
+    // ---------------------------------------------------------
+
+    return res.json({
+      success: true,
+
+      message:
+        'Receipt sent via WhatsApp template',
+
+      data: result,
+
+      chatMessage: message,
     });
-    return res.json({ success: true, data: result, chatMessage: message });
+
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    console.error(
+      'sendDirect error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 }
-
 export async function listTemplates(req, res) {
   try {
     const { accountId } = req.query;

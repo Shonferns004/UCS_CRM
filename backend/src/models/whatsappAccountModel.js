@@ -170,7 +170,7 @@ async function ensureDefaultAccount() {
     phone_number_id: config.phoneNumberId,
     access_token: config.accessToken,
     waba_id: config.wabaId || '',
-    template_name: config.receiptTemplate || 'bsct_receipt',
+    template_name: config.receiptTemplate || 'bsct_receipt_2',
     template_language: config.templateLanguage || 'en',
     is_active: true,
     is_default: true,

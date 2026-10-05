@@ -67,8 +67,9 @@ import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../uti
 import { istDayBounds, istDateString, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
+import { getAgentById } from '../models/crmAgentModel.js';
 import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PERIOD_LABELS } from '../services/teamCollectionService.js';
-import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
+import { getActiveCoversForTargets, refreshCoverExpiry } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
 import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession } from '../services/froTimeSessions.js';
@@ -4688,6 +4689,39 @@ export const updateLiveStatus = async (req, res) => {
       // auth_sessions may be absent until migration 125 — skip the guard.
     }
 
+    // Agent sessions: keep the cover alive, and make revocation take effect here.
+    //
+    // The refresh exists because work_as_sessions expires on a fixed TTL chosen
+    // for a MANUAL switch, where nobody holds a cover for a whole shift. An agent
+    // is the FRO's hands until they log out, so a cover that lapsed at 14:00 on a
+    // 10:00 login would stop isCovered() — the absent FRO starts accruing idle for
+    // the rest of the shift — and release the station claims so somebody else can
+    // cover them. Only agent sessions refresh; manual-switch behaviour is unchanged.
+    //
+    // The two 401s are why deactivating or reassigning an agent actually takes
+    // effect. A JWT is good for 24h, so without this the agent would keep working
+    // their old FRO's data until the token expired on its own, and reassignment
+    // would silently not apply until then. Checking on every poll (the panel
+    // heartbeats continuously) turns an admin action into something enforced
+    // within seconds rather than within a day.
+    if (req.user?.agent_user_id) {
+      const agentRow = await getAgentById(req.user.agent_user_id).catch(() => null);
+      if (!agentRow || !agentRow.is_active) {
+        return res.status(401).json({ message: 'This agent login is no longer active. Please login again.' });
+      }
+      if (String(agentRow.worker_id) !== String(req.user.id)) {
+        return res.status(401).json({ message: 'Your agent assignment has changed. Please login again.' });
+      }
+      try {
+        await refreshCoverExpiry({
+          operatorUserId: req.user.agent_user_id,
+          targetWorkerId: req.user.id,
+        });
+      } catch (e) {
+        console.warn('[fro] agent cover refresh skipped:', e?.message || String(e));
+      }
+    }
+
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, last_activity_at, force_counters } = req.body;
 
     if (status && !['online', 'on_call', 'idle', 'offline', 'meeting'].includes(status)) {
@@ -5858,14 +5892,28 @@ export const searchDonors = async (req, res) => {
       const matchedIds = donors.map(d => d.id);
 
       const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
-      const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+      // Same station/NGO narrowing as the default branch: a disposed-lead
+      // search must not surface stations the caller is not currently viewing.
+      let dScope = myScope || [];
+      let dStations = stationNames;
+      if (req.query.station && req.query.station !== 'all') {
+        dScope = dScope.filter(s => s.station === req.query.station);
+        dStations = [req.query.station];
+      }
+      if (req.query.ngo_id) {
+        dScope = dScope.filter(s => s.ngo_id === req.query.ngo_id);
+        dStations = dScope.map(s => s.station);
+      }
+      if (dStations.length === 0) return res.json([]);
+      const scopePairs = new Set(dScope.filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
 
       const { data: assignments } = await db
         .from('fro_assignments')
         .select('*, ngos!inner(name)')
         .in('donor_id', matchedIds)
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned');
+        .in('station', dStations)
+        .not('status', 'eq', 'reassigned')
+        .order('station', { ascending: true });
 
       const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
 
@@ -5922,13 +5970,31 @@ export const searchDonors = async (req, res) => {
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
+    // Narrow to the station/NGO the caller is actually looking at. Without this
+    // the search spans EVERY station the FRO holds, so a FRO with AOD-5 and
+    // AOD-7 saw each other's donors under the wrong station label. Only an
+    // explicit station/ngo_id request narrows; no params = whole scope (the
+    // historical behaviour, still used when the FRO views "all stations").
+    let effScope = myScope || [];
+    let effStations = stationNames;
+    if (req.query.station && req.query.station !== 'all') {
+      effScope = effScope.filter(s => s.station === req.query.station);
+      effStations = [req.query.station];
+    }
+    if (req.query.ngo_id) {
+      if (!allowedNgoIds.includes(req.query.ngo_id)) return res.json([]);
+      effScope = effScope.filter(s => s.ngo_id === req.query.ngo_id);
+      effStations = effScope.map(s => s.station);
+    }
+    if (effStations.length === 0) return res.json([]);
+
     const { data: donorIdsFromStation } = await db
       .from('fro_assignments')
       .select('donor_id, ngo_id, station')
-      .in('station', stationNames)
+      .in('station', effStations)
       .not('status', 'eq', 'reassigned');
 
-    const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+    const scopePairs = new Set(effScope.filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
     const donorIdsInScope = [...new Set(
       (donorIdsFromStation || [])
         .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
@@ -5953,8 +6019,9 @@ export const searchDonors = async (req, res) => {
       .from('fro_assignments')
       .select('*, ngos!inner(name)')
       .in('donor_id', matchedIds)
-      .in('station', stationNames)
-      .not('status', 'eq', 'reassigned');
+      .in('station', effStations)
+      .not('status', 'eq', 'reassigned')
+      .order('station', { ascending: true });
     if (asgnError) throw asgnError;
 
     const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
