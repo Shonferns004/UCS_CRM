@@ -333,6 +333,10 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   }, [listView, listStatusFilter]);
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Bumped whenever a disposition is saved. History is otherwise only fetched
+  // when the tab is entered, so a lead worked in this session would not show up
+  // there — nor in its count badge — until the FRO left and came back.
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const [followUps, setFollowUps] = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
   // Preserves the list's vertical scroll position while the FRO opens a lead
@@ -644,7 +648,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     }).catch(() => { if (!cancelled) setHistoryLeads([]); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
-  }, [listView, activeDonor, selectedStation, selectedNgo]);
+  }, [listView, activeDonor, selectedStation, selectedNgo, historyRefresh]);
 
   // Follow-ups: scheduled contacts + callback assignments + money promises,
   // merged/deduplicated the same way the standalone Follow Ups page did.
@@ -972,6 +976,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       // memo has to go with it. Without this, re-searching the same term inside
       // the 30s TTL would still show the lead the FRO just closed.
       searchCacheRef.current.clear();
+      // The lead the FRO just worked belongs in History now; refetch it so the
+      // tab and its badge are current the moment they look.
+      setHistoryRefresh(k => k + 1);
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
@@ -1298,6 +1305,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       // memo has to go with it. Without this, re-searching the same term inside
       // the 30s TTL would still show the lead the FRO just closed.
       searchCacheRef.current.clear();
+      // The lead the FRO just worked belongs in History now; refetch it so the
+      // tab and its badge are current the moment they look.
+      setHistoryRefresh(k => k + 1);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       // Same-day suppression (backend-authoritative): a donor with ANY
