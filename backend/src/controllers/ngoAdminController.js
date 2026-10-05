@@ -20,7 +20,7 @@ import {
   deleteStationAssignment,
   getStationAssignmentByNgoAndStation,
 } from '../models/froStationAssignmentModel.js';
-import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
+import { upsertTarget, getTargetsByNgo, getTargetsForWorkersMonth, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import { istMonthBounds } from '../utils/ist.js';
 import { buildTeamCollection, resolveRange } from '../services/teamCollectionService.js';
@@ -758,26 +758,24 @@ export const getTargets = async (req, res) => {
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
-    const allManualTargets = [];
-    for (const ngoId of filterNgoIds) {
-      const targets = await getTargetsByNgo(ngoId, targetMonth);
-      allManualTargets.push(...targets);
-    }
     // One row per FRO per month is the display contract, but the table is keyed on
     // (fro_worker_id, ngo_id, month), so a worker on two NGOs holds two rows for
     // the same month. Resolve to the newest write - the same tie-break
     // getTargetByWorker uses - so this board and the FRO's own panel can never
     // show different numbers for one person.
-    const currentRowMap = {};
-    for (const t of allManualTargets) {
-      const key = String(t.fro_worker_id);
-      const prev = currentRowMap[key];
-      if (!prev || String(t.created_at || '') > String(prev.created_at || '')) currentRowMap[key] = t;
-    }
+    //
+    // Fetched by worker, NOT per NGO: scoping by ngo_id hid any row saved against
+    // a different NGO than the one this FRO is currently listed under, which is
+    // how a set target came back as not_set and rendered as "Set target".
+    const currentRowMap = await getTargetsForWorkersMonth(
+      froWorkers.map(w => w.id),
+      targetMonth,
+    );
+
     const manualMap = {};
     const achievedMap = {};
     const incentiveMap = {};
-    for (const [key, t] of Object.entries(currentRowMap)) {
+    for (const [key, t] of Object.entries(Object.fromEntries(currentRowMap))) {
       manualMap[key] = parseFloat(t.target_amount);
       achievedMap[key] = t.achieved_target != null ? parseFloat(t.achieved_target) : null;
       incentiveMap[key] = t.incentive != null ? parseFloat(t.incentive) : null;
@@ -800,7 +798,7 @@ export const getTargets = async (req, res) => {
       const resolved = resolveMonthlyTarget({
         joiningDate: w.created_at,
         salary: currentSalary,
-        currentRow: currentRowMap[key] || null,
+        currentRow: currentRowMap.get(key) || null,
         priorRow: priorRowMap.get(key) || null,
         refDate: new Date(targetMonth),
       });
