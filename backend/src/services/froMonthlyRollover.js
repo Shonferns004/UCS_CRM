@@ -4,51 +4,43 @@ import { makeNonOverlap } from '../utils/noOverlap.js';
 import cron from 'node-cron';
 
 // ─── Monthly FRO lead rollover ───────────────────────────────────────────────
-// Every billing month the FRO work cycle restarts: leads worked last month go
-// back to 'pending' so each FRO gets a fresh, complete list rather than a
+// Every billing month the FRO work cycle restarts: EVERY lead worked last month
+// goes back to 'pending' so each FRO gets a fresh, complete list rather than a
 // shrinking remainder. Without this, an FRO's list only ever loses leads.
 //
-// What survives the rollover (PRESERVED_STATUSES):
-//   • pending / reassigned        — nothing to do.
-//   • dnd                         — the ONLY way into donor_dnd (migration 165)
-//                                   is the DND option in the disposition
-//                                   dropdown. This job never writes DND marks.
-//                                   donor_dnd is what suppresses a donor, so the
-//                                   assignment's own status is irrelevant to
-//                                   visibility once the mark exists.
-//   • donation_collected / lead_done / done
-//                                 — completed money, handled by getMyDonors'
-//                                   staleDoneStatus and terminal dispositions.
-//   • scheduled / callback / follow_up
-//                                 — unfulfilled call promises.
-//   • promise_to_pay / payment_pending / will_donate_online / visit_donate /
-//     whatsapp_sent / already_donated
-//                                 — commitments getFroPromises reads straight off
-//                                   fro_assignments.status; resetting them would
-//                                   silently empty the Promise tab.
-//   • not_interested / not_interested_now
-//                                 — a refusal is NOT permanent, but it must not
-//                                   come back the next day either. These are
-//                                   excluded from the monthly bulk reset and
-//                                   instead reset by a rolling cooldown
-//                                   (NOT_INTERESTED_COOLDOWN_DAYS after the
-//                                   refusal call). A donor who truly never wants
-//                                   contact must be marked DND in the dropdown —
-//                                   that is the only permanent stop.
+// The rule is deliberately blunt: the new month starts with everything pending,
+// except follow-ups, which are promises to a donor and carry over.
+// Only three statuses are preserved:
+//   • pending    — already in the target state; nothing to do.
+//   • reassigned — the lead left this FRO (expired transfer). Not theirs to reset.
+//   • dnd        — the ONLY permanent stop. DND is a deliberate, audited
+//                  decision recorded in donor_dnd (migration 165); a month
+//                  boundary is not a reason to undo it. Note the donor stays
+//                  suppressed by donor_dnd regardless of this assignment's
+//                  status, so preserving 'dnd' keeps the two in agreement.
 //
-// Everything else (ringing, busy, unreachable, wrong_number, …) resets to
-// 'pending'. That is the intended fresh-month behaviour. Resets stamp
-// rollover_from_status/rollover_at so the FRO can still see the previous status
-// and that it was a month-boundary reset (migration 167).
+// Everything else resets to 'pending', including:
+//   • ringing / busy / unreachable / call_disconnected / wrong_number / …
+//   • not_interested / not_interested_now  — refusals come back with the month
+//   • promise_to_pay / payment_pending / will_donate_online / whatsapp_sent
+//   • scheduled / callback / follow_up      — the follow-up DATE survives (below),
+//                                             only the status goes back to pending
+//   • donation_collected / lead_done / done / already_donated
+//
+// Resets stamp rollover_from_status/rollover_at (migration 167) so the previous
+// status is still visible on the lead and getDonorLogs prepends a "monthly reset"
+// entry to the CRM timeline. Nothing is lost — the job only moves the status.
+//
+// Survives every reset, whatever the old status:
+//   • next_follow_up           — a callback date promised to a donor does not
+//                                 expire on the 1st, so the rollover never clears
+//                                 it. Only a new disposition rewrites it.
+//   • fro_scheduled_contacts   — never written by this job at all.
+// This is why the job rewrites `status` and nothing else.
 //
 // Scope note: DND is per (donor, ngo). A donor marked DND at one NGO stays
 // callable at an unrelated NGO; that is the approved behaviour.
-const PRESERVED_STATUSES = [
-  'pending', 'reassigned', 'dnd', 'donation_collected', 'lead_done', 'done',
-  'scheduled', 'callback', 'follow_up',
-  'promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate',
-  'whatsapp_sent', 'already_donated', 'not_interested', 'not_interested_now',
-];
+const PRESERVED_STATUSES = ['pending', 'reassigned', 'dnd'];
 
 // Written to the audit row. The single supported behaviour now.
 export const ROLLOVER_MODE = 'reset_except_preserved';
@@ -143,9 +135,10 @@ async function runNotInterestedCooldown() {
     if (rows.length === 0) break;
     cursor = rows[rows.length - 1].id;
     const ids = rows.map(r => r.id);
+    // Status only — next_follow_up survives (see the header comment).
     await db._pool.query(
       `UPDATE public.fro_assignments
-          SET status = 'pending', hidden_until = NULL, next_follow_up = NULL,
+          SET status = 'pending',
               rollover_from_status = status, rollover_at = now()
         WHERE id = ANY($1::int[])`,
       [ids]
@@ -155,16 +148,151 @@ async function runNotInterestedCooldown() {
   return rowsReset;
 }
 
+// ─── Prior-month call history ────────────────────────────────────────────────
+// The FRO asked for History to start clean each month, so the rollover also
+// archives the previous month's call log. This is the ONLY place fro_donor_logs
+// rows are ever removed, and it is deliberately narrow.
+//
+// Moved to fro_donor_logs_archive (full rows, restorable by id):
+//   action = 'disposition', created before the month boundary, with no money on
+//   the row and no receipt pointing at it. That is a call attempt record — the
+//   "we tried, no answer / not interested" bookkeeping — and nothing else.
+//
+// NEVER moved, whatever their date:
+//   • action = 'donation'                          — a donation is a financial record
+//   • disposition_detail='lead_done' AND
+//     accounts_status='verified'                   — fetchScopedDonationEvidence
+//                                                    builds activeAssignmentIds,
+//                                                    verifiedAssignmentIds and
+//                                                    periodDonatedAssignmentIds
+//                                                    from exactly these two shapes
+//                                                    (froController.js). Deleting
+//                                                    them silently flips leads to
+//                                                    inactive in My Leads.
+//   • amount_collected / upi_transaction_id /
+//     payment_screenshot_url set                  — money was taken
+//   • any row referenced by receipts.log_id       — ON DELETE CASCADE, so removing
+//                                                    the log would remove the
+//                                                    receipt. (No receipt currently
+//                                                    references a log, but the FK is
+//                                                    there and must not be trusted.)
+//
+// The per-donor timeline keeps working: the "monthly reset" entry is synthesised
+// from fro_assignments.rollover_from_status / rollover_at (migration 167), not
+// from these rows.
+const ARCHIVE_TABLE = 'public.fro_donor_logs_archive';
+
+// Created here as well as in migration 169 so a deploy that lands the service
+// before the migration degrades to a no-op instead of throwing inside the cron.
+const ARCHIVE_TABLE_DDL = `
+  CREATE TABLE IF NOT EXISTS ${ARCHIVE_TABLE} (
+    archived_at            timestamptz      NOT NULL DEFAULT now(),
+    archive_month          text             NOT NULL,
+    id                     integer          NOT NULL,
+    assignment_id          integer          NOT NULL,
+    action                 text             NOT NULL,
+    notes                  text,
+    outcome                text,
+    amount_collected       numeric(12,2),
+    created_by             uuid,
+    created_at             timestamptz      NOT NULL,
+    disposition_category   text,
+    disposition_detail     text,
+    scheduled_at           timestamptz,
+    payment_screenshot_url text,
+    accounts_status        text,
+    pan_number             text,
+    verified_at            timestamptz,
+    verified_by            uuid,
+    donor_id               integer,
+    fro_worker_id          uuid,
+    remark                 text,
+    upi_transaction_id     text,
+    transaction_datetime   timestamptz,
+    payment_from           text,
+    payment_mode           text,
+    rejection_reason       text
+  )`;
+
+const ARCHIVE_COLUMNS = `id, assignment_id, action, notes, outcome, amount_collected,
+  created_by, created_at, disposition_category, disposition_detail, scheduled_at,
+  payment_screenshot_url, accounts_status, pan_number, verified_at, verified_by,
+  donor_id, fro_worker_id, remark, upi_transaction_id, transaction_datetime,
+  payment_from, payment_mode, rejection_reason`;
+
+// Same list, table-qualified, for DELETE ... RETURNING inside the CTE.
+const ARCHIVE_COLUMNS_QUALIFIED = ARCHIVE_COLUMNS
+  .split(',')
+  .map(c => `l.${c.trim()}`)
+  .join(', ');
+
+/**
+ * Archive and delete the previous month's non-financial call log.
+ *
+ * Runs after the status reset in the same run, batched by id cursor like the
+ * reset itself, and idempotent: an archived row is gone, so a re-run finds
+ * nothing. Each batch is a single statement — DELETE ... RETURNING feeding an
+ * INSERT — so a crash mid-batch can never leave a row deleted but unarchived.
+ *
+ * @returns {Promise<number>} rows moved into the archive table.
+ */
+async function archivePriorMonthLogs(monthStart, monthKey) {
+  await db._pool.query(ARCHIVE_TABLE_DDL);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_fdl_archive_month
+                          ON ${ARCHIVE_TABLE} (archive_month)`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_fdl_archive_assignment
+                          ON ${ARCHIVE_TABLE} (assignment_id)`);
+
+  // Every predicate term is load-bearing; see the block comment above.
+  const archivable = `
+      l.created_at < $2
+      AND l.action <> 'donation'
+      AND NOT (l.disposition_detail = 'lead_done' AND l.accounts_status = 'verified')
+      AND (l.amount_collected IS NULL OR l.amount_collected = 0)
+      AND l.upi_transaction_id IS NULL
+      AND l.payment_screenshot_url IS NULL
+      AND NOT EXISTS (SELECT 1 FROM public.receipts r WHERE r.log_id = l.id)`;
+
+  let cursor = 0;
+  let archived = 0;
+  for (;;) {
+    const batch = await db._pool.query(
+      `SELECT l.id FROM public.fro_donor_logs l
+        WHERE l.id > $1 AND ${archivable}
+        ORDER BY l.id
+        LIMIT $3`,
+      [cursor, monthStart, BATCH_SIZE]
+    );
+    const rows = batch.rows || [];
+    if (rows.length === 0) break;
+    cursor = rows[rows.length - 1].id;
+
+    await db._pool.query(
+      `WITH moved AS (
+         DELETE FROM public.fro_donor_logs l
+          WHERE l.id = ANY($1::int[]) AND ${archivable}
+          RETURNING ${ARCHIVE_COLUMNS_QUALIFIED}
+       )
+       INSERT INTO ${ARCHIVE_TABLE} (archive_month, ${ARCHIVE_COLUMNS})
+       SELECT $3, ${ARCHIVE_COLUMNS} FROM moved`,
+      [rows.map(r => r.id), monthStart, monthKey]
+    );
+    archived += rows.length;
+  }
+  return archived;
+}
+
 /**
  * Run the monthly rollover.
  *
- * @param {object}  [opts]
+* @param {object}  [opts]
  * @param {boolean} [opts.force]     Run even if the month is already finished
  *                                   (re-runs are idempotent; use for recovery).
  * @param {string}  [opts.monthKey]  Override the month (testing / backfill).
  * @param {string}  [opts.mode]      Override ROLLOVER_MODE for a single run.
  * @returns {Promise<{skipped?:boolean, monthKey:string, mode:string,
- *                    rowsReset:number, cooldownReset:number, detail:object}>}
+ *                    rowsReset:number, cooldownReset:number, logsArchived?:number,
+ *                    detail:object}>}
  */
 export async function runMonthlyRollover(opts = {}) {
   const monthKey = opts.monthKey || istMonthKey();
@@ -225,9 +353,12 @@ export async function runMonthlyRollover(opts = {}) {
       const resetRows = rows.filter(r => !preserved.has(r.status));
       if (resetRows.length) {
         const resetIds = resetRows.map(r => r.id);
-        // Clear hidden_until alongside the status. Leaving it behind would keep
-        // a freshly reset lead hidden until its old park date expired — exactly
-        // the "my allotment says N but I can only see M" problem.
+        // Only `status` is rewritten. next_follow_up is deliberately NOT touched:
+        // a lead that was promised a callback keeps its date across the month
+        // boundary, because the promise was made to the donor and does not expire
+        // on the 1st. Clearing it silently dropped unkept call promises, which is
+        // the opposite of what a fresh month should do. Scheduled contacts in
+        // fro_scheduled_contacts are likewise left alone.
         //
         // rollover_from_status = status reads the OLD value: in a single UPDATE
         // every right-hand column reference sees the pre-update row, so the reset
@@ -235,7 +366,7 @@ export async function runMonthlyRollover(opts = {}) {
         // The FRO then sees "was ringing, monthly reset" instead of a bare pending.
         await db._pool.query(
           `UPDATE public.fro_assignments
-              SET status = 'pending', hidden_until = NULL, next_follow_up = NULL,
+              SET status = 'pending',
                   rollover_from_status = status, rollover_at = now()
             WHERE id = ANY($1::int[])`,
           [resetIds]
@@ -247,9 +378,15 @@ export async function runMonthlyRollover(opts = {}) {
       await recordProgress(monthKey, { rowsReset, detail, finished: false });
     }
 
+    // Archive the previous month's call log only after the status reset succeeded,
+    // so History and the lead states can never disagree mid-run. Non-financial
+    // disposition rows only — see archivePriorMonthLogs for what is never touched.
+    const logsArchived = await archivePriorMonthLogs(monthStart, monthKey);
+    detail.logsArchived = logsArchived;
+
     await recordProgress(monthKey, { rowsReset, detail, finished: true });
-    console.log(`FRO monthly rollover ${monthKey} (${mode}): reset ${rowsReset}; refusal cooldown reset ${cooldownReset}`);
-    return { monthKey, mode, rowsReset, cooldownReset, detail };
+    console.log(`FRO monthly rollover ${monthKey} (${mode}): reset ${rowsReset}; archived ${logsArchived} prior-month call logs; refusal cooldown reset ${cooldownReset}`);
+    return { monthKey, mode, rowsReset, cooldownReset, logsArchived, detail };
   } catch (err) {
     // Leave the claim in place with partial totals. Clearing it would let a
     // retry re-scan rows the first pass already handled.
@@ -280,7 +417,23 @@ function start() {
   const runNoOverlap = makeNonOverlap('fro monthly rollover', () => runMonthlyRollover());
   // 04:00 Asia/Kolkata, early enough to finish before the calling shift and
   // explicit about the timezone so server locale can never shift the boundary.
-  cronJobs.push(cron.schedule('0 4 * * *', () => runNoOverlap().catch(() => {}), { timezone: 'Asia/Kolkata' }));
+  //
+  // The catch MUST log. This used to be `.catch(() => {})`, which meant a failing
+  // rollover was completely invisible: migration 166 had never been applied on this
+  // database, so the 04:00 job threw every single day for months and nobody saw a
+  // single symptom. A monthly job fails exactly once per month, so "nobody
+  // noticed" is the default outcome unless the error is written down. Anything
+  // that breaks the month claim (missing table, missing column, bad mode value)
+  // lands here, and now it names the month and the reason.
+  cronJobs.push(cron.schedule('0 4 * * *', () => {
+    runNoOverlap().catch((err) => {
+      const monthKey = istMonthKey();
+      console.error(`FRO monthly rollover FAILED for ${monthKey}: ${err?.message || err}`);
+      if (err?.stack) console.error(err.stack);
+      // Leave the month unclaimed (finished_at stays NULL) so tomorrow's run
+      // retries rather than silently skipping the reset for the whole month.
+    });
+  }, { timezone: 'Asia/Kolkata' }));
   console.log('Scheduled: daily 04:00 IST FRO month-rollover check');
 }
 

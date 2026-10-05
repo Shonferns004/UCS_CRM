@@ -574,11 +574,29 @@ export const getFroWorkers = async (req, res) => {
       }
     }
 
-    const result = await Promise.all(froWorkers.map(async (w) => {
+    let agentLabelMap = {};
+    if (workerIds.length > 0) {
+      const { data: agentRows, error: agentErr } = await db
+        .from('crm_agents')
+        .select('worker_id, label')
+        .in('worker_id', workerIds)
+        .eq('is_active', true);
+      if (agentErr) throw agentErr;
+      for (const a of agentRows || []) {
+        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
+      }
+    }
+
+    // Only FROs that actually have an agent show here, always under their
+    // agent's name. FRO rows without an agent are excluded entirely.
+    const coveredFroWorkers = froWorkers.filter(w => agentLabelMap[w.id]);
+
+    const result = await Promise.all(coveredFroWorkers.map(async (w) => {
       const salary = await getActiveSalaryByWorker(w.id);
+      const agentName = agentLabelMap[w.id];
       return {
         id: w.id,
-        name: w.name,
+        name: agentName || w.name,
         login_id: w.login_id,
         email: w.email,
         phone: w.phone,
@@ -589,6 +607,8 @@ export const getFroWorkers = async (req, res) => {
         salary: salary ? parseFloat(salary.salary) : 0,
         salary_from_month: salary ? salary.from_month : null,
         allocated_ngo_ids: allocMap[w.id] || [],
+        fro_name: w.name,
+        agent_label: agentName || null,
       };
     }));
 
@@ -1721,7 +1741,25 @@ export const getStations = async (req, res) => {
     // Group by station name — one row per station
     const stationMap = {};
     const displayFroId = (a) => (a.fro_worker_id && a.workers?.is_test !== true) ? a.fro_worker_id : null;
-    const displayFroName = (a) => (displayFroId(a) ? (a.workers?.name || null) : null);
+    // Agent labels replace the FRO's raw name in station views.
+    const assignmentWorkerIds = [...new Set(assignments.map((a) => a.fro_worker_id).filter(Boolean))];
+    let stationAgentLabelMap = {};
+    if (assignmentWorkerIds.length > 0) {
+      const { data: agentRows, error: agentErr } = await db
+        .from('crm_agents')
+        .select('worker_id, label')
+        .in('worker_id', assignmentWorkerIds)
+        .eq('is_active', true);
+      if (agentErr) console.error('[stations] agent label load failed:', agentErr.message);
+      for (const a of agentRows || []) {
+        if (a.worker_id && !stationAgentLabelMap[a.worker_id]) stationAgentLabelMap[a.worker_id] = a.label;
+      }
+    }
+    const displayFroName = (a) => {
+      const fid = displayFroId(a);
+      if (!fid) return null;
+      return stationAgentLabelMap[fid] || a.workers?.name || null;
+    };
 
     for (const a of assignments) {
       const s = a.station.trim();

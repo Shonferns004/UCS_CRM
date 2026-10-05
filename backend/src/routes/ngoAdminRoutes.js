@@ -2,6 +2,17 @@ import { Router } from 'express';
 import multer from 'multer';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
+  getCrmAgents,
+  getCrmAgentFroOptions,
+  createCrmAgent,
+  bulkCreateCrmAgents,
+  updateCrmAgentStatus,
+  updateCrmAgentAssignment,
+  resetCrmAgentPassword,
+  forceLogoutCrmAgent,
+  deleteCrmAgent,
+} from '../controllers/crmAgentsController.js';
+import {
   listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched, searchDonorsForSuspense,
 } from '../controllers/bankAuditController.js';
 import {
@@ -230,5 +241,22 @@ router.post('/stations/:station/upload-old-data', upload.single('file'), uploadO
 router.post('/old-data/upload', upload.single('file'), uploadOldData);
 
 router.post('/restore-wrong-assignments', restoreWrongAssignments);
+
+// ─── CRM login agents ("Agent N") ───────────────────────────────────────────
+//
+// Guarded to admin / super_admin, narrower than the rest of this router on
+// purpose: these endpoints hand out a credential that reaches an FRO's entire
+// account. It sits below the two router.use(...) gates above, so it inherits the
+// admin+super_admin check and then adds nothing.
+
+router.get('/agents', getCrmAgents);
+router.get('/agents/fro-options', getCrmAgentFroOptions);
+router.post('/agents', createCrmAgent);
+router.post('/agents/bulk', bulkCreateCrmAgents);
+router.patch('/agents/:id/status', updateCrmAgentStatus);
+router.patch('/agents/:id/assignment', updateCrmAgentAssignment);
+router.post('/agents/:id/reset-password', resetCrmAgentPassword);
+router.post('/agents/:id/force-logout', forceLogoutCrmAgent);
+router.delete('/agents/:id', deleteCrmAgent);
 
 export default router;

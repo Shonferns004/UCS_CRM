@@ -8,7 +8,6 @@ import TeamWiseCollection from '../components/TeamWiseCollection';
 import { useMeeting } from '../../../meetingStore';
 import { onDbChange } from '../../../lib/socket';
 import { formatDuration } from '../../../utils/formatDuration';
-import FroIdleReportPanel from '../../../components/froIdleReport/FroIdleReportPanel';
 
 // Station-wise Collection layout: two sibling cards, OLD on the left and NEW on
 // the right, in the same two-column grid that holds Hourly Performance and FRO
@@ -1945,16 +1944,6 @@ export default function Dashboard() {
           ngoId={selectedNgoId}
           froId={selectedFroId}
           periodLabel={PERIOD_LABELS[dashPeriod]}
-        />
-      </div>
-
-      {/* Historical idle from the time ledger. The backend scopes the rows to the
-          caller's NGOs, so an NGO admin sees only their own FROs. */}
-      <div className="card" style={{ marginTop: 16, padding: 16 }}>
-        <FroIdleReportPanel
-          compact
-          title="FRO Idle Report"
-          subtitle="Idle time from the server-authoritative time ledger, split by IST day."
         />
       </div>
 

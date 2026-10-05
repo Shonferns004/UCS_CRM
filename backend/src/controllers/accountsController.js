@@ -304,9 +304,11 @@ export const verifyLead = async (req, res) => {
     // (imposter_name) — same as Audit Manual Verify; otherwise to the FRO who
     // owns the lead's assignment. Without this the receipt is created with a
     // NULL agent_name and never shows in anyone's collection.
-    const agentStamp = (req.user?.impersonation && req.user.imposter_name)
-      ? req.user.imposter_name
-      : (log.fro_assignments?.workers?.name || null);
+    const agentStamp = req.user?.agent_user_id
+      ? (req.user.agent_label || null)
+      : (req.user?.impersonation && req.user.imposter_name
+        ? req.user.imposter_name
+        : (log.fro_assignments?.workers?.name || null));
 
     // The NGO a lead is assigned under is the per-lead truth for which project
     // (and therefore which receipt-number sequence) its money belongs to. The
@@ -5189,7 +5191,28 @@ export const getFroWorkersList = async (req, res) => {
       .eq('employment_status', 'active')
       .order('name', { ascending: true });
     if (error) throw error;
-    return res.json(data || []);
+    const workerIds = (data || []).map((w) => w.id);
+    let agentLabelMap = {};
+    if (workerIds.length > 0) {
+      const { data: agentRows, error: agentErr } = await db
+        .from('crm_agents')
+        .select('worker_id, label')
+        .in('worker_id', workerIds)
+        .eq('is_active', true);
+      if (agentErr) throw agentErr;
+      for (const a of agentRows || []) {
+        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
+      }
+    }
+    const result = (data || [])
+      .filter((w) => agentLabelMap[w.id])
+      .map((w) => ({
+        id: w.id,
+        name: agentLabelMap[w.id],
+        fro_name: w.name,
+        agent_label: agentLabelMap[w.id],
+      }));
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
