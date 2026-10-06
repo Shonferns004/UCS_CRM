@@ -39,7 +39,7 @@ BEGIN
       materials         JSONB DEFAULT '[]'::jsonb,
       is_selected       BOOLEAN NOT NULL DEFAULT FALSE,
       suggested_event_id INT,
-      created_by        TEXT,
+      created_by        TEXT,f
       created_at        TIMESTAMPTZ DEFAULT NOW(),
       -- Re-running the generator for the same festival can never create a
       -- duplicate, and can never reset a user's existing ticks (a conflict is
