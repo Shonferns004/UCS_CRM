@@ -12,6 +12,9 @@
 # source. Keep them local (or on the server) and out of the repository.
 /reports/
 
+# Calendarific disk cache (one API call per country+year). Never ship or commit.
+/.cache/
+
 # Node
 node_modules/
 
