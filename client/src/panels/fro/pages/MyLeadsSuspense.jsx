@@ -87,34 +87,37 @@ export default function MyLeadsSuspense() {
   const isCompact = useIsMobile(480);
   const shellRef = useRef(null);
 
-const gap = isCompact ? 8 : isMobile ? 10 : 12;
-  const pad = isCompact ? 6 : isMobile ? 8 : 12;
+  // No padding and no gap: this view is meant to run edge to edge, touching the
+  // header above and the sidebar/window edges at the sides. The host's padding is
+  // zeroed in index.css via .panel-fro .content-body:has(.my-leads-shell).
+  //
+  // Because the three surfaces are flush, they cannot each keep their own border
+  // and radius - adjacent ones would draw a 2px seam and two rounded corners would
+  // meet in the middle. So the dividers are owned by the panes themselves: the
+  // strip carries a bottom rule, and the leads/suspense split is a single line
+  // between them rather than two facing borders.
   const stripH = isCompact ? 98 : isMobile ? 86 : 68;
 
   return (
-    <div ref={shellRef} className="my-leads-shell" style={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', gap, padding: pad, boxSizing: 'border-box', minHeight: 0 }}>
+    <div ref={shellRef} className="my-leads-shell" style={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', padding: 0, boxSizing: 'border-box', minHeight: 0 }}>
 <div className="perf-strip" style={{
         flex: `0 0 ${stripH}px`,
         height: stripH,
         minWidth: 0,
         position: 'relative',
         background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-        border: '1px solid #e6eaf2',
-        borderRadius: 12,
-        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px -12px rgba(15, 23, 42, 0.12)',
+        borderBottom: '1px solid #e6eaf2',
         overflow: 'hidden',
         display: 'flex',
       }}>
         <PersonalPerformance />
       </div>
 
-      <div className="my-leads-bottom" style={{ flex: '1 1 0', minHeight: isMobile ? 680 : 0, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap, minWidth: 0 }}>
-        <div style={{
+      <div className="my-leads-bottom" style={{ flex: '1 1 0', minHeight: isMobile ? 680 : 0, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap: 0, minWidth: 0 }}>
+        <div className="my-leads-pane" style={{
           minWidth: 0, minHeight: 0,
           position: 'relative',
           background: '#fff',
-          border: '1px solid var(--line)',
-          borderRadius: 10,
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
@@ -124,12 +127,10 @@ const gap = isCompact ? 8 : isMobile ? 10 : 12;
           </div>
         </div>
 
-        <div style={{
+        <div className="my-leads-pane" style={{
           minWidth: 0, minHeight: 0,
           position: 'relative',
           background: '#f8fafc',
-          border: '1px solid var(--line)',
-          borderRadius: 10,
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
@@ -149,13 +150,19 @@ const gap = isCompact ? 8 : isMobile ? 10 : 12;
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(2px); }
         }
+        /* The leads/suspense divider is drawn by the second pane, not as two
+           facing borders, so the seam is one hairline rather than 2px. Driven by
+           the container query rather than an inline style because the grid
+           stacks on CONTAINER width - isMobile() reports the VIEWPORT, so a wide
+           window with a narrow content column would stack the panes while
+           isMobile() said false and leave a stray vertical rule on the right of
+           an empty edge. */
+        .my-leads-pane + .my-leads-pane { border-left: 1px solid var(--line); }
         @container my-leads (max-width: 900px) {
           .my-leads-shell { overflow-y: auto; }
           .my-leads-bottom { grid-template-columns: 1fr !important; min-height: 680px; }
-        }
-        @container my-leads (max-width: 520px) {
-          .my-leads-shell { gap: 8px !important; padding: 6px !important; }
-          .my-leads-shell > div { border-radius: 8px; }
+          /* Stacked, so the divider turns horizontal. */
+          .my-leads-pane + .my-leads-pane { border-left: none; border-top: 1px solid var(--line); }
         }
       `}</style>
     </div>
