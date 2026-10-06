@@ -12,6 +12,7 @@ import 'pages/main_shell.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'theme.dart';
+import 'widgets/app_loader.dart';
 
 void _applySystemUi(Brightness brightness) {
   final isLight = brightness == Brightness.light;
@@ -50,7 +51,16 @@ class _BillReminderAppState extends State<BillReminderApp> {
   void initState() {
     super.initState();
     NotificationService().setNavigatorKey(_navigatorKey);
+    ApiService.onUnauthorized = _handleUnauthorized;
     _init();
+  }
+
+  /// Called when the backend rejects the stored token (expired/invalid).
+  /// Clears any open routes and returns to the login screen.
+  void _handleUnauthorized() {
+    if (!mounted) return;
+    _navigatorKey.currentState?.popUntil((r) => r.isFirst);
+    setState(() => _loggedIn = false);
   }
 
   Future<void> _init() async {
@@ -113,7 +123,7 @@ class _BillReminderAppState extends State<BillReminderApp> {
             builder: (context, snap) {
               if (snap.connectionState != ConnectionState.done) {
                 return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
+                  body: AppLoader(message: 'Loading reminder…'),
                 );
               }
               final data = snap.data;
@@ -126,14 +136,32 @@ class _BillReminderAppState extends State<BillReminderApp> {
         },
       },
       home: _loggedIn == null
-          ? const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            )
+          ? const _BootScreen()
           : _loggedIn!
               ? MainShell(onLogout: _logout)
               : LoginPage(onLogin: () {
                   setState(() => _loggedIn = true);
                 }),
+    );
+  }
+}
+
+/// Branded splash shown while the stored session is being resolved.
+class _BootScreen extends StatelessWidget {
+  const _BootScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: kHeaderGradient),
+        child: const SafeArea(
+          child: AppLoader(
+            onGradient: true,
+            message: 'Getting things ready…',
+          ),
+        ),
+      ),
     );
   }
 }

@@ -118,6 +118,14 @@ class NotificationService {
     } catch (_) {}
 
     try {
+      final launchDetails = await _localNotifications.getNotificationAppLaunchDetails();
+      final launchResponse = launchDetails?.notificationResponse;
+      if ((launchDetails?.didNotificationLaunchApp ?? false) && launchResponse != null) {
+        _onLocalNotificationTap(launchResponse);
+      }
+    } catch (_) {}
+
+    try {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       final messaging = FirebaseMessaging.instance;
@@ -194,7 +202,23 @@ class NotificationService {
   void _openReminder(String payload) {
     final parts = payload.split('|');
     final reminderId = parts.length > 1 ? parts[1] : '';
-    _navigatorKey?.currentState?.pushNamed(
+    if (reminderId.isEmpty) return;
+    _pushDetail(reminderId);
+  }
+
+  /// The navigator may not be mounted yet when the app is cold-started from a
+  /// notification, so retry on the next frames until it is ready.
+  void _pushDetail(String reminderId, [int attempt = 0]) {
+    final navigator = _navigatorKey?.currentState;
+    if (navigator == null) {
+      if (attempt < 20) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _pushDetail(reminderId, attempt + 1),
+        );
+      }
+      return;
+    }
+    navigator.pushNamed(
       '/detail',
       arguments: {'id': reminderId, 'from': 'push'},
     );
