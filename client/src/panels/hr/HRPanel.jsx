@@ -36,6 +36,7 @@ import NoticePopup from '../../components/NoticePopup'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
+import SevakPanel from '../sevak-library/SevakPanel'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
@@ -54,6 +55,7 @@ const NAV = [
   { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
   { id:'chat',       path:'/hr/chat',        label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
+  { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
 ]
 
 const hrSettingsViews = [
@@ -277,6 +279,7 @@ export default function HRPanel() {
         <Route path="fro-targets" element={<FroTargets />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="chat" element={<ChatWorkspace />} />
+        <Route path="library" element={<SevakPanel />} />
         <Route path="settings" element={<SettingsRoute />} />
         <Route path="*" element={<Navigate to="overview" replace />} />
       </Routes>
