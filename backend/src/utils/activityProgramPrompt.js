@@ -226,6 +226,117 @@ function textField(raw, ...keys) {
  * `activityName`/`activityId` are injected from the resolved DB row rather than
  * read off the model, so a suggestion can never claim a different activity.
  */
+/* ── Festival/day-driven prompt (Monthly Planner Activities grid) ────────── */
+
+/**
+ * Builds the prompt for the Monthly Planner's festival-driven suggestions.
+ *
+ * Unlike buildActivityProgramPrompt this is NOT anchored to a single activity:
+ * the unit of generation is (festival/day × NGO), and the NGO's beneficiary
+ * group is resolved server-side and passed in — never typed by the user. The
+ * model is asked for one concrete, useful programme per object, all for the
+ * given occasion and audience.
+ *
+ * @param {object}  o
+ * @param {string}  o.festivalName  the real festival/day (validated server-side)
+ * @param {string=} o.dateLabel    human date, e.g. '14 November 2026'
+ * @param {string=} o.ngoName
+ * @param {string=} o.ngoCode       short code (BSCT / MANN / AFLF)
+ * @param {string=} o.beneficiaryGroup  the NGO's group — auto, never manual
+ * @param {string=} o.sectorName
+ * @param {string=} o.monthYmd      'YYYY-MM'
+ * @param {Array=}  o.existingTitles  programmes already planned this month
+ * @param {number=} o.limit
+ */
+export function buildFestivalProgramPrompt({
+  festivalName,
+  dateLabel = '',
+  ngoName = '',
+  ngoCode = '',
+  beneficiaryGroup = '',
+  sectorName = '',
+  monthYmd = '',
+  existingTitles = [],
+  limit = ACTIVITY_SUGGESTION_LIMIT,
+} = {}) {
+  const festival = String(festivalName || '').trim().slice(0, MAX_TITLE_LEN);
+  const when = dateLabel ? String(dateLabel).slice(0, 60) : monthLabel(monthYmd) || 'the selected occasion';
+
+  const done = (Array.isArray(existingTitles) ? existingTitles : [])
+    .map((t) => String(t).trim())
+    .filter(Boolean)
+    .slice(0, 40);
+
+  const sample = `  { "t": "Word1 Word2 Word3 Word4 Word5", "f": "${ACTIVITY_PROGRAM_FORMATS[0]}", "p": "Medium", "u": "Five words here now", "d": "Half day", "o": "Ten words of objective text at most here.", "r": "Ten words of rationale text at most here.", "m": ["Two words","Three words"] }`;
+
+  return [
+    'You plan aware, community-driven programmes for a disability-focused Indian NGO, centred on one real festival/important day.',
+    '',
+    `The occasion is: "${festival}", falling on ${when}.`,
+    'Anchor every suggestion to this occasion — its meaning and its themes. Do NOT drift into generic routine programmes.',
+    ngoName ? `The NGO is ${String(ngoName).slice(0, 120)}.` : '',
+    ngoCode ? `Its code is ${String(ngoCode).slice(0, 24)}.` : '',
+    sectorName ? `Its sector of work is: "${String(sectorName).slice(0, 120)}".` : '',
+    beneficiaryGroup
+      ? `The beneficiary group is: "${String(beneficiaryGroup).slice(0, 120)}". Every programme must suit THIS group — its needs, its accessibility, and how this group is actually reached. Do not invent other beneficiary groups.`
+      : 'No specific beneficiary group is configured — keep the programmes broadly accessible.',
+    'Do NOT output any date, day, month, year or "when" field — the planner assigns dates itself.',
+    '',
+    `HARD REQUIREMENT: the "suggestions" array must contain EXACTLY ${limit} objects. Count as you write: 1, 2, 3, ${Array.from({ length: Math.max(0, limit - 3) }, (_, i) => i + 4).join(', ')}. Never stop early. Never return fewer.`,
+    `All ${limit} must be DIFFERENT programmes. Vary the format, the audience and the objective between them.`,
+    done.length ? `Do not repeat programmes this NGO already has planned: ${done.join('; ')}.` : '',
+    '',
+    `HARD TOKEN BUDGET: all ${limit} objects together share about 950 output tokens, so every field must be tiny. Verbose fields get the response cut mid-JSON. Word caps, strictly:`,
+    't <= 5 words | u <= 5 words | o <= 10 words | r <= 10 words | m = exactly 2 items, each <= 3 words',
+    'f and p must be copied verbatim from the lists below. No emoji. No markdown. No prose outside the JSON.',
+    '',
+    `f must be one of: ${ACTIVITY_PROGRAM_FORMATS.join(' | ')}`,
+    `p must be one of: ${ACTIVITY_PROGRAM_PRIORITIES.join(' | ')}`,
+    '',
+    'Return ONLY a JSON object of this exact shape, no markdown, no commentary:',
+    '{ "suggestions": [',
+    sample,
+    `  , then the same object repeated until there are exactly ${limit} of them, with no comma after the last one`,
+    '] }',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Pulls the suggestions array out of the provider output and normalises it,
+ * de-duplicating by title and capping at `limit`. No activity stamp is applied:
+ * these rows belong to a festival + NGO, not to one activity.
+ */
+export function parseFestivalProgramSuggestions(parsed, {
+  existingTitles = [],
+  limit = ACTIVITY_SUGGESTION_LIMIT,
+} = {}) {
+  const list = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.suggestions)
+      ? parsed.suggestions
+      : [];
+
+  const seen = new Set(
+    (Array.isArray(existingTitles) ? existingTitles : [])
+      .map((t) => String(t).trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const out = [];
+  for (const raw of list) {
+    const s = normalizeActivitySuggestion(raw, {});
+    if (!s) continue;
+    const key = s.title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function normalizeActivitySuggestion(raw, { activityName = '', activityId = null } = {}) {
   if (!raw || typeof raw !== 'object') return null;
 

@@ -19,6 +19,11 @@ router.post('/calendar/suggest', eh, ctrl.suggestDayPrograms);
 router.post('/planner/suggest-programs', eh, ctrl.suggestActivityPrograms);
 router.get('/planner/suggestions', eh, ctrl.getPlannerSuggestions);
 router.put('/planner/suggestions/:id/select', eh, ctrl.setPlannerSuggestionSelected);
+// Monthly Planner Activities grid: festival/day-driven suggestions, selected
+// per festival row and exported in the monthly download.
+router.post('/planner/suggest-festival-programs', eh, ctrl.suggestFestivalPrograms);
+router.get('/planner/festival-suggestions', eh, ctrl.getFestivalSuggestions);
+router.put('/planner/festival-suggestions/:id/select', eh, ctrl.setFestivalSuggestionSelected);
 // Events (static paths BEFORE :id)
 router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);
