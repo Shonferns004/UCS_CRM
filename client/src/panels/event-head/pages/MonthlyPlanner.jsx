@@ -9,7 +9,7 @@ import { PageHeader, SearchInput, Select } from '../components/ui'
 import {
   fetchCalendarEvents, fetchWorkspaceNgos, fetchSectors, fetchActivities,
   createEvent, updateEvent, deleteEvent,
-  fetchCalendarObservances, suggestDayPrograms,
+  fetchImportantDays, suggestDayPrograms,
   EVENT_STATUSES, PRIORITIES, CATEGORIES,
 } from '../store'
 import '../calendar.css'
@@ -701,11 +701,21 @@ export default function MonthlyPlanner() {
   useEffect(() => { loadEvents() /* eslint-disable-line */ }, [range, filterNgo, filterSector, filterActivity, filterStatus, filterYear, loadKey])
 
   /* ── Important days / festivals / observances for the visible range ──
-     Dates are computed by the backend reference calendar (deterministic). */
+     Fetched from GET /api/important-days, which merges the curated reference
+     calendar, the fixed international days, operator holidays and Calendarific
+     (India festivals + worldwide/UN days) server-side. No AI produces any of
+     these dates. */
+
   const loadObservances = () => {
     if (!range) return
     setObsLoading(true); setObsError('')
-    fetchCalendarObservances({ start: range.startStr, end: range.endStr, scope })
+    fetchImportantDays({
+      year: cursor.y,
+      month: cursor.m + 1,
+      start: range.startStr,
+      end: range.endStr,
+      scope,
+    })
       .then(d => {
         setObs({
           byDate: d?.by_date || {},
@@ -715,6 +725,9 @@ export default function MonthlyPlanner() {
           reliability: d?.reliability || null,
           source: d?.source || 'server',
         })
+        // A failed /api/important-days call returns ok:false with a bundled
+        // fallback list, so the grid stays populated AND the error is shown.
+        setObsError(d?.ok === false ? (d.error || 'Could not load the Important Days calendar') : '')
       })
       .catch(err => {
         console.error('observances fetch', err)
