@@ -1,0 +1,4 @@
+project_id = "sevak-library"
+
+[functions.send-membership-email]
+verify_jwt = false
