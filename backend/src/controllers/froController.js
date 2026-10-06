@@ -6564,6 +6564,9 @@ export const getDonorDonations = async (req, res) => {
 
     let assignment = null;
     if (ngo_id) {
+      // A donor can hold duplicate assignment rows (same worker + NGO); picking
+      // any one here is safe because NGO scope (and the donor's whole history in
+      // it) is what matters for the donations read, not the specific row.
       const { data } = await db
         .from('fro_assignments')
         .select('id, ngo_id')
@@ -6571,6 +6574,7 @@ export const getDonorDonations = async (req, res) => {
         .eq('fro_worker_id', workerId)
         .eq('ngo_id', ngo_id)
         .not('status', 'eq', 'reassigned')
+        .limit(1)
         .maybeSingle();
       assignment = data;
     } else {
