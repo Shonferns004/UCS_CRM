@@ -19,7 +19,10 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  login: (identifier, password) => request('POST', 'auth/worker/login', { identifier, password }),
+  // `client` identifies the caller to the backend. It is what lets this app
+  // authenticate a FRO with their own @ufs login, which every other surface
+  // refuses. Do not send it from anywhere else.
+  login: (identifier, password) => request('POST', 'auth/worker/login', { identifier, password, client: 'hr_form' }),
   myProfile: () => request('GET', 'workers/me'),
   submitOnboarding: (body) => request('POST', 'onboarding/submit', body),
   uploadPhoto: (photoBase64, mimeType) => request('POST', 'onboarding/upload-photo', { photo_base64: photoBase64, mime_type: mimeType }),
