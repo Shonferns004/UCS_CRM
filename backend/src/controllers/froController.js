@@ -2780,7 +2780,18 @@ export const getMyDonors = async (req, res) => {
     // verified_only view (Donors panel) is exempt because it is a money-
     // reconciliation list, not a calling queue.
     if (req.query.verified_only !== 'true') {
-      filtered = filtered.filter(r => r.status === 'pending' || r.status == null || r.status === '');
+      filtered = filtered.filter(r => {
+        const isPendingStatus = r.status === 'pending' || r.status == null || r.status === '';
+        // A lead dispositioned today must leave Leads even when its surfaced
+        // assignment row still reads 'pending' — which happens when the donor
+        // has a duplicate/twin assignment row and today's disposition log was
+        // written against the other row. The queue path (workableFiltered)
+        // already applies this same disposedTodayIds exclusion; the list must
+        // match it or a "DONE TODAY" lead keeps sitting in the Leads tab.
+        if (!isPendingStatus) return false;
+        if (disposedTodayIds.has(r.donor_id)) return false;
+        return true;
+      });
     }
 
     // The workable set — original exclusion semantics, preserved verbatim for the
@@ -6553,6 +6564,9 @@ export const getDonorDonations = async (req, res) => {
 
     let assignment = null;
     if (ngo_id) {
+      // A donor can hold duplicate assignment rows (same worker + NGO); picking
+      // any one here is safe because NGO scope (and the donor's whole history in
+      // it) is what matters for the donations read, not the specific row.
       const { data } = await db
         .from('fro_assignments')
         .select('id, ngo_id')
@@ -6560,6 +6574,7 @@ export const getDonorDonations = async (req, res) => {
         .eq('fro_worker_id', workerId)
         .eq('ngo_id', ngo_id)
         .not('status', 'eq', 'reassigned')
+        .limit(1)
         .maybeSingle();
       assignment = data;
     } else {
@@ -6607,22 +6622,47 @@ export const getDonorDonations = async (req, res) => {
       startDate = istMonthBounds(now).month;
     }
 
-    let query = db
-      .from('fro_donor_logs')
-      .select('*')
-      .eq('assignment_id', assignment.id)
-      .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
-      .order('created_at', { ascending: false });
-
-    if (startDate) {
-      query = query.gte('created_at', startDate);
+    // The donor's donation history lives on ANY of their assignments in this
+    // NGO. Every re-allocation / monthly cycle can create a fresh
+    // fro_assignments row, so a lead_done/donation taken under a previous
+    // assignment was invisible when logs were fetched by the CURRENT
+    // assignment.id only — which is why old donors showed "no receipts". Read
+    // across all of the donor's (donor_id, ngo_id) assignments to surface that
+    // history; the NGO scope mirrors how receipts are scoped below (project_id),
+    // so a donation to another NGO never leaks in.
+    let logs = [];
+    if (assignment.ngo_id) {
+      const { data: donorAssignments } = await db
+        .from('fro_assignments')
+        .select('id')
+        .eq('donor_id', donorId)
+        .eq('ngo_id', assignment.ngo_id)
+        .not('status', 'eq', 'reassigned');
+      const assignmentIds = Array.from(new Set((donorAssignments || []).map(a => a.id)));
+      logs = await chunkedInQuery(assignmentIds, chunk => {
+        let q = db
+          .from('fro_donor_logs')
+          .select('*')
+          .in('assignment_id', chunk)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+          .order('created_at', { ascending: false });
+        if (startDate) q = q.gte('created_at', startDate);
+        if (endDate) q = q.lte('created_at', endDate + 'T23:59:59Z');
+        return q;
+      });
+    } else {
+      let q = db
+        .from('fro_donor_logs')
+        .select('*')
+        .eq('assignment_id', assignment.id)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+        .order('created_at', { ascending: false });
+      if (startDate) q = q.gte('created_at', startDate);
+      if (endDate) q = q.lte('created_at', endDate + 'T23:59:59Z');
+      const { data, error } = await q;
+      if (error) throw error;
+      logs = data || [];
     }
-    if (endDate) {
-      query = query.lte('created_at', endDate + 'T23:59:59Z');
-    }
-
-    const { data: logs, error } = await query;
-    if (error) throw error;
 
     const countedLogIds = new Set((logs || []).map(l => l.id));
 
