@@ -407,6 +407,61 @@ export const fetchCalendarObservances = async (params = {}) => {
   }
 }
 
+const buildByDate = (list) => {
+  const byDate = {}
+  for (const o of list || []) (byDate[o.date] ||= []).push(o)
+  return byDate
+}
+
+/* ── Important Days calendar (GET /api/important-days) ───────────────────────
+   The calendar grid and the "Important Days" side panel both fetch this single
+   endpoint. It merges the curated reference calendar, the fixed international
+   days, operator holidays and Calendarific server-side, and returns every row
+   tagged `type: 'india' | 'international'`; `scope` mirrors the
+   Worldwide+India / Worldwide / India toggle.
+
+   Unlike fetchCalendarObservances, a network/auth failure is REPORTED, not
+   swallowed: the caller gets `ok:false` with a human message plus the bundled
+   offline list, so the grid is never empty and the UI can show a clear error. */
+export const fetchImportantDays = async (params = {}) => {
+  const qs = new URLSearchParams()
+  if (params.year) qs.set('year', params.year)
+  if (params.month) qs.set('month', params.month)
+  if (params.start) qs.set('start', params.start)
+  if (params.end) qs.set('end', params.end)
+  if (params.scope) qs.set('scope', params.scope)
+  const q = qs.toString()
+  try {
+    const d = await apiGet('/important-days' + (q ? '?' + q : ''))
+    if (d && Array.isArray(d.days)) {
+      const byDate = d.by_date && typeof d.by_date === 'object' ? d.by_date : buildByDate(d.days)
+      return {
+        ok: true,
+        error: null,
+        ...d,
+        observances: d.days,
+        by_date: byDate,
+        source: 'server',
+      }
+    }
+    throw new Error('unexpected important-days response')
+  } catch (err) {
+    const today = new Date()
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const end = params.end || iso(today)
+    const start = params.start || iso(new Date(today.getTime() - 62 * 86400000))
+    const scope = params.scope || 'all'
+    const fallback = localObservances(start, end, scope)
+    const reason = err?.message || String(err || '')
+    console.warn('fetchImportantDays: the important-days calendar could not be loaded:', reason)
+    return {
+      ...fallback,
+      ok: false,
+      error: `The Important Days live calendar could not be loaded (${reason || 'server unreachable'}). Showing the offline reference days — India + international days from Calendarific are not included.`,
+    }
+  }
+}
+
 /* AI-backed programme ideas for one day. The date and the occasion come
    from the reference calendar on the server; the model only proposes ideas, and
    the API key stays on the server. If the endpoint is missing we return the same
