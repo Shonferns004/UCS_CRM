@@ -91,6 +91,7 @@ import aadhaarRoutes from './aadhaar/routes.js';
 import metropadRouter from './metropad/router.js';
 import votingRoutes from './routes/votingRoutes.js';
 import audienceVotingRoutes from './routes/audienceVotingRoutes.js';
+import sevakLibraryRouter from './sevakLibrary/router.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { startMemoryWatchdog } from './services/memoryWatchdog.js';
 import { authenticate } from './middleware/authMiddleware.js';
@@ -158,6 +159,7 @@ const databaseDist = path.resolve(__dirname, '../../database/dist');
 const recruitDist = path.resolve(__dirname, '../../recruit-quizz/dist');
 const votingDist = path.resolve(__dirname, '../../others/voting/dist');
 const audienceVotingDist = path.resolve(__dirname, '../../others/audience-voting/dist');
+const sevakLibraryDist = path.resolve(__dirname, '../../others/sevak-library/sevak-library/dist');
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 let gitCommit = 'unknown';
@@ -306,6 +308,7 @@ app.use('/api/aadhaar', aadhaarRoutes);
 app.use('/api/metropad', metropadRouter);
 app.use('/api/voting', votingRoutes);
 app.use('/api/audience-voting', audienceVotingRoutes);
+app.use('/api/sevak-library', sevakLibraryRouter);
 
 app.get('/api/deploy-test', (req, res) => {
   res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });
@@ -946,7 +949,7 @@ if (fs.existsSync(froDist)) {
   // registered BEFORE this app's own mount and would otherwise answer every
   // /audience-voting request with the FRO SPA. Note that `voting` in this list
   // does not cover it: the path starts with "audience-", not "voting".
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database|voting|audience-voting).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database|voting|audience-voting|sevak-library).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
@@ -997,6 +1000,19 @@ if (fs.existsSync(audienceVotingDist)) {
   app.use('/audience-voting/assets', express.static(path.join(audienceVotingDist, 'assets')));
   app.get('/audience-voting*', (req, res) => {
     res.sendFile(path.join(audienceVotingDist, 'index.html'));
+  });
+}
+
+// Sevak Library membership admission app. Built from others/sevak-library and
+// served from the API origin so the PWA can talk to /api/sevak-library without
+// a cross-origin hop. The `sevak-library` exclusion above stops the FRO SPA
+// catch-all from answering these paths first. Serve the whole dist directory
+// (assets, manifest, service worker) and fall back to the SPA shell for
+// hash-routed deep links.
+if (fs.existsSync(sevakLibraryDist)) {
+  app.use('/sevak-library', express.static(sevakLibraryDist));
+  app.get('/sevak-library*', (req, res) => {
+    res.sendFile(path.join(sevakLibraryDist, 'index.html'));
   });
 }
 
@@ -1083,6 +1099,17 @@ const requireCronAuth = (req, res, next) => {
         res.json({ success: true, ...result });
       } catch (error) {
         console.error('FRO month-rollover cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
+    app.post('/api/cron/sevak-renewals', requireCronAuth, async (req, res) => {
+      try {
+        const { runRenewalScan } = await import('./sevakLibrary/services/email.service.js');
+        const result = await runRenewalScan();
+        res.json({ success: true, ...result });
+      } catch (error) {
+        console.error('Sevak renewals cron error:', error.message);
         res.status(500).json({ success: false, message: error.message });
       }
     });

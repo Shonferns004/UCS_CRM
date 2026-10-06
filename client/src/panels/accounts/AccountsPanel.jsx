@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Heart, Wallet, Database, Smartphone } from 'lucide-react'
+import { Users, Heart, Wallet, Database, Smartphone, BookOpen } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -49,6 +49,7 @@ import BillReminderPage from './bill-reminder/BillReminderPage'
 import LeadIncentive from '../../components/LeadIncentive'
 import IncentivesPage from '../super-admin/pages/IncentivesPage'
 import SpecialIncentives from '../super-admin/pages/SpecialIncentives'
+import SevakPanel from '../sevak-library/SevakPanel'
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
@@ -58,6 +59,8 @@ const NAV_TOP = [
   { id: 'bill-reminder', path: '/accounts/bill-reminder', label: 'Bill Reminder',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
     match: (p) => p.startsWith('/accounts/bill-reminder') },
+  { id: 'library', path: '/accounts/library', label: 'Library',
+    icon: <BookOpen size={18} /> },
 ]
 
 const NAV_GROUPS = [
@@ -469,6 +472,7 @@ export default function AccountsPanel() {
             <Route path="sim/*" element={<SimSection />} />
             <Route path="beneficiaries/*" element={<BeneficiariesPanel base="/accounts/beneficiaries" />} />
             <Route path="bill-reminder/*" element={<BillReminderPage />} />
+            <Route path="library" element={<SevakPanel />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>
