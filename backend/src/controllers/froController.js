@@ -65,6 +65,7 @@ import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '..
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
+import redis from '../config/redis.cjs';
 
 // FRO read payloads are recomputed on every poll and on every page visit, and
 // most of them only change when the FRO themselves act. Caching them keeps a
@@ -78,6 +79,68 @@ const FRO_DASHBOARD_TTL_MS = 30 * 1000;
 const FRO_TARGET_TTL_MS = 30 * 1000;
 const FRO_SEARCH_TTL_MS = 60 * 1000;
 const FRO_SEARCH_SCOPE_TTL_MS = 60 * 1000;
+// My Leads runs 11+ sequential queries per request, so it is the most expensive
+// read in this file and the one refetched most often - the client re-requests it
+// on every mount, on every station/NGO/tab change (up to 3x per load), and on
+// every fro_assignments INSERT socket event.
+//
+// Two tiers. L1 is in-process, so it costs nothing, survives a Redis outage, and
+// absorbs the repeat hits without a network round-trip. L2 is Upstash so the
+// cache is shared if the backend is ever run as more than one process - today it
+// is a single process (see socket.js) and L2 is mostly insurance, which is also
+// why L1 is checked first.
+//
+// This endpoint does NOT poll on an interval, unlike /fro/my-performance, so its
+// request volume is a small fraction of that one's. Volume estimate: ~20 FROs x
+// ~25 list loads/day (mount + a few tab/station switches + socket reloads) is
+// roughly 500 GET/day, ~15k/month even before misses add their SET - comfortably
+// inside the 500k/month budget noted in utils/ttlCache.js, which was set against
+// the 30s-poll endpoint at ~57.6k requests/day, not this one.
+const FRO_DONORS_TTL_MS = 30 * 1000;
+const FRO_DONORS_REDIS_PREFIX = 'v1:fro:donors:';
+// Longer than L1 on purpose: a cold L1 (new process, or an L1 eviction) can then
+// still be served from Upstash instead of falling through to those 11+ queries.
+const FRO_DONORS_REDIS_TTL_S = 60;
+// The client renders this list incrementally (LEADS_PAGE_SIZE/visibleCount) and
+// does NOT send limit/offset, so the cached payload is the WHOLE filtered list -
+// sometimes multiple MB of ~38 keys per donor. Large payloads stay in L1 only:
+// shipping them to Upstash on every miss would burn storage and bandwidth to
+// cache a view that is refetched rarely anyway. Oversized views still get the
+// full benefit of L1, which is where the repeat hits actually are.
+const FRO_DONORS_REDIS_MAX_BYTES = 512 * 1024;
+
+// Every query param that changes the My Leads payload. Anything left out of this
+// list would let two differently-filtered views share one entry and show the FRO
+// the wrong queue.
+const FRO_DONORS_KEY_PARAMS = [
+  'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only',
+  'verified_only', 'active_only', 'inactive_only', 'include_suppressed',
+  'period', 'limit', 'offset',
+];
+
+/**
+ * Identity of one My Leads view: worker + work-as scope + filter combination.
+ *
+ * The act-stations segment is not redundant with workerId: a "work as" token
+ * carries act_stations that narrow the FRO's (ngo, station) scope while workerId
+ * stays the same, so two operators impersonating the same FRO can hold two
+ * different queues at once. Without it one would be served the other's leads.
+ *
+ * Returned hashed, so both tiers get short fixed-width keys. The L1 key keeps its
+ * `fro:donors:<workerId>:` head because invalidation deletes that prefix.
+ */
+function froDonorsCacheKeys(req, workerId) {
+  const params = FRO_DONORS_KEY_PARAMS.map(p => `${p}=${req.query?.[p] ?? ''}`);
+  const actPairs = froActPairs(req);
+  const act = actPairs
+    ? actPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`).sort().join(',')
+    : '-';
+  const hash = redis.hashKey(`${workerId}|act=${act}|${params.join('&')}`);
+  return {
+    l1: `fro:donors:${workerId}:${hash}`,
+    l2: `${FRO_DONORS_REDIS_PREFIX}${workerId}:${hash}`,
+  };
+}
 
 /**
  * Drop every cached read payload belonging to one FRO. Called from the write
@@ -88,6 +151,13 @@ export function invalidateFroCaches(workerId) {
   cacheDelPrefix(`fro:dash:${workerId}:`);
   cacheDelPrefix(`fro:target:${workerId}:`);
   cacheDelPrefix(`fro:search:${workerId}:`);
+  cacheDelPrefix(`fro:donors:${workerId}:`);
+  // Upstash cannot delete a prefix cheaply, but this namespace stays small - one
+  // key per live filter combination for that worker, and oversized views are
+  // never written - so a bounded SCAN is a couple of round-trips, which is noise
+  // next to the DB write that triggered this. Fire-and-forget so the write path
+  // never waits on the cache; worst case the entries age out on their TTL.
+  redis.delByPrefix(`${FRO_DONORS_REDIS_PREFIX}${workerId}:`).catch(() => { });
 }
 
 import { istDayBounds, istDateString, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
@@ -2160,6 +2230,33 @@ export const getMyDonors = async (req, res) => {
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
+    // Read-through cache for the list view only.
+    //
+    // queue_current is deliberately EXCLUDED. That path is not a list, it is a
+    // cursor: it reconciles work_queue, clears rows no longer eligible, marks the
+    // served donor seen and returns exactly one donor plus forward-only progress.
+    // Caching it would hand back an already-worked donor and let a lead reappear,
+    // which is the specific thing that path exists to prevent. It also WRITES, so
+    // a cached copy would skip those writes.
+    const cacheable = req.query.queue_current !== 'true';
+    const { l1: l1Key, l2: l2Key } = cacheable
+      ? froDonorsCacheKeys(req, workerId)
+      : { l1: null, l2: null };
+    if (cacheable && req.query.fresh !== '1') {
+      const hit = cacheGet(l1Key, FRO_DONORS_TTL_MS);
+      if (hit !== undefined) return res.json(hit);
+
+      // L2. redis.get is fail-open (null on any error) and never throws, so an
+      // Upstash outage just falls through to the real query. The shape check is
+      // deliberate: it stops a stale or foreign value under this key from being
+      // handed to the client as if it were a lead list.
+      const remote = await redis.get(l2Key);
+      if (remote && typeof remote === 'object' && Array.isArray(remote.donors)) {
+        cacheSet(l1Key, remote, FRO_DONORS_TTL_MS);
+        return res.json(remote);
+      }
+    }
+
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
 
     let effectiveScope = myScope;
@@ -2791,7 +2888,12 @@ export const getMyDonors = async (req, res) => {
     const suppressedTotal = result.reduce((n, r) => n + (r.is_suppressed ? 1 : 0), 0);
     const workedTotal = result.reduce((n, r) => n + (!r.is_suppressed && r.suppress_reason ? 1 : 0), 0);
 
-    return res.json({
+    // Only the list payload is cached, and only on the success path. The early
+    // returns above stay uncached deliberately: the out-of-scope NGO case and the
+    // empty-queue case are both cheap, and caching an "empty" would keep serving
+    // it for up to the TTL after an admin widened the FRO's station scope - a
+    // visible empty list for no reason the FRO could explain.
+    const payload = {
       donors: page,
       total,
       counts: {
@@ -2808,7 +2910,22 @@ export const getMyDonors = async (req, res) => {
         by_reason: suppressedBreakdown,
       },
       include_suppressed: includeSuppressed,
-    });
+    };
+
+    if (cacheable) {
+      cacheSet(l1Key, payload);
+
+      // L2 write is fire-and-forget so a slow Upstash never delays the FRO's
+      // response. The serialize here is only for the size guard; redis.set does
+      // its own stringify, which is cheap next to the 11+ queries just avoided.
+      let json = null;
+      try { json = JSON.stringify(payload); } catch { json = null; }
+      if (json && json.length <= FRO_DONORS_REDIS_MAX_BYTES) {
+        redis.set(l2Key, payload, FRO_DONORS_REDIS_TTL_S).catch(() => { });
+      }
+    }
+
+    return res.json(payload);
   } catch (error) {
     console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
     return res.status(500).json({ message: error.message });
