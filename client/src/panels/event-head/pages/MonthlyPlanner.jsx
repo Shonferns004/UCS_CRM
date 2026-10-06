@@ -9,7 +9,8 @@ import { PageHeader, SearchInput, Select } from '../components/ui'
 import {
   fetchCalendarEvents, fetchWorkspaceNgos, fetchSectors, fetchActivities,
   createEvent, updateEvent, deleteEvent,
-  fetchImportantDays, suggestDayPrograms,
+  fetchImportantDays, suggestDayPrograms, getFestivalSuggestions,
+  mergeProgrammeRows, blankRepeatedDates,
   EVENT_STATUSES, PRIORITIES, CATEGORIES,
 } from '../store'
 import '../calendar.css'
@@ -44,10 +45,9 @@ const OBS_META = {
 }
 const OBS_SCOPE = { worldwide: { label: 'Worldwide', icon: '🌍' }, india: { label: 'India', icon: '🇮🇳' } }
 
-/* How many observance rows a single day cell shows before collapsing the rest
-   into a "+N more" chip. Two keeps the grid readable on a normal month view
-   while still fitting multi-observance dates such as 14 Nov. */
-const OBS_CHIPS_IN_CELL = 2
+/* Every important day / festival on a date is shown in its cell — the grid grows
+   taller on dense dates (e.g. 14 Nov) instead of hiding anything behind a
+   "+N more" chip. Selected AI programmes get their own chip row beneath. */
 const obsMeta = (kind) => OBS_META[kind] || OBS_META.observance
 
 /* ── Event category (derived client-side for coloring) ── */
@@ -622,6 +622,15 @@ export default function MonthlyPlanner() {
   const [obsError, setObsError] = useState('')
   const [dayPanel, setDayPanel] = useState(null)       // { date }
 
+  /* Selected Monthly Planner AI programmes. These are the SAME rows the
+     Monthly Planner reads and ticks via /planner/festival-suggestions — this
+     page only subscribes to them, it never keeps a second selection store.
+     Scoped to the month in view and the active NGO filter: changing either
+     re-reads exactly what the planner stored for that scope, so a month with no
+     selections shows none (stale ticks from another month never linger). */
+  const [festivalSel, setFestivalSel] = useState([])
+  const [festivalSelLoading, setFestivalSelLoading] = useState(false)
+
   /* Month / year navigation mirror of the FullCalendar view */
   const [cursor, setCursor] = useState(() => {
     const d = initialDateRef.current ? new Date(`${initialDateRef.current}T00:00:00`) : new Date()
@@ -669,6 +678,7 @@ export default function MonthlyPlanner() {
   const [toast, setToast] = useState('')
   const [groupSel, setGroupSel] = useState(null)
   const [preset, setPreset] = useState(null)           // prefill for EventFormModal
+  const [calDownloading, setCalDownloading] = useState(false)
 
   /* Load options (NGO → Sector → Activity cascade) */
   useEffect(() => {
@@ -737,6 +747,18 @@ export default function MonthlyPlanner() {
       .finally(() => setObsLoading(false))
   }
   useEffect(() => { loadObservances() /* eslint-disable-line */ }, [range, scope])
+
+  /* Selected festival programmes for the visible month. Abort-guarded so a fast
+     month/NGO hop cannot let an older response overwrite a newer view. */
+  useEffect(() => {
+    let live = true
+    setFestivalSelLoading(true)
+    getFestivalSuggestions({ month: cursor.m + 1, year: cursor.y, ngo_id: filterNgo || undefined })
+      .then((l) => { if (live) setFestivalSel(Array.isArray(l) ? l : []) })
+      .catch(() => { if (live) setFestivalSel([]) })
+      .finally(() => { if (live) setFestivalSelLoading(false) })
+    return () => { live = false }
+  }, [cursor.y, cursor.m, filterNgo])
 
   // Observances falling inside the month currently in view (for the side list).
   const monthObservances = useMemo(() => {
@@ -875,6 +897,156 @@ export default function MonthlyPlanner() {
   const refresh = () => setLoadKey(k => k + 1)
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2600) }
 
+  const scopePlain = { all: 'Worldwide + India', worldwide: 'Worldwide only', india: 'India only' }[scope]
+
+  /* ── Calendar download (full selected month) ──
+     Every date of the month appears, in order. Rows are date → festival → the
+     AI programmes selected for that festival in the Monthly Planner (read fresh
+     from the SAME stored set, so the file and the planner ticks can never
+     disagree). A festival with no selected programme still lists itself once;
+     a date with neither festival nor programme still appears. */
+  const buildCalendarRows = async () => {
+    const y = cursor.y
+    const m = cursor.m
+    const monthDates = new Set()
+    const days = []
+    const total = new Date(y, m + 1, 0).getDate()
+    for (let i = 1; i <= total; i++) {
+      const date = `${y}-${pad2(m + 1)}-${pad2(i)}`
+      monthDates.add(date)
+      days.push({ date, day: new Date(y, m, i).toLocaleDateString('en-US', { weekday: 'long' }) })
+    }
+
+    const obsByDate = new Map()
+    for (const o of monthObservances) {
+      const d = String(o.date || '').slice(0, 10)
+      if (!monthDates.has(d)) continue
+      if (!obsByDate.has(d)) obsByDate.set(d, [])
+      obsByDate.get(d).push(o)
+    }
+
+    const sel = await getFestivalSuggestions({ month: m + 1, year: y, ngo_id: filterNgo || undefined, selected_only: true }).catch(() => [])
+    const progsByDate = new Map()
+    for (const s of Array.isArray(sel) ? sel : []) {
+      const d = String(s.observance_date || '').slice(0, 10)
+      if (!monthDates.has(d)) continue
+      if (!progsByDate.has(d)) progsByDate.set(d, [])
+      progsByDate.get(d).push(s)
+    }
+
+    const ngoNameOf = new Map(ngos.map((n) => [String(n.id), String(n.code || '').trim() || String(n.name || '').trim() || 'NGO']))
+    const rows = []
+    for (const { date, day } of days) {
+      const obsOn = obsByDate.get(date) || []
+      const progs = progsByDate.get(date) || []
+      if (!obsOn.length && !progs.length) {
+        rows.push({ date, day, festival: '—', ngo: '—', beneficiary: '—', activity: '—', programme: '—' })
+        continue
+      }
+      for (const o of obsOn) {
+        const p = progs.filter((s) => String(s.festival || '').trim().toLowerCase() === String(o.name || '').trim().toLowerCase())
+        if (!p.length) {
+          rows.push({ date, day, festival: o.name, ngo: '—', beneficiary: '—', activity: '—', programme: '—' })
+        } else {
+          for (const s of p) {
+            rows.push({ date, day, festival: o.name, ngo: ngoNameOf.get(String(s.ngo_id)) || '—', beneficiary: s.beneficiary || '—', activity: s.activity_name || '—', programme: s.title || '—' })
+          }
+        }
+      }
+      /* A selected programme whose stored festival string does not exactly match
+         the observable name still gets its own row, festival label intact. */
+      const matched = new Set(obsOn.map((o) => String(o.name || '').trim().toLowerCase()))
+      for (const s of progs) {
+        if (matched.has(String(s.festival || '').trim().toLowerCase())) continue
+        rows.push({ date, day, festival: s.festival || '—', ngo: ngoNameOf.get(String(s.ngo_id)) || '—', beneficiary: s.beneficiary || '—', activity: s.activity_name || '—', programme: s.title || '—' })
+      }
+    }
+    /* Rule 8: final dedupe before the PDF is built. Unique key date + festival +
+       NGO + beneficiary — multiple selected programmes for the same festival
+       collapse into ONE row with the programme (and activity) titles
+       comma-joined instead of one duplicate date/festival row per programme.
+       Different festivals sharing a date stay separate. blankRepeatedDates then
+       shows each date once: the date/day cells fill only on the first row of
+       that date, so 2026-12-05 never repeats across its festival rows. */
+    return {
+      rows: blankRepeatedDates(mergeProgrammeRows(rows, ['date', 'festival', 'ngo', 'beneficiary']), 'date', 'day'),
+      total,
+    }
+  }
+
+  /* Proper styled PDF: A4 landscape, title/meta band, banded bordered table with
+     wrapped text, repeated header row on each page, and a build stamp. */
+  const downloadCalendar = async () => {
+    if (calDownloading) return
+    setCalDownloading(true)
+    try {
+      const { rows, total } = await buildCalendarRows()
+      const { default: jsPDF } = await import('jspdf')
+      const y = cursor.y
+      const m = cursor.m
+      const ngoSel = filterNgo ? ngos.find((n) => String(n.id) === String(filterNgo)) : null
+      const pdfCode = String(ngoSel?.code || ngoSel?.name || 'all-ngos').replace(/[^A-Za-z0-9_-]/g, '')
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      const PAD = 16
+      const PAGE_H = 210
+      const headers = ['Date', 'Day', 'Festival / Important Day', 'NGO', 'Beneficiary', 'Activity', 'Selected AI Programme']
+      const widths = [30, 24, 62, 24, 30, 34, 60]
+      const tableW = widths.reduce((a, b) => a + b, 0)
+      const colX = []
+      let acc = PAD
+      for (const w of widths) { colX.push(acc); acc += w }
+
+      let ypos = PAD
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 24, 40)
+      doc.text(`Monthly Calendar — ${ngoSel?.code || ngoSel?.name || 'All NGOs'} · ${MONTHS[m]} ${y}`, PAD, ypos)
+      ypos += 6
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100, 104, 124)
+      doc.text(`${scopePlain} · every date in the month (${total}) · selected AI programmes from the Monthly Planner`, PAD, ypos)
+      ypos += 4
+
+      const drawHeader = () => {
+        doc.setFillColor(232, 236, 246)
+        doc.rect(PAD, ypos, tableW, 8, 'F')
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(20, 24, 40)
+        headers.forEach((h, i) => doc.text(h, colX[i] + 2, ypos + 5.5))
+        doc.setDrawColor(213, 217, 228); doc.setLineWidth(0.2)
+        doc.rect(PAD, ypos, tableW, 8)
+        ypos += 8
+      }
+      drawHeader()
+
+      const lineH = 3.6
+      let rowCount = 0
+      for (const r of rows) {
+        const cells = [r.date, r.day, r.festival, r.ngo, r.beneficiary, r.activity, r.programme]
+        const wrapped = cells.map((c, i) => doc.splitTextToSize(String(c || ''), widths[i] - 4))
+        const rowH = Math.max(5.4, Math.max(...wrapped.map((w) => w.length)) * lineH + 2.2)
+        if (ypos + rowH > PAGE_H - 12) {
+          doc.addPage(); ypos = PAD; drawHeader()
+        }
+        if (rowCount % 2 === 0) { doc.setFillColor(247, 249, 252); doc.rect(PAD, ypos, tableW, rowH, 'F') }
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(55, 60, 78)
+        wrapped.forEach((lines, i) => {
+          let yy = ypos + 4.4
+          for (const ln of lines) { doc.text(ln, colX[i] + 2, yy); yy += lineH }
+        })
+        doc.setDrawColor(213, 217, 228); doc.setLineWidth(0.1); doc.rect(PAD, ypos, tableW, rowH)
+        ypos += rowH
+        rowCount++
+      }
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 134, 152)
+      doc.text(`Generated ${new Date().toLocaleString('en-IN')} · festival dates come from the reference calendar (never AI) · programmes are the AI suggestions selected in the Monthly Planner.`, PAD, PAGE_H - 8)
+      doc.save(`calendar-${pdfCode}-${MONTHS[m]}-${y}.pdf`)
+    } catch (e) {
+      console.error('downloadCalendar error:', e)
+      showToast('Could not build the calendar PDF.')
+    } finally {
+      setCalDownloading(false)
+    }
+  }
+
   /* Filters applied post-fetch (search + delegated UI) */
   const filteredEvents = useMemo(() => {
     if (!search) return events
@@ -922,9 +1094,46 @@ export default function MonthlyPlanner() {
     }).filter(Boolean)
   }, [filteredEvents])
 
+  /* Selected Monthly Planner AI programmes, rendered as read-only calendar
+     chips. `start` is the suggestion's observance_date, so a programme can
+     never drift onto another date: the chips are non-editable (no drag/drop)
+     and their date is never rewritten. Each chip shows the programme plus its
+     NGO · beneficiary tag; the festival it belongs to rides on the tooltip so
+     the box never loses the pairing shown in the planner grid. */
+  const ngoShortLabel = useMemo(() => {
+    const m = new Map(ngos.map((n) => [String(n.id), String(n.code || '').trim() || String(n.name || '').trim() || 'NGO']))
+    return (id) => m.get(String(id)) || 'NGO'
+  }, [ngos])
+
+  const festivalProgEvents = useMemo(() => {
+    return festivalSel
+      .filter((s) => Boolean(s?.is_selected) && /^\d{4}-\d{2}-\d{2}$/.test(String(s.observance_date || '')))
+      .map((s) => ({
+        id: `fps-${s.id}`,
+        title: s.title || 'Programme',
+        start: String(s.observance_date),
+        allDay: true,
+        editable: false,
+        classNames: ['eh-fprog'],
+        extendedProps: {
+          fp: true,
+          suggestionId: s.id,
+          festival: s.festival || '',
+          beneficiary: s.beneficiary || '',
+          activity: s.activity_name || '',
+          sector: s.sector_name || '',
+          ngoId: s.ngo_id ?? null,
+          ngoLabel: ngoShortLabel(s.ngo_id),
+        },
+      }))
+  }, [festivalSel, ngoShortLabel])
+
   const applyFilterToCal = () => {} // eslint-disable-line
 
   const handleEventClick = (info) => {
+    /* AI programme chips are read-only: they only report what the Monthly
+       Planner stored. Clicking one must not open the event editor or move it. */
+    if (info.event.extendedProps?.fp) return
     const members = info.event.extendedProps?.members
     if (Array.isArray(members) && members.length > 1) {
       setGroupSel({ title: baseTitle(info.event.title, info.event.extendedProps?.ngoName), date: (info.event.extendedProps?.date || info.event.startStr || '').slice(0, 10), members })
@@ -935,6 +1144,7 @@ export default function MonthlyPlanner() {
 
   const handleEventDrop = async (info) => {
     const ev = info.event
+    if (ev.extendedProps?.fp) { info.revert(); return }
     const members = ev.extendedProps?.members
     if (Array.isArray(members) && members.length > 1) {
       info.revert()
@@ -1020,6 +1230,16 @@ export default function MonthlyPlanner() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {festivalSelLoading ? (
+            <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>Loading programmes…</span>
+          ) : festivalSel.some((s) => Boolean(s.is_selected)) ? (
+            <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>
+              {festivalSel.filter((s) => Boolean(s.is_selected)).length} program{festivalSel.filter((s) => Boolean(s.is_selected)).length === 1 ? '' : 's'} selected in Monthly Planner
+            </span>
+          ) : null}
+          <button className="eh-btn eh-btn-sm eh-btn-primary" onClick={downloadCalendar} disabled={calDownloading} title="Download the complete month as a PDF: every date, its festival / important day, and the AI programmes you selected in the Monthly Planner">
+            {calDownloading ? 'Building…' : 'Download Calendar'}
+          </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--eh-ink)', cursor: 'pointer', margin: 0 }}>
             <input type="checkbox" checked={showObs} onChange={(e) => setShowObs(e.target.checked)} style={{ accentColor: 'var(--eh-primary)' }} />
             Show important days on the grid
@@ -1085,8 +1305,6 @@ export default function MonthlyPlanner() {
   const dayCellContent = (arg) => {
     const key = toYmd(arg.date)
     const chips = showObs ? (obs.byDate[key] || []) : []
-    const shown = chips.slice(0, OBS_CHIPS_IN_CELL)
-    const extra = chips.length - shown.length
     return (
       /* FullCalendar renders dayCellContent *inside* its own
          .fc-daygrid-day-number element, which is a shrink-to-fit flex item.
@@ -1096,7 +1314,7 @@ export default function MonthlyPlanner() {
         <span className="eh-obs-num">{arg.date.getDate()}</span>
         {!!chips.length && (
           <div className="eh-obs-strip">
-            {shown.map((o) => {
+            {chips.map((o) => {
               const m = obsMeta(o.kind)
               const sc = (OBS_SCOPE[o.scope] || OBS_SCOPE.worldwide)
               const tip = o.precision === 'lunar' ? ' (lunar date — confirm against the gazette)' : ''
@@ -1112,14 +1330,6 @@ export default function MonthlyPlanner() {
                 </span>
               )
             })}
-            {extra > 0 && (
-              /* Still carries data-obs-date, so clicking "+N more" opens the day
-                 box listing every observance on that date. */
-              <span className="eh-obs-chip eh-obs-more" data-obs-date={key}
-                title={`${extra} more important day${extra > 1 ? 's' : ''} on this date — click to see all`}>
-                +{extra} more
-              </span>
-            )}
           </div>
         )}
       </div>
@@ -1368,17 +1578,24 @@ export default function MonthlyPlanner() {
               editable
               selectable
               selectMirror
-              dayMaxEvents={3}
-              moreLinkContent={(arg) => `${arg.num} more`}
               nowIndicator
-              events={groupedEvents}
+              events={[...groupedEvents, ...festivalProgEvents]}
               dayCellContent={dayCellContent}
               eventClassNames={(arg) => {
+                if (arg.event.extendedProps?.fp) return ['eh-fprog']
                 const p = arg.event.extendedProps || {}
                 return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
               }}
               eventContent={(arg) => {
                 const p = arg.event.extendedProps || {}
+                if (p.fp) {
+                  return {
+                    html: `<div class="eh-fp-chip" title="${escapeHtml(`${p.festival ? `${p.festival} · ` : ''}${arg.event.title}${p.activity ? ` — ${p.activity}` : ''}`)}">
+                      <div class="eh-fp-title">${escapeHtml(arg.event.title)}</div>
+                      <span class="eh-fp-tag">${escapeHtml(p.ngoLabel)}${p.beneficiary ? ` · ${escapeHtml(p.beneficiary)}` : ''}</span>
+                    </div>`,
+                  }
+                }
                 const cat = CATEGORY_META[p.category] || CATEGORY_META.other
                 const ngos = p.ngos || []
                 const title = baseTitle(arg.event.title, p.ngoName)
