@@ -2780,7 +2780,18 @@ export const getMyDonors = async (req, res) => {
     // verified_only view (Donors panel) is exempt because it is a money-
     // reconciliation list, not a calling queue.
     if (req.query.verified_only !== 'true') {
-      filtered = filtered.filter(r => r.status === 'pending' || r.status == null || r.status === '');
+      filtered = filtered.filter(r => {
+        const isPendingStatus = r.status === 'pending' || r.status == null || r.status === '';
+        // A lead dispositioned today must leave Leads even when its surfaced
+        // assignment row still reads 'pending' — which happens when the donor
+        // has a duplicate/twin assignment row and today's disposition log was
+        // written against the other row. The queue path (workableFiltered)
+        // already applies this same disposedTodayIds exclusion; the list must
+        // match it or a "DONE TODAY" lead keeps sitting in the Leads tab.
+        if (!isPendingStatus) return false;
+        if (disposedTodayIds.has(r.donor_id)) return false;
+        return true;
+      });
     }
 
     // The workable set — original exclusion semantics, preserved verbatim for the
