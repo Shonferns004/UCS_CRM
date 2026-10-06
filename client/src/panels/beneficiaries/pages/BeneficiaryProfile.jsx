@@ -23,7 +23,7 @@ const styles = {
   td: { padding: '8px 12px', borderBottom: '1px solid var(--bg)' },
 }
 
-const TABS = ['Overview', 'Personal', 'Family', 'Education', 'Disability', 'Documents', 'Programs', 'Benefits', 'Identification', 'Activity']
+const TABS = ['Overview', 'Personal', 'Disability', 'Documents', 'Programs', 'Benefits', 'Identification']
 
 const STATUS_COLORS = {
   ACTIVE: ['#dcfce7', '#166534'], INACTIVE: ['var(--bg)', 'var(--ink-soft)'], SUSPENDED: ['#fef3c7', '#92400e'],
@@ -296,8 +296,8 @@ export default function BeneficiaryProfile() {
             <E label="Status">{Select('status', STATUSES)}</E>
             <Field label="Registration Date">{data.registration_date}</Field>
             <E label="Mobile">{Text('mobile')}</E>
-            <E label="Alternate Number">{Text('alternate_mobile')}</E>
-            <E label="Email">{Text('email', { type: 'email' })}</E>
+            {/* <E label="Alternate Number">{Text('alternate_mobile')}</E> */}
+            {/* <E label="Email">{Text('email', { type: 'email' })}</E> */}
             <E label="City">{Text('city')}</E>
             <E label="District">{Text('district')}</E>
             <E label="State">{Text('state')}</E>
@@ -324,8 +324,8 @@ export default function BeneficiaryProfile() {
             <Field label="Status"><span style={styles.pill(bg, fg)}>{data.status}</span></Field>
             <Field label="Registration Date">{data.registration_date}</Field>
             <Field label="Mobile">{data.mobile}</Field>
-            <Field label="Alternate Number">{data.alternate_mobile}</Field>
-            <Field label="Email">{data.email}</Field>
+            {/* <Field label="Alternate Number">{data.alternate_mobile}</Field> */}
+            {/* <Field label="Email">{data.email}</Field> */}
             <Field label="City">{data.city}</Field>
             <Field label="District">{data.district}</Field>
             <Field label="State">{data.state}</Field>
@@ -348,23 +348,23 @@ export default function BeneficiaryProfile() {
         return editing ? (
           <div style={styles.grid2}>
             <E label="Full Name">{Text('full_name')}</E>
-            <E label="First Name">{Text('first_name')}</E>
-            <E label="Middle Name">{Text('middle_name')}</E>
-            <E label="Last Name">{Text('last_name')}</E>
+            {/* <E label="First Name">{Text('first_name')}</E> */}
+            {/* <E label="Middle Name">{Text('middle_name')}</E> */}
+            {/* <E label="Last Name">{Text('last_name')}</E> */}
             <E label="Date of Birth">{Text('date_of_birth', { type: 'date' })}</E>
             <E label="Gender">{Select('gender', GENDERS, 'Select')}</E>
-            <E label="Email">{Text('email', { type: 'email' })}</E>
+            {/* <E label="Email">{Text('email', { type: 'email' })}</E> */}
             <E label="Photo URL">{Text('photo')}</E>
           </div>
         ) : (
           <div style={styles.grid2}>
             <Field label="Full Name">{data.full_name}</Field>
-            <Field label="First Name">{data.first_name}</Field>
-            <Field label="Middle Name">{data.middle_name}</Field>
-            <Field label="Last Name">{data.last_name}</Field>
+            {/* <Field label="First Name">{data.first_name}</Field> */}
+            {/* <Field label="Middle Name">{data.middle_name}</Field> */}
+            {/* <Field label="Last Name">{data.last_name}</Field> */}
             <Field label="Date of Birth">{data.date_of_birth}</Field>
             <Field label="Gender">{data.gender}</Field>
-            <Field label="Email">{data.email}</Field>
+            {/* <Field label="Email">{data.email}</Field> */}
             <Field label="Photo">{data.photo ? <img src={data.photo} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover' }} /> : '-'}</Field>
           </div>
         )
@@ -518,17 +518,39 @@ export default function BeneficiaryProfile() {
         return editing ? (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-              <h4 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Disability Details</h4>
+              <h4 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+                Disability Details
+              </h4>
+
               <button
                 type="button"
-                onClick={() => setDisabilities((p) => [...p, { disability_type: '', disability_percentage: '', certificate_available: false }])}
-                style={{ ...styles.btn, marginLeft: 'auto', background: 'var(--bg)', color: 'var(--ink)' }}
+                onClick={() =>
+                  setDisabilities((p) => [
+                    ...p,
+                    {
+                      disability_type: '',
+                      disability_percentage: '',
+                      certificate_number: '',
+                      certificate_available: false,
+                      issuing_authority: '',
+                    },
+                  ])
+                }
+                style={{
+                  ...styles.btn,
+                  marginLeft: 'auto',
+                  background: 'var(--bg)',
+                  color: 'var(--ink)',
+                }}
               >
                 + Add Disability
               </button>
             </div>
+
             {disabilities.length === 0 ? (
-              <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No disability records — add one if applicable.</p>
+              <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>
+                No disability records — add one if applicable.
+              </p>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={styles.table}>
@@ -541,17 +563,85 @@ export default function BeneficiaryProfile() {
                       <th style={styles.th}></th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {disabilities.map((d, i) => (
                       <tr key={d.id ?? `new-${i}`}>
-                        <td style={styles.td}>{CellInput(d.disability_type, (v) => setDisabilities((p) => p.map((r, j) => (j === i ? { ...r, disability_type: v } : r))))}</td>
-                        <td style={styles.td}>{CellInput(d.disability_percentage, (v) => setDisabilities((p) => p.map((r, j) => (j === i ? { ...r, disability_percentage: v } : r))), 'number')}</td>
-                        <td style={styles.td}>{CellInput(d.certificate_number, (v) => setDisabilities((p) => p.map((r, j) => (j === i ? { ...r, certificate_number: v } : r))))}</td>
-                        <td style={styles.td}>{CellInput(d.issuing_authority, (v) => setDisabilities((p) => p.map((r, j) => (j === i ? { ...r, issuing_authority: v } : r))))}</td>
+                        {/* Disability Type */}
+                        <td style={styles.td}>
+                          {CellInput(
+                            d.disability_type ?? '',
+                            (v) =>
+                              setDisabilities((p) =>
+                                p.map((r, j) =>
+                                  j === i
+                                    ? { ...r, disability_type: v }
+                                    : r
+                                )
+                              )
+                          )}
+                        </td>
+
+                        {/* Percentage */}
+                        <td style={styles.td}>
+                          {CellInput(
+                            d.disability_percentage ?? '',
+                            (v) =>
+                              setDisabilities((p) =>
+                                p.map((r, j) =>
+                                  j === i
+                                    ? { ...r, disability_percentage: v }
+                                    : r
+                                )
+                              ),
+                            'number'
+                          )}
+                        </td>
+
+                        {/* Certificate Number */}
+                        <td style={styles.td}>
+                          {CellInput(
+                            d.certificate_number ?? '',
+                            (v) =>
+                              setDisabilities((p) =>
+                                p.map((r, j) =>
+                                  j === i
+                                    ? { ...r, certificate_number: v }
+                                    : r
+                                )
+                              )
+                          )}
+                        </td>
+
+                        {/* Authority */}
+                        <td style={styles.td}>
+                          {CellInput(
+                            d.issuing_authority ?? '',
+                            (v) =>
+                              setDisabilities((p) =>
+                                p.map((r, j) =>
+                                  j === i
+                                    ? { ...r, issuing_authority: v }
+                                    : r
+                                )
+                              )
+                          )}
+                        </td>
+
+                        {/* Remove */}
                         <td style={styles.td}>
                           <span
-                            onClick={() => setDisabilities((p) => p.filter((_, j) => j !== i))}
-                            style={{ color: '#dc2626', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                            onClick={() =>
+                              setDisabilities((p) =>
+                                p.filter((_, j) => j !== i)
+                              )
+                            }
+                            style={{
+                              color: '#dc2626',
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              fontWeight: 600,
+                            }}
                           >
                             Remove
                           </span>
@@ -565,14 +655,60 @@ export default function BeneficiaryProfile() {
           </div>
         ) : (
           <div>
-            {data.disabilities?.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>No disability records</p> : (
+            {!data.disabilities || data.disabilities.length === 0 ? (
+              <p
+                style={{
+                  color: 'var(--ink-soft)',
+                  fontSize: '13px',
+                }}
+              >
+                No disability records
+              </p>
+            ) : (
               <table style={styles.table}>
-                <thead><tr><th style={styles.th}>Type</th><th style={styles.th}>Percentage</th><th style={styles.th}>Certificate</th><th style={styles.th}>Authority</th></tr></thead>
-                <tbody>{data.disabilities?.map((d, i) => <tr key={i}><td style={styles.td}>{d.disability_type}</td><td style={styles.td}>{d.disability_percentage}%</td><td style={styles.td}>{d.certificate_available ? 'Yes' : 'No'}</td><td style={styles.td}>{d.issuing_authority}</td></tr>)}</tbody>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Type</th>
+                    <th style={styles.th}>Percentage</th>
+                    <th style={styles.th}>Certificate No.</th>
+                    <th style={styles.th}>Certificate</th>
+                    <th style={styles.th}>Authority</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {data.disabilities.map((d, i) => (
+                    <tr key={i}>
+                      <td style={styles.td}>
+                        {d.disability_type || '-'}
+                      </td>
+
+                      <td style={styles.td}>
+                        {d.disability_percentage !== null &&
+                          d.disability_percentage !== undefined &&
+                          d.disability_percentage !== ''
+                          ? `${d.disability_percentage}%`
+                          : '-'}
+                      </td>
+
+                      <td style={styles.td}>
+                        {d.certificate_number || '-'}
+                      </td>
+
+                      <td style={styles.td}>
+                        {d.certificate_available ? 'Yes' : 'No'}
+                      </td>
+
+                      <td style={styles.td}>
+                        {d.issuing_authority || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             )}
           </div>
-        )
+        );
       case 'Documents':
         return (
           <div>
