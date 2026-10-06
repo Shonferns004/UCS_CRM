@@ -108,6 +108,11 @@ export const createNewBeneficiary = async (req, res) => {
                   : null,
               certificate_available:
                 d.certificate_available != null ? Boolean(d.certificate_available) : false,
+              certificate_number: d.certificate_number || null,
+              certificate_issue_date: d.certificate_issue_date || null,
+              certificate_validity: d.certificate_validity || null,
+              issuing_authority: d.issuing_authority || null,
+              remarks: d.remarks || null,
             });
             saved = true;
           } catch (e) {
