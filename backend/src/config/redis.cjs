@@ -90,6 +90,35 @@ async function del(keys) {
   }
 }
 
+// Delete every key under a prefix.
+//
+// Station payloads are keyed per (user x ngo x range), so a mutation by one admin
+// has to invalidate keys belonging to every other admin's session - they cannot be
+// enumerated from the keyspace locally, so this walks the server instead of
+// guessing at ids. SCAN (not KEYS) so it never blocks Upstash, and the loop is
+// bounded so a pathological keyspace degrades into a partial delete plus the TTL
+// expiry rather than an unbounded request. Fail-open like everything else here: a
+// miss just means the old entries age out on their own.
+async function delByPrefix(prefix, maxIterations = 50) {
+  const c = getClient();
+  if (!c || !isReady() || !prefix) return 0;
+  let deleted = 0;
+  try {
+    let cursor = '0';
+    for (let i = 0; i < maxIterations; i++) {
+      const [next, batch] = await c.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200);
+      cursor = next;
+      if (batch && batch.length > 0) {
+        deleted += await c.del(...batch);
+      }
+      if (cursor === '0') break;
+    }
+    return deleted;
+  } catch {
+    return deleted;
+  }
+}
+
 function hashKey(parts) {
   if (parts == null) return '0';
   const s = Array.isArray(parts) ? parts.map(p => String(p)).join('|') : String(parts);
@@ -102,5 +131,6 @@ module.exports = {
   get,
   set,
   del,
+  delByPrefix,
   hashKey,
 };

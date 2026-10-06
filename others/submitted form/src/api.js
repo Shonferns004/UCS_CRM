@@ -28,7 +28,10 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  login: (identifier, password) => request('POST', 'auth/worker/login', { identifier, password }),
+  // `client` identifies the caller to the backend. It is what lets this app
+  // authenticate a FRO with their own @ufs login, which every other surface
+  // refuses. Do not send it from anywhere else.
+  login: (identifier, password) => request('POST', 'auth/worker/login', { identifier, password, client: 'submitted_form' }),
   myProfile: () => request('GET', 'workers/me'),
   // Which document the volunteer handed over. Blank clears it. The backend
   // rejects anything outside the agreed option list.

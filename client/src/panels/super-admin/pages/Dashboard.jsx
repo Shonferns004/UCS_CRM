@@ -818,7 +818,7 @@ const NGO_DISPOSITION_GROUPS = [
   { label: 'Other', color: '#5B6B4E', bg: '#f0f2ee', statuses: ['transferred_senior', 'query_complaint', 'receipt_request'] },
 ]
 
-function NgoStationModal({ ngoName, onClose }) {
+function NgoStationModal({ ngoName, ngoId, onClose }) {
   const [allDonors, setAllDonors] = useState([])
   const [stats, setStats] = useState(null)
   const [stationList, setStationList] = useState([])
@@ -849,14 +849,19 @@ function NgoStationModal({ ngoName, onClose }) {
       })
       setStats(agg)
       setActiveStation(matched[0])
-      Promise.all(matched.map(st =>
-        api(`/ngo-admin/donors-by-station?station=${encodeURIComponent(st)}`).catch(() => [])
-      )).then(results => {
+      Promise.all(matched.map(st => {
+        // Pass the NGO through. This modal is already scoped to one NGO, and a
+        // station NAME can be shared between NGOs - without ngo_id the endpoint
+        // unions them and the donor list disagrees with the station's own count.
+        const params = new URLSearchParams({ station: st });
+        if (ngoId) params.set('ngo_id', ngoId);
+        return api(`/ngo-admin/donors-by-station?${params}`).catch(() => []);
+      })).then(results => {
         const combined = results.flatMap(r => Array.isArray(r) ? r : [])
         setAllDonors(combined)
       }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false))
     }).catch((err) => { console.error('API error:', err.message); setLoading(false) })
-  }, [ngoName])
+  }, [ngoName, ngoId])
 
   const allStatuses = stats ? Object.entries(stats).filter(([, v]) => v > 0) : []
   const totalDonors = allStatuses.reduce((t, [, v]) => t + v, 0)
@@ -3008,6 +3013,9 @@ export default function Dashboard() {
       {ngoStationModal && (
         <NgoStationModal
           ngoName={ngoStationModal}
+          // per_ngo carries { id, name, code }; resolve the modal's name to the
+          // id the donors-by-station endpoint scopes on.
+          ngoId={(ngoUserCounts || []).find(n => n && n.name === ngoStationModal)?.id || ''}
           onClose={() => setNgoStationModal(null)}
         />
       )}

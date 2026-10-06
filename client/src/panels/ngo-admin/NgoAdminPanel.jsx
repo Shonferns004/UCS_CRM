@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
-import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { usePolling } from './hooks/usePolling'
@@ -16,11 +16,8 @@ import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Donors = lazy(() => import('./pages/Donors'))
-const DonorDetail = lazy(() => import('./pages/DonorDetail'))
 const StationManagement = lazy(() => import('./pages/StationManagement'))
 const NgoAttendance = lazy(() => import('./pages/Attendance'))
-const DonorCRM = lazy(() => import('./pages/DonorCRM'))
 const SearchResults = lazy(() => import('./pages/SearchResults'))
 const Codes = lazy(() => import('./pages/Codes'))
 const Agents = lazy(() => import('./pages/Agents'))
@@ -29,8 +26,6 @@ const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
-  { id: 'donor-crm', path: '/ngo-admin/donor-crm', label: 'Donor CRM', icon: 'donorCrm' },
-  { id: 'donors', path: '/ngo-admin/donors', label: 'Donors', icon: 'donors' },
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'agents', path: '/ngo-admin/agents', label: 'Agents', icon: 'agents' },
   { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
@@ -41,8 +36,6 @@ const NAV = [
 const ICONS = {
   dashboard: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>,
   alerts: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
-  donorCrm: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
-  donors: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   station: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   attendance: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   froStatus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17a4 4 0 0 1 8 0"/><circle cx="9" cy="7" r="4"/><path d="M13 4.13A4 4 0 0 1 18 8v4"/><path d="M18 12v6"/><line x1="16" y1="18" x2="20" y2="18"/></svg>,
@@ -82,7 +75,7 @@ function Sidebar({ open, onClose, collapsed }) {
         </div>
         <nav className="sidebar-nav">
           {NAV.map(n => {
-            const active = location.pathname === n.path || location.pathname.startsWith(n.path + '/') || (n.id === 'donors' && location.pathname.startsWith('/ngo-admin/donors/'))
+            const active = location.pathname === n.path || location.pathname.startsWith(n.path + '/')
             return (
             <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
               onClick={() => onClose?.()}
@@ -97,17 +90,6 @@ function Sidebar({ open, onClose, collapsed }) {
       </aside>
     </>
   )
-}
-
-function DonorDetailPage() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  return <DonorDetail donor={{ id }} onBack={() => navigate('/ngo-admin/donors')} />
-}
-
-function DonorsPage() {
-  const navigate = useNavigate()
-  return <Donors onSelect={(donor) => navigate(`/ngo-admin/donors/${donor.id}`)} />
 }
 
 export default function NgoAdminPanel() {
@@ -310,7 +292,7 @@ export default function NgoAdminPanel() {
   }
   const searchTotal = (searchResults.donors?.length || 0) + (searchResults.fros?.length || 0) + (searchResults.stations?.length || 0);
 
-  const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/') || (n.id === 'donors' && location.pathname.startsWith('/ngo-admin/donors/')))
+  const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
@@ -544,11 +526,8 @@ export default function NgoAdminPanel() {
           <Suspense fallback={<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh'}}><span style={{fontSize:13,color:'var(--ink-soft)'}}>Loading...</span></div>}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="donor-crm" element={<DonorCRM />} />
-            <Route path="donors" element={<DonorsPage />} />
-            <Route path="donors/:id" element={<DonorDetailPage />} />
-            <Route path="station-mgmt" element={<StationManagement />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="station-mgmt" element={<StationManagement />} />
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="search" element={<SearchResults />} />
             <Route path="codes" element={<Codes />} />

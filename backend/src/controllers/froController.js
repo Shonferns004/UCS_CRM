@@ -64,6 +64,102 @@ import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js'
 import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '../services/froCounterDay.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
+import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
+import redis from '../config/redis.cjs';
+
+// FRO read payloads are recomputed on every poll and on every page visit, and
+// most of them only change when the FRO themselves act. Caching them keeps a
+// browser refresh or a 30s poll from re-running the same aggregate scans.
+//
+// TTLs are deliberately short and every payload that depends on the FRO's own
+// work is invalidated explicitly by invalidateFroCaches() the moment a
+// disposition or donation is written, so a stale number is never shown for more
+// than the window it takes the next request to arrive.
+const FRO_DASHBOARD_TTL_MS = 30 * 1000;
+const FRO_TARGET_TTL_MS = 30 * 1000;
+const FRO_SEARCH_TTL_MS = 60 * 1000;
+const FRO_SEARCH_SCOPE_TTL_MS = 60 * 1000;
+// My Leads runs 11+ sequential queries per request, so it is the most expensive
+// read in this file and the one refetched most often - the client re-requests it
+// on every mount, on every station/NGO/tab change (up to 3x per load), and on
+// every fro_assignments INSERT socket event.
+//
+// Two tiers. L1 is in-process, so it costs nothing, survives a Redis outage, and
+// absorbs the repeat hits without a network round-trip. L2 is Upstash so the
+// cache is shared if the backend is ever run as more than one process - today it
+// is a single process (see socket.js) and L2 is mostly insurance, which is also
+// why L1 is checked first.
+//
+// This endpoint does NOT poll on an interval, unlike /fro/my-performance, so its
+// request volume is a small fraction of that one's. Volume estimate: ~20 FROs x
+// ~25 list loads/day (mount + a few tab/station switches + socket reloads) is
+// roughly 500 GET/day, ~15k/month even before misses add their SET - comfortably
+// inside the 500k/month budget noted in utils/ttlCache.js, which was set against
+// the 30s-poll endpoint at ~57.6k requests/day, not this one.
+const FRO_DONORS_TTL_MS = 30 * 1000;
+const FRO_DONORS_REDIS_PREFIX = 'v1:fro:donors:';
+// Longer than L1 on purpose: a cold L1 (new process, or an L1 eviction) can then
+// still be served from Upstash instead of falling through to those 11+ queries.
+const FRO_DONORS_REDIS_TTL_S = 60;
+// The client renders this list incrementally (LEADS_PAGE_SIZE/visibleCount) and
+// does NOT send limit/offset, so the cached payload is the WHOLE filtered list -
+// sometimes multiple MB of ~38 keys per donor. Large payloads stay in L1 only:
+// shipping them to Upstash on every miss would burn storage and bandwidth to
+// cache a view that is refetched rarely anyway. Oversized views still get the
+// full benefit of L1, which is where the repeat hits actually are.
+const FRO_DONORS_REDIS_MAX_BYTES = 512 * 1024;
+
+// Every query param that changes the My Leads payload. Anything left out of this
+// list would let two differently-filtered views share one entry and show the FRO
+// the wrong queue.
+const FRO_DONORS_KEY_PARAMS = [
+  'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only',
+  'verified_only', 'active_only', 'inactive_only', 'include_suppressed',
+  'period', 'limit', 'offset',
+];
+
+/**
+ * Identity of one My Leads view: worker + work-as scope + filter combination.
+ *
+ * The act-stations segment is not redundant with workerId: a "work as" token
+ * carries act_stations that narrow the FRO's (ngo, station) scope while workerId
+ * stays the same, so two operators impersonating the same FRO can hold two
+ * different queues at once. Without it one would be served the other's leads.
+ *
+ * Returned hashed, so both tiers get short fixed-width keys. The L1 key keeps its
+ * `fro:donors:<workerId>:` head because invalidation deletes that prefix.
+ */
+function froDonorsCacheKeys(req, workerId) {
+  const params = FRO_DONORS_KEY_PARAMS.map(p => `${p}=${req.query?.[p] ?? ''}`);
+  const actPairs = froActPairs(req);
+  const act = actPairs
+    ? actPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`).sort().join(',')
+    : '-';
+  const hash = redis.hashKey(`${workerId}|act=${act}|${params.join('&')}`);
+  return {
+    l1: `fro:donors:${workerId}:${hash}`,
+    l2: `${FRO_DONORS_REDIS_PREFIX}${workerId}:${hash}`,
+  };
+}
+
+/**
+ * Drop every cached read payload belonging to one FRO. Called from the write
+ * paths that change what those payloads contain (disposition saved, donation
+ * recorded, station scope edited).
+ */
+export function invalidateFroCaches(workerId) {
+  cacheDelPrefix(`fro:dash:${workerId}:`);
+  cacheDelPrefix(`fro:target:${workerId}:`);
+  cacheDelPrefix(`fro:search:${workerId}:`);
+  cacheDelPrefix(`fro:donors:${workerId}:`);
+  // Upstash cannot delete a prefix cheaply, but this namespace stays small - one
+  // key per live filter combination for that worker, and oversized views are
+  // never written - so a bounded SCAN is a couple of round-trips, which is noise
+  // next to the DB write that triggered this. Fire-and-forget so the write path
+  // never waits on the cache; worst case the entries age out on their TTL.
+  redis.delByPrefix(`${FRO_DONORS_REDIS_PREFIX}${workerId}:`).catch(() => { });
+}
+
 import { istDayBounds, istDateString, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
@@ -589,6 +685,13 @@ export const getDashboard = async (req, res) => {
   try {
     const workerId = req.user.id;
 
+    // This handler fans out to a dozen read-all-then-count-in-JS queries over the
+    // FRO's whole assignment history, and the dashboard is refetched on every
+    // visit. Serve the last payload while it is fresh instead.
+    const dashKey = `fro:dash:${workerId}:${req.query.month || 'cur'}`;
+    const hitDash = cacheGet(dashKey, FRO_DASHBOARD_TTL_MS);
+    if (hitDash !== undefined) return res.json(hitDash);
+
     // Count donors by this FRO's stations (from fro_assignments)
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     let totalDonors = 0;
@@ -825,7 +928,7 @@ export const getDashboard = async (req, res) => {
       .maybeSingle();
     const is_punched_in = myAtt && (myAtt.status === 'present' || myAtt.status === 'late');
 
-    return res.json({
+    const dashboardPayload = {
       worker: {
         is_active: worker.is_active !== false,
         is_punched_in,
@@ -877,7 +980,9 @@ export const getDashboard = async (req, res) => {
         unused: dataUnused,
       },
       assignedData,
-    });
+    };
+    cacheSet(dashKey, dashboardPayload);
+    return res.json(dashboardPayload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -2125,6 +2230,33 @@ export const getMyDonors = async (req, res) => {
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
+    // Read-through cache for the list view only.
+    //
+    // queue_current is deliberately EXCLUDED. That path is not a list, it is a
+    // cursor: it reconciles work_queue, clears rows no longer eligible, marks the
+    // served donor seen and returns exactly one donor plus forward-only progress.
+    // Caching it would hand back an already-worked donor and let a lead reappear,
+    // which is the specific thing that path exists to prevent. It also WRITES, so
+    // a cached copy would skip those writes.
+    const cacheable = req.query.queue_current !== 'true';
+    const { l1: l1Key, l2: l2Key } = cacheable
+      ? froDonorsCacheKeys(req, workerId)
+      : { l1: null, l2: null };
+    if (cacheable && req.query.fresh !== '1') {
+      const hit = cacheGet(l1Key, FRO_DONORS_TTL_MS);
+      if (hit !== undefined) return res.json(hit);
+
+      // L2. redis.get is fail-open (null on any error) and never throws, so an
+      // Upstash outage just falls through to the real query. The shape check is
+      // deliberate: it stops a stale or foreign value under this key from being
+      // handed to the client as if it were a lead list.
+      const remote = await redis.get(l2Key);
+      if (remote && typeof remote === 'object' && Array.isArray(remote.donors)) {
+        cacheSet(l1Key, remote, FRO_DONORS_TTL_MS);
+        return res.json(remote);
+      }
+    }
+
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
 
     let effectiveScope = myScope;
@@ -2756,7 +2888,12 @@ export const getMyDonors = async (req, res) => {
     const suppressedTotal = result.reduce((n, r) => n + (r.is_suppressed ? 1 : 0), 0);
     const workedTotal = result.reduce((n, r) => n + (!r.is_suppressed && r.suppress_reason ? 1 : 0), 0);
 
-    return res.json({
+    // Only the list payload is cached, and only on the success path. The early
+    // returns above stay uncached deliberately: the out-of-scope NGO case and the
+    // empty-queue case are both cheap, and caching an "empty" would keep serving
+    // it for up to the TTL after an admin widened the FRO's station scope - a
+    // visible empty list for no reason the FRO could explain.
+    const payload = {
       donors: page,
       total,
       counts: {
@@ -2773,7 +2910,22 @@ export const getMyDonors = async (req, res) => {
         by_reason: suppressedBreakdown,
       },
       include_suppressed: includeSuppressed,
-    });
+    };
+
+    if (cacheable) {
+      cacheSet(l1Key, payload);
+
+      // L2 write is fire-and-forget so a slow Upstash never delays the FRO's
+      // response. The serialize here is only for the size guard; redis.set does
+      // its own stringify, which is cheap next to the 11+ queries just avoided.
+      let json = null;
+      try { json = JSON.stringify(payload); } catch { json = null; }
+      if (json && json.length <= FRO_DONORS_REDIS_MAX_BYTES) {
+        redis.set(l2Key, payload, FRO_DONORS_REDIS_TTL_S).catch(() => { });
+      }
+    }
+
+    return res.json(payload);
   } catch (error) {
     console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
     return res.status(500).json({ message: error.message });
@@ -2943,6 +3095,10 @@ export const updateDonorStatus = async (req, res) => {
     }
 
     const result = await updateAssignmentStatus(assignment.id, updates);
+    // A status change moves the lead in/out of the workable stack and can flip
+    // its suppressed flag, so the cached dashboard, target and search payloads
+    // are now wrong.
+    invalidateFroCaches(workerId);
     return res.json({ message: 'Status updated', data: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -3383,6 +3539,13 @@ export const createDonorLogHandler = async (req, res) => {
       }
     }
 
+    // Saving a disposition is the single most frequent write in the panel and it
+    // moves every number the FRO sees: connected/donated counts, target
+    // collection, the workable stack and (for a donation) suppression. Drop the
+    // cached reads so the refresh the client fires right after this response
+    // already sees the new state rather than a pre-disposition payload.
+    invalidateFroCaches(req.user.id);
+
     return res.json({ message: 'Log entry created', data: result, timer });
   } catch (error) {
     if (error && error.code === 'LEAD_CLOSED') {
@@ -3547,6 +3710,15 @@ export const scheduleContact = async (req, res) => {
 export const getMyTarget = async (req, res) => {
   try {
     const workerId = req.user.id;
+
+    // Re-resolves the monthly target through seven read-all-then-sum helpers and
+    // duplicates work getDashboard already does — and the dashboard page fires
+    // both on mount. Cache it on its own TTL so a page reload or a tab bounce
+    // does not pay for it twice.
+    const targetKey = `fro:target:${workerId}:${req.query.month || 'cur'}`;
+    const hitTarget = cacheGet(targetKey, FRO_TARGET_TTL_MS);
+    if (hitTarget !== undefined) return res.json(hitTarget);
+
     const worker = await getWorkerBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Worker not found' });
     const salary = await getActiveSalaryByWorker(workerId);
@@ -3635,7 +3807,7 @@ export const getMyTarget = async (req, res) => {
       }
     } catch (err) { console.error('Incentive calculation error:', err); }
 
-    return res.json({
+    const targetPayload = {
       month: monthStr,
       target,
       target_source: targetSource,
@@ -3648,7 +3820,9 @@ export const getMyTarget = async (req, res) => {
       months_employed: monthsEmployed,
       stats,
       incentive,
-    });
+    };
+    cacheSet(targetKey, targetPayload);
+    return res.json(targetPayload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -5988,19 +6162,36 @@ export const searchDonors = async (req, res) => {
     }
     if (effStations.length === 0) return res.json([]);
 
-    const { data: donorIdsFromStation } = await db
-      .from('fro_assignments')
-      .select('donor_id, ngo_id, station')
-      .in('station', effStations)
-      .not('status', 'eq', 'reassigned');
-
     const scopePairs = new Set(effScope.filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
-    const donorIdsInScope = [...new Set(
-      (donorIdsFromStation || [])
-        .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
-        .map(a => a.donor_id)
-        .filter(Boolean)
-    )];
+
+    // A search fires on every pause in typing, and these two reads are the
+    // expensive part: the first materialises EVERY in-scope donor id into a
+    // multi-thousand-element IN list, the second runs an un-indexable
+    // leading-wildcard ILIKE across it. Cache the id list per scope so
+    // consecutive searches skip that read entirely, and cache the finished result
+    // per term so a retyped or back-spaced query is answered from memory.
+    // invalidateFroCaches() drops both when the FRO's scope or leads change.
+    const scopeKey = `fro:search:${workerId}:${[...scopePairs].sort().join(',')}`;
+    const resultKey = `${scopeKey}:${searchTerm}`;
+    const hitResult = cacheGet(resultKey, FRO_SEARCH_TTL_MS);
+    if (hitResult !== undefined) return res.json(hitResult);
+
+    let donorIdsInScope = cacheGet(scopeKey, FRO_SEARCH_SCOPE_TTL_MS);
+    if (donorIdsInScope === undefined) {
+      const { data: donorIdsFromStation } = await db
+        .from('fro_assignments')
+        .select('donor_id, ngo_id, station')
+        .in('station', effStations)
+        .not('status', 'eq', 'reassigned');
+
+      donorIdsInScope = [...new Set(
+        (donorIdsFromStation || [])
+          .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
+          .map(a => a.donor_id)
+          .filter(Boolean)
+      )];
+      cacheSet(scopeKey, donorIdsInScope);
+    }
     if (donorIdsInScope.length === 0) return res.json([]);
 
     const { data: donors, error } = await db
@@ -6011,7 +6202,10 @@ export const searchDonors = async (req, res) => {
       .limit(20);
 
     if (error) throw error;
-    if (!donors || donors.length === 0) return res.json([]);
+    if (!donors || donors.length === 0) {
+      cacheSet(resultKey, []);
+      return res.json([]);
+    }
 
     const matchedIds = donors.map(d => d.id);
 
@@ -6082,6 +6276,7 @@ export const searchDonors = async (req, res) => {
       }
     }
 
+    cacheSet(resultKey, result);
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -6149,21 +6344,20 @@ export const getMyDisposedLeads = async (req, res) => {
       return scopePairs.has(pair) || effectiveScope.some(s => s.station === a.station && String(s.ngo_id) === String(a.ngo_id));
     });
 
-    const latestDispMap = {};
-    for (const dl of disposedLogs || []) {
-if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
-        latestDispMap[dl.donor_id] = dl;
-      }
-    }
-
-    // A donor can hold a BOD-1/MOD-3 assignment *and* a BOD-4 one, so scoping by
-    // "does this donor have an in-scope assignment" is not enough - it surfaces the
-    // donor's out-of-scope calls too. Every log carries assignment_id, so anchor on
-    // the assignment the call was actually logged against.
     const inScopeAssignIds = new Set(scopedAssignments.map(a => a.id));
+    // Pick each donor's most recent disposition THAT WAS LOGGED IN SCOPE, not
+    // simply their most recent disposition. Anchoring on the latest log globally
+    // meant a donor vanished from History whenever their newest call happened at
+    // another station — e.g. holding BOD-1 and BOD-5 and filtering History to
+    // BOD-1, a donor whose last touch was at BOD-5 dropped out entirely even
+    // though they had in-scope BOD-1 dispositions of their own. disposedLogs is
+    // already newest-first, so the first in-scope log per donor wins.
     const scopedDispMap = {};
-    for (const [donorId, dl] of Object.entries(latestDispMap)) {
-      if (inScopeAssignIds.has(dl.assignment_id)) scopedDispMap[donorId] = dl;
+    for (const dl of disposedLogs || []) {
+      if (!matchedIds.includes(dl.donor_id)) continue;
+      if (!inScopeAssignIds.has(dl.assignment_id)) continue;
+      if (scopedDispMap[dl.donor_id]) continue;
+      scopedDispMap[dl.donor_id] = dl;
     }
 
     const result = [];
