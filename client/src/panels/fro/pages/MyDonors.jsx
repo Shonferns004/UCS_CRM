@@ -66,6 +66,13 @@ const HIDDEN_STATUSES = new Set([
   'call_disconnected',
   'others',
 ]);
+// My Leads = pending work ONLY. A lead with any other status has already been
+// dispositioned this month and belongs in History / Callbacks / Follow-ups /
+// Overdue — the backend now returns only 'pending' rows for the list too, and
+// this filter is the client-side guarantee (realtime patches / list merges can
+// never re-introduce a worked lead). The monthly rollover resets every worked
+// status back to 'pending', so a lead disposed last month re-enters here.
+
 // Why a donor is held back, as flagged by the backend (is_suppressed /
 // suppress_reason). Used for the per-row badge so "why can't I work this lead?"
 // is always answerable on screen.
@@ -89,8 +96,8 @@ function isNewDonor(d) {
   return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
 }
 // Queue-only filter: drops donors the backend already considers worked/done so
-// the auto-advance cursor never re-serves them. The My Leads LIST does not go
-// through this (see HIDDEN_STATUSES) — it shows all allotted donors.
+// the auto-advance cursor never re-serves them. The My Leads LIST shows only
+// 'pending' leads (see filterAndSortDonors), so the queue and the list agree.
 function filterDonors(list) {
   return list.filter(d => !HIDDEN_STATUSES.has(d.status));
 }
@@ -107,13 +114,16 @@ function dedupeDonors(list) {
   return out;
 }
 
-// Sorts the fetched list WITHOUT dropping anything by status. The backend
-// already returns the full allotment (worked and closed leads included, flagged
-// via is_suppressed / suppress_reason), and the list view filters that
-// explicitly — so applying filterDonors here would silently re-hide the leads
-// the new logic is meant to surface.
+function isPendingStatus(d) {
+  // NULL/empty status = never-worked assignment; treated as pending.
+  return d.status === 'pending' || d.status == null || d.status === '';
+}
+// Sorts the fetched list, keeping ONLY 'pending' leads. My Leads is the FRO's
+// queue of work still to do; anything already dispositioned this month lives in
+// History / Callbacks / Follow-ups / Overdue and comes back here when the
+// monthly rollover resets it to pending.
 function filterAndSortDonors(list) {
-  return dedupeDonors(list).sort((a, b) => {
+  return dedupeDonors(list).filter(isPendingStatus).sort((a, b) => {
       const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
       const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
       // Suppressed (DND / donated this month) always sorts last so the
@@ -1506,16 +1516,15 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       .filter(s => !selectedNgo || s.ngo_id === selectedNgo)
       .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []);
 
-    // The list shows EVERY allotted donor. Nothing is dropped for having a status —
-    // the backend now returns the full list with is_suppressed flags instead of
-    // deleting rows, so the FRO's allotment and their visible list always agree.
-    // The status-group dropdown and the "Donated: hidden" toggle were both removed:
-    // they hid work the FRO was entitled to see behind controls that were easy to
-    // leave on. The only thing still narrowing the list by default is the
-    // "Hidden: N" toggle, which parks DND / donated-this-month leads — DND donors
-    // asked not to be contacted, so they must not surface by default, and that
-    // toggle stays as the one-click route to them.
-    // Leads that were merely worked or closed stay in the list (badged).
+    // My Leads lists pending work only: filterAndSortDonors drops any lead whose
+    // status is not 'pending', so this list agrees with the backend (which now
+    // returns only pending rows). Everything already dispositioned this month
+    // lives in History / Callbacks / Follow-ups / Overdue, and the monthly
+    // rollover brings each lead back here by resetting its status to pending.
+    // The status-group dropdown and the "Donated: hidden" toggle were removed
+    // because they hid work; the "Hidden: N" toggle below only parks
+    // DND / donated-this-month leads, which are no longer in a pending-only
+    // list and so effectively show nothing here by design.
     const suppressedCount = donors.filter(d => d.is_suppressed).length;
     const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
     const visible = donors.filter(d => {
