@@ -262,19 +262,25 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   //    row exists yet).
   //
   // Ghost-row guard: a (donor_id, ngo_id) pair must resolve to exactly ONE
-  // fro_assignments row, otherwise a donor can surface twice (or flip tabs via
-  // a batch_type=NULL row) and re-add "already handled" leads. Before INSERTing
-  // a fresh row, reuse ANY existing row for this (donor_id, ngo_id) that falls
-  // in the worker's (station, ngo) scope — even one stamped reassigned/owned by
-  // another FRO who no longer covers that scope — instead of duplicating it.
+  // active fro_assignments row, otherwise the same donor surfaces in two
+  // stations at once and two FROs work (and call) the same lead.
+  //
+  // The reuse pass below only claims rows that already fall in the worker's
+  // (station, ngo) scope. If a live row exists that we cannot claim — because
+  // it belongs to a different station, or to an active co-worker in this one —
+  // we must NOT fall through to the INSERT: that is exactly how the duplicate
+  // rows were born (22k+ cross-station pairs). Return null instead; every
+  // caller answers 404, which is the correct outcome for a donor this worker
+  // does not own.
   if (ngoId != null) {
     const { data: anyRows } = await db
       .from('fro_assignments')
-      .select('id, station, fro_worker_id')
+      .select('id, station, fro_worker_id, status')
       .eq('donor_id', donorId)
       .eq('ngo_id', ngoId)
       .limit(20);
-    for (const c of (anyRows || [])) {
+    const rows = anyRows || [];
+    for (const c of rows) {
       if (myStationRows && scopePairs.size > 0 && scopePairs.has(`${c.station}|${ngoId}`)) {
         // This row is already inside the worker's scope; claim it if it isn't
         // already theirs (e.g. an orphan/reassigned row left by a staff change).
@@ -289,6 +295,8 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
         }
       }
     }
+    // A live row exists that this worker may not claim -> refuse to duplicate.
+    if (rows.some(c => c.status !== 'reassigned')) return null;
   }
 
   const myStation = (myStationRows || []).find(s => s.ngo_id === ngoId);
@@ -318,7 +326,8 @@ async function getFroAssignment(donorId, workerId, ngoId) {
     .select('id, ngo_id')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
-    .not('status', 'eq', 'reassigned');
+    .not('status', 'eq', 'reassigned')
+    .limit(1);
   if (ngoId) query = query.eq('ngo_id', ngoId);
   const { data } = await query.maybeSingle();
   return data || null;
@@ -2018,33 +2027,61 @@ export const claimSuspenseReceipt = async (req, res) => {
     // Attach to the donor's open assignment owned by THIS claiming FRO for THIS
     // NGO (or open a fresh one) so the created lead shows up in Lead Verification
     // and credits the claimant — never another worker's or another NGO's assignment.
-    const { data: assignment } = await db
+    //
+    // "Fresh one" must mean: no active row for this (donor, NGO) exists AT ALL.
+    // Looking only at rows owned by the claimant made every claim against a donor
+    // owned by someone else insert a second active row — which is how the same
+    // donor ended up sitting in two stations at once. Reuse the donor's existing
+    // row instead; the lead still credits the claimant because the log below
+    // carries creditWorkerId, not the assignment's owner.
+    let { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id, status')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .eq('ngo_id', receiptNgoId)
       .neq('status', 'reassigned')
+      .limit(1)
       .maybeSingle();
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
-      const { scope: claimScope } = await getMyStationScope(workerId, froActPairs(req));
-      const scopeRow = (claimScope || []).find(s => s.ngo_id === receiptNgoId);
-      const { data: created, error: asgErr } = await db
+      const { data: anyActive } = await db
         .from('fro_assignments')
-        .insert({
-          donor_id: donorId,
-          fro_worker_id: workerId,
-          ngo_id: receiptNgoId,
-          station: scopeRow?.station || null,
-          status: 'lead_done',
-          assigned_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-      if (asgErr) throw asgErr;
-      assignmentId = created.id;
+        .select('id, fro_worker_id, status')
+        .eq('donor_id', donorId)
+        .eq('ngo_id', receiptNgoId)
+        .neq('status', 'reassigned')
+        .order('id', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (anyActive) {
+        assignment = anyActive;
+        assignmentId = anyActive.id;
+      } else {
+        // A receipt claim is a MONEY action, never an allotment. Do not stamp
+        // the claimant's station on the row it creates: getMyDonors only serves
+        // rows whose station is in the FRO's scope (`.in('station', ...)`, with
+        // no fallback), so a station-less row keeps this donor out of every My
+        // Leads list — including later, when resetCycledDonors / the monthly
+        // rollover flip lead_done back to pending. Credit is unaffected: the log
+        // below carries creditWorkerId, and Lead Verification joins the
+        // assignment through fro_worker_id, which still points at the claimant.
+        const { data: created, error: asgErr } = await db
+          .from('fro_assignments')
+          .insert({
+            donor_id: donorId,
+            fro_worker_id: workerId,
+            ngo_id: receiptNgoId,
+            station: null,
+            status: 'lead_done',
+            assigned_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        if (asgErr) throw asgErr;
+        assignmentId = created.id;
+      }
     }
 
     // Never collide with an explicit-id row from a data migration/import: keep
