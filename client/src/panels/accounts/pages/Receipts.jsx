@@ -15,8 +15,11 @@ import WhatsAppDeliveryBadge from '../components/WhatsAppDeliveryBadge'
 import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
 import { API_BASE as apiBase } from '../../../lib/apiBase'
 
+// The send queue only. bsct_receipt_2 is the live Meta template; ReceiptHistory
+// already sends it, and the queue was still going out on the retired
+// bsct_receipt. Everything else (the PDF design, Template Settings) is untouched.
 const NGO_MAP = {
-  bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
+  bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt_2', metaLang: 'en' },
   mann: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
   aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'ashray_receipt', metaLang: 'en' },
 }
