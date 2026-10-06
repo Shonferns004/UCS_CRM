@@ -14,7 +14,6 @@ import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImperso
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
-import CallTimer from './components/CallTimer'
 import { CallProvider, useCall, DISPOSITION_WINDOW, SETTLE_SECONDS } from './CallContext'
 import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -1064,7 +1063,6 @@ useEffect(() => onFroAction((action) => {
             <FroStatusPill />
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <CallTimer />
             <BirthdayPopup />
             <WorkAnniversaryPopup />
             <div onClick={openAki} title="Aaj Ka Incentive (AKI)" style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s' }}>

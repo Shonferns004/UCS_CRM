@@ -2082,8 +2082,8 @@
 /* NGO Admin extras */
 .panel-event-head .progress-bar, .panel-ngo-admin .progress-bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
 .panel-event-head .progress-fill, .panel-ngo-admin .progress-fill { height:100%; background:var(--sage); border-radius:4px; transition:width .3s; }
-.panel-ngo-admin .checkbox-col { width:40px; }
-.panel-ngo-admin .checkbox-col input[type="checkbox"] { width:16px; height:16px; accent-color:var(--sage); }
+    .panel-ngo-admin .checkbox-col { width:40px; }
+    .panel-ngo-admin .checkbox-col input[type="checkbox"] { width:16px; height:16px; accent-color:var(--sage); }
 .panel-ngo-admin .field input:focus, .panel-ngo-admin .field select:focus { border-color:var(--sage); }
 .panel-ngo-admin .btn-outline { background:transparent; border:1px solid var(--line); color:var(--ink); }
 .panel-ngo-admin .btn-outline:hover { background:var(--bg); }
@@ -2534,6 +2534,14 @@
   .panel-fro .fro-stat-grid-3 { grid-template-columns:1fr !important; }
   .panel-fro .fro-stat-grid-2 { grid-template-columns:1fr !important; }
 }
+
+/* My Leads runs edge to edge: the perf strip sits flush under the header and the
+   two panels run out to the sidebar and the window edge with no breathing room.
+   Declared once here rather than at each breakpoint so the padding:0 survives the
+   16/12/10px rules above, which is why it needs the !important - it is the same
+   trade the whatsapp-chat override makes. overflow:hidden because the shell
+   scrolls itself (see MyLeadsSuspense's own container query). */
+.panel-fro .content-body:has(.my-leads-shell) { padding:0 !important; overflow:hidden; }
 
 /* ── RECRUITER PANEL (.panel-recruiter) ── */
 .panel-recruiter { --sand:#F3EFE7; --paper:#FBFAF6; --ink:#232019; --ink-soft:#6F6857; --line:#E4DECF; --sage:#5B6B4E; --sage-soft:#E8EDE1; --clay:#B5603A; --clay-soft:#F4E4DA; --gold:#C08A2E; --gold-soft:#F6EAD0; --danger:#9E3B2E; --danger-soft:#F3DDD8; --radius:12px; --radius-sm:8px; --shadow:0 1px 2px rgba(35,32,25,.04),0 8px 24px rgba(35,32,25,.05); background:var(--sand); color:var(--ink); }

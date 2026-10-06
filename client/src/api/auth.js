@@ -75,6 +75,11 @@ export async function api(path, options = {}) {
       // hr_outside_window vs hr_send_failed) return a `code`, and callers that
       // need to branch on it can only do so if it survives the throw.
       if (err.code) e.code = err.code
+      // Same reasoning for a structured error body: a 409 that explains *which*
+      // rows failed and why is only actionable if those rows survive the throw.
+      // The message alone ("3 of 8 donors cannot be deleted") leaves the caller
+      // unable to show what to fix, which is the entire point of sending it.
+      e.data = err
       // A 404 whose body is not JSON is Express's default "Cannot GET /path":
       // the route is not mounted on this server. That is a deployment problem,
       // not a permissions problem, and the two must be distinguishable. A JSON
