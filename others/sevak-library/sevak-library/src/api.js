@@ -1,13 +1,14 @@
 // Sevak Library public API client.
 //
 // Formerly talked to Supabase (storage uploads + RPCs). Now everything goes to
-// the UCS CRM backend at /api/sevak-library on the SAME origin — the app is
-// served from /sevak-library by the Express server, so relative absolute paths
-// resolve without CORS. Admin endpoints require the CRM session (JWT); the
-// public endpoints (submit, look up by ref, record payment, payment reminder)
-// are open.
+// the UCS CRM backend at crm.beingsevak.org, which proxies /api/* to the API
+// server, so the same absolute URL works from any host (Vercel, the CRM, EC2).
+// The backend runs CORS with origin '*' so cross-origin calls work too. Admin
+// endpoints require the CRM session (JWT); the public endpoints (submit, look
+// up by ref, record payment, payment reminder) are open. Override the target
+// with VITE_API_BASE for local/dev builds.
 
-const BASE = '/api/sevak-library'
+const BASE = import.meta.env.VITE_API_BASE || 'https://crm.beingsevak.org/api/sevak-library'
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, options)
