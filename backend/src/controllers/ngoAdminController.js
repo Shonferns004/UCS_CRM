@@ -204,6 +204,36 @@ const NGODASH_REDIS_PREFIX = 'v1:ngoadmin:dash:';
 const NGODASH_REDIS_TTL_S = 60;
 const dashRedisKey = (dashCacheKey) => NGODASH_REDIS_PREFIX + redis.hashKey(dashCacheKey);
 
+// Stations and station stats, second tier. Same reasoning as the dashboard: both
+// payloads are whole-keyspace scans (every assignment row, deduped per
+// station+ngo+donor, plus a per-disposition count), and getStations had no cache
+// of any kind - every poll re-ran the scan. Rebuilt on each deploy, each new
+// instance and each second admin's first load, so a shared copy is worth one GET.
+//
+// Both are invalidated by bustStationCache() on every station mutation rather
+// than being left to expire, because the mutation screens (create/delete/rename/
+// transfer/upload) show their result immediately and a 60s-old count would read
+// as the write having failed.
+const STATION_REDIS_PREFIX = 'v1:ngoadmin:stations:';
+const STATION_STATS_REDIS_PREFIX = 'v1:ngoadmin:stnstats:';
+const STATION_REDIS_TTL_S = 60;
+const stationRedisKey = (k) => STATION_REDIS_PREFIX + redis.hashKey(k);
+const stationStatsRedisKey = (k) => STATION_STATS_REDIS_PREFIX + redis.hashKey(k);
+
+// Everything station-shaped derives from the same assignment rows, so one
+// invalidation covers both payloads and the TL/dashboard roll-ups that count
+// stations. Called after a mutation commits, never before.
+export const bustStationCache = () => {
+  for (const k of [..._rCache.keys()]) {
+    if (k.startsWith('stn:') || k.startsWith('stations:')) _rCache.delete(k);
+  }
+  bustTlCache();
+  // Fire and forget: the response must not wait on Redis, and a failure here just
+  // means the entries age out within STATION_REDIS_TTL_S.
+  redis.delByPrefix(STATION_REDIS_PREFIX).catch(() => { });
+  redis.delByPrefix(STATION_STATS_REDIS_PREFIX).catch(() => { });
+};
+
 export const bustTlCache = () => {
   tlCacheGeneration += 1;
   for (const k of _rCache.keys()) {
@@ -1688,6 +1718,10 @@ export const verifyLeadDone = async (req, res) => {
 
     if (updateAsgnError) throw updateAsgnError;
 
+    // Station membership is unchanged, but the disposition roll-up is grouped by
+    // assignment status and this flipped one to donation_collected.
+    bustStationCache();
+
     return res.json({ message: 'Lead verified, amount added to target' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1710,6 +1744,29 @@ export const getStations = async (req, res) => {
         targetNgoIds.push(req.user.ngo_id);
       }
       if (targetNgoIds.length === 0) return res.json([]);
+    }
+
+    // This endpoint scans every assignment row in the NGOs in scope and dedupes
+    // per (station, ngo, donor) to build the donor_count map - the most expensive
+    // read on the stations screen, and it was previously uncached, so each poll
+    // paid it in full. Key on the resolved NGO set rather than the raw query, so
+    // an admin and a super-admin looking at the same stations share one entry.
+    //
+    // The view mode is part of the key, not just the NGO set: the payload below
+    // differs by mode even for an identical set. Without ngo_id the station list
+    // also folds in null-NGO rows (getStationAssignmentsByNgo's second argument)
+    // and takes names from the access list, while an explicit ngo_id takes only
+    // that NGO and looks its name up directly. A single-NGO admin hits exactly
+    // that overlap, so keying on the set alone would hand them the wrong list.
+    const stationCacheKey = `stations:${ngo_id ? 'one' : 'all'}:${targetNgoIds.slice().sort().join(',')}`;
+    if (req.query.fresh !== '1') {
+      const cached = cacheGet(stationCacheKey, 60000);
+      if (cached) return res.json(cached);
+      const l2 = await redis.get(stationRedisKey(stationCacheKey));
+      if (Array.isArray(l2)) {
+        cacheSet(stationCacheKey, l2);
+        return res.json(l2);
+      }
     }
 
     // Get station assignments — only include null-NGO rows in the "all" view (no ngo_id filter)
@@ -1847,6 +1904,8 @@ export const getStations = async (req, res) => {
       return nA - nB;
     });
 
+    cacheSet(stationCacheKey, result);
+    redis.set(stationRedisKey(stationCacheKey), result, STATION_REDIS_TTL_S).catch(() => { });
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1890,6 +1949,9 @@ export const saveStationAssignment = async (req, res) => {
     if (!ngoId) return res.status(400).json({ message: 'No NGO assigned to your account' });
 
     const result = await upsertStationAssignment(fro_worker_id || null, ngoId, trimmedStation, req.user.id);
+    // The stations screen renders this station's FRO and donor count straight
+    // after the save, so the cached copy has to go or the write looks ignored.
+    bustStationCache();
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1910,6 +1972,7 @@ export const removeStationAssignment = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     await deleteStationAssignment(id);
+    bustStationCache();
     return res.json({ message: 'Station assignment removed' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1941,6 +2004,7 @@ export const removeStationByName = async (req, res) => {
     const { error } = await delQuery;
     if (error) throw error;
 
+    bustStationCache();
     return res.json({ message: 'Station deleted' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1975,6 +2039,7 @@ export const createStationHandler = async (req, res) => {
       .insert([{ station: stationName, ngo_id: ngo_id || null, assigned_by: req.user.id }])
       .select();
     if (error) throw error;
+    bustStationCache();
     return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2005,6 +2070,7 @@ export const updateStationNgos = async (req, res) => {
       }, { onConflict: 'station,ngo_id' });
     if (upsertErr) throw upsertErr;
 
+    bustStationCache();
     return res.json({ message: 'Station updated' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2039,6 +2105,10 @@ export const reassignStationFro = async (req, res) => {
     const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
     const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, req.user.id);
 
+    // Moves every donor in the station, so both the station list and the
+    // disposition roll-up are now wrong, not just the FRO label.
+    bustStationCache();
+
     return res.json({
       message: `Station reassigned. ${newAssignments.length} donors assigned to new FRO.`,
       count: newAssignments.length,
@@ -2054,6 +2124,13 @@ export const getStationStats = async (req, res) => {
     if (req.query.fresh !== '1') {
       const cached = cacheGet(stationCacheKey, 60000);
       if (cached) return res.json(cached);
+      // Missed in-memory: this rolls up disposition counts for every station, so
+      // warm it from Redis rather than re-running the per-NGO stats queries.
+      const l2 = await redis.get(stationStatsRedisKey(stationCacheKey));
+      if (l2 && typeof l2 === 'object') {
+        cacheSet(stationCacheKey, l2);
+        return res.json(l2);
+      }
     }
     const access = await getUserNgoAccess(req.user.id, req.user.role);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
@@ -2106,6 +2183,7 @@ export const getStationStats = async (req, res) => {
 
     const stationPayload = { stations: stationMap, summary };
     cacheSet(stationCacheKey, stationPayload);
+    redis.set(stationStatsRedisKey(stationCacheKey), stationPayload, STATION_REDIS_TTL_S).catch(() => { });
     return res.json(stationPayload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2895,6 +2973,9 @@ export const resetFreshData = async (req, res) => {
       messages.push(`${ngoName}: ${ngoFroDeleted} FD assignments removed, ${ngoDataDeleted} new_data deleted`);
     }
 
+    // The reset removed FD assignments, so the station donor counts and the
+    // disposition roll-up just lost rows.
+    if (totalDeleted > 0) bustStationCache();
     return res.json({
       message: messages.join('; ') || 'No fresh data to reset',
       deleted: totalDeleted,
@@ -3468,7 +3549,9 @@ export const deleteStationDonors = async (req, res) => {
 
     // Station/donor counts are cached for the TL dashboard (bustTlCache), and the
     // removal is exactly the kind of change a stale cache would misreport.
-    bustTlCache();
+    // bustStationCache covers the TL cache too, plus the station list and the
+    // disposition roll-up, all of which just lost rows.
+    bustStationCache();
 
     console.log(
       `[station-donors] user=${req.user.id} assignments=${counts.assignmentsDeleted} `
@@ -4254,6 +4337,10 @@ export const transferStationData = async (req, res) => {
       station.trim(), target_station.trim(), donor_count, autoReturnAt, req.user.id
     );
 
+    // Moved donors between two stations, so both stations' counts and the
+    // disposition roll-up change.
+    bustStationCache();
+
     return res.json({
       message: `Transferred ${result.transferred} donors to ${target_station}`,
       transfer: result.transfer,
@@ -4273,6 +4360,10 @@ export const returnTransferEarly = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     const count = await reverseTransfer(id);
+    // reverseTransfer marks the transferred rows 'reassigned' and re-inserts them
+    // under the original station, which both station roll-ups count. No rows moved
+    // means nothing to invalidate.
+    if (count > 0) bustStationCache();
     return res.json({
       message: `Returned ${count} donors to original FRO`,
       returned: count,
@@ -5038,6 +5129,7 @@ export const seedStations = async (req, res) => {
       results.push({ ngo: ngoName, created });
     }
 
+    if (totalCreated > 0) bustStationCache();
     return res.json({ message: `${totalCreated} stations created`, details: results });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -5079,6 +5171,8 @@ export const cleanupOrphanedStations = async (req, res) => {
       .in('id', ids);
 
     if (delErr) throw delErr;
+
+    bustStationCache();
 
     return res.json({
       message: `${ids.length} orphaned station(s) deleted`,
@@ -5208,6 +5302,10 @@ export const uploadOldData = async (req, res) => {
         }
       }
     }
+
+    // Same effect as uploadOldDataForStation, which is the station-scoped
+    // sibling of this endpoint: it inserts assignments into existing stations.
+    if (createdAssignments > 0 || createdProfiles > 0) bustStationCache();
 
     return res.json({
       message: `${createdAssignments} assignments created across ${ngoEntries.length} NGO(s)`,
@@ -5389,6 +5487,10 @@ export const uploadOldDataForStation = async (req, res) => {
       if (batchErr) errors.push(`Batch insert error: ${batchErr.message}`);
       else createdAssignments = assignmentsToInsert.length;
     }
+
+    // The upload adds donors to this station, so its cached donor_count and the
+    // disposition roll-up are stale the moment the insert commits.
+    if (createdAssignments > 0 || createdProfiles > 0) bustStationCache();
 
     return res.json({
       message: `${createdAssignments} assignments created for station ${station} (${ngoEntries.map(e => e.ngoName).join(', ')})`,
@@ -6673,6 +6775,10 @@ export const reassignFollowup = async (req, res) => {
     const { error } = await db.from('fro_assignments').update(updates).eq('id', assignmentId);
     if (error) throw error;
 
+    // Moving an assignment to a different FRO changes the per-FRO donor counts the
+    // stations screen shows, even though the station totals do not move.
+    if (updates.fro_worker_id) bustStationCache();
+
     return res.json({ message: 'Follow-up reassigned successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -7215,6 +7321,9 @@ export const restoreWrongAssignments = async (req, res) => {
       }
     }
 
+    // Wrong assignments were deleted above, so the station they belonged to just
+    // lost donors.
+    if (restoredCount > 0) bustStationCache();
     return res.json({ restored: restoredCount, details });
   } catch (error) {
     console.error('restoreWrongAssignments error:', error.message);
@@ -7974,6 +8083,12 @@ export const bulkRenameStations = async (req, res) => {
         post_verify: { old_codes_remaining: 0, unscoped_old_rows: unscoped },
       };
     });
+
+    // A rename rewrites station codes in every table the roll-ups read, so the
+    // station list, the disposition stats and the TL dashboard are all stale.
+    // This is the highest-stakes invalidation in the file — a cached copy here
+    // would show donors under a station name that no longer exists.
+    bustStationCache();
 
     return res.json(summary);
   } catch (error) {
