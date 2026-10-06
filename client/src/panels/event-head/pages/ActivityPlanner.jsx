@@ -113,12 +113,14 @@ const activityBeneficiary = (a, ngos, ngo) =>
    beneficiary map above, because that is how the team identifies an NGO.
    An NGO with no entry falls back to the smallest common quota rather than
    showing a target of 0, which would read as "already complete". */
-const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 15 }
+const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 20 }
 const DEFAULT_MONTHLY_TARGET = 15
 
 const ngoCodeKey = (n) => String(n?.code || '').trim().toLowerCase()
 
 const monthlyTargetFor = (n) => NGO_MONTHLY_TARGET[ngoCodeKey(n)] ?? DEFAULT_MONTHLY_TARGET
+
+const capFirst = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
 
 /* Card order follows the target table, so BSCT's bigger quota is read first and
    the cards do not reshuffle between NGOs or months. Anything not in the table
@@ -189,6 +191,8 @@ const SCROLLBAR_CSS = `
 .ap-scroll::-webkit-scrollbar-thumb:hover { background: #9498b0; background-clip: padding-box; }
 `
 
+/* AI programme urgency, mapped to a badge tone: the loudest for Urgent and
+   Critical, amber for High, then quiet blue and grey. */
 const PRIORITY_TONE = { Urgent: 'danger', Critical: 'danger', High: 'warn', Medium: 'primary', Low: 'muted' }
 
 /* Scoped styling for the Monthly Planner festival grid (`.eh-fest-grid`). Kept
@@ -196,31 +200,31 @@ const PRIORITY_TONE = { Urgent: 'danger', Critical: 'danger', High: 'warn', Medi
    event-head are untouched. Rules only restyle/space the table — the row data,
    heading, export and behaviour logic are not involved. */
 const FEST_GRID_CSS = `
-.eh-fest-grid { width: 100%; min-width: 880px; table-layout: fixed; border-collapse: collapse; background: #fff; border: 1px solid var(--eh-line, #e6e4f0); border-radius: 10px; }
-.eh-fest-grid thead th { padding: 8px 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-align: left; color: var(--eh-ink-soft, #6f6c86); background: var(--eh-tint-2, #f3f2fb); border-bottom: 1px solid var(--eh-line-strong, #ddd9ef); white-space: nowrap; }
-.eh-fest-grid td { padding: 7px 10px; font-size: 12.5px; line-height: 1.35; color: var(--eh-ink, #1f2430); border-bottom: 1px solid var(--eh-line, #eceaf5); vertical-align: middle; }
-.eh-fest-grid td.d { font-weight: 700; color: var(--eh-ink, #1f2430); white-space: nowrap; }
-.eh-fest-grid td.plain { color: var(--eh-ink-faint, #a09db4); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.eh-fest-grid tr.plain-day td { background: #fff; padding: 7px 10px; }
-.eh-fest-grid tr.fest-day-row { background: var(--eh-tint-1, #f5f4fd); }
-.eh-fest-grid tr.fest-day-row td { border-bottom: 1px solid var(--eh-line-strong, #e0ddf2); }
-.eh-fest-grid .fest { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.eh-fest-grid .fest-name { font-weight: 700; font-size: 13px; color: var(--eh-ink, #1f2430); }
-.eh-fest-grid td.ng, .eh-fest-grid td.ben { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
-.eh-fest-grid tr.fest-day-row td.ng, .eh-fest-grid tr.fest-day-row td.ben { color: var(--eh-ink, #1f2430); font-weight: 600; }
-.eh-fest-grid tr.suggestion { background: #fff; }
-.eh-fest-grid tr.suggestion:hover { background: var(--eh-tint-2, #f3f2fb); }
-.eh-fest-grid tr.suggestion td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.eh-fest-grid tr.suggestion.selected { background: var(--eh-tint-1, #f0eefb); }
-.eh-fest-grid tr.suggestion.selected td:first-child { box-shadow: inset 2px 0 0 var(--eh-primary, #6c5ce7); }
-.eh-fest-grid td.ai-act { white-space: nowrap; }
-.eh-fest-grid .ai-count { font-size: 11px; font-weight: 700; color: var(--eh-primary, #6c5ce7); margin-right: 6px; }
-.eh-fest-grid td.b { white-space: normal !important; min-width: 0; }
-.eh-fest-grid .s-block { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
-.eh-fest-grid .s-title { font-weight: 600; font-size: 13px; color: var(--eh-ink, #1f2430); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; min-width: 0; }
-.eh-fest-grid .busy { color: var(--eh-ink-faint, #a09db4); font-size: 12px; }
+.eh-fest-grid { width: 100%; min-width: 900px; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid #E3E6F2; }
+.eh-fest-grid thead th { position: sticky; top: 0; z-index: 5; padding: 10px 14px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; text-align: left; color: var(--eh-ink-soft, #6f6c86); background: #f3f2fb; border-bottom: 2px solid #d9d5f0; border-right: 1px solid #E3E6F2; white-space: nowrap; }
+.eh-fest-grid thead th:last-child { border-right: none; }
+.eh-fest-grid td { padding: 11px 14px; font-size: 13px; line-height: 1.3; color: var(--eh-ink, #1f2430); border-right: 1px solid #E3E6F2; vertical-align: middle; }
+.eh-fest-grid td:last-child { border-right: none; }
+.eh-fest-grid td.dd { font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.eh-fest-grid td.plain { color: var(--eh-ink-faint, #a09db4); font-size: 12.5px; }
+.eh-fest-grid .ff-name { display: block; font-weight: 700; font-size: 14px; color: var(--eh-ink, #1f2430); }
+.eh-fest-grid .ff-type { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--eh-ink-soft, #6f6c86); }
+.eh-fest-grid .ff-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--eh-primary, #6c5ce7); }
+.eh-fest-grid .ng-pill { display: inline-flex; padding: 3px 10px; border-radius: 999px; background: var(--eh-tint-1, #f0eefb); border: 1px solid var(--eh-line-strong, #ddd9f0); font-size: 11.5px; font-weight: 700; color: var(--eh-ink, #1f2430); white-space: nowrap; }
+.eh-fest-grid td.bn { font-size: 13px; }
+.eh-fest-grid .ai-title { display: block; font-weight: 600; font-size: 13.5px; color: var(--eh-ink, #1f2430); }
+.eh-fest-grid .ai-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.eh-fest-grid td.ai.nowrap { white-space: nowrap; }
 .eh-fest-grid td.sel { text-align: center; }
 .eh-fest-grid td.sel input { width: 16px; height: 16px; margin: 0; vertical-align: middle; accent-color: var(--eh-primary, #6c5ce7); cursor: pointer; }
+.eh-fest-grid td.sel input:disabled { cursor: wait; }
+.eh-fest-grid td.dd, .eh-fest-grid td.ff, .eh-fest-grid td.ng, .eh-fest-grid td.bn { border-bottom: none; }
+.eh-fest-grid td.divider { border-top: 2px solid #d9d5f0; }
+.eh-fest-grid tbody tr:first-child td.divider { border-top: none; }
+.eh-fest-grid td.subline { border-bottom: 1px solid #E3E6F2; }
+.eh-fest-grid tr.sel-row:hover td.ai, .eh-fest-grid tr.sel-row:hover td.sel { background: #faf9ff; }
+.eh-fest-grid tr.sel-row.sel td.ai, .eh-fest-grid tr.sel-row.sel td.sel { background: var(--eh-tint-1, #f0eefb); }
+.eh-fest-grid tr.sel-row.sel td.ai { box-shadow: inset 3px 0 0 var(--eh-primary, #6c5ce7); }
 `
 
 function ModalShell({ title, subtitle, onClose, children, footer, width = 640 }) {
@@ -2139,10 +2143,10 @@ const pendingAll = scopedSuggestions
           <table className="eh-fest-grid">
             <colgroup>
               <col style={{ width: '9%' }} />
-              <col style={{ width: '23%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '17%' }} />
-              <col style={{ width: '33%' }} />
+              <col style={{ width: '25%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '31%' }} />
               <col style={{ width: '7%' }} />
             </colgroup>
             <thead>
@@ -2160,99 +2164,103 @@ const pendingAll = scopedSuggestions
                 const obs = observancesByDate[date] || []
                 if (!obs.length) {
                   return (
-                    <tr key={date} className="plain-day">
-                      <td className="d">{shortDate(date)}</td>
-                      <td className="plain" colSpan={5}>No festival / important day</td>
+                    <tr key={date}>
+                      <td className="dd divider">{shortDate(date)}</td>
+                      <td className="plain divider" colSpan={5}>No important day</td>
                     </tr>
                   )
                 }
-                // The date cell must span the ENTIRE block for that date (festival
-                // rows + generating + every suggestion sub-row), so the 6 columns
-                // never drift apart once a festival has generated programmes.
-                const totalRows = obs.reduce((acc, o) => {
+                // Each festival is one block: the date, festival name, NGO and
+                // beneficiary are written once and span the block, while every
+                // programme keeps its own compact row in AI SUGGESTION + SELECT.
+                // Sub-dividers cut only those two columns between ideas, so the
+                // suggestions stay visually tied to their festival without any
+                // giant blank cells. Full dividers separate festival blocks.
+                const blockRows = (o) => {
+                  const key = `${date}::${o.name}`
+                  return Math.max(1, (festivalSuggestionsByKey[key] || []).length)
+                }
+                const totalRows = obs.reduce((acc, o) => acc + blockRows(o), 0)
+                const festivalCell = (o) => (
+                  <>
+                    <span className="ff-name">{o.name}</span>
+                    {o.type && <span className="ff-type"><span className="ff-dot" />{capFirst(o.type)}</span>}
+                  </>
+                )
+                return obs.map((o, oi) => {
                   const key = `${date}::${o.name}`
                   const sugg = festivalSuggestionsByKey[key] || []
                   const generating = festGenerating?.key === key
-                  return acc + 1 + sugg.length + (generating ? 1 : 0)
-                }, 0)
-                let placed = 0
-                return obs.map((o) => {
-                  const key = `${date}::${o.name}`
-                  const sugg = festivalSuggestionsByKey[key] || []
-                  const generating = festGenerating?.key === key
-                  const rows = []
-                  rows.push(
-                    <tr key={`${key}-f`} className="fest-day-row">
-                      {placed === 0 ? (
-                        <td className="d" rowSpan={totalRows}>{shortDate(date)}</td>
-                      ) : (
-                        <td />
-                      )}
-                      <td className="fest">
-                        <span className="fest-name">{o.name}</span>
-                        {o.type && <Badge tone={o.type === 'india' ? 'primary' : 'secondary'}>{o.type}</Badge>}
-                      </td>
-                      <td className="ng">{festivalNgoLabel}</td>
-                      <td className="ben">{festivalBeneficiary}</td>
-                      <td className="ai-act">
-                        {sugg.length > 0 && (
-                          <span className="ai-count">{sugg.length} idea{sugg.length === 1 ? '' : 's'}</span>
-                        )}
-                        <button
-                          className="eh-btn eh-btn-sm"
-                          disabled={!ngoId || festGenerating !== null}
-                          title={!ngoId
-                            ? 'Pick a single NGO to generate festival programmes for it'
-                            : festGenerating
-                              ? 'A festival programme set is already generating'
-                              : `Generate AI programme ideas for ${o.name}`}
-                          onClick={() => suggestFestival(date, o.name)}
-                        >
-                          {generating ? 'Generating…' : '✦ Suggest programmes'}
-                        </button>
-                      </td>
-                      <td className="sel" />
-                    </tr>
-                  )
-                  if (generating) {
-                    rows.push(
-                      <tr key={`${key}-busy`} className="suggestion">
-                        <td />
-                        <td />
-                        <td className="ng">{ngo ? ngoShortLabel(ngo) : '—'}</td>
-                        <td className="ben">{festivalBeneficiary}</td>
-                        <td className="ai-act busy" colSpan={2}>Generating programme ideas…</td>
+                  const trs = []
+                  if (sugg.length === 0) {
+                    // No programmes yet — one slim action row with the generate
+                    // button where the first idea title would sit.
+                    trs.push(
+                      <tr key={`${key}-g`}>
+                        {oi === 0 && <td className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>}
+                        <td className="ff divider">{festivalCell(o)}</td>
+                        <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
+                        <td className="bn divider">{festivalBeneficiary}</td>
+                        <td className="ai divider nowrap">
+                          <button
+                            className="eh-btn eh-btn-sm"
+                            disabled={!ngoId || festGenerating !== null}
+                            title={!ngoId
+                              ? 'Pick a single NGO to generate festival programmes for it'
+                              : festGenerating
+                                ? 'A festival programme set is already generating'
+                                : `Generate AI programme ideas for ${o.name}`}
+                            onClick={() => suggestFestival(date, o.name)}
+                          >
+                            {generating ? 'Generating…' : '✦ Suggest programmes'}
+                          </button>
+                        </td>
+                        <td className="sel divider" />
                       </tr>
                     )
+                    return trs
                   }
-                  for (const s of sugg) {
-                    rows.push(
-                      <tr key={s.id} className={s.is_selected ? 'suggestion selected' : 'suggestion'}>
-                        <td />
-                        <td />
-                        <td className="ng">{ngoShortLabel(ngos.find((x) => String(x.id) === String(s.ngo_id)) || {}) || '—'}</td>
-                        <td className="ben">{s.beneficiary || '—'}</td>
-                        <td className="b">
-                          <span className="s-block">
-                            <span className="s-title">{s.title || '—'}</span>
-                            {s.format && <Badge tone="secondary">{s.format}</Badge>}
+                  sugg.forEach((s, si) => {
+                    const firstRow = si === 0
+                    const notLast = si < sugg.length - 1
+                    const cells = []
+                    if (firstRow) {
+                      if (oi === 0) cells.push(<td key="d" className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>)
+                      cells.push(
+                        <td key="f" className="ff divider" rowSpan={sugg.length}>{festivalCell(o)}</td>,
+                        <td key="n" className="ng divider" rowSpan={sugg.length}><span className="ng-pill">{festivalNgoLabel}</span></td>,
+                        <td key="b" className="bn divider" rowSpan={sugg.length}>{festivalBeneficiary}</td>,
+                      )
+                    }
+                    const aiCls = `ai${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
+                    const selCls = `sel${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
+                    cells.push(
+                      <td key="a" className={aiCls}>
+                        <span className="ai-title">{s.title || '—'}</span>
+                        {(s.format || s.priority) && (
+                          <span className="ai-badges">
+                            {s.format && <Badge tone="primary">{s.format}</Badge>}
                             {s.priority && <Badge tone={PRIORITY_TONE[s.priority] || 'muted'}>{s.priority}</Badge>}
                           </span>
-                        </td>
-                        <td className="sel">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(s.is_selected)}
-                            disabled={festBusy}
-                            title={s.is_selected ? `${s.title} is in the download. Untick to leave it out.` : `${s.title} is not in the download. Tick to include it.`}
-                            onChange={(e) => toggleFestivalSuggestion(s, e.target.checked)}
-                          />
-                        </td>
+                        )}
+                      </td>,
+                      <td key="c" className={selCls}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(s.is_selected)}
+                          disabled={festBusy}
+                          title={s.is_selected ? `${s.title} is in the download. Untick to leave it out.` : `${s.title} is not in the download. Tick to include it.`}
+                          onChange={(e) => toggleFestivalSuggestion(s, e.target.checked)}
+                        />
+                      </td>,
+                    )
+                    trs.push(
+                      <tr key={String(s.id)} className={`sel-row${s.is_selected ? ' sel' : ''}`}>
+                        {cells}
                       </tr>
                     )
-                  }
-                  placed += rows.length
-                  return rows
+                  })
+                  return trs
                 })
               })}
             </tbody>
