@@ -11,15 +11,18 @@ import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSugg
 import {
   ACTIVITY_SUGGESTION_LIMIT,
   buildActivityProgramPrompt,
+  buildFestivalProgramPrompt,
   isMonthYmd,
   monthEndExclusive,
   monthFirstDay,
   parseActivityProgramSuggestions,
+  parseFestivalProgramSuggestions,
   canonicalActivityBeneficiary,
+  beneficiaryGroupForNgo,
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
 import { getCalendarificObservancesInRange, mergeCalendarific } from '../utils/calendarific.js';
-import { getInternationalDaysInRange } from '../utils/importantDays.js';
+import { getMergedObservancesInRange, findObservanceForDate } from '../utils/observanceMerge.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
 // must pass through unchanged as a string. sector_id / activity_id are always
@@ -2310,22 +2313,13 @@ export const listImportantDays = async (req, res) => {
       return res.status(400).json({ message: `Date range too large — request at most ${MAX_RANGE_DAYS} days` });
     }
 
-    // 1 + 2. Curated reference calendar (both scopes) + operator holiday overlay.
-    const curated = getObservancesInRange(start, end, { scope: 'all' });
+    // All four sources (curated + holidays overlay + fixed international days +
+    // Calendarific) merged in the shared util, so the grid and the festival
+    // suggestion validator can never disagree about what a real day is.
     const holidays = await getHolidaysCached();
-    const base = holidays.length ? mergeCustomObservances(curated, holidays) : curated;
-
-    // 3. Fixed international days (deduped — curated wins on exact date+name).
-    const withFixed = mergeCalendarific(base, getInternationalDaysInRange(start, end), 'all');
-
-    // 4. Calendarific (cached once per country+year; degrades to the rows above).
-    const allRows = mergeCalendarific(withFixed, await getCalendarificObservancesInRange(start, end), 'all');
-
-    // The toggle filters by bucket, not by raw scope.
-    const wantedType = scope === 'all' ? null : scope === 'worldwide' ? 'international' : 'india';
+    const allRows = await getMergedObservancesInRange(start, end, { holidays, scope });
 
     const days = allRows
-      .filter((o) => !wantedType || importantDayType(o) === wantedType)
       .map((o) => ({
         date: o.date,
         type: importantDayType(o),
@@ -2932,6 +2926,247 @@ export const setPlannerSuggestionSelected = async (req, res) => {
     return res.json({ suggestion: row });
   } catch (error) {
     console.error('setPlannerSuggestionSelected error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── MONTHLY PLANNER: FESTIVAL-DRIVEN PROGRAMME SUGGESTIONS ───
+// The Activities grid picks one NGO and a month, lists every real festival/day
+// (from the shared four-source merge), and asks the model for several useful
+// programmes per festival. This is deliberately NOT anchored to a single
+// activity: the unit of generation is (festival/day × NGO), and the
+// beneficiary group is resolved server-side from the NGO's code — the client
+// can never supply a beneficiary, so BSCT/MANN/AFLF data can never be mixed.
+//
+// The festival + date are validated against the same merged calendar the grid
+// renders, so the model cannot be fed a made-up occasion.
+export const suggestFestivalPrograms = async (req, res) => {
+  try {
+    const month = String(req.body?.month || '').trim();
+    if (!isMonthYmd(month)) {
+      return res.status(400).json({ message: 'month is required as YYYY-MM' });
+    }
+
+    const date = String(req.body?.date || '').trim();
+    if (!DATE_RE.test(date) || date.slice(0, 7) !== month) {
+      return res.status(400).json({ message: 'date must be a YYYY-MM-DD inside the selected month' });
+    }
+    const festival = String(req.body?.festival || '').trim();
+    if (!festival) {
+      return res.status(400).json({ message: 'festival is required' });
+    }
+
+    const ngoIdRaw = req.body?.ngo_id;
+    const ngoId = ngoIdRaw === undefined || ngoIdRaw === null || ngoIdRaw === '' ? null : String(ngoIdRaw);
+    if (!ngoId) {
+      return res.status(400).json({ message: 'Pick a single NGO to generate festival programmes' });
+    }
+
+    // No AI can be aimed at a beneficiary that does not exist. The GROUP is
+    // derived here from the NGO's code; the CLIENT never sends it.
+    const ngoRow = await EventHead.getEventHeadNgoById(ngoId).catch(() => null);
+    if (!ngoRow) return res.status(404).json({ message: 'NGO not found' });
+    const beneficiaryGroup = beneficiaryGroupForNgo(ngoRow?.code) || null;
+
+    // Optional sector only provides flavour; it never picks the beneficiary.
+    const sectorIdRaw = req.body?.sector_id;
+    const sectorId = sectorIdRaw === undefined || sectorIdRaw === null || sectorIdRaw === '' ? null : Number(sectorIdRaw);
+    let sectorName = null;
+    if (Number.isInteger(sectorId) && sectorId > 0) {
+      const sectors = await EventHead.getAllEventHeadSectors().catch(() => []);
+      sectorName = (sectors || []).find((s) => String(s.id) === String(sectorId))?.name || null;
+    }
+
+    // Optional activity id (nullable now) — validated if the client sends one.
+    let activityId = null;
+    let activityName = null;
+    if (req.body?.activity_id !== undefined && req.body?.activity_id !== null && req.body?.activity_id !== '') {
+      const aid = Number(req.body.activity_id);
+      if (!Number.isInteger(aid) || aid <= 0) {
+        return res.status(400).json({ message: 'activity_id must be a positive integer' });
+      }
+      const activity = await EventHead.getActivityById(aid);
+      if (!activity) return res.status(404).json({ message: 'Activity not found' });
+      const activityNgoId = activity.ngo_id === null || activity.ngo_id === undefined ? null : String(activity.ngo_id);
+      if (activityNgoId && activityNgoId !== ngoId) {
+        return res.status(400).json({ message: 'That activity does not belong to the selected NGO' });
+      }
+      activityId = aid;
+      activityName = String(activity.name || '').trim();
+    }
+
+    // ── Validate the festival against the REAL merged calendar for the month.
+    const first = monthFirstDay(month);
+    const endExclusive = monthEndExclusive(month);
+    const holidays = await getHolidaysCached();
+    const merged = await getMergedObservancesInRange(first, endExclusive, { holidays, scope: 'all' });
+    const observance = findObservanceForDate(merged, date, festival);
+    if (!observance) {
+      return res.status(400).json({ message: `"${festival}" is not a registered festival/important day on ${date} this month` });
+    }
+
+    // ── Programmes this NGO already has in the month, so the model avoids them.
+    const existingTitles = [];
+    const inRange = await EventHead.getEventHeadEventsByRange({ start: first, end: endExclusive, ngo_id: ngoId })
+      .catch(() => []);
+    for (const ev of inRange || []) {
+      const t = String(ev?.name || '').trim();
+      if (t) existingTitles.push(t.slice(0, 100));
+    }
+
+    const dateLabel = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const payload = {
+      month,
+      date,
+      festival: observance.name,
+      ngo_id: ngoId,
+      ngo_name: ngoRow?.name || null,
+      ngo_code: ngoRow?.code || null,
+      beneficiary: beneficiaryGroup,
+      sector_name: sectorName,
+      activity_id: activityId,
+      activity_name: activityName,
+      suggestions: [],
+    };
+
+    if (!aiSuggestionsConfigured()) {
+      return res.json({ ...payload, ai: { available: false, reason: 'AI suggestions are not configured on this server' } });
+    }
+
+    const prompt = buildFestivalProgramPrompt({
+      festivalName: observance.name,
+      dateLabel,
+      ngoName: ngoRow?.name,
+      ngoCode: ngoRow?.code,
+      beneficiaryGroup,
+      sectorName,
+      monthYmd: month,
+      existingTitles,
+    });
+
+    let parsed = null;
+    let usedModel = null;
+    let usedProvider = null;
+    let truncated = false;
+    try {
+      const result = await generateSuggestionJson(prompt, { temperature: 0.6, maxOutputTokens: 4096 });
+      parsed = result?.value ?? null;
+      usedModel = result?.model || null;
+      usedProvider = result?.provider || null;
+      truncated = result?.truncated === true;
+    } catch (error) {
+      console.error('suggestFestivalPrograms: all AI providers failed:', error.message || error);
+      return res.json({ ...payload, ai: { available: false, reason: userSafeAiReason(error) } });
+    }
+
+    const suggestions = parseFestivalProgramSuggestions(parsed, {
+      existingTitles,
+      limit: ACTIVITY_SUGGESTION_LIMIT,
+    });
+
+    // ── Persist so ticks survive reload. Re-runs never reset existing ticks.
+    let persisted = [];
+    try {
+      const [y, m] = String(month).split('-').map(Number);
+      persisted = await EventHead.saveFestivalSuggestions({
+        ngo_id: ngoId,
+        activity_id: activityId,
+        month: Number.isFinite(m) ? m : month,
+        year: Number.isFinite(y) ? y : null,
+        observance_date: date,
+        festival: observance.name,
+        beneficiary: beneficiaryGroup,
+        sector_name: sectorName,
+        activity_name: activityName,
+        batch_no: 1,
+        suggestions,
+        created_by: req.user?.username || req.user?.email || null,
+      });
+    } catch (persistErr) {
+      console.error('suggestFestivalPrograms: failed to persist suggestions:', persistErr.message || persistErr);
+      persisted = [];
+    }
+
+    // Prefer persisted rows (they include id + is_selected). Fall back to the
+    // freshly-parsed suggestions if persistence returned nothing.
+    const returnedSuggestions = persisted.length
+      ? persisted.map((r) => ({
+          id: r.id,
+          title: r.title,
+          format: r.format,
+          priority: r.priority,
+          audience: r.audience,
+          duration: r.duration,
+          objective: r.objective,
+          rationale: r.rationale,
+          materials: Array.isArray(r.materials) ? r.materials : [],
+          is_selected: Boolean(r.is_selected),
+          suggested_event_id: r.suggested_event_id ?? null,
+          ngo_id: r.ngo_id,
+          activity_id: r.activity_id,
+          beneficiary: r.beneficiary,
+          sector_name: r.sector_name,
+          activity_name: r.activity_name,
+          observance_date: r.observance_date,
+          festival: r.festival,
+          batch_no: r.batch_no,
+        }))
+      : suggestions;
+
+    return res.json({
+      ...payload,
+      suggestions: returnedSuggestions,
+      ai: {
+        available: true,
+        model: usedModel,
+        provider: usedProvider,
+        // Stated explicitly because this endpoint never asks the model for dates.
+        dates_from_ai: false,
+        truncated,
+        requested: ACTIVITY_SUGGESTION_LIMIT,
+      },
+    });
+  } catch (error) {
+    console.error('suggestFestivalPrograms error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── FESTIVAL SUGGESTIONS (Monthly Planner: stored festival AI ideas) ───
+export const getFestivalSuggestions = async (req, res) => {
+  try {
+    const { ngo_id, date, festival, selected_only } = req.query;
+    const monthStr = String(req.query.month || '').trim();
+    const [yPart, mPart] = monthStr.includes('-') ? monthStr.split('-') : [req.query.year, req.query.month];
+    const yNum = yPart ? Number(yPart) : undefined;
+    const mNum = mPart ? Number(mPart) : undefined;
+    const list = await EventHead.getFestivalSuggestions({
+      ngo_id: ngo_id || undefined,
+      month: Number.isFinite(mNum) ? mNum : undefined,
+      year: Number.isFinite(yNum) ? yNum : undefined,
+      date: date || undefined,
+      festival: festival || undefined,
+      selected_only: selected_only === 'true' || selected_only === true,
+    });
+    return res.json({ suggestions: list });
+  } catch (error) {
+    console.error('getFestivalSuggestions error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setFestivalSuggestionSelected = async (req, res) => {
+  try {
+    const id = Number(req.params?.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'id is required' });
+    }
+    const is_selected = Boolean(req.body?.is_selected);
+    const row = await EventHead.setFestivalSuggestionSelected(id, is_selected, req.body?.suggested_event_id);
+    return res.json({ suggestion: row });
+  } catch (error) {
+    console.error('setFestivalSuggestionSelected error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };
