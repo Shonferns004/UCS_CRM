@@ -2770,10 +2770,28 @@ export const getMyDonors = async (req, res) => {
       filtered = result;
     }
 
+    // ─── My Leads = pending work ONLY ────────────────────────────────────────
+    // The list is the FRO's queue of leads still to call. Any row already
+    // dispositioned this month (ring/busy retryables, scheduled callbacks,
+    // refusals, donation-done, …) belongs in History / Callbacks / Follow-ups /
+    // Overdue, not here — this month's dispositions carry their own tabs. The
+    // monthly rollover resets every worked status back to 'pending', so a lead
+    // disposed last month returns here when the new cycle starts. The
+    // verified_only view (Donors panel) is exempt because it is a money-
+    // reconciliation list, not a calling queue.
+    if (req.query.verified_only !== 'true') {
+      filtered = filtered.filter(r => r.status === 'pending' || r.status == null || r.status === '');
+    }
+
     // The workable set — original exclusion semantics, preserved verbatim for the
     // controlled queue so a lead already worked today (or already terminal) can
-    // never be handed back out by the auto-advance cursor.
+    // never be handed back out by the auto-advance cursor. On top of that, the
+    // queue now only serves PENDING leads: My Leads means "work to be done", and
+    // anything already dispositioned this month lives in History / Callbacks /
+    // Follow-ups / Overdue until the monthly rollover resets it to pending.
     const workableFiltered = result.filter(r => {
+      // NULL/empty status rows are never-worked assignments; treat as pending.
+      if (!(r.status === 'pending' || r.status == null || r.status === '')) return false;
       if (disposedTodayIds.has(r.donor_id)) return false;
       if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
       if (MONEY_DONE_STATUSES.has(r.status)) return false;
@@ -6292,6 +6310,12 @@ export const getMyDisposedLeads = async (req, res) => {
       .from('fro_donor_logs')
       .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
       .eq('fro_worker_id', workerId)
+      // History is scoped to THIS billing month's work. The daily rollover
+      // archives the previous month's call logs out of fro_donor_logs anyway,
+      // but that runs at 04:00 IST — a hard clamp here keeps the 1st-of-month
+      // history clean even in the hours before the archive runs, and keeps
+      // "this month's disposed" true regardless of job timing.
+      .gte('created_at', istMonthBounds(new Date()).month)
       .order('created_at', { ascending: false })
       .limit(500);
     if (logErr) throw logErr;
@@ -6602,11 +6626,27 @@ export const getDonorDonations = async (req, res) => {
 
     const countedLogIds = new Set((logs || []).map(l => l.id));
 
+    // Older receipts were never stamped with donor_id (they carry donor_mobile
+    // instead), so a donor_id-only match silently omits a returning donor's
+    // history. Match by donor_id OR the donor's mobile (last 10 digits) so old
+    // donors see their receipts immediately, and the link-backfill script makes
+    // the receipts table itself consistent afterwards.
+    const { data: donorRow } = await db
+      .from('donor_profiles')
+      .select('mobile_number')
+      .eq('id', donorId)
+      .maybeSingle();
+    const donorMobileLast10 = String(donorRow?.mobile_number || '').replace(/\D/g, '').slice(-10);
+
     let receiptQuery = db
       .from('receipts')
       .select('*, fro_donor_logs!receipts_log_id_fkey(transaction_datetime)')
-      .eq('donor_id', donorId)
       .order('receipt_date', { ascending: false });
+    receiptQuery = receiptQuery.or(
+      donorMobileLast10.length === 10
+        ? `donor_id.eq.${donorId},and(donor_mobile.ilike.%${donorMobileLast10})`
+        : `donor_id.eq.${donorId}`
+    );
     if (project) receiptQuery = receiptQuery.eq('project_id', project);
 
     if (startDate) {
