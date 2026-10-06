@@ -155,7 +155,6 @@ function Field({ field, value, onChange, error }) {
 }
 
 function PhotoField({ field, value, onChange, error }) {
-  const [menuOpen, setMenuOpen] = useState(false)
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
 
@@ -173,8 +172,10 @@ function PhotoField({ field, value, onChange, error }) {
   const pick = (e) => {
     onChange(field.id, e.target.files[0] || '')
     e.target.value = ''
-    setMenuOpen(false)
   }
+
+  const openCamera = () => cameraRef.current?.click()
+  const openGallery = () => galleryRef.current?.click()
 
   const hasPreview = !!previewUrl
 
@@ -190,8 +191,8 @@ function PhotoField({ field, value, onChange, error }) {
         <button
           type="button"
           className={`photo-drop ${hasPreview ? 'has-preview' : ''}`}
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-label={hasPreview ? 'Change photo' : 'Add photo'}
+          onClick={openCamera}
+          aria-label={hasPreview ? 'Change photo' : 'Take photo'}
         >
           {hasPreview ? (
             <img src={previewUrl} alt={`${field.label} preview`} />
@@ -204,48 +205,30 @@ function PhotoField({ field, value, onChange, error }) {
                 </svg>
               </span>
               <span className="photo-drop-title">Add {field.label.toLowerCase()}</span>
-              <span className="photo-drop-hint">Click to choose camera or gallery</span>
+              <span className="photo-drop-hint">Tap to open camera</span>
             </>
           )}
         </button>
 
-        {hasPreview && (
-          <div className="photo-actions">
-            <button type="button" className="photo-act" onClick={() => setMenuOpen((o) => !o)}>
-              Change
-            </button>
-            <button
-              type="button"
-              className="photo-act photo-act-remove"
-              onClick={() => {
-                onChange(field.id, '')
-                setMenuOpen(false)
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        )}
-
-        {menuOpen && (
-          <div className="photo-menu">
-            <button type="button" className="photo-menu-btn" onClick={() => cameraRef.current?.click()}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-              Take Photo
-            </button>
-            <button type="button" className="photo-menu-btn" onClick={() => galleryRef.current?.click()}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <path d="m21 15-5-5L5 21" />
-              </svg>
-              Upload from Gallery
-            </button>
-          </div>
-        )}
+        <div className="photo-actions">
+          {hasPreview && (
+            <>
+              <button type="button" className="photo-act" onClick={openCamera}>
+                Change
+              </button>
+              <button
+                type="button"
+                className="photo-act photo-act-remove"
+                onClick={() => onChange(field.id, '')}
+              >
+                Remove
+              </button>
+            </>
+          )}
+          <button type="button" className="photo-act photo-act-gallery" onClick={openGallery}>
+            Upload from gallery
+          </button>
+        </div>
 
         <input ref={cameraRef} type="file" accept="image/*" capture="user" onChange={pick} className="photo-hidden" />
         <input ref={galleryRef} type="file" accept={field.accept ? field.accept.join(',') : 'image/*'} onChange={pick} className="photo-hidden" />
