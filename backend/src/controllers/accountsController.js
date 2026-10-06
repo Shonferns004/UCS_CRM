@@ -7,6 +7,7 @@ import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import { formatModeLabel } from '../services/modeLabels.js';
 import { normalizeAgentName, resolveAgentToWorker } from '../utils/workerNameMatch.js';
+import { receiptsForDonor } from '../services/receiptLookup.js';
 import XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -2343,7 +2344,14 @@ export const getDonorHistory = async (req, res) => {
 
     const logIds = (logs || []).map(l => l.id);
 
-    // Look up receipts via log chain + direct donor_id link
+    const { data: donor } = await db
+      .from('donor_profiles')
+      .select('id, mobile_number')
+      .eq('id', donorId)
+      .maybeSingle();
+
+    // Receipts reach a donor via the log chain, a linked donor_id, or a
+    // captured mobile only — union all three.
     const receiptPromises = [];
     if (logIds.length > 0) {
       receiptPromises.push(
@@ -2351,7 +2359,7 @@ export const getDonorHistory = async (req, res) => {
       );
     }
     receiptPromises.push(
-      db.from('receipts').select('*').eq('donor_id', donorId)
+      Promise.resolve({ data: await receiptsForDonor(db, donor || { id: donorId }) })
     );
 
     const receiptResults = await Promise.allSettled(receiptPromises);
@@ -4391,12 +4399,8 @@ export const getDonorDetail = async (req, res) => {
       .single();
     if (donorErr) throw donorErr;
 
-    const { data: receipts, error: recErr } = await db
-      .from('receipts')
-      .select('*')
-      .eq('donor_id', id)
-      .order('receipt_date', { ascending: false });
-    if (recErr) throw recErr;
+    // Receipts reach a donor by linked donor_id OR by captured mobile only.
+    const receipts = await receiptsForDonor(db, donor);
 
     let assigned_agent = null;
     let assignment_station = null;
