@@ -18,6 +18,7 @@ import {
   canonicalActivityBeneficiary,
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
+import { getCalendarificObservancesInRange, mergeCalendarific } from '../utils/calendarific.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
 // must pass through unchanged as a string. sector_id / activity_id are always
@@ -2225,9 +2226,16 @@ export const listCalendarObservances = async (req, res) => {
       ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
       : curated;
 
+    // Calendarific enriches the calendar with India's festivals/national days
+    // and worldwide/UN observance days, properly dated for any year. It is an
+    // append-only layer: curated/DB rows win on exact duplicates, and an API
+    // failure degrades to the data above without breaking or delaying anything.
+    const calendarific = await getCalendarificObservancesInRange(start, end);
+    const observances = calendarific.length ? mergeCalendarific(merged, calendarific, scope) : merged;
+
     // byDate lets the client render a day cell without re-grouping.
     const byDate = {};
-    for (const o of merged) (byDate[o.date] ||= []).push(o);
+    for (const o of observances) (byDate[o.date] ||= []).push(o);
 
     return res.json({
       start,
@@ -2236,14 +2244,18 @@ export const listCalendarObservances = async (req, res) => {
       available_years: availableYears(),
       lunar_years: SUPPORTED_LUNAR_YEARS,
       themes: allThemes(),
-      count: merged.length,
-      observances: merged,
+      count: observances.length,
+      observances,
       by_date: byDate,
       // Tells the UI it can trust these dates and label them accordingly.
       reliability: {
         dates_source: 'curated-reference-calendar',
         ai_generated_dates: false,
-        lunar_rows: merged.filter((o) => o.precision === 'lunar').length,
+        lunar_rows: observances.filter((o) => o.precision === 'lunar').length,
+        calendarific: {
+          available: Boolean(process.env.CALENDARIFIC_API_KEY),
+          sources: 'india festivals/national days + worldwide/UN observances',
+        },
       },
     });
   } catch (error) {
