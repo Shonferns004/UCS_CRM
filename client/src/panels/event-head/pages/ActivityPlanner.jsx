@@ -19,6 +19,8 @@ import {
   suggestFestivalPrograms,
   getFestivalSuggestions,
   setFestivalSuggestionSelected,
+  mergeProgrammeRows,
+  blankRepeatedDates,
 } from '../store.jsx'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
@@ -1596,15 +1598,18 @@ const pendingAll = scopedSuggestions
 
   /* The download is the user's selected programmes, freshly read so it always
      matches the server even if the UI has not reloaded since a tick. Sorted by
-     date then festival — one row per selected programme, so the export row
-     count is exactly the "N programmes selected" counter. */
+     date then festival, then passed through the shared mergeProgrammeRows
+     normaliser — the final dedupe (unique key date + festival + NGO +
+     beneficiary) so several selected AI programmes for the same festival export
+     as ONE row with the programme titles comma-joined, never duplicate
+     date/festival rows. The export row shape (title/status) is unchanged. */
   const buildFestivalExportRows = useCallback(async () => {
     const [y, m] = month.split('-').map(Number)
     const sel = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined, selected_only: true })
       .catch(() => [])
     if (!Array.isArray(sel)) return []
     const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
-    return sel
+    const rows = sel
       .slice()
       .sort((a, b) => {
         if (a.observance_date !== b.observance_date) {
@@ -1616,15 +1621,24 @@ const pendingAll = scopedSuggestions
         const n = ngoById.get(String(s.ngo_id))
         const observed = String(s.observance_date || '')
         return {
+          date: observed,
           dateLabel: shortDate(observed),
           weekday: observed ? new Date(`${observed}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
           festival: s.festival || '—',
           ngoLabel: ngoShortLabel(n),
           beneficiary: s.beneficiary || '—',
-          title: s.title || '—',
+          programme: s.title || '—',
           status: s.suggested_event_id ? 'Scheduled' : 'Draft',
         }
       })
+    /* Rule 8: final validation/deduplication before Excel/PDF generation.
+       mergeProgrammeRows collapses multiple programmes for the same festival onto
+       its ONE row; blankRepeatedDates then shows each date once — the Date/Day
+       cells fill only on the first row of that date, so a date with several
+       festivals never repeats across its own rows in the export. */
+    const merged = mergeProgrammeRows(rows, ['date', 'festival', 'ngoLabel', 'beneficiary'])
+      .map((r) => ({ ...r, title: r.programme }))
+    return blankRepeatedDates(merged, 'dateLabel', 'weekday')
   }, [month, ngos, ngoId])
 
   /* Loads the cut-down rows once, mirrors them into state (which the off-screen
