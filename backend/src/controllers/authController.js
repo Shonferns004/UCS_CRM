@@ -444,6 +444,30 @@ export const unifiedLogin = async (req, res) => {
     const isAppLogin = req.body.client === 'beneficiaries';
     const appDenied = () => res.status(403).json({ message: 'Access denied. Only designated operators can log into the Beneficiaries app.' });
 
+    // The HR dataforms are the one surface where a FRO signs in as themselves.
+    //
+    // Every other login refuses a FRO's own credentials outright (see
+    // rejectIfCoveredFro), because assigning an agent means the FRO stops being
+    // the person at the keyboard — and that only matters while the FRO is WORKING
+    // their account. The dataforms collect the FRO's own personnel record (address,
+    // bank, signature), which is not field work and which no agent can submit on
+    // their behalf, so the rule applied there only leaves the form unfillable.
+    //
+    // Deliberately narrow, on both axes:
+    //   - keyed on a marker the dataforms send rather than on the route alone,
+    //     because /auth/worker/login is shared with the Flutter attendance apps
+    //     and the legacy clients, where the agent rule must still hold;
+    //   - and paired with the route, so no CRM login can ever be exempted by
+    //     adding the marker to the CRM client.
+    //
+    // Nothing here widens what the FRO can reach. The token is their own ordinary
+    // worker token over their own record, the dataform endpoints sit behind plain
+    // `authenticate` with no role gate, and recordCrmLogin still skips this route
+    // so no CRM session or FRO idle timer is touched.
+    const HR_FORM_CLIENTS = new Set(['hr_form', 'submitted_form']);
+    const isHrFormLogin =
+      req.route?.path === '/worker/login' && HR_FORM_CLIENTS.has(String(req.body.client || '').trim());
+
     if (isAppLogin) {
       const operator = await getBnfOperatorByLoginId(identifier);
       if (!operator || operator.is_active === false) return appDenied();
@@ -514,7 +538,8 @@ export const unifiedLogin = async (req, res) => {
       }
       // A covered FRO no longer signs in as themselves. Checked only after the
       // password matched, so nothing is disclosed to a caller who does not hold it.
-      if (String(worker.department || '').toLowerCase().trim() === 'fro') {
+      // Skipped for the HR dataforms, which exist to collect the FRO's own record.
+      if (!isHrFormLogin && String(worker.department || '').toLowerCase().trim() === 'fro') {
         const covered = await rejectIfCoveredFro(worker);
         if (covered) return res.status(403).json(covered);
       }
@@ -620,7 +645,7 @@ export const unifiedLogin = async (req, res) => {
         // Custom worker ids (ngo@fro and friends) reach the FROs too, so the
         // covered-FRO block has to be applied here as well or it is trivially
         // bypassed by using the FRO's alternate identifier.
-        if (String(workerByLogin.department || '').toLowerCase().trim() === 'fro') {
+        if (!isHrFormLogin && String(workerByLogin.department || '').toLowerCase().trim() === 'fro') {
           const covered = await rejectIfCoveredFro(workerByLogin);
           if (covered) return res.status(403).json(covered);
         }
@@ -664,7 +689,7 @@ export const unifiedLogin = async (req, res) => {
         // 49 of the 53 FROs have an email on record and this is the branch they
         // sign in through, so the covered-FRO block has to be here too or they
         // would keep working their own accounts while nominally being covered.
-        if (String(workerByEmail.department || '').toLowerCase().trim() === 'fro') {
+        if (!isHrFormLogin && String(workerByEmail.department || '').toLowerCase().trim() === 'fro') {
           const covered = await rejectIfCoveredFro(workerByEmail);
           if (covered) return res.status(403).json(covered);
         }
@@ -728,7 +753,7 @@ export const unifiedLogin = async (req, res) => {
     // Fourth and last way into a worker account (bare login_id, no @). Same
     // block, same reason: every remaining door has to be shut or the covered FRO
     // simply walks in through whichever one was missed.
-    if (String(worker.department || '').toLowerCase().trim() === 'fro') {
+    if (!isHrFormLogin && String(worker.department || '').toLowerCase().trim() === 'fro') {
       const covered = await rejectIfCoveredFro(worker);
       if (covered) return res.status(403).json(covered);
     }

@@ -3,6 +3,7 @@ import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock } fro
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
+import CallTimer from '../components/CallTimer';
 import { getMyPerformance } from '../api/donors';
 import { formatDuration } from '../../../utils/formatDuration';
 
@@ -78,6 +79,14 @@ return (
               much of my day was actually productive". */}
           <Metric label="Idle" value={formatDuration(data?.idle_seconds)} good={!(data?.is_idle)} accent={(data?.idle_seconds ?? 0) > 0 ? '#dc2626' : '#64748b'} icon={<Clock size={16} />} />
 <Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
+          {/* Live call timer, parked after Performance so it reads as the last
+              tile rather than competing with the five metrics. It sizes to its
+              content instead of flexing like a metric-cell, and CallTimer returns
+              null when no call is up, so the strip is unchanged for the rest of
+              the day - see .perf-timer:empty. */}
+          <div className="perf-timer">
+            <CallTimer />
+          </div>
         </div>
   );
 }
@@ -145,6 +154,13 @@ export default function MyLeadsSuspense() {
         .my-leads-shell { container-type: inline-size; container-name: my-leads; }
         .my-leads-shell > div { min-width: 0; }
         .perf-strip .metric-cell + .metric-cell { border-left: 1px solid #eef2f7; }
+        /* The call timer is a pill, not a metric-cell, so it gets its own rule
+           rather than the sibling border above. */
+        .perf-timer { flex: 0 0 auto; display: flex; align-items: center; padding: 0 14px; border-left: 1px solid #eef2f7; }
+        /* CallTimer renders null when no call is up, which leaves this wrapper
+           genuinely empty. Without this it would sit at the end of the strip all
+           day drawing a rule and reserving padding for a timer that isn't there. */
+        .perf-timer:empty { display: none; }
         .metric-arrow { animation: arrow-bob 1.8s ease-in-out infinite; }
         @keyframes arrow-bob {
           0%, 100% { transform: translateY(0); }
