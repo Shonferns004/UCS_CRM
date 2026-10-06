@@ -4949,7 +4949,11 @@ export const updateLiveStatus = async (req, res) => {
       if (!agentRow || !agentRow.is_active) {
         return res.status(401).json({ message: 'This agent login is no longer active. Please login again.' });
       }
-      if (String(agentRow.worker_id) !== String(req.user.id)) {
+      // A deliberate work-as switch points the token at another FRO, so
+      // req.user.id is then the COVERED target, not the agent's assigned FRO.
+      // The mismatch is only the reassignment kick when the session is on the
+      // agent's own account; a live cover of somebody else must not be bounced.
+      if (!req.user.impersonation && String(agentRow.worker_id) !== String(req.user.id)) {
         return res.status(401).json({ message: 'Your agent assignment has changed. Please login again.' });
       }
       try {
