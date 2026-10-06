@@ -33,7 +33,7 @@ const I = 'india';
 // build a programme around. Themed to the event_head_sectors list.
 const FIXED = [
   /* January */
-  { m: 1, d: 2,  name: 'World Braille Day',            scope: W, kind: 'observance', themes: ['education', 'disability'], note: 'Raises awareness of braille and the needs of blind and visually impaired people.' },
+  { m: 1, d: 4,  name: 'World Braille Day',            scope: W, kind: 'observance', themes: ['education', 'disability'], note: 'Raises awareness of braille and the needs of blind and visually impaired people.' },
   { m: 1, d: 5,  name: 'National Bird Day (India)',    scope: I, kind: 'observance', themes: ['environment'], note: 'India — celebrates the Indian Roller, the national bird.' },
   { m: 1, d: 11, name: 'National Girl Child Day (India)', scope: I, kind: 'observance', themes: ['children', 'education', 'rights'], note: 'India — awareness of girls\' rights, education and protection.' },
   { m: 1, d: 30, name: 'World Non-Proliferation Day',   scope: W, kind: 'observance', themes: ['rights'] },
@@ -43,8 +43,10 @@ const FIXED = [
   { m: 1, d: 15, name: 'Army Day (India)',            scope: I, kind: 'national',   themes: ['rights', 'community'] },
   { m: 1, d: 23, name: 'Netaji Subhas Chandra Bose Jayanti', scope: I, kind: 'national', themes: ['rights', 'community'] },
   { m: 1, d: 24, name: 'International Day of Education', scope: W, kind: 'observance', themes: ['education'], note: 'UN-designated day for education.' },
+  { m: 1, d: 25, name: "National Voters' Day (India)", scope: I, kind: 'observance', themes: ['rights', 'community'], note: 'India — electoral literacy and voter awareness.' },
   { m: 1, d: 26, name: 'Republic Day (India)',         scope: I, kind: 'national',   themes: ['rights', 'community'], note: 'Constitution Day — national civic holiday.' },
   { m: 1, d: 27, name: 'International Holocaust Remembrance Day', scope: W, kind: 'observance', themes: ['rights', 'education'] },
+  { m: 1, d: 30, name: "Martyr's Day (India)",        scope: I, kind: 'national',   themes: ['rights', 'community'], note: 'India — honours the martyrs who laid down their lives for freedom.' },
 
   /* February */
   { m: 2, d: 2,  name: 'World Wetlands Day',          scope: W, kind: 'observance', themes: ['environment'] },
@@ -77,6 +79,7 @@ const FIXED = [
 
   /* April */
   { m: 4, d: 2,  name: 'World Autism Awareness Day',   scope: W, kind: 'observance', themes: ['disability', 'education', 'health'] },
+  { m: 4, d: 5,  name: 'National Maritime Day (India)', scope: I, kind: 'observance', themes: ['livelihoods', 'education'], note: 'India — honours maritime trade and seafarers.' },
   { m: 4, d: 7,  name: 'World Health Day',             scope: W, kind: 'observance', themes: ['health'], note: 'WHO founding day — the single largest global health campaign date.' },
   { m: 4, d: 14, name: 'World Parkinson\'s Day',       scope: W, kind: 'observance', themes: ['health'] },
   { m: 4, d: 14, name: 'Dr. B. R. Ambedkar Jayanti (India)', scope: I, kind: 'national', themes: ['rights', 'disability', 'education'], note: 'Fits accessibility, equal-opportunity and anti-discrimination drives.' },
@@ -96,28 +99,29 @@ const FIXED = [
   { m: 5, d: 1,  name: 'International Workers\' Day / Labour Day', scope: W, kind: 'observance', themes: ['livelihoods', 'rights'], note: 'Key date for skilling, artisan and worker-welfare programmes.' },
   { m: 5, d: 3,  name: 'World Press Freedom Day',      scope: W, kind: 'observance', themes: ['rights', 'education'] },
   { m: 5, d: 8,  name: 'World Red Cross and Red Crescent Day', scope: W, kind: 'observance', themes: ['health', 'social-inclusion'] },
+  { m: 5, d: 11, name: 'National Technology Day (India)', scope: I, kind: 'observance', themes: ['technology', 'education'], note: 'India — marks Pokhran-II tests and indigenous technology.' },
   { m: 5, d: 12, name: 'International Nurses Day',      scope: W, kind: 'observance', themes: ['health'], note: 'Fits tribute events and community health camps.' },
   { m: 5, d: 15, name: 'International Day of Families',scope: W, kind: 'observance', themes: ['social-inclusion', 'women-children'] },
   { m: 5, d: 16, name: 'International Day of Light',  scope: W, kind: 'observance', themes: ['environment', 'education'] },
   { m: 5, d: 17, name: 'World Speech and Communication Day', scope: W, kind: 'observance', themes: ['disability', 'health', 'education'], note: 'Designed for speech-therapy and AAC awareness programmes.' },
   { m: 5, d: 18, name: 'International Day of Museums', scope: W, kind: 'observance', themes: ['sports-culture', 'education'] },
   { m: 5, d: 19, name: 'World Bee Day',                scope: W, kind: 'observance', themes: ['environment', 'livelihoods'], note: 'Strong fit for beekeeping / honey livelihood training.' },
-  { m: 5, d: 21, name: 'International Day for Biological Diversity', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 5, d: 21, name: 'International Tea Day',        scope: W, kind: 'observance', themes: ['nutrition', 'livelihoods'] },
-{ m: 5, d: 22, name: 'International Day for Biological Diversity (UN)', scope: W, kind: 'observance', themes: ['environment'] },
+  { m: 5, d: 21, name: 'National Anti-Terrorism Day (India)', scope: I, kind: 'observance', themes: ['rights'], note: 'India — remembrance and awareness against terrorism.' },
+  { m: 5, d: 22, name: 'International Day for Biological Diversity', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 5, d: 29, name: 'International Everest Day',    scope: W, kind: 'observance', themes: ['sports-culture', 'education'] },
   { m: 5, d: 31, name: 'World No Tobacco Day',         scope: W, kind: 'observance', themes: ['health'], note: 'Widely used for tobacco-free / anti-smoking drives.' },
 
   /* June */
   { m: 6, d: 3,  name: 'World Bicycle Day',            scope: W, kind: 'observance', themes: ['environment', 'health', 'disability'] },
   { m: 6, d: 5,  name: 'World Environment Day',        scope: W, kind: 'observance', themes: ['environment'], note: 'UN flagship day for climate, waste and habitat action.' },
-  { m: 6, d: 6,  name: 'World Blood Donor Day',        scope: W, kind: 'observance', themes: ['health'], note: 'Built for voluntary blood donation camps.' },
+  { m: 6, d: 14, name: 'World Blood Donor Day',        scope: W, kind: 'observance', themes: ['health'], note: 'Built for voluntary blood donation camps.' },
   { m: 6, d: 7,  name: 'World Food Safety Day',        scope: W, kind: 'observance', themes: ['nutrition', 'health'] },
   { m: 6, d: 8,  name: 'World Oceans Day',             scope: W, kind: 'observance', themes: ['environment'] },
   { m: 6, d: 10, name: 'International Mine Awareness Day', scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
   { m: 6, d: 12, name: 'World Day Against Child Labour', scope: W, kind: 'observance', themes: ['rights', 'education', 'children'] },
   { m: 6, d: 14, name: 'World Elder Abuse Awareness Day', scope: W, kind: 'observance', themes: ['social-inclusion', 'health', 'rights'] },
-  { m: 6, d: 15, name: 'International Yoga Day',      scope: W, kind: 'observance', themes: ['health', 'sports-culture'], note: 'Well suited to therapy, wellness and rehabilitation sessions.' },
+  { m: 6, d: 21, name: 'International Yoga Day',      scope: W, kind: 'observance', themes: ['health', 'sports-culture'], note: 'Well suited to therapy, wellness and rehabilitation sessions.' },
   { m: 6, d: 16, name: 'International Day for the Elimination of Sexual Violence in Conflict', scope: W, kind: 'observance', themes: ['rights', 'women-children'] },
   { m: 6, d: 17, name: 'World Day to Combat Desertification and Drought', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 6, d: 20, name: 'World Refugee Day',            scope: W, kind: 'observance', themes: ['social-inclusion', 'livelihoods'] },
@@ -137,6 +141,7 @@ const FIXED = [
   { m: 7, d: 18, name: 'Nelson Mandela International Day', scope: W, kind: 'observance', themes: ['rights', 'social-inclusion', 'education'] },
   { m: 7, d: 20, name: 'International Moon Day',       scope: W, kind: 'observance', themes: ['environment'] },
   { m: 7, d: 22, name: 'World Brain Day',               scope: W, kind: 'observance', themes: ['health', 'disability'] },
+  { m: 7, d: 22, name: 'National Flag Day (India)',    scope: I, kind: 'observance', themes: ['rights', 'community'], note: 'India — the day the tricolour was adopted.' },
   { m: 7, d: 25, name: 'World Drowning Prevention Day', scope: W, kind: 'observance', themes: ['health', 'rights'] },
   { m: 7, d: 26, name: 'International Day for the Prevention of Torture', scope: W, kind: 'observance', themes: ['rights'] },
   { m: 7, d: 28, name: 'World Hepatitis Day',          scope: W, kind: 'observance', themes: ['health'] },
@@ -154,6 +159,7 @@ const FIXED = [
   { m: 8, d: 21, name: 'International Day for the Commemoration of the International Slave Trade', scope: W, kind: 'observance', themes: ['rights', 'education'] },
   { m: 8, d: 27, name: 'World Flying Doctor Day',      scope: W, kind: 'observance', themes: ['health', 'social-inclusion'] },
   { m: 8, d: 29, name: 'International Day against Nuclear Tests', scope: W, kind: 'observance', themes: ['rights'] },
+  { m: 8, d: 29, name: 'National Sports Day (India)',  scope: I, kind: 'observance', themes: ['sports-culture', 'community'], note: 'India — honours Major Dhyan Chand and grassroots sports.' },
   { m: 8, d: 30, name: 'National Women\'s Day (India)', scope: I, kind: 'observance', themes: ['women-children', 'rights', 'livelihoods'] },
 
   /* September */
@@ -165,7 +171,6 @@ const FIXED = [
   { m: 9, d: 14, name: 'Hindi Day (India)',            scope: I, kind: 'observance', themes: ['education'] },
   { m: 9, d: 16, name: 'International Day for the Preservation of the Ozone Layer', scope: W, kind: 'observance', themes: ['environment', 'health'] },
   { m: 9, d: 17, name: 'World Hindi Day (India)',      scope: I, kind: 'observance', themes: ['education'], note: 'India — celebrates Hindi and world-language translators.' },
-  { m: 9, d: 19, name: 'International Day for Older Persons', scope: W, kind: 'observance', themes: ['social-inclusion', 'health'] },
   { m: 9, d: 21, name: 'International Day of Peace',   scope: W, kind: 'observance', themes: ['rights', 'community'] },
   { m: 9, d: 22, name: 'World Car Free Day',           scope: W, kind: 'observance', themes: ['environment', 'health', 'disability'] },
   { m: 9, d: 23, name: 'International Day of Sign Languages', scope: W, kind: 'observance', themes: ['disability', 'education'], note: 'Direct fit for inclusive communication and sign-language training.' },
@@ -174,7 +179,7 @@ const FIXED = [
   { m: 9, d: 30, name: 'International Translation Day',scope: W, kind: 'observance', themes: ['education'] },
 
   /* October */
-  { m: 10, d: 1, name: 'International Day of the Elderly', scope: W, kind: 'observance', themes: ['social-inclusion', 'health'] },
+  { m: 10, d: 1, name: 'International Day of Older Persons', scope: W, kind: 'observance', themes: ['social-inclusion', 'health'] },
   { m: 10, d: 1, name: "National Senior Citizens' Day (India)", scope: I, kind: 'observance', themes: ['social-inclusion', 'health', 'rights'] },
   { m: 10, d: 2, name: 'Gandhi Jayanti (India)',        scope: I, kind: 'national',   themes: ['rights', 'community'] },
   { m: 10, d: 2, name: 'International Day of Non-Violence', scope: W, kind: 'observance', themes: ['rights', 'community'], note: 'UN-designated, observed on Gandhi Jayanti.' },
@@ -182,7 +187,7 @@ const FIXED = [
   { m: 10, d: 10, name: 'World Mental Health Day',      scope: W, kind: 'observance', themes: ['health', 'rights'], note: 'Largest global mental-health campaign date.' },
   { m: 10, d: 11, name: 'International Day of the Girl Child', scope: W, kind: 'observance', themes: ['women-children', 'education', 'rights'] },
   { m: 10, d: 16, name: 'World Food Day',              scope: W, kind: 'observance', themes: ['nutrition', 'livelihoods'] },
-  { m: 10, d: 17, name: 'International Day for the Elimination of Poverty', scope: W, kind: 'observance', themes: ['livelihoods', 'social-inclusion'] },
+  { m: 10, d: 17, name: 'International Day for the Eradication of Poverty', scope: W, kind: 'observance', themes: ['livelihoods', 'social-inclusion'] },
   { m: 10, d: 20, name: 'World Osteoporosis Day',       scope: W, kind: 'observance', themes: ['health'] },
   { m: 10, d: 24, name: 'United Nations Day',           scope: W, kind: 'observance', themes: ['rights', 'education'] },
   { m: 10, d: 27, name: 'World Day for Audiovisual Heritage', scope: W, kind: 'observance', themes: ['education', 'sports-culture'] },
@@ -202,18 +207,20 @@ const FIXED = [
   /* December */
   { m: 12, d: 1, name: 'World AIDS Day',               scope: W, kind: 'observance', themes: ['health', 'rights'] },
   { m: 12, d: 2, name: 'International Day for the Abolition of Slavery', scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
+  { m: 12, d: 2, name: 'National Pollution Control Day (India)', scope: I, kind: 'observance', themes: ['environment', 'health'], note: 'India — industrial-accident and pollution-control awareness.' },
   { m: 12, d: 3, name: 'International Day of Persons with Disabilities', scope: W, kind: 'observance', themes: ['disability', 'rights'], note: 'UN-designated; core date for accessibility and inclusion drives.' },
   { m: 12, d: 4, name: 'National Thermal Power Day (India)', scope: I, kind: 'observance', themes: ['environment', 'education'], note: 'India — energy conservation and thermal-plant efficiency awareness.' },
   { m: 12, d: 5, name: 'International Volunteer Day (UN)', scope: W, kind: 'observance', themes: ['community', 'social-inclusion'], note: 'Fits volunteer recognition drives.' },
   { m: 12, d: 5, name: 'World Soil Day',               scope: W, kind: 'observance', themes: ['environment', 'livelihoods'], note: 'Fits soil-health and farming livelihoods.' },
   { m: 12, d: 6, name: 'World Olive Tree Day',         scope: W, kind: 'observance', themes: ['environment', 'nutrition'] },
-  { m: 12, d: 9, name: 'International Day against Corruption', scope: W, kind: 'observance', themes: ['rights'] },
+  { m: 12, d: 9, name: 'International Anti-Corruption Day', scope: W, kind: 'observance', themes: ['rights'] },
   { m: 12, d: 10, name: 'Human Rights Day (UN)',       scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
   { m: 12, d: 12, name: 'Universal Health Coverage Day (UN)', scope: W, kind: 'observance', themes: ['health', 'rights'] },
   { m: 12, d: 13, name: 'International Day of Neutrality', scope: W, kind: 'observance', themes: ['rights', 'community'] },
-  { m: 12, d: 18, name: 'International Migrant Day (UN)', scope: W, kind: 'observance', themes: ['social-inclusion', 'livelihoods'] },
+  { m: 12, d: 18, name: 'International Migrants Day', scope: W, kind: 'observance', themes: ['social-inclusion', 'livelihoods'] },
   { m: 12, d: 18, name: 'World Arabic Language Day',   scope: W, kind: 'observance', themes: ['education'] },
   { m: 12, d: 20, name: 'International Human Solidarity Day (UN)', scope: W, kind: 'observance', themes: ['social-inclusion', 'rights'] },
+  { m: 12, d: 23, name: "National Farmers' Day (India)", scope: I, kind: 'observance', themes: ['livelihoods', 'nutrition'], note: 'India — Kisan Divas, honours farmer welfare.' },
   { m: 12, d: 25, name: 'Christmas',                    scope: W, kind: 'religious', themes: ['community', 'sports-culture', 'nutrition'], note: 'Widely used for gift-distribution and celebration programmes, and widely observed in India.' },
 ];
 
