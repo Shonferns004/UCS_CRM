@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PageHeader, Select, SearchInput, Badge, StatusPill, Empty } from '../components/ui.jsx'
@@ -19,6 +19,8 @@ import {
   suggestFestivalPrograms,
   getFestivalSuggestions,
   setFestivalSuggestionSelected,
+  mergeProgrammeRows,
+  blankRepeatedDates,
 } from '../store.jsx'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
@@ -113,12 +115,14 @@ const activityBeneficiary = (a, ngos, ngo) =>
    beneficiary map above, because that is how the team identifies an NGO.
    An NGO with no entry falls back to the smallest common quota rather than
    showing a target of 0, which would read as "already complete". */
-const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 15 }
+const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 20 }
 const DEFAULT_MONTHLY_TARGET = 15
 
 const ngoCodeKey = (n) => String(n?.code || '').trim().toLowerCase()
 
 const monthlyTargetFor = (n) => NGO_MONTHLY_TARGET[ngoCodeKey(n)] ?? DEFAULT_MONTHLY_TARGET
+
+const capFirst = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
 
 /* Card order follows the target table, so BSCT's bigger quota is read first and
    the cards do not reshuffle between NGOs or months. Anything not in the table
@@ -153,11 +157,10 @@ const REPORT_HEADERS = ['Date', 'Day', 'Activity', 'Programme', 'Status', 'AI Su
 
 /* The monthly-planner grid download. Each downloadable unit is one selected AI
    festival programme, so the columns answer "what is this date's festival, who
-   serves it, and what programme did I pick for them?". Sector and Activity come
-   from the suggestion the server stored (Sector is the generating sector, while
-   Activity is only filled when a single best-fit activity was used — otherwise
-   '—'), so the export never invents rows the UI did not show. */
-const FESTIVAL_REPORT_HEADERS = ['Date', 'Day', 'Festival/Important Day', 'NGO', 'Sector', 'Activity', 'Beneficiary', 'AI Suggested Programme', 'Status']
+   serves it, and what programme did I pick for them?". Sector and Activity were
+   dropped because the grid itself does not carry them — the export matches the
+   on-screen columns. */
+const FESTIVAL_REPORT_HEADERS = ['Date', 'Day', 'Festival/Important Day', 'NGO', 'Beneficiary', 'AI Suggested Programme', 'Status']
 
 /* Marks an activity the user ticked for this download. A tick rather than a word
    so the eye can find the chosen ones down a column, and it survives being copied
@@ -188,6 +191,42 @@ const SCROLLBAR_CSS = `
 .ap-scroll::-webkit-scrollbar-track { background: #eef0f7; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .ap-scroll::-webkit-scrollbar-thumb { background: #b9bcd0; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .ap-scroll::-webkit-scrollbar-thumb:hover { background: #9498b0; background-clip: padding-box; }
+`
+
+/* AI programme urgency, mapped to a badge tone: the loudest for Urgent and
+   Critical, amber for High, then quiet blue and grey. */
+const PRIORITY_TONE = { Urgent: 'danger', Critical: 'danger', High: 'warn', Medium: 'primary', Low: 'muted' }
+
+/* Scoped styling for the Monthly Planner festival grid (`.eh-fest-grid`). Kept
+   local to ActivityPlanner.jsx so the four-source calendar's other pages in
+   event-head are untouched. Rules only restyle/space the table — the row data,
+   heading, export and behaviour logic are not involved. */
+const FEST_GRID_CSS = `
+.eh-fest-grid { width: 100%; min-width: 900px; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid #E3E6F2; }
+.eh-fest-grid thead th { position: sticky; top: 0; z-index: 5; padding: 10px 14px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; text-align: left; color: var(--eh-ink-soft, #6f6c86); background: #f3f2fb; border-bottom: 2px solid #d9d5f0; border-right: 1px solid #E3E6F2; white-space: nowrap; }
+.eh-fest-grid thead th:last-child { border-right: none; }
+.eh-fest-grid td { padding: 11px 14px; font-size: 13px; line-height: 1.3; color: var(--eh-ink, #1f2430); border-right: 1px solid #E3E6F2; vertical-align: middle; }
+.eh-fest-grid td:last-child { border-right: none; }
+.eh-fest-grid td.dd { font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.eh-fest-grid td.plain { color: var(--eh-ink-faint, #a09db4); font-size: 12.5px; }
+.eh-fest-grid .ff-name { display: block; font-weight: 700; font-size: 14px; color: var(--eh-ink, #1f2430); }
+.eh-fest-grid .ff-type { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--eh-ink-soft, #6f6c86); }
+.eh-fest-grid .ff-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--eh-primary, #6c5ce7); }
+.eh-fest-grid .ng-pill { display: inline-flex; padding: 3px 10px; border-radius: 999px; background: var(--eh-tint-1, #f0eefb); border: 1px solid var(--eh-line-strong, #ddd9f0); font-size: 11.5px; font-weight: 700; color: var(--eh-ink, #1f2430); white-space: nowrap; }
+.eh-fest-grid td.bn { font-size: 13px; }
+.eh-fest-grid .ai-title { display: block; font-weight: 600; font-size: 13.5px; color: var(--eh-ink, #1f2430); }
+.eh-fest-grid .ai-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.eh-fest-grid td.ai.nowrap { white-space: nowrap; }
+.eh-fest-grid td.sel { text-align: center; }
+.eh-fest-grid td.sel input { width: 16px; height: 16px; margin: 0; vertical-align: middle; accent-color: var(--eh-primary, #6c5ce7); cursor: pointer; }
+.eh-fest-grid td.sel input:disabled { cursor: wait; }
+.eh-fest-grid td.dd, .eh-fest-grid td.ff, .eh-fest-grid td.ng, .eh-fest-grid td.bn { border-bottom: none; }
+.eh-fest-grid td.divider { border-top: 2px solid #d9d5f0; }
+.eh-fest-grid tbody tr:first-child td.divider { border-top: none; }
+.eh-fest-grid td.subline { border-bottom: 1px solid #E3E6F2; }
+.eh-fest-grid tr.sel-row:hover td.ai, .eh-fest-grid tr.sel-row:hover td.sel { background: #faf9ff; }
+.eh-fest-grid tr.sel-row.sel td.ai, .eh-fest-grid tr.sel-row.sel td.sel { background: var(--eh-tint-1, #f0eefb); }
+.eh-fest-grid tr.sel-row.sel td.ai { box-shadow: inset 3px 0 0 var(--eh-primary, #6c5ce7); }
 `
 
 function ModalShell({ title, subtitle, onClose, children, footer, width = 640 }) {
@@ -1559,16 +1598,18 @@ const pendingAll = scopedSuggestions
 
   /* The download is the user's selected programmes, freshly read so it always
      matches the server even if the UI has not reloaded since a tick. Sorted by
-     date then festival — one row per selected programme, so the export row
-     count is exactly the "N programmes selected" counter. Sector and Activity
-     are the stored values the server chose at generation time. */
+     date then festival, then passed through the shared mergeProgrammeRows
+     normaliser — the final dedupe (unique key date + festival + NGO +
+     beneficiary) so several selected AI programmes for the same festival export
+     as ONE row with the programme titles comma-joined, never duplicate
+     date/festival rows. The export row shape (title/status) is unchanged. */
   const buildFestivalExportRows = useCallback(async () => {
     const [y, m] = month.split('-').map(Number)
     const sel = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined, selected_only: true })
       .catch(() => [])
     if (!Array.isArray(sel)) return []
     const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
-    return sel
+    const rows = sel
       .slice()
       .sort((a, b) => {
         if (a.observance_date !== b.observance_date) {
@@ -1580,17 +1621,24 @@ const pendingAll = scopedSuggestions
         const n = ngoById.get(String(s.ngo_id))
         const observed = String(s.observance_date || '')
         return {
+          date: observed,
           dateLabel: shortDate(observed),
           weekday: observed ? new Date(`${observed}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
           festival: s.festival || '—',
           ngoLabel: ngoShortLabel(n),
-          sector: s.sector_name || '—',
-          activity: s.activity_name || '—',
           beneficiary: s.beneficiary || '—',
-          title: s.title || '—',
+          programme: s.title || '—',
           status: s.suggested_event_id ? 'Scheduled' : 'Draft',
         }
       })
+    /* Rule 8: final validation/deduplication before Excel/PDF generation.
+       mergeProgrammeRows collapses multiple programmes for the same festival onto
+       its ONE row; blankRepeatedDates then shows each date once — the Date/Day
+       cells fill only on the first row of that date, so a date with several
+       festivals never repeats across its own rows in the export. */
+    const merged = mergeProgrammeRows(rows, ['date', 'festival', 'ngoLabel', 'beneficiary'])
+      .map((r) => ({ ...r, title: r.programme }))
+    return blankRepeatedDates(merged, 'dateLabel', 'weekday')
   }, [month, ngos, ngoId])
 
   /* Loads the cut-down rows once, mirrors them into state (which the off-screen
@@ -1636,7 +1684,7 @@ const pendingAll = scopedSuggestions
         headers,
       ]
       for (const r of rows) {
-        aoa.push([r.dateLabel, r.weekday, r.festival, r.ngoLabel, r.sector, r.activity, r.beneficiary, r.title, r.status])
+        aoa.push([r.dateLabel, r.weekday, r.festival, r.ngoLabel, r.beneficiary, r.title, r.status])
       }
       if (!rows.length) {
         aoa.push([`No programmes selected. Tick an AI suggestion's box in the Activities grid, then download again — only selected programmes are listed.`])
@@ -1658,7 +1706,7 @@ const pendingAll = scopedSuggestions
         }
       }
 
-      ws['!cols'] = [{ wch: 11 }, { wch: 9 }, { wch: 26 }, { wch: 9 }, { wch: 20 }, { wch: 18 }, { wch: 20 }, { wch: 60 }, { wch: 10 }]
+      ws['!cols'] = [{ wch: 11 }, { wch: 9 }, { wch: 26 }, { wch: 9 }, { wch: 20 }, { wch: 60 }, { wch: 10 }]
       ws['!rows'] = []
       ws['!rows'][0] = { hpt: 22 }
       for (let r = 7; r < aoa.length; r++) ws['!rows'][r] = { hpt: 64 }
@@ -2105,15 +2153,24 @@ const pendingAll = scopedSuggestions
         )}
 
         <div style={{ overflowX: 'auto' }}>
-          <table>
+          <style>{FEST_GRID_CSS}</style>
+          <table className="eh-fest-grid">
+            <colgroup>
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '25%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '31%' }} />
+              <col style={{ width: '7%' }} />
+            </colgroup>
             <thead>
               <tr>
-                <th style={{ width: 88 }}>Date</th>
+                <th>Date</th>
                 <th>Festival / Day</th>
-                <th style={{ width: 92 }}>NGO</th>
-                <th style={{ width: 148 }}>Beneficiary</th>
-                <th style={{ width: '42%' }}>AI Suggestion</th>
-                <th style={{ width: 80 }}>Select</th>
+                <th>NGO</th>
+                <th>Beneficiary</th>
+                <th>AI Suggestion</th>
+                <th>Select</th>
               </tr>
             </thead>
             <tbody>
@@ -2122,40 +2179,43 @@ const pendingAll = scopedSuggestions
                 if (!obs.length) {
                   return (
                     <tr key={date}>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: 12.5, color: 'var(--eh-ink)' }}>{shortDate(date)}</span>
-                      </td>
-                      <td colSpan={5}>
-                        <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>No festival / important day</span>
-                      </td>
+                      <td className="dd divider">{shortDate(date)}</td>
+                      <td className="plain divider" colSpan={5}>No important day</td>
                     </tr>
                   )
                 }
+                // Each festival is one block: the date, festival name, NGO and
+                // beneficiary are written once and span the block, while every
+                // programme keeps its own compact row in AI SUGGESTION + SELECT.
+                // Sub-dividers cut only those two columns between ideas, so the
+                // suggestions stay visually tied to their festival without any
+                // giant blank cells. Full dividers separate festival blocks.
+                const blockRows = (o) => {
+                  const key = `${date}::${o.name}`
+                  return Math.max(1, (festivalSuggestionsByKey[key] || []).length)
+                }
+                const totalRows = obs.reduce((acc, o) => acc + blockRows(o), 0)
+                const festivalCell = (o) => (
+                  <>
+                    <span className="ff-name">{o.name}</span>
+                    {o.type && <span className="ff-type"><span className="ff-dot" />{capFirst(o.type)}</span>}
+                  </>
+                )
                 return obs.map((o, oi) => {
                   const key = `${date}::${o.name}`
                   const sugg = festivalSuggestionsByKey[key] || []
                   const generating = festGenerating?.key === key
-                  return (
-                    <Fragment key={key}>
-                      <tr style={oi === 0 ? { background: 'var(--eh-tint-1)' } : undefined}>
-                        {oi === 0 && (
-                          <td rowSpan={obs.length} style={{ padding: '10px 14px', verticalAlign: 'top' }}>
-                            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)' }}>{shortDate(date)}</span>
-                          </td>
-                        )}
-                        <td style={{ padding: '10px 14px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{o.name}</span>
-                            {o.type && <Badge tone={o.type === 'india' ? 'primary' : 'secondary'}>{o.type}</Badge>}
-                          </div>
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{festivalNgoLabel}</span>
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>{festivalBeneficiary}</span>
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
+                  const trs = []
+                  if (sugg.length === 0) {
+                    // No programmes yet — one slim action row with the generate
+                    // button where the first idea title would sit.
+                    trs.push(
+                      <tr key={`${key}-g`}>
+                        {oi === 0 && <td className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>}
+                        <td className="ff divider">{festivalCell(o)}</td>
+                        <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
+                        <td className="bn divider">{festivalBeneficiary}</td>
+                        <td className="ai divider nowrap">
                           <button
                             className="eh-btn eh-btn-sm"
                             disabled={!ngoId || festGenerating !== null}
@@ -2169,55 +2229,52 @@ const pendingAll = scopedSuggestions
                             {generating ? 'Generating…' : '✦ Suggest programmes'}
                           </button>
                         </td>
-                        <td style={{ padding: '10px 14px' }} />
+                        <td className="sel divider" />
                       </tr>
-                      {generating && (
-                        <tr key={`${key}-busy`}>
-                          <td />
-                          <td />
-                          <td>{ngo ? ngoShortLabel(ngo) : '—'}</td>
-                          <td>{festivalBeneficiary}</td>
-                          <td colSpan={2}>
-                            <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Generating programme ideas…</span>
-                          </td>
-                        </tr>
-                      )}
-                      {sugg.map((s) => (
-                        <tr key={s.id} style={{ background: s.is_selected ? 'var(--eh-tint-1)' : undefined }}>
-                          <td /><td />
-                          <td style={{ padding: '9px 14px' }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
-                              {ngoShortLabel(ngos.find((x) => String(x.id) === String(s.ngo_id)) || {}) || '—'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '9px 14px' }}>
-                            <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>{s.beneficiary || '—'}</span>
-                          </td>
-                          <td style={{ padding: '9px 14px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{s.title || '—'}</span>
-                              {[s.format, s.priority].filter(Boolean).length > 0 && (
-                                <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                  {s.format && <Badge tone="secondary">{s.format}</Badge>}
-                                  {s.priority && <Badge tone="muted">Priority: {s.priority}</Badge>}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td style={{ padding: '9px 14px' }}>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(s.is_selected)}
-                              disabled={festBusy}
-                              title={s.is_selected ? `${s.title} is in the download. Untick to leave it out.` : `${s.title} is not in the download. Tick to include it.`}
-                              onChange={(e) => toggleFestivalSuggestion(s, e.target.checked)}
-                              style={{ width: 16, height: 16, cursor: festBusy ? 'wait' : 'pointer', accentColor: 'var(--eh-primary)' }}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </Fragment>
-                  )
+                    )
+                    return trs
+                  }
+                  sugg.forEach((s, si) => {
+                    const firstRow = si === 0
+                    const notLast = si < sugg.length - 1
+                    const cells = []
+                    if (firstRow) {
+                      if (oi === 0) cells.push(<td key="d" className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>)
+                      cells.push(
+                        <td key="f" className="ff divider" rowSpan={sugg.length}>{festivalCell(o)}</td>,
+                        <td key="n" className="ng divider" rowSpan={sugg.length}><span className="ng-pill">{festivalNgoLabel}</span></td>,
+                        <td key="b" className="bn divider" rowSpan={sugg.length}>{festivalBeneficiary}</td>,
+                      )
+                    }
+                    const aiCls = `ai${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
+                    const selCls = `sel${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
+                    cells.push(
+                      <td key="a" className={aiCls}>
+                        <span className="ai-title">{s.title || '—'}</span>
+                        {(s.format || s.priority) && (
+                          <span className="ai-badges">
+                            {s.format && <Badge tone="primary">{s.format}</Badge>}
+                            {s.priority && <Badge tone={PRIORITY_TONE[s.priority] || 'muted'}>{s.priority}</Badge>}
+                          </span>
+                        )}
+                      </td>,
+                      <td key="c" className={selCls}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(s.is_selected)}
+                          disabled={festBusy}
+                          title={s.is_selected ? `${s.title} is in the download. Untick to leave it out.` : `${s.title} is not in the download. Tick to include it.`}
+                          onChange={(e) => toggleFestivalSuggestion(s, e.target.checked)}
+                        />
+                      </td>,
+                    )
+                    trs.push(
+                      <tr key={String(s.id)} className={`sel-row${s.is_selected ? ' sel' : ''}`}>
+                        {cells}
+                      </tr>
+                    )
+                  })
+                  return trs
                 })
               })}
             </tbody>
@@ -2261,8 +2318,6 @@ const pendingAll = scopedSuggestions
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.weekday}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.festival}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.ngoLabel}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.sector}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.activity}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.beneficiary}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap', fontWeight: 600 }}>{r.title}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.status}</td>
