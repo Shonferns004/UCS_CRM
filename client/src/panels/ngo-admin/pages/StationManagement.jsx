@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
-import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
 import { istMonthKey } from '../../../utils/istDate';
+import { dispositionGroupOf, dispositionLabelOf } from '../../../lib/dispositions';
 
 const NGO_NAME_COLORS = {
   bsct: '#2563eb',
@@ -1040,7 +1041,7 @@ function SourcePill({ source, monthsEmployed, sourceMonth }) {
 }
 
 // Per-row ⋮ kebab menu (absolute overlay; does not affect column widths).
-function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onDownload, onTarget, onDelete }) {
+function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onDownload, onTarget, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1070,6 +1071,11 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onDownl
             </button>
           )}
           <button onClick={run(onUpload)} style={itemStyle}>⇧ Upload old data</button>
+          {onViewList && (
+            <button onClick={run(onViewList)} style={{ ...itemStyle, fontWeight: 600 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={14} /> View donor list</span>
+            </button>
+          )}
           {onDownload && <button onClick={run(onDownload)} style={itemStyle}>⤓ Download Excel</button>}
           <div style={{ borderTop: '1px solid var(--line, #e5e7eb)', margin: '4px 0' }} />
           <button onClick={run(onDelete)} style={{ ...itemStyle, color: 'var(--danger)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Trash2 size={14} /> Delete station</span></button>
@@ -1473,6 +1479,550 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
   );
 }
 
+// Rows per page in the donor list. A station can hold 400+ donors, so the table is
+// paged rather than rendered whole — the same bound the dashboard station popup uses.
+const DONOR_ROWS_PER_PAGE = 50;
+
+// Relative "time since" for a donor's last contact, reusing the NCF modal's
+// phrasing so both station dialogs read the same way.
+function donorTimeSince(iso) {
+  if (!iso) return '—';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '—';
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return '1d ago';
+  return `${days}d ago`;
+}
+
+// On-screen counterpart to the station row's "Download Excel" action: shows the
+// same donors-by-station dataset and lets an admin remove one.
+//
+// The removal exists to enforce the one-number-per-NGO rule. The DB holds a
+// partial unique index (uq_fro_assignments_active_donor_ngo) allowing one ACTIVE
+// assignment per (donor, ngo), so a number that shows up twice inside an NGO can
+// only be cleared by retiring one of the two rows. Deleting frees it.
+//
+// Two things this must not do, and how they are handled:
+//   - Delete a donor who has given money. The endpoint refuses those outright and
+//     answers 409 with the reason per donor, so the confirm step surfaces them in
+//     red and offers to run again over the remainder.
+//   - Delete half a duplicate pair. The endpoint is all-or-nothing for the same
+//     reason; the modal never presents a partial success as a complete one.
+function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged, onDownloadExcel }) {
+  const [loading, setLoading] = useState(true);
+  const [donors, setDonors] = useState([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [selected, setSelected] = useState([]);
+  const [page, setPage] = useState(1);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Confirm flow. `preview` holds the dry-run answer: which rows go, which are
+  // blocked and why. `blockedOnly` is the 409 case, where the modal keeps the
+  // selection intact and offers a retry over just the deletable remainder.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingIds, setPendingIds] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [blocked, setBlocked] = useState([]);
+  const [result, setResult] = useState(null);
+
+  // ── NGO scope ────────────────────────────────────────────────────────────
+  //
+  // A station NAME is shared across NGOs - 'DH-5' is BOD-15 for BSCT, AOD-15 for
+  // AFLF and MOD-15 for MANN - so one name can hold a completely separate set of
+  // donors in each. The station row already shows one count pill per NGO
+  // ("BSCT: 900  MANN: 754"), which is why opening the list used to disagree with
+  // it: the list was asked for the station name alone and the endpoint unioned
+  // every NGO, returning 1824.
+  //
+  // So the scope is explicit and defaults to a single NGO: the tab the admin is
+  // currently looking at when that NGO owns this station, otherwise the station's
+  // first NGO. "All NGOs" stays reachable but is opt-in, and when it is used the
+  // table grows an NGO column so a combined list can never be misread as one
+  // station's donors.
+  const ngoOptions = useMemo(
+    () => (ngoList || []).filter(n => n && n.ngo_id).map(n => ({ id: String(n.ngo_id), name: n.ngo_name || '' })),
+    [ngoList],
+  );
+  const [activeNgo, setActiveNgo] = useState(() => String(defaultNgoId || ''));
+
+  // Re-scope when the caller hands down a different default (a different station
+  // row), but never stomp a choice the admin already made in this modal.
+  useEffect(() => {
+    if (defaultNgoId) setActiveNgo(String(defaultNgoId));
+  }, [defaultNgoId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams({ station });
+    if (activeNgo) params.set('ngo_id', activeNgo);
+    apiGet(`/ngo-admin/donors-by-station?${params}`)
+      .then(data => {
+        if (cancelled) return;
+        setDonors(Array.isArray(data) ? data : []);
+        setSelected([]);
+        setPage(1);
+      })
+      .catch(err => { if (!cancelled) toast(err.message, 'error'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [station, activeNgo, refreshKey]);
+
+  // A station's rows can number in the hundreds, so every filter runs over the
+  // full list and only the page slice is rendered.
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return donors.filter(d => {
+      if (statusFilter && d.status !== statusFilter) return false;
+      if (categoryFilter && String(d.data_category || '') !== categoryFilter) return false;
+      if (!q) return true;
+      return (
+        String(d.donor_name || '').toLowerCase().includes(q) ||
+        String(d.donor_mobile || '').includes(q) ||
+        String(d.donor_mobile_2 || '').includes(q) ||
+        String(d.donor_city || '').toLowerCase().includes(q) ||
+        String(d.fro_name || '').toLowerCase().includes(q) ||
+        String(d.data_category || '').toLowerCase().includes(q)
+      );
+    });
+  }, [donors, search, statusFilter, categoryFilter]);
+
+  const statusOptions = useMemo(
+    () => [...new Set(donors.map(d => d.status).filter(Boolean))].sort(),
+    [donors],
+  );
+  const categoryOptions = useMemo(
+    () => [...new Set(donors.map(d => String(d.data_category || '').trim()).filter(Boolean))].sort(),
+    [donors],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / DONOR_ROWS_PER_PAGE));
+  const pageRows = useMemo(() => {
+    const start = (page - 1) * DONOR_ROWS_PER_PAGE;
+    return filtered.slice(start, start + DONOR_ROWS_PER_PAGE);
+  }, [filtered, page]);
+
+  // Clamp rather than reset: changing a filter must not strand the admin on page 7
+  // of a 2-page result.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, categoryFilter]);
+
+  const selectedIds = useMemo(() => new Set(selected), [selected]);
+  const allOnPageSelected = pageRows.length > 0 && pageRows.every(d => selectedIds.has(d.id));
+
+  const toggle = (id) => {
+    setSelected(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  };
+
+  const togglePage = () => {
+    const pageIds = pageRows.map(d => d.id);
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allOnPageSelected) pageIds.forEach(id => next.delete(id));
+      else pageIds.forEach(id => next.add(id));
+      return [...next];
+    });
+  };
+
+  const clearSelection = () => {
+    setSelected([]);
+    setBlocked([]);
+    setResult(null);
+  };
+
+  const openConfirm = (ids) => {
+    if (ids.length === 0) return;
+    setPendingIds(ids);
+    setConfirmOpen(true);
+    setBlocked([]);
+    setResult(null);
+    setPreview({ loading: true, deletable: [], totals: {}, notFound: 0 });
+    apiPost('/ngo-admin/station-donors/delete?dry_run=true', { assignment_ids: ids })
+      .then(res => {
+        setPreview({
+          loading: false,
+          deletable: Array.isArray(res.deletable) ? res.deletable : [],
+          totals: res.totals || {},
+          notFound: res.not_found || 0,
+        });
+        // The dry run answers with the same guard as the real delete, so the
+        // money-blocked rows are known BEFORE the admin is asked to confirm.
+        // Surfacing them here means the confirm button is never a trap that
+        // would come back 409 with nothing deleted.
+        setBlocked(Array.isArray(res.blocked) ? res.blocked : []);
+      })
+      .catch(err => setPreview(p => ({ ...p, loading: false, error: err.message })));
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await apiPost('/ngo-admin/station-donors/delete', { assignment_ids: pendingIds });
+      setResult(res);
+      if (res?.message) toast(res.message, 'success');
+      setSelected([]);
+      setRefreshKey(k => k + 1);
+      // The station row's donor pill is derived from a separate read, so let the
+      // parent refresh it now rather than only on close.
+      if (onChanged) onChanged();
+    } catch (err) {
+      // 409 carries the per-donor block list in the body (survives the throw as
+      // err.data). Surface it instead of a bare toast, and keep the selection so
+      // the admin can retry the remainder without re-ticking. This is the race
+      // the dry run cannot cover: money recorded between preview and confirm.
+      const blockedList = err?.data?.blocked;
+      if (Array.isArray(blockedList) && blockedList.length > 0) {
+        setBlocked(blockedList);
+        setPreview(p => ({ ...(p || { deletable: [] }), loading: false, error: null }));
+        toast(err.message, 'error');
+      } else {
+        toast(err.message, 'error');
+      }
+    } finally {
+      setDeleting(false);
+      setConfirmOpen(false);
+    }
+  };
+
+  // Offered when the guard refuses part of the selection: re-run over just the
+  // rows it allows, so the admin is not forced to untick the blocked donors by
+  // hand. Derived from pendingIds, not the selection — the two differ when the
+  // admin deleted a single row from its trash icon.
+  const deleteRemainder = () => {
+    const blockedSet = new Set(blocked.map(b => b.assignment_id));
+    const remainder = pendingIds.filter(id => !blockedSet.has(id));
+    if (remainder.length === 0) return;
+    setSelected(remainder);
+    openConfirm(remainder);
+  };
+
+  const close = () => {
+    if (onChanged) onChanged();
+    onClose();
+  };
+
+  const fieldStyle = { fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
+  const totalSelected = selected.length;
+  const scopeIsUnion = !activeNgo;
+  const activeNgoName = ngoOptions.find(n => n.id === activeNgo)?.name || '';
+
+  return (
+    <div className="modal-overlay" onClick={close}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 1080 }}>
+        <div className="modal-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>Assigned Donors — {station}</h3>
+            {activeNgoName && <span className="pill pill-green">{activeNgoName}</span>}
+            {scopeIsUnion && <span className="pill pill-yellow">All NGOs combined</span>}
+            <span className="pill pill-blue">{donors.length} donor{donors.length === 1 ? '' : 's'}</span>
+          </div>
+          <button className="btn btn-sm btn-outline" onClick={close} aria-label="Close"><X size={14} /></button>
+        </div>
+
+        <div className="modal-body" style={{ fontSize: 13 }}>
+          {/* NGO scope. The count above is scoped to this choice, so it always
+              matches the per-NGO pill on the station row it was opened from. */}
+          {ngoOptions.length > 1 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                NGO
+              </span>
+              {ngoOptions.map(n => (
+                <button
+                  key={n.id}
+                  className={`btn btn-sm ${activeNgo === n.id ? '' : 'btn-outline'}`}
+                  onClick={() => setActiveNgo(n.id)}
+                  style={activeNgo === n.id ? { background: 'var(--brand, #0f766e)', color: '#fff', borderColor: 'transparent' } : undefined}
+                >
+                  {n.name}
+                </button>
+              ))}
+              <button
+                className={`btn btn-sm ${scopeIsUnion ? '' : 'btn-outline'}`}
+                onClick={() => setActiveNgo('')}
+                title="Combine every NGO that uses this station name. These are different stations that share a name, so their donor counts add up."
+                style={scopeIsUnion ? { background: '#b45309', color: '#fff', borderColor: 'transparent' } : undefined}
+              >
+                All NGOs
+              </button>
+            </div>
+          )}
+
+          {/* Filters + export */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search name, mobile, city, FRO..."
+              style={{ ...fieldStyle, flex: '1 1 220px', minWidth: 180 }}
+            />
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={fieldStyle}>
+              <option value="">All statuses</option>
+              {statusOptions.map(s => <option key={s} value={s}>{dispositionLabelOf(s)}</option>)}
+            </select>
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={fieldStyle}>
+              <option value="">All categories</option>
+              {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button className="btn btn-sm btn-outline" onClick={() => onDownloadExcel(activeNgo)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Download size={13} /> Download Excel
+            </button>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
+              {loading ? 'Loading…' : `${filtered.length} of ${donors.length} shown`}
+            </span>
+          </div>
+
+          {/* Bulk actions */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-sm btn-outline" onClick={togglePage} disabled={pageRows.length === 0}>
+              {allOnPageSelected ? 'Clear page' : 'Select page'}
+            </button>
+            {totalSelected > 0 && (
+              <>
+                <span className="pill pill-green">{totalSelected} selected</span>
+                <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }}
+                  onClick={() => openConfirm(selected)} disabled={deleting}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Trash2 size={13} /> Delete Selected ({totalSelected})</span>
+                </button>
+                <button className="btn btn-sm btn-outline" onClick={clearSelection}>Clear selection</button>
+              </>
+            )}
+          </div>
+
+          {/* Success */}
+          {result && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12.5, color: '#166534' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Check size={13} /> {result.message}</span>
+              {result.totals && (
+                <div style={{ fontSize: 11.5, marginTop: 3, opacity: .85 }}>
+                  Removed {result.totals.logs || 0} log(s), {result.totals.schedules || 0} scheduled contact(s),
+                  {' '}{result.totals.tickets || 0} rejected-lead ticket(s) and {result.totals.queue_rows || 0} queue row(s).
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Confirm / block review */}
+          {confirmOpen && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fb923c', borderRadius: 8, padding: 12, marginBottom: 10, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
+                  {preview?.loading ? 'Fetching records…'
+                    : preview?.error ? 'Could not load preview'
+                    : blocked.length > 0 ? `Blocked: ${blocked.length} of ${pendingIds.length} cannot be deleted`
+                    : `Review: ${preview?.deletable?.length ?? 0} donor(s) will be removed`}
+                </div>
+                <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
+              </div>
+
+              {preview?.loading && <div style={{ padding: 14, textAlign: 'center', color: '#9a3412' }}>Matching records…</div>}
+              {preview?.error && <p style={{ color: '#b91c1c', margin: 0 }}>Error: {preview.error}</p>}
+
+              {/* Money guard refused part or all of the selection. */}
+              {blocked.length > 0 && (
+                <>
+                  <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                    <div style={{ fontWeight: 700, color: '#991b1b', fontSize: 12.5, marginBottom: 6 }}>
+                      A donor with collected money or a linked receipt cannot be removed.
+                    </div>
+                    {blocked.map(b => (
+                      <div key={b.assignment_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#7f1d1d', padding: '2px 0' }}>
+                        <XCircle size={13} />
+                        <span style={{ fontWeight: 600 }}>{b.donor_name || 'Unknown'}</span>
+                        {b.mobile_number ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>· {b.mobile_number}</span> : null}
+                        <span style={{ opacity: .85 }}>— {b.reason}</span>
+                      </div>
+                    ))}
+                    <p style={{ margin: '8px 0 0', fontSize: 11.5, color: '#991b1b' }}>
+                      Nothing was deleted. These donors stay on the station.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); setBlocked([]); }}>Close</button>
+                    {pendingIds.length > blocked.length && (
+                      <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }}
+                        onClick={deleteRemainder} disabled={deleting}>
+                        Delete {pendingIds.length - blocked.length} remaining donor{pendingIds.length - blocked.length === 1 ? '' : 's'}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Clean preview — nothing blocked. */}
+              {blocked.length === 0 && preview && !preview.loading && !preview.error && (
+                <>
+                  {preview.deletable.length === 0 ? (
+                    <p style={{ margin: 0, color: '#166534', padding: '4px 0' }}>
+                      None of the selected assignments are still active on this station — nothing to delete.
+                    </p>
+                  ) : (
+                    <>
+                      <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+                        <table className="nga-st" style={{ fontSize: 11.5 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ width: '26%' }}>Donor</th>
+                              <th style={{ width: '15%' }}>Mobile</th>
+                              <th style={{ width: '13%' }}>Status</th>
+                              <th style={{ width: '10%' }}>Logs</th>
+                              <th style={{ width: '12%' }}>Schedules</th>
+                              <th style={{ width: '12%' }}>Tickets</th>
+                              <th style={{ width: '12%' }}>Queue</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.deletable.map(r => (
+                              <tr key={r.assignment_id}>
+                                <td style={{ fontWeight: 600 }}>
+                                  {r.donor_name || '—'}
+                                  {r.had_dnd_mark && (
+                                    <span className="pill pill-yellow" style={{ fontSize: 9, marginLeft: 5 }} title="Active DND mark for this NGO — still suppressed after removal">DND</span>
+                                  )}
+                                </td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.mobile_number || '—'}</td>
+                                <td>{dispositionLabelOf(r.status)}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.log_count}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.schedule_count}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.ticket_count}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.queue_count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p style={{ margin: '10px 0 0', color: '#78350f', lineHeight: 1.5 }}>
+                        The station assignment, its disposition logs, scheduled contacts, rejected-lead tickets and queue rows will be
+                        <strong> deleted</strong>. The donor profile and any receipts are left untouched.
+                        {' '}This frees the number to be assigned again within this NGO.
+                      </p>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                        <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
+                        <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }} onClick={handleDelete} disabled={deleting}>
+                          {deleting ? 'Deleting…' : `Confirm Delete ${preview.deletable.length} Donor${preview.deletable.length === 1 ? '' : 's'}`}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Donor table */}
+          {loading ? (
+            <div className="loading" style={{ padding: 24 }}>Loading donors…</div>
+          ) : donors.length === 0 ? (
+            <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
+              <p style={{ color: 'var(--ink-soft)', margin: 0 }}>
+                No donors are assigned to {station}{activeNgoName ? ` for ${activeNgoName}` : ''}.
+              </p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
+              <p style={{ color: 'var(--ink-soft)', margin: 0 }}>No donors match the current filters.</p>
+            </div>
+          ) : (
+            <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+              <table className="nga-st" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 34 }}>
+                      <input type="checkbox" checked={allOnPageSelected} readOnly onChange={togglePage} aria-label="select page" />
+                    </th>
+                    {/* NGO column only in the combined view: when scoped to one
+                        NGO every row shares it, and when combined it is the only
+                        thing that tells two same-named stations apart. */}
+                    {scopeIsUnion && <th style={{ width: '8%' }}>NGO</th>}
+                    <th style={{ width: '20%' }}>Donor</th>
+                    <th style={{ width: '13%' }}>Mobile</th>
+                    <th style={{ width: '10%' }}>Category</th>
+                    <th style={{ width: '9%' }}>City</th>
+                    <th style={{ width: '13%' }}>FRO</th>
+                    <th style={{ width: '13%' }}>Status</th>
+                    <th style={{ width: '9%' }}>Last Contacted</th>
+                    <th style={{ width: 40 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map(d => {
+                    const isSel = selectedIds.has(d.id);
+                    const group = dispositionGroupOf(d.status);
+                    return (
+                      <tr key={d.id} style={{ background: isSel ? '#eff6ff' : 'transparent' }}>
+                        <td style={{ padding: '6px 4px' }}>
+                          <input type="checkbox" checked={isSel} onChange={() => toggle(d.id)} aria-label={`select ${d.donor_name || 'donor'}`} />
+                        </td>
+                        {scopeIsUnion && (
+                          <td style={{ fontSize: 11 }}>
+                            <span className="pill" style={{ fontSize: 10 }}>{d.ngo_name || '—'}</span>
+                          </td>
+                        )}
+                        <td style={{ fontWeight: 600 }}>{d.donor_name || '—'}</td>
+                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {d.donor_mobile || '—'}
+                          {d.donor_mobile_2 ? <div style={{ fontSize: 10.5, opacity: .7 }}>{d.donor_mobile_2}</div> : null}
+                        </td>
+                        <td>
+                          <span className="pill" style={{ fontSize: 10, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {String(d.data_category || '').trim() || '—'}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 11.5 }}>{d.donor_city || '—'}</td>
+                        <td style={{ fontSize: 11.5 }}>{d.fro_name || 'Unassigned'}</td>
+                        <td>
+                          <span className="pill" style={{
+                            fontSize: 10,
+                            background: group ? group.bg : '#f3f4f6',
+                            color: group ? group.color : '#6b7280',
+                          }}>{dispositionLabelOf(d.status)}</span>
+                        </td>
+                        <td style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>{donorTimeSince(d.last_contacted_at)}</td>
+                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                          <button className="btn btn-sm btn-outline" title={`Remove ${d.donor_name || 'donor'} from ${station}`}
+                            aria-label={`Delete ${d.donor_name || 'donor'}`}
+                            onClick={() => openConfirm([d.id])}
+                            disabled={deleting}
+                            style={{ color: '#b91c1c', borderColor: '#fca5a5', padding: '2px 6px' }}>
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 0 2px', flexWrap: 'wrap' }}>
+              <button className="btn btn-sm btn-outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</button>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
+                Page {page} of {totalPages}
+              </span>
+              <button className="btn btn-sm btn-outline" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</button>
+            </div>
+          )}
+
+          <p style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '12px 0 0', lineHeight: 1.5 }}>
+            Removing a donor here deletes this station's assignment and its call/disposition history so the number can be assigned
+            again within the NGO. Donors with collected money or a linked receipt are refused. Every removal is recorded in
+            {' '}<code>station_donor_deletions</code>.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -1499,6 +2049,23 @@ export default function StationManagement() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef(null);
   const [ncfOpen, setNcfOpen] = useState(false);
+  // The station whose "View donor list" modal is open, held as { station, ngoList,
+  // defaultNgoId } rather than a bare name. A station name is reused across NGOs
+  // (DH-5 is BOD-15/AOD-15/MOD-15), so the modal needs to know WHICH of them the
+  // admin clicked - without it the list unions them all and the count disagrees
+  // with the per-NGO pill on the row.
+  const [donorListTarget, setDonorListTarget] = useState(null);
+
+  // Resolve which NGO a station row means: the tab currently being viewed when
+  // that NGO owns this station, else the row's first NGO. Falls back to null when
+  // the station belongs to no NGO, which the endpoint treats as "no scope".
+  const ngoScopeForRow = (s) => {
+    const rowNgos = (s.ngos || []).filter(n => n && n.ngo_id);
+    if (rowNgos.length === 0) return null;
+    const preferred = selectedNgoId && selectedNgoId !== 'all' ? String(selectedNgoId) : null;
+    const match = preferred ? rowNgos.find(n => String(n.ngo_id) === preferred) : null;
+    return (match || rowNgos[0]).ngo_id;
+  };
 
   useEffect(() => {
     if (!toolsOpen) return;
@@ -1634,9 +2201,14 @@ export default function StationManagement() {
     return true;
   });
 
-  const downloadStationExcel = async (stationName) => {
+  // ngoId scopes the export to one NGO. Omitted, the endpoint unions every NGO
+  // that uses this station NAME - which is a different number from the per-NGO
+  // pill on the station row, so the caller always passes the NGO it means.
+  const downloadStationExcel = async (stationName, ngoId) => {
     try {
-      const rows = await apiGet(`/ngo-admin/donors-by-station?station=${encodeURIComponent(stationName)}`);
+      const params = new URLSearchParams({ station: stationName });
+      if (ngoId) params.set('ngo_id', ngoId);
+      const rows = await apiGet(`/ngo-admin/donors-by-station?${params}`);
       const data = (Array.isArray(rows) ? rows : []).map(r => ({
         DonorID: r.donor_id,
         Name: r.donor_name,
@@ -1648,6 +2220,7 @@ export default function StationManagement() {
         Fro: r.fro_name,
         Status: r.status,
         Station: r.station,
+        NGO: r.ngo_name || '',
         Notes: r.notes,
         LastContacted: r.last_contacted_at,
         NextFollowUp: r.next_follow_up,
@@ -2009,7 +2582,12 @@ export default function StationManagement() {
                               returningId={returningId}
                               onReturn={at ? handleReturnEarly : null}
                               onUpload={() => setUploadStation(s.station)}
-                              onDownload={() => downloadStationExcel(s.station)}
+                              onViewList={() => setDonorListTarget({
+                                station: s.station,
+                                ngoList: s.ngos || [],
+                                defaultNgoId: ngoScopeForRow(s),
+                              })}
+                              onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
                               onTarget={() => openTarget(s)}
                               onDelete={() => handleDeleteStation(s.station)}
                             />
@@ -2121,6 +2699,19 @@ export default function StationManagement() {
         <NonConnectedFreshModal
           ngoId={selectedNgoId}
           onClose={() => { setNcfOpen(false); fetchData(); }}
+        />
+      )}
+
+      {donorListTarget && (
+        <StationDonorsModal
+          station={donorListTarget.station}
+          ngoList={donorListTarget.ngoList}
+          defaultNgoId={donorListTarget.defaultNgoId}
+          onClose={() => setDonorListTarget(null)}
+          // Deleting a donor changes the station's donor pill and counts, so
+          // refetch the row underneath while the modal is still open.
+          onChanged={() => fetchData()}
+          onDownloadExcel={(ngoId) => downloadStationExcel(donorListTarget.station, ngoId)}
         />
       )}
     </div>

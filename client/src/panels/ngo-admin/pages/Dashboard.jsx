@@ -8,6 +8,7 @@ import TeamWiseCollection from '../components/TeamWiseCollection';
 import { useMeeting } from '../../../meetingStore';
 import { onDbChange } from '../../../lib/socket';
 import { formatDuration } from '../../../utils/formatDuration';
+import { DISPOSITION_LABELS, DISPOSITION_GROUPS } from '../../../lib/dispositions';
 
 // Station-wise Collection layout: two sibling cards, OLD on the left and NEW on
 // the right, in the same two-column grid that holds Hourly Performance and FRO
@@ -80,30 +81,6 @@ const stationOrderCompare = (a, b) => {
     || String(a).localeCompare(String(b));
 };
 
-const DISPOSITION_LABELS = {
-  pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
-  busy: 'Busy', ringing: 'Ringing', call_waiting: 'Call Waiting', unreachable: 'Unreachable',
-  switched_off: 'Switched Off', out_of_coverage: 'Out of Coverage', wrong_number: 'Wrong Number',
-  invalid_number: 'Invalid', rejected: 'Rejected', temporary_network_issue: 'Temporary Network Issue', voicemail: 'Voicemail',
-  lead_done: 'Lead Done', done: 'Done', visit_donate: 'Visit & Donate', will_donate_online: 'Will Donate Online',
-  promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending', already_donated: 'Already Donated',
-  email_sent: 'Email Sent', whatsapp_sent: 'WhatsApp Sent', csr_inquiry: 'CSR Inquiry',
-  wants_80g_details: 'Wants 80G Details', wants_trust_documents: 'Wants Trust Documents',
-  not_interested: 'Not Interested', not_interested_now: 'Not Interested Now', dnd: 'DND',
-  wrong_person: 'Wrong Person', call_disconnected: 'Call Disconnected',
-  language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
-  query_complaint: 'Query/Complaint', receipt_request: 'Receipt Request',
-  donation_collected: 'Lead Done',
-  office_program_visit: 'Office / Program Visit',
-  promise_pay_wa_email: 'Promise To Pay / WA / Email',
-  not_interested_np: 'Not Interested / Disconnected / NP',
-  busy_call_waiting: 'Busy / Call Waiting',
-  ooc_unreachable_network: 'OOC / Unreachable / Network',
-  ringing_voicemail: 'Ringing / Voicemail',
-  resolved_suspense: 'Resolved Suspense', others: 'Others',
-  overdue_followup: 'Follow-Up Overdue', overdue_callback: 'Callback Overdue',
-};
-
 // Overdue buckets mirror the backend Telecaller split exactly: FU O/D is the
 // follow-up family + promises, CB O/D is callbacks only. Any other past-due
 // status counts in neither — so the modal list reconciles 1:1 with the counts.
@@ -174,13 +151,6 @@ const CONNECTED_IDS = new Set(['contacted', 'lead_done', 'done', 'donation_colle
 
 const NOT_CONNECTED_IDS = new Set(['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out', 'busy_call_waiting', 'ooc_unreachable_network', 'ringing_voicemail']);
 
-const DISPOSITION_GROUPS = [
-  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'done', 'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated', 'promise_pay_wa_email'] },
-  { label: 'In Progress', color: '#d97706', bg: '#fffbeb', statuses: ['pending', 'contacted', 'follow_up', 'scheduled', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'office_program_visit'] },
-  { label: 'Negative', color: '#dc2626', bg: '#fef2f2', statuses: ['not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'call_disconnected', 'rejected', 'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'temporary_network_issue', 'voicemail', 'language_barrier', 'busy_call_waiting', 'ooc_unreachable_network', 'ringing_voicemail', 'not_interested_np'] },
-  { label: 'Other', color: '#5B6B4E', bg: '#f0f2ee', statuses: ['transferred_senior', 'query_complaint', 'receipt_request'] },
-];
-
 const PER_PAGE = 50;
 
 const toIstDate = (d = new Date()) =>
@@ -234,7 +204,7 @@ const ngoSortRank = (name) => {
   return hit ? NGO_TABS.indexOf(hit) : 99;
 };
 
-function StationDetailModal({ station, stats, stationInfo, onClose }) {
+function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
   const [donors, setDonors] = useState([]);
   const [loadingDonors, setLoadingDonors] = useState(false);
   const [search, setSearch] = useState('');
@@ -263,7 +233,13 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
     setLoadingDonors(true);
     setStatusFilter(status || '');
     try {
+      // ngo_id is required for a correct count: a station NAME is shared across
+      // NGOs (DH-5 is BOD-15/AOD-15/MOD-15), so omitting it unions unrelated
+      // stations and the donor total silently disagrees with the station's own
+      // figure. `ngoId` is the station's own NGO, resolved by the caller, so it
+      // stays scoped even when the admin is viewing the combined "All" tab.
       const params = new URLSearchParams({ station });
+      if (ngoId) params.set('ngo_id', ngoId);
       if (status) params.set('status', status);
       const data = await apiGet(`/ngo-admin/donors-by-station?${params}`, { signal: controller.signal, timeout: 30000 });
       if (!controller.signal.aborted) {
@@ -3398,6 +3374,17 @@ export default function Dashboard() {
           station={selectedStation}
           stats={stations[selectedStation]}
           stationInfo={stationInfoMap[selectedStation]}
+          ngoId={(() => {
+            // Which NGO this cell belongs to. The station grid is keyed by NAME,
+            // so the same name can appear under several NGO tabs; prefer the tab
+            // in view and fall back to the station's own first NGO. Without this
+            // the donor popup would union every NGO sharing the name.
+            const rowNgos = (stationInfoMap[selectedStation]?.ngos || []).filter(n => n && n.ngo_id);
+            if (rowNgos.length === 0) return '';
+            const preferred = selectedNgoId && selectedNgoId !== 'all' ? String(selectedNgoId) : null;
+            const hit = preferred ? rowNgos.find(n => String(n.ngo_id) === preferred) : null;
+            return (hit || rowNgos[0]).ngo_id;
+          })()}
           onClose={() => setSelectedStation(null)}
         />
       )}

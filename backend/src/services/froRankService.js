@@ -3,6 +3,7 @@ import { getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
 import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
 import { getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { resolveMonthlyTarget } from './froMonthlyTarget.js';
+import { cached } from '../utils/ttlCache.js';
 
 // Single source of truth for the FRO leaderboard. Both the admin High/Low panels
 // (getFroPerformance) and the FRO My-Leads strip (getMyPerformance) rank through
@@ -42,11 +43,35 @@ export function workingDaysBetween(startDay, endDay) {
 // Org-wide leaderboard of active, non-test FROs for [startDay, endDay].
 // Returns every roster member (rank is null when they hold no monthly target);
 // the list is NOT pre-sorted so callers can order it however they display it.
+//
+// Cached, and deliberately so: the payload is identical for every caller, but
+// each FRO's My-Leads strip polls this every 30s. Without the cache N FROs
+// rebuild the same org-wide roster + collections + targets + attendance N times
+// per cycle — pure duplicated DB work.
+//
+// The TTL MUST stay above the 30s poll interval. At 15s the entry has always
+// expired by the time the next poll arrives, so the rebuild still happened once
+// per FRO per poll and the cache bought almost nothing. At 60s a rebuild serves
+// roughly two poll cycles' worth of FROs, which is what turns ~57,600 rebuilds
+// a day into ~1,440 regardless of how many FROs are signed in.
+//
+// The key carries the resolved dates so a cached "today" is never served for a
+// different day, and `cached` shares the in-flight promise so a burst of
+// simultaneous polls still causes one build.
+const LEADERBOARD_TTL_MS = 60 * 1000;
+
 export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
   const today = todayDay || istDay();
   const start = startDay || today;
   const end = endDay || today;
+  return cached(
+    `fro:rank:${start}:${end}:${today}`,
+    LEADERBOARD_TTL_MS,
+    () => buildFroLeaderboardForRange({ today, start, end })
+  );
+}
 
+async function buildFroLeaderboardForRange({ today, start, end }) {
   const { data: froRows } = await db
     .from('workers')
     .select('id, name, is_test, is_active, created_at')

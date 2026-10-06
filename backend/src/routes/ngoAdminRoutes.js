@@ -16,28 +16,17 @@ import {
   listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched, searchDonorsForSuspense,
 } from '../controllers/bankAuditController.js';
 import {
-  listLeads,
-  createLead,
-  importLeads,
-  assignLeads,
-  transferLead,
-  getLeadHistory,
-  getDuplicateLeads,
   getFullDonorDetail,
   getDonorReceipts,
   getDonorFollowups,
-  createFollowup,
   getDonorTransactions,
 } from '../controllers/ngoAdminController.js';
 import {
-  getDonors,
-  getDonorDetail,
   getFroWorkers,
   getAccessibleNgos,
   getAssignments,
   setTarget,
   getTargets,
-  getDonorCreditLogs,
   transferDonorCredit,
   getDashboard,
   getDailyTarget,
@@ -105,6 +94,7 @@ import {
   getAllNgosForTabs,
   getNonConnectedFresh,
   deleteNonConnectedFresh,
+  deleteStationDonors,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -141,6 +131,13 @@ router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'account
 router.get('/non-connected-fresh', authenticateRole('admin', 'super_admin'), getNonConnectedFresh);
 router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admin'), deleteNonConnectedFresh);
 
+// Removing a wrongly-duplicated donor from a station (NGO admin only).
+//
+// Deliberately NOT widened to 'accounts' the way the donors-by-station read above
+// (line 134) is. Accounts may look at a station's donors; clearing one is a
+// destructive action on an FRO's work list, so it stays admin/super_admin.
+router.post('/station-donors/delete', authenticateRole('admin', 'super_admin'), deleteStationDonors);
+
 // Per-day FRO stats (calls / talk / break / skips) — also used by HR for warning letters on a selected FRO
 router.get('/fro-daily-stats', authenticateRole('admin', 'super_admin', 'hr'), getFroDailyStats);
 
@@ -168,10 +165,12 @@ router.put('/followups/:assignmentId/date', updateFollowupDate);
 // Assigned Data
 router.get('/assigned-data', getAssignedData);
 
-router.get('/donors', getDonors);
-router.get('/donors/:donorId/credit', getDonorCreditLogs);
+// The standalone Donors list page was removed from the NGO-admin panel, so the
+// /donors list, its per-donor credit log and the mobile-number detail endpoint
+// went with it. donors-by-fro, donors-by-station and the /donor-crm/donors/*
+// family stay: StationManagement, the Dashboard and the shared DonorDetailModal
+// all still call those.
 router.put('/credit-logs/:logId/transfer', transferDonorCredit);
-router.get('/donors/:mobile', getDonorDetail);
 router.get('/donors-by-fro', getDonorsByFro);
 router.get('/fro-workers', getFroWorkers);
 router.get('/assignments', getAssignments);
@@ -209,19 +208,17 @@ router.put('/suspense/:id/link-donor', linkSuspenseToDonor);
 router.put('/suspense/:id/no-match', markSuspenseUnmatched);
 router.get('/suspense/search-donors', searchDonorsForSuspense);
 
-// Donor CRM
-router.get('/donor-crm/leads', listLeads);
-router.post('/donor-crm/leads', createLead);
-router.post('/donor-crm/leads/import', importLeads);
-router.put('/donor-crm/leads/assign', assignLeads);
-router.put('/donor-crm/leads/:id/transfer', transferLead);
-router.get('/donor-crm/leads/history', getLeadHistory);
-router.get('/donor-crm/duplicates', getDuplicateLeads);
+// The Donor CRM page was removed from the NGO-admin panel. Its lead workflows
+// (import/upload, assign, transfer, history, duplicates) and the follow-up
+// create endpoint had that page as their only caller, so they go with it.
+//
+// The donor READ endpoints stay deliberately: DonorDetailModal is shared, not
+// part of Donor CRM. Master search and SearchResults still open it, and it calls
+// all four of these.
 router.get('/donor-crm/donors/:id', getFullDonorDetail);
 router.get('/donor-crm/donors/:id/receipts', getDonorReceipts);
 router.get('/donor-crm/donors/:id/followups', getDonorFollowups);
 router.get('/donor-crm/donors/:id/transactions', getDonorTransactions);
-router.post('/donor-crm/followups', createFollowup);
 
 router.get('/master-search', masterSearch);
 router.get('/call-analytics', getCallAnalytics);

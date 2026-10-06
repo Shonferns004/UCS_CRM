@@ -3,6 +3,7 @@ import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock } fro
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
+import CallTimer from '../components/CallTimer';
 import { getMyPerformance } from '../api/donors';
 import { formatDuration } from '../../../utils/formatDuration';
 
@@ -78,6 +79,14 @@ return (
               much of my day was actually productive". */}
           <Metric label="Idle" value={formatDuration(data?.idle_seconds)} good={!(data?.is_idle)} accent={(data?.idle_seconds ?? 0) > 0 ? '#dc2626' : '#64748b'} icon={<Clock size={16} />} />
 <Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
+          {/* Live call timer, parked after Performance so it reads as the last
+              tile rather than competing with the five metrics. It sizes to its
+              content instead of flexing like a metric-cell, and CallTimer returns
+              null when no call is up, so the strip is unchanged for the rest of
+              the day - see .perf-timer:empty. */}
+          <div className="perf-timer">
+            <CallTimer />
+          </div>
         </div>
   );
 }
@@ -87,34 +96,37 @@ export default function MyLeadsSuspense() {
   const isCompact = useIsMobile(480);
   const shellRef = useRef(null);
 
-const gap = isCompact ? 8 : isMobile ? 10 : 12;
-  const pad = isCompact ? 6 : isMobile ? 8 : 12;
+  // No padding and no gap: this view is meant to run edge to edge, touching the
+  // header above and the sidebar/window edges at the sides. The host's padding is
+  // zeroed in index.css via .panel-fro .content-body:has(.my-leads-shell).
+  //
+  // Because the three surfaces are flush, they cannot each keep their own border
+  // and radius - adjacent ones would draw a 2px seam and two rounded corners would
+  // meet in the middle. So the dividers are owned by the panes themselves: the
+  // strip carries a bottom rule, and the leads/suspense split is a single line
+  // between them rather than two facing borders.
   const stripH = isCompact ? 98 : isMobile ? 86 : 68;
 
   return (
-    <div ref={shellRef} className="my-leads-shell" style={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', gap, padding: pad, boxSizing: 'border-box', minHeight: 0 }}>
+    <div ref={shellRef} className="my-leads-shell" style={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', padding: 0, boxSizing: 'border-box', minHeight: 0 }}>
 <div className="perf-strip" style={{
         flex: `0 0 ${stripH}px`,
         height: stripH,
         minWidth: 0,
         position: 'relative',
         background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-        border: '1px solid #e6eaf2',
-        borderRadius: 12,
-        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px -12px rgba(15, 23, 42, 0.12)',
+        borderBottom: '1px solid #e6eaf2',
         overflow: 'hidden',
         display: 'flex',
       }}>
         <PersonalPerformance />
       </div>
 
-      <div className="my-leads-bottom" style={{ flex: '1 1 0', minHeight: isMobile ? 680 : 0, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap, minWidth: 0 }}>
-        <div style={{
+      <div className="my-leads-bottom" style={{ flex: '1 1 0', minHeight: isMobile ? 680 : 0, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap: 0, minWidth: 0 }}>
+        <div className="my-leads-pane" style={{
           minWidth: 0, minHeight: 0,
           position: 'relative',
           background: '#fff',
-          border: '1px solid var(--line)',
-          borderRadius: 10,
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
@@ -124,12 +136,10 @@ const gap = isCompact ? 8 : isMobile ? 10 : 12;
           </div>
         </div>
 
-        <div style={{
+        <div className="my-leads-pane" style={{
           minWidth: 0, minHeight: 0,
           position: 'relative',
           background: '#f8fafc',
-          border: '1px solid var(--line)',
-          borderRadius: 10,
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
@@ -144,18 +154,31 @@ const gap = isCompact ? 8 : isMobile ? 10 : 12;
         .my-leads-shell { container-type: inline-size; container-name: my-leads; }
         .my-leads-shell > div { min-width: 0; }
         .perf-strip .metric-cell + .metric-cell { border-left: 1px solid #eef2f7; }
+        /* The call timer is a pill, not a metric-cell, so it gets its own rule
+           rather than the sibling border above. */
+        .perf-timer { flex: 0 0 auto; display: flex; align-items: center; padding: 0 14px; border-left: 1px solid #eef2f7; }
+        /* CallTimer renders null when no call is up, which leaves this wrapper
+           genuinely empty. Without this it would sit at the end of the strip all
+           day drawing a rule and reserving padding for a timer that isn't there. */
+        .perf-timer:empty { display: none; }
         .metric-arrow { animation: arrow-bob 1.8s ease-in-out infinite; }
         @keyframes arrow-bob {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(2px); }
         }
+        /* The leads/suspense divider is drawn by the second pane, not as two
+           facing borders, so the seam is one hairline rather than 2px. Driven by
+           the container query rather than an inline style because the grid
+           stacks on CONTAINER width - isMobile() reports the VIEWPORT, so a wide
+           window with a narrow content column would stack the panes while
+           isMobile() said false and leave a stray vertical rule on the right of
+           an empty edge. */
+        .my-leads-pane + .my-leads-pane { border-left: 1px solid var(--line); }
         @container my-leads (max-width: 900px) {
           .my-leads-shell { overflow-y: auto; }
           .my-leads-bottom { grid-template-columns: 1fr !important; min-height: 680px; }
-        }
-        @container my-leads (max-width: 520px) {
-          .my-leads-shell { gap: 8px !important; padding: 6px !important; }
-          .my-leads-shell > div { border-radius: 8px; }
+          /* Stacked, so the divider turns horizontal. */
+          .my-leads-pane + .my-leads-pane { border-left: none; border-top: 1px solid var(--line); }
         }
       `}</style>
     </div>

@@ -4,9 +4,9 @@ import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLea
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
-import { cacheGet, cacheSet } from '../../../utils/cache'
+import { cacheGet, cacheSet, cacheAge } from '../../../utils/cache'
 import { useCall } from '../CallContext'
-import { api } from '../api/auth'
+import { api, getUser } from '../api/auth'
 import { useIsMobile } from '../../../hooks/useIsMobile'
 import { formatIstTime } from '../utils/time'
 import { istMonthKey, istParts } from '../../../utils/istDate'
@@ -125,10 +125,21 @@ const STATUS_COLORS = {
   not_reachable: '#9ca3af', scheduled: '#a78bfa',
 }
 
-const CACHE_KEY = 'fro_dashboard'
+// How long a cached dashboard payload counts as fresh enough to skip refetching.
+// Short by design: the numbers only move when the FRO themselves act, but a
+// save must still show up promptly, so this only covers the bounce between
+// Dashboard and My Leads — not a genuine reload.
+const DASH_FRESH_MS = 60 * 1000
 
 export default function Dashboard() {
+  // Scoped to the signed-in worker, and resolved per render rather than at
+  // module load. A shared global key would hand one FRO another's dashboard
+  // numbers, and skipping the refetch would keep that wrong page on screen for a
+  // full minute — nothing else clears this store, including logout.
+  const CACHE_KEY = `fro_dashboard:${getUser()?.id ?? 'anon'}`
   const cached = cacheGet(CACHE_KEY)
+  const cachedAge = cacheAge(CACHE_KEY)
+  const dashIsFresh = !!cached && (cachedAge ?? Infinity) < DASH_FRESH_MS
   const { todayStats } = useCall()
   const isMobile = useIsMobile()
   const [dashData, setDashData] = useState(cached?.dash || null)
@@ -172,21 +183,30 @@ export default function Dashboard() {
     // Render as soon as the core dashboard request returns. Follow-ups,
     // lead stats, and monthly donors enrich the page afterwards instead of
     // keeping the whole screen in a loading state.
-    const dashboardRequest = getMyDashboard()
-      .catch((err) => { console.error('API error:', err.message); return null })
-    const targetRequest = getMyTarget()
-      .catch((err) => { console.error('API error:', err.message); return null })
-
-    dashboardRequest.then(data => {
-      safeSet(setDashData, data)
+    //
+    // These two are the expensive pair, so a payload this session already holds
+    // is reused instead of re-requested. The backend caches them too, so this
+    // mainly removes the round trip — but it also means revisiting the dashboard
+    // inside a minute costs nothing at either end.
+    if (dashIsFresh) {
       safeSet(setLoading, false)
-    })
+    } else {
+      const dashboardRequest = getMyDashboard()
+        .catch((err) => { console.error('API error:', err.message); return null })
+      const targetRequest = getMyTarget()
+        .catch((err) => { console.error('API error:', err.message); return null })
 
-    targetRequest.then(data => safeSet(setTargetData, data))
+      dashboardRequest.then(data => {
+        safeSet(setDashData, data)
+        safeSet(setLoading, false)
+      })
 
-    Promise.all([dashboardRequest, targetRequest]).then(([dash, target]) => {
-      if (dash || target) cacheSet(CACHE_KEY, { dash, target }, 5 * 60 * 1000)
-    })
+      targetRequest.then(data => safeSet(setTargetData, data))
+
+      Promise.all([dashboardRequest, targetRequest]).then(([dash, target]) => {
+        if (dash || target) cacheSet(CACHE_KEY, { dash, target }, 5 * 60 * 1000)
+      })
+    }
 
     getFollowUps()
       .then(data => safeSet(setFollowUps, data || []))
