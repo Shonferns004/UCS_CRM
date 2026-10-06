@@ -6632,12 +6632,17 @@ export const getDonorDonations = async (req, res) => {
     // so a donation to another NGO never leaks in.
     let logs = [];
     if (assignment.ngo_id) {
+      // Read the donor's WHOLE history for this NGO — including assignments
+      // later marked 'reassigned', whose logs are still this donor's past
+      // donations (1.4k+ logs currently hidden). Reassigned only means "now
+      // owned by someone else"; the money logged under the row remains the
+      // donor's. The current-assignment ownership check above still guards
+      // access, and the NGO scope keeps other NGOs out.
       const { data: donorAssignments } = await db
         .from('fro_assignments')
         .select('id')
         .eq('donor_id', donorId)
-        .eq('ngo_id', assignment.ngo_id)
-        .not('status', 'eq', 'reassigned');
+        .eq('ngo_id', assignment.ngo_id);
       const assignmentIds = Array.from(new Set((donorAssignments || []).map(a => a.id)));
       logs = await chunkedInQuery(assignmentIds, chunk => {
         let q = db
