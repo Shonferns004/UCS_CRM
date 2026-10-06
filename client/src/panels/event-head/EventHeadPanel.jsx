@@ -65,16 +65,21 @@ const SECTIONS = [
   { id:'Community', label:'Community' },
 ]
 
-function Sidebar({ open, onClose }) {
+function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {
   const location = useLocation()
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
+  /* The collapse rail is a Calendar / Monthly Planner feature: the toggle and its
+     effect appear only on those two routes, everywhere else keeps the full nav. */
+  const isCalendarRoute = location.pathname === '/event-head/monthly-planner'
+    || location.pathname.startsWith('/event-head/monthly-planner/')
+    || location.pathname === '/event-head/planner'
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-mark">E</div>
-          <div><h1>UFS</h1><span>Event Manager</span></div>
+          <div className="sidebar-brand-text"><h1>UFS</h1><span>Event Manager</span></div>
         </div>
         <nav className="sidebar-nav">
           {SECTIONS.map(s => (
@@ -83,10 +88,10 @@ function Sidebar({ open, onClose }) {
               {NAV.filter(n => n.section === s.id).map(n => { const Icon = n.icon
                 const active = isActive(n.path)
                 return (
-                  <NavLink key={n.id} to={n.path} onClick={onClose}
+                  <NavLink key={n.id} to={n.path} onClick={onClose} title={n.label}
                     className={`snav-item ${active ? 'active' : ''}`}>
                     <span className="ico"><Icon size={18} /></span>
-                    <span>{n.label}</span>
+                    <span className="snav-label">{n.label}</span>
                     {n.id === 'chat' && <ChatNavBadge quiet />}
                   </NavLink>
                 )
@@ -94,6 +99,15 @@ function Sidebar({ open, onClose }) {
             </div>
           ))}
         </nav>
+        {isCalendarRoute && (
+          <button type="button" className="sidebar-collapse-btn"
+            onClick={onToggleCollapse}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <span aria-hidden="true">{collapsed ? '›' : '‹'}</span>
+            {!collapsed && <span style={{ fontSize: 10.5, fontWeight: 600 }}>Collapse</span>}
+          </button>
+        )}
       </aside>
     </>
   )
@@ -104,6 +118,20 @@ export default function EventHeadPanel() {
   const location = useLocation()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  /* Collapse rail (Calendar / Monthly Planner only) — persisted so the choice
+     survives a reload. The class is applied only while a calendar route is in
+     view; on every other page the sidebar renders at full width. */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('eh_sidebar_collapsed') === '1')
+  const toggleSidebarCollapse = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      try { localStorage.setItem('eh_sidebar_collapsed', next ? '1' : '0') } catch { /* storage unavailable */ }
+      return next
+    })
+  }
+  const isCalendarRoute = location.pathname === '/event-head/monthly-planner'
+    || location.pathname.startsWith('/event-head/monthly-planner/')
+    || location.pathname === '/event-head/planner'
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('eh_theme') || 'sky')
@@ -204,9 +232,9 @@ export default function EventHeadPanel() {
   const urgentCount = deadlines.filter(d => d.urgent).length
 
   return (
-    <div className="app">
+    <div className={`app${sidebarCollapsed && isCalendarRoute ? ' sidebar-collapsed' : ''}`}>
       <NoticePopup />
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapse} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
