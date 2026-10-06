@@ -1,0 +1,9 @@
+{
+  "name": "sevak-library",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "create-admin": "node supabase/create-admin.mjs",
+    "dev": "npm --prefix sevak-library run dev"
+  }
+}
