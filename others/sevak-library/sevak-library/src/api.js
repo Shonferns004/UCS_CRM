@@ -7,10 +7,20 @@
 // cross-origin browser calls are allowed, and its preflight OPTIONS is handled
 // (crm.beingsevak.org does NOT forward POST/OPTIONS, so it cannot be used).
 // Admin endpoints require the CRM session (JWT); the public endpoints (submit,
-// look up by ref, record payment, payment reminder) are open. Override the
-// target with VITE_API_BASE for local/dev builds.
-
-const BASE = import.meta.env.VITE_API_BASE || 'https://api.beingsevak.org/api/sevak-library'
+// look up by ref, record payment, payment reminder) are open.
+//
+// Base URL rules:
+//   - dev (`npm run dev`): use VITE_API_BASE as-is, defaulting to the relative
+//     '/api/sevak-library' which the Vite dev server proxies to localhost:5000.
+//   - prod build: only an ABSOLUTE override is trusted. A relative value would
+//     POST to the static host (sevak-library.vercel.app/api/...) and 404, so we
+//     fall back to the CRM API host no matter what the env says.
+const ENV_BASE = import.meta.env.VITE_API_BASE || ''
+const BASE = import.meta.env.DEV
+  ? (ENV_BASE || '/api/sevak-library')
+  : (/^https?:\/\//i.test(ENV_BASE)
+      ? ENV_BASE.replace(/\/$/, '')
+      : 'https://api.beingsevak.org/api/sevak-library')
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, options)
