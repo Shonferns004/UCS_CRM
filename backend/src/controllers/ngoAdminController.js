@@ -20,7 +20,7 @@ import {
   deleteStationAssignment,
   getStationAssignmentByNgoAndStation,
 } from '../models/froStationAssignmentModel.js';
-import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
+import { upsertTarget, getTargetsByNgo, getTargetsForWorkersMonth, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import { istMonthBounds } from '../utils/ist.js';
 import { buildTeamCollection, resolveRange } from '../services/teamCollectionService.js';
@@ -33,6 +33,7 @@ import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, get
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/workAsSessionModel.js';
+import { resolveStationNgoScope, dedupeStationDonors, ngoIdsMissingNames } from '../utils/stationDonorScope.js';
 // Loaded as a default import: the cache wrapper is CommonJS (redis.cjs) and
 // `require` does not exist in this ESM module. Calling require() at request
 // time was throwing "require is not defined" and taking the whole dashboard
@@ -193,6 +194,46 @@ const cacheSet = (key, v) => {
 // FRO Status pill straight back to "Paused" right after a successful resume —
 // which reads as "resume is broken". Rare, admin-only actions: busting all tl:
 // keys is cheap and also covers other tabs/admins watching the same FRO.
+// Second-tier (Upstash) key for a dashboard payload. The payload is one whole
+// NGO roll-up — every station, every FRO, collections, targets, attendance — so
+// rebuilding it after a deploy or on a second instance is expensive. Keeping it
+// in Redis means a cold process warms from one GET instead of re-running the
+// full scan. Hashed because dashCacheKey embeds a user id and date range, which
+// is too long and too raw to use as a Redis key.
+const NGODASH_REDIS_PREFIX = 'v1:ngoadmin:dash:';
+const NGODASH_REDIS_TTL_S = 60;
+const dashRedisKey = (dashCacheKey) => NGODASH_REDIS_PREFIX + redis.hashKey(dashCacheKey);
+
+// Stations and station stats, second tier. Same reasoning as the dashboard: both
+// payloads are whole-keyspace scans (every assignment row, deduped per
+// station+ngo+donor, plus a per-disposition count), and getStations had no cache
+// of any kind - every poll re-ran the scan. Rebuilt on each deploy, each new
+// instance and each second admin's first load, so a shared copy is worth one GET.
+//
+// Both are invalidated by bustStationCache() on every station mutation rather
+// than being left to expire, because the mutation screens (create/delete/rename/
+// transfer/upload) show their result immediately and a 60s-old count would read
+// as the write having failed.
+const STATION_REDIS_PREFIX = 'v1:ngoadmin:stations:';
+const STATION_STATS_REDIS_PREFIX = 'v1:ngoadmin:stnstats:';
+const STATION_REDIS_TTL_S = 60;
+const stationRedisKey = (k) => STATION_REDIS_PREFIX + redis.hashKey(k);
+const stationStatsRedisKey = (k) => STATION_STATS_REDIS_PREFIX + redis.hashKey(k);
+
+// Everything station-shaped derives from the same assignment rows, so one
+// invalidation covers both payloads and the TL/dashboard roll-ups that count
+// stations. Called after a mutation commits, never before.
+export const bustStationCache = () => {
+  for (const k of [..._rCache.keys()]) {
+    if (k.startsWith('stn:') || k.startsWith('stations:')) _rCache.delete(k);
+  }
+  bustTlCache();
+  // Fire and forget: the response must not wait on Redis, and a failure here just
+  // means the entries age out within STATION_REDIS_TTL_S.
+  redis.delByPrefix(STATION_REDIS_PREFIX).catch(() => { });
+  redis.delByPrefix(STATION_STATS_REDIS_PREFIX).catch(() => { });
+};
+
 export const bustTlCache = () => {
   tlCacheGeneration += 1;
   for (const k of _rCache.keys()) {
@@ -747,26 +788,24 @@ export const getTargets = async (req, res) => {
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
-    const allManualTargets = [];
-    for (const ngoId of filterNgoIds) {
-      const targets = await getTargetsByNgo(ngoId, targetMonth);
-      allManualTargets.push(...targets);
-    }
     // One row per FRO per month is the display contract, but the table is keyed on
     // (fro_worker_id, ngo_id, month), so a worker on two NGOs holds two rows for
     // the same month. Resolve to the newest write - the same tie-break
     // getTargetByWorker uses - so this board and the FRO's own panel can never
     // show different numbers for one person.
-    const currentRowMap = {};
-    for (const t of allManualTargets) {
-      const key = String(t.fro_worker_id);
-      const prev = currentRowMap[key];
-      if (!prev || String(t.created_at || '') > String(prev.created_at || '')) currentRowMap[key] = t;
-    }
+    //
+    // Fetched by worker, NOT per NGO: scoping by ngo_id hid any row saved against
+    // a different NGO than the one this FRO is currently listed under, which is
+    // how a set target came back as not_set and rendered as "Set target".
+    const currentRowMap = await getTargetsForWorkersMonth(
+      froWorkers.map(w => w.id),
+      targetMonth,
+    );
+
     const manualMap = {};
     const achievedMap = {};
     const incentiveMap = {};
-    for (const [key, t] of Object.entries(currentRowMap)) {
+    for (const [key, t] of Object.entries(Object.fromEntries(currentRowMap))) {
       manualMap[key] = parseFloat(t.target_amount);
       achievedMap[key] = t.achieved_target != null ? parseFloat(t.achieved_target) : null;
       incentiveMap[key] = t.incentive != null ? parseFloat(t.incentive) : null;
@@ -789,7 +828,7 @@ export const getTargets = async (req, res) => {
       const resolved = resolveMonthlyTarget({
         joiningDate: w.created_at,
         salary: currentSalary,
-        currentRow: currentRowMap[key] || null,
+        currentRow: currentRowMap.get(key) || null,
         priorRow: priorRowMap.get(key) || null,
         refDate: new Date(targetMonth),
       });
@@ -843,6 +882,13 @@ export const getDashboard = async (req, res) => {
     if (req.query.fresh !== '1') {
       const cached = cacheGet(dashCacheKey, 60000);
       if (cached) return res.json(cached);
+      // Missed in-memory: try Upstash before rebuilding. fail-open, so a Redis
+      // outage or an unreachable network just falls through to the DB.
+      const l2 = await redis.get(dashRedisKey(dashCacheKey));
+      if (l2 && typeof l2 === 'object') {
+        cacheSet(dashCacheKey, l2);
+        return res.json(l2);
+      }
     }
     const access = await getUserNgoAccess(req.user.id, req.user.role);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
@@ -1145,6 +1191,9 @@ export const getDashboard = async (req, res) => {
       stations_summary: stationActivity.summary,
     };
     cacheSet(dashCacheKey, payload);
+    // Mirror into Upstash for the next cold start. Not awaited: the response
+    // should not wait on the network, and a failed write is harmless.
+    redis.set(dashRedisKey(dashCacheKey), payload, NGODASH_REDIS_TTL_S).catch(() => { });
     return res.json(payload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1669,6 +1718,10 @@ export const verifyLeadDone = async (req, res) => {
 
     if (updateAsgnError) throw updateAsgnError;
 
+    // Station membership is unchanged, but the disposition roll-up is grouped by
+    // assignment status and this flipped one to donation_collected.
+    bustStationCache();
+
     return res.json({ message: 'Lead verified, amount added to target' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1693,6 +1746,29 @@ export const getStations = async (req, res) => {
       if (targetNgoIds.length === 0) return res.json([]);
     }
 
+    // This endpoint scans every assignment row in the NGOs in scope and dedupes
+    // per (station, ngo, donor) to build the donor_count map - the most expensive
+    // read on the stations screen, and it was previously uncached, so each poll
+    // paid it in full. Key on the resolved NGO set rather than the raw query, so
+    // an admin and a super-admin looking at the same stations share one entry.
+    //
+    // The view mode is part of the key, not just the NGO set: the payload below
+    // differs by mode even for an identical set. Without ngo_id the station list
+    // also folds in null-NGO rows (getStationAssignmentsByNgo's second argument)
+    // and takes names from the access list, while an explicit ngo_id takes only
+    // that NGO and looks its name up directly. A single-NGO admin hits exactly
+    // that overlap, so keying on the set alone would hand them the wrong list.
+    const stationCacheKey = `stations:${ngo_id ? 'one' : 'all'}:${targetNgoIds.slice().sort().join(',')}`;
+    if (req.query.fresh !== '1') {
+      const cached = cacheGet(stationCacheKey, 60000);
+      if (cached) return res.json(cached);
+      const l2 = await redis.get(stationRedisKey(stationCacheKey));
+      if (Array.isArray(l2)) {
+        cacheSet(stationCacheKey, l2);
+        return res.json(l2);
+      }
+    }
+
     // Get station assignments — only include null-NGO rows in the "all" view (no ngo_id filter)
     const assignments = await getStationAssignmentsByNgo(targetNgoIds, !ngo_id);
 
@@ -1712,14 +1788,27 @@ export const getStations = async (req, res) => {
     const froDonorCount = {};
     const seen = new Set();
     for (const d of faData || []) {
-      if (seen.has(d.donor_id)) continue;
-      seen.add(d.donor_id);
       const s = d.station.trim();
+      // Dedupe per (station, ngo), NOT on donor_id alone. donor_id is the same
+      // person in every NGO they are assigned to, and faData is ordered by
+      // assigned_at DESC, so a set keyed on donor_id attributed each donor to
+      // whichever of their rows came first - usually an assignment in a
+      // different NGO - and then skipped them everywhere else. That is why the
+      // AOD-11 row read "AFLF: 755" while its donor list held 1819: all 1819
+      // of those donors are also active in another NGO, so the other NGO's row
+      // claimed each of them first.
+      //
+      // Keyed per station the count is exactly "distinct donors assigned here",
+      // which is what donors-by-station returns for the same (station, ngo) -
+      // so the pill and the list it opens can no longer disagree.
+      const key = `${s}::${d.ngo_id}::${d.donor_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       if (!totalDonorCount[s]) totalDonorCount[s] = {};
       totalDonorCount[s][d.ngo_id] = (totalDonorCount[s][d.ngo_id] || 0) + 1;
       if (d.fro_worker_id) {
-        const key = `${s}_${d.fro_worker_id}`;
-        froDonorCount[key] = (froDonorCount[key] || 0) + 1;
+        const froKey = `${s}_${d.fro_worker_id}`;
+        froDonorCount[froKey] = (froDonorCount[froKey] || 0) + 1;
       }
     }
 
@@ -1815,6 +1904,8 @@ export const getStations = async (req, res) => {
       return nA - nB;
     });
 
+    cacheSet(stationCacheKey, result);
+    redis.set(stationRedisKey(stationCacheKey), result, STATION_REDIS_TTL_S).catch(() => { });
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1858,6 +1949,9 @@ export const saveStationAssignment = async (req, res) => {
     if (!ngoId) return res.status(400).json({ message: 'No NGO assigned to your account' });
 
     const result = await upsertStationAssignment(fro_worker_id || null, ngoId, trimmedStation, req.user.id);
+    // The stations screen renders this station's FRO and donor count straight
+    // after the save, so the cached copy has to go or the write looks ignored.
+    bustStationCache();
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1878,6 +1972,7 @@ export const removeStationAssignment = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     await deleteStationAssignment(id);
+    bustStationCache();
     return res.json({ message: 'Station assignment removed' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1909,6 +2004,7 @@ export const removeStationByName = async (req, res) => {
     const { error } = await delQuery;
     if (error) throw error;
 
+    bustStationCache();
     return res.json({ message: 'Station deleted' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1943,6 +2039,7 @@ export const createStationHandler = async (req, res) => {
       .insert([{ station: stationName, ngo_id: ngo_id || null, assigned_by: req.user.id }])
       .select();
     if (error) throw error;
+    bustStationCache();
     return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1973,6 +2070,7 @@ export const updateStationNgos = async (req, res) => {
       }, { onConflict: 'station,ngo_id' });
     if (upsertErr) throw upsertErr;
 
+    bustStationCache();
     return res.json({ message: 'Station updated' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2007,6 +2105,10 @@ export const reassignStationFro = async (req, res) => {
     const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
     const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, req.user.id);
 
+    // Moves every donor in the station, so both the station list and the
+    // disposition roll-up are now wrong, not just the FRO label.
+    bustStationCache();
+
     return res.json({
       message: `Station reassigned. ${newAssignments.length} donors assigned to new FRO.`,
       count: newAssignments.length,
@@ -2022,6 +2124,13 @@ export const getStationStats = async (req, res) => {
     if (req.query.fresh !== '1') {
       const cached = cacheGet(stationCacheKey, 60000);
       if (cached) return res.json(cached);
+      // Missed in-memory: this rolls up disposition counts for every station, so
+      // warm it from Redis rather than re-running the per-NGO stats queries.
+      const l2 = await redis.get(stationStatsRedisKey(stationCacheKey));
+      if (l2 && typeof l2 === 'object') {
+        cacheSet(stationCacheKey, l2);
+        return res.json(l2);
+      }
     }
     const access = await getUserNgoAccess(req.user.id, req.user.role);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
@@ -2074,6 +2183,7 @@ export const getStationStats = async (req, res) => {
 
     const stationPayload = { stations: stationMap, summary };
     cacheSet(stationCacheKey, stationPayload);
+    redis.set(stationStatsRedisKey(stationCacheKey), stationPayload, STATION_REDIS_TTL_S).catch(() => { });
     return res.json(stationPayload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2084,13 +2194,13 @@ export const getStationStats = async (req, res) => {
 
 export const getDonorsByStation = async (req, res) => {
   try {
-    const { station, status } = req.query;
+    const { station, status, ngo_id } = req.query;
     if (!station) {
       return res.status(400).json({ message: 'station query param is required' });
     }
 
     const access = await getUserNgoAccess(req.user.id, req.user.role);
-    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoIds.length === 0 && req.user.ngo_id) {
       ngoIds.push(req.user.ngo_id);
@@ -2100,18 +2210,59 @@ export const getDonorsByStation = async (req, res) => {
       return res.json([]);
     }
 
+    // WHY ngo_id EXISTS. A station NAME is not unique to an NGO. The same name is
+    // reused across NGOs and only the displayed code differs: 'DH-5' is BOD-15 for
+    // BSCT, AOD-15 for AFLF and MOD-15 for MANN (StationManagement.jsx:19-42).
+    // An NGO admin's access resolves to *every* NGO (getUserNgoAccess: role
+    // 'admin' short-circuits to all NGOs), so looking a station up by name alone
+    // silently unions unrelated stations together.
+    //
+    // That produced two visible bugs. The station row's donor count is per
+    // (station, ngo) - donor_count is a { ngo_id: count } map (getStations:1800)
+    // - so MANN's MOD-15 showed 754 while this endpoint reported 1824 for the very
+    // same station. And the cross-NGO dedupe below kept only the first row per
+    // donor_id, so a donor present in several NGOs was rendered with another
+    // NGO's FRO, status and dates: an FRO name that has nothing to do with the
+    // station being viewed.
+    //
+    // Callers that mean one station pass ngo_id and get exactly that station.
+    // Omitting it keeps the cross-NGO union for the surfaces that genuinely want
+    // it (super-admin Dashboard, accounts Old Data), which is why ngo_id is
+    // optional rather than required - but every row now carries its own
+    // ngo_id / ngo_name so a union can never be mistaken for a single station.
+    //
+    // One code path covers both cases: no ngo_id leaves ngoIds as the union, an
+    // ngo_id the caller may not access is refused rather than widened.
+    const scope = resolveStationNgoScope(ngoIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    ngoIds = scope.ids;
+
+    // Names come from the access rows, but an NGO resolved from req.user.ngo_id
+    // (the fallback above, when access is empty) has none, and a blank ngo_name
+    // is exactly what makes a unioned row unattributable. Fill those in.
+    const ngoNameById = new Map(access.map(a => [String(a.ngo_id), a.ngo_name]));
+    const unnamedIds = ngoIdsMissingNames(access, ngoIds);
+    if (unnamedIds.length > 0) {
+      const { data: ngos } = await db.from('ngos').select('id, name').in('id', unnamedIds);
+      for (const n of ngos || []) ngoNameById.set(String(n.id), n.name);
+    }
+
     const allDonors = [];
     for (const ngoId of ngoIds) {
       const donors = await getDonorsByStationAndStatus(ngoId, station, status || null);
       allDonors.push(...donors);
     }
 
-    const seen = new Set();
-    const unique = allDonors.filter(a => { const k = a.donor_id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const unique = dedupeStationDonors(allDonors);
 
     const result = unique.map(a => ({
       id: a.id,
       donor_id: a.donor_id,
+      // Which NGO this assignment actually belongs to. Required, not decorative:
+      // without it a cross-NGO response is indistinguishable from one station's
+      // list, which is exactly the confusion being fixed here.
+      ngo_id: a.ngo_id,
+      ngo_name: ngoNameById.get(String(a.ngo_id)) || '',
       donor_mobile: a.donor_profiles?.mobile_number || '',
       donor_mobile_2: a.donor_profiles?.mobile_2 || '',
       donor_name: a.donor_profiles?.name || 'Unknown',
@@ -2822,6 +2973,9 @@ export const resetFreshData = async (req, res) => {
       messages.push(`${ngoName}: ${ngoFroDeleted} FD assignments removed, ${ngoDataDeleted} new_data deleted`);
     }
 
+    // The reset removed FD assignments, so the station donor counts and the
+    // disposition roll-up just lost rows.
+    if (totalDeleted > 0) bustStationCache();
     return res.json({
       message: messages.join('; ') || 'No fresh data to reset',
       deleted: totalDeleted,
@@ -3054,6 +3208,384 @@ export const deleteNonConnectedFresh = async (req, res) => {
     });
   } catch (error) {
     console.error('deleteNonConnectedFresh ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Station donor removal (NGO admin) ──────────────────────────────────────
+//
+// Clears a wrongly-duplicated donor off a station so the number becomes free to
+// be assigned again inside that NGO. The rule this serves is the partial unique
+// index uq_fro_assignments_active_donor_ngo (backend/scripts/
+// add_assignment_dedup_index.sql): one ACTIVE fro_assignments row per
+// (donor_id, ngo_id). The DB enforces it, so the only way to clear a duplicate is
+// to retire one of the two rows — which is exactly what this does.
+//
+// WHY THIS HARD DELETES, given the DND history. Migration 165 is explicit that
+// the DND disposition used to DELETE the assignment and its logs, that this left
+// a donor "with no trace anywhere: the lead could not be explained, audited or
+// released", and that it produced "where did my data go" reports — so DND was
+// moved to a soft-mark plus a donor_dnd registry row (froController.js keeps the
+// assignment for exactly that reason). The admin path is a different kind of
+// operation: a low-frequency, deliberate cleanup of a lead the admin believes was
+// duplicated onto the station in the first place, and the guard below refuses any
+// donor carrying collected money or a receipt. But it is still a delete, so every
+// removal writes a station_donor_deletions audit row (migration 174) naming who
+// removed what, from which station, and how much was cascaded. That audit insert
+// is deliberately inside the same transaction as the delete: if the table is
+// missing the whole operation fails closed rather than deleting unrecorded.
+//
+// The cascade order and membership are taken verbatim from migration 107, which
+// did this same cascade in SQL for the DND cleanup:
+//   rejected_lead_tickets -> fro_scheduled_contacts -> work_queue
+//   -> fro_donor_logs -> fro_assignments
+// Tickets go first because they reference the logs. work_queue goes explicitly
+// because it has NO FK to either table (107:17), so nothing else would clear it
+// and the removed donor would keep being handed out by the auto-advance cursor.
+// donor_profiles, receipts and donor_dnd are left untouched (107:19).
+export const deleteStationDonors = async (req, res) => {
+  try {
+    const { assignment_ids } = req.body || {};
+    const dryRun = req.query.dry_run === 'true';
+
+    const ids = [...new Set((Array.isArray(assignment_ids) ? assignment_ids : []).map(Number).filter(Boolean))];
+    if (ids.length === 0) {
+      return res.status(400).json({ message: 'assignment_ids array is required', deleted: 0 });
+    }
+    // Bounded so one request cannot fan out into an unbounded cascade. A station
+    // holds hundreds of donors, but an admin removing a duplicate touches a few.
+    if (ids.length > 500) {
+      return res.status(400).json({ message: 'Too many assignments in one request (max 500)', deleted: 0 });
+    }
+
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0) {
+      return res.status(403).json({ message: 'No NGO access', deleted: 0 });
+    }
+
+    // One row per assignment the caller may touch, carrying both the money guard
+    // inputs and the cascade tallies the preview renders. Written as LATERALs
+    // rather than four round trips so the guard cannot be evaluated against a
+    // different snapshot than the counts shown to the admin.
+    //
+    // Restricted to ACTIVE rows the caller's NGOs own. A 'reassigned' row is
+    // already retired, and an id outside the caller's scope is not even
+    // acknowledged: returning 200 for it would confirm an existence this admin
+    // has no right to report.
+    const targets = await sql(`
+      SELECT fa.id AS assignment_id,
+             fa.donor_id,
+             fa.ngo_id,
+             fa.station,
+             fa.fro_worker_id,
+             fa.status,
+             fa.batch_type,
+             dp.name AS donor_name,
+             dp.mobile_number,
+             dp.data_category,
+             EXISTS (
+               SELECT 1 FROM donor_dnd d
+               WHERE d.donor_id = fa.donor_id
+                 AND d.ngo_id = fa.ngo_id
+                 AND d.released_at IS NULL
+             ) AS had_dnd_mark,
+             COALESCE(m.money_log_count, 0)  AS money_log_count,
+             COALESCE(m.collected_amount, 0) AS collected_amount,
+             COALESCE(m.verified_amount, 0)  AS verified_amount,
+             COALESCE(m.pending_amount, 0)   AS pending_amount,
+             COALESCE(rc.receipt_count, 0)  AS receipt_count,
+             COALESCE(rc.receipt_amount, 0) AS receipt_amount,
+             COALESCE(c.log_count, 0)        AS log_count,
+             COALESCE(c.schedule_count, 0)   AS schedule_count,
+             COALESCE(c.ticket_count, 0)     AS ticket_count,
+             COALESCE(c.queue_count, 0)      AS queue_count
+        FROM fro_assignments fa
+        JOIN donor_profiles dp ON dp.id = fa.donor_id
+        LEFT JOIN LATERAL (
+          -- A donor counts as having given money if EITHER the log is marked
+          -- verified/pending OR it carries a positive amount. Keying this on
+          -- accounts_status alone let a log with amount_collected > 0 and a null
+          -- / unverified status slip through and get its assignment deleted.
+          SELECT COUNT(*) FILTER (WHERE l.accounts_status IN ('verified', 'pending')
+                                      OR COALESCE(l.amount_collected, 0) > 0) AS money_log_count,
+                 COALESCE(SUM(l.amount_collected) FILTER (WHERE l.amount_collected > 0), 0) AS collected_amount,
+                 COALESCE(SUM(l.amount_collected) FILTER (WHERE l.accounts_status = 'verified'), 0) AS verified_amount,
+                 COALESCE(SUM(l.amount_collected) FILTER (WHERE l.accounts_status = 'pending'), 0) AS pending_amount
+            FROM fro_donor_logs l
+           WHERE l.assignment_id = fa.id
+        ) m ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS receipt_count, COALESCE(SUM(r.amount), 0) AS receipt_amount
+            FROM receipts r
+            JOIN fro_donor_logs l2 ON l2.id = r.log_id
+           WHERE l2.assignment_id = fa.id
+        ) rc ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT
+            (SELECT COUNT(*) FROM fro_donor_logs l3
+              WHERE l3.assignment_id = fa.id) AS log_count,
+            (SELECT COUNT(*) FROM fro_scheduled_contacts s
+              WHERE s.assignment_id = fa.id) AS schedule_count,
+            (SELECT COUNT(*) FROM rejected_lead_tickets t
+              JOIN fro_donor_logs l4 ON l4.id = t.fro_donor_log_id
+             WHERE l4.assignment_id = fa.id) AS ticket_count,
+            -- Scoped to this (worker, donor, ngo) rather than the bare pair used by
+            -- migration 107: the same donor may legitimately be queued at another
+            -- NGO on the same worker, and deleting that would be collateral damage.
+            -- Unattributed rows (ngo_id IS NULL) still go, since nothing else would
+            -- ever attribute them and they would keep the donor in the cursor.
+            (SELECT COUNT(*) FROM work_queue w
+              WHERE w.worker_id = fa.fro_worker_id
+                AND w.donor_id = fa.donor_id
+                AND (w.ngo_id = fa.ngo_id OR w.ngo_id IS NULL)) AS queue_count
+        ) c ON TRUE
+       WHERE fa.id = ANY($1)
+         AND fa.ngo_id = ANY($2)
+         AND (fa.status IS NULL OR fa.status <> 'reassigned')
+    `, [ids, ngoIds]);
+
+    const notFound = ids.length - targets.length;
+    if (targets.length === 0) {
+      return res.status(404).json({
+        message: 'No active station assignments matched those ids for your NGOs',
+        deleted: 0,
+      });
+    }
+
+    // ── The money guard ────────────────────────────────────────────────────
+    // A donor who has actually given money, or for whom a receipt exists, is
+    // reconciled financial history. Removing their assignment would strip the
+    // collection from the station while the money stays banked, so those are
+    // refused outright rather than warned about. Same predicate the dedup repair
+    // scripts use to decide which assignment of a duplicate group to keep
+    // (repair_active_dups_all_ngos.sql:39-46).
+    const blocked = [];
+    for (const t of targets) {
+      const reasons = [];
+      if (Number(t.receipt_count) > 0) {
+        reasons.push(Number(t.receipt_amount) > 0
+          ? `receipt of ₹${Number(t.receipt_amount).toLocaleString('en-IN')} linked`
+          : 'receipt linked');
+      }
+      if (Number(t.money_log_count) > 0) {
+        const bits = [];
+        if (Number(t.verified_amount) > 0) bits.push(`₹${Number(t.verified_amount).toLocaleString('en-IN')} verified`);
+        if (Number(t.pending_amount) > 0) bits.push(`₹${Number(t.pending_amount).toLocaleString('en-IN')} pending`);
+        // Money can be present without a verified/pending status, so fall back to
+        // the plain collected total rather than saying nothing was recorded.
+        if (bits.length === 0 && Number(t.collected_amount) > 0) {
+          bits.push(`₹${Number(t.collected_amount).toLocaleString('en-IN')} collected`);
+        }
+        reasons.push(bits.length ? `collected money (${bits.join(', ')})` : 'collected money logged');
+      }
+      if (reasons.length === 0) continue;
+      blocked.push({
+        assignment_id: t.assignment_id,
+        donor_id: t.donor_id,
+        donor_name: t.donor_name || 'Unknown',
+        mobile_number: t.mobile_number || '',
+        station: t.station || '',
+        reason: reasons.join('; '),
+      });
+    }
+
+    const deletable = targets.filter(t => !blocked.some(b => b.assignment_id === t.assignment_id));
+    const totals = targets.reduce((acc, t) => ({
+      logs: acc.logs + Number(t.log_count || 0),
+      schedules: acc.schedules + Number(t.schedule_count || 0),
+      tickets: acc.tickets + Number(t.ticket_count || 0),
+      queue_rows: acc.queue_rows + Number(t.queue_count || 0),
+    }), { logs: 0, schedules: 0, tickets: 0, queue_rows: 0 });
+
+    const previewRow = (t) => ({
+      assignment_id: t.assignment_id,
+      donor_id: t.donor_id,
+      ngo_id: t.ngo_id,
+      donor_name: t.donor_name || 'Unknown',
+      mobile_number: t.mobile_number || '',
+      data_category: t.data_category || '',
+      station: t.station || '',
+      status: t.status,
+      log_count: Number(t.log_count || 0),
+      schedule_count: Number(t.schedule_count || 0),
+      ticket_count: Number(t.ticket_count || 0),
+      queue_count: Number(t.queue_count || 0),
+      had_dnd_mark: !!t.had_dnd_mark,
+    });
+
+    if (dryRun) {
+      return res.json({
+        dry_run: true,
+        matched: targets.length,
+        deletable: deletable.map(previewRow),
+        deletable_count: deletable.length,
+        blocked,
+        totals,
+        not_found: notFound,
+        message: `Dry run — ${deletable.length} of ${targets.length} assignment(s) can be deleted`,
+      });
+    }
+
+    // All-or-nothing. A partial delete would leave the admin believing a duplicate
+    // was cleared when one of the pair is still live, which is the exact state
+    // this endpoint exists to remove. The UI offers a re-run over the remainder.
+    if (blocked.length > 0) {
+      return res.status(409).json({
+        message: `${blocked.length} of ${targets.length} donor(s) cannot be deleted — nothing was deleted`,
+        deleted: 0,
+        blocked,
+        deletable_count: deletable.length,
+      });
+    }
+
+    const targetIds = targets.map(t => t.assignment_id);
+
+    let counts;
+    try {
+      counts = await db.transaction(async ({ from }) => {
+        // 1. Rejected-lead tickets first — they point at the logs in step 4.
+        const { data: logRows, error: logErr } = await from('fro_donor_logs')
+          .select('id')
+          .in('assignment_id', targetIds);
+        if (logErr) throw new Error(logErr.message);
+        const logIds = (logRows || []).map(r => r.id);
+
+        let ticketsDeleted = 0;
+        if (logIds.length > 0) {
+          const { data: tRows, error: tErr } = await from('rejected_lead_tickets')
+            .delete()
+            .in('fro_donor_log_id', logIds)
+            .select('id');
+          if (tErr) throw new Error(tErr.message);
+          ticketsDeleted = (tRows || []).length;
+        }
+
+        // 2. Scheduled contacts reference the assignment directly.
+        const { data: sRows, error: sErr } = await from('fro_scheduled_contacts')
+          .delete()
+          .in('assignment_id', targetIds)
+          .select('id');
+        if (sErr) throw new Error(sErr.message);
+        const schedulesDeleted = (sRows || []).length;
+
+        // 3. work_queue — raw SQL because the (worker, donor, ngo) triple has no
+        //    expressible form in the query builder. No FK cascade exists here
+        //    (migration 087 creates the table with FKs only on worker/donor), so
+        //    skipping this would leave the removed donor in the FRO's cursor.
+        const queueRows = await sql(`
+          DELETE FROM work_queue w
+           USING fro_assignments fa
+           WHERE fa.id = ANY($1)
+             AND w.worker_id = fa.fro_worker_id
+             AND w.donor_id = fa.donor_id
+             AND (w.ngo_id = fa.ngo_id OR w.ngo_id IS NULL)
+          RETURNING 1
+        `, [targetIds]);
+
+        // 4. The disposition/call logs themselves.
+        const { data: dRows, error: dErr } = await from('fro_donor_logs')
+          .delete()
+          .in('assignment_id', targetIds)
+          .select('id');
+        if (dErr) throw new Error(dErr.message);
+        const logsDeleted = (dRows || []).length;
+
+        // 5. The station's assignment row.
+        const { data: aRows, error: aErr } = await from('fro_assignments')
+          .delete()
+          .in('id', targetIds)
+          .select('id');
+        if (aErr) throw new Error(aErr.message);
+        const assignmentsDeleted = (aRows || []).length;
+
+        // 6. Audit, inside the same transaction as the delete it describes. If
+        //    migration 174 has not been applied this insert fails, the
+        //    transaction rolls back, and the removal does not happen unrecorded.
+        //
+        //    The actor is stored as text plus a name/role snapshot, not as a
+        //    users FK: an NGO admin's token carries a workers.id (and the env
+        //    super admin carries the literal 0), so a users FK would reject every
+        //    real deletion. See migration 174 for the full reasoning.
+        const actorId = req.user?.id == null ? null : String(req.user.id);
+        const { error: auditErr } = await from('station_donor_deletions').insert(targets.map(t => ({
+          assignment_id: t.assignment_id,
+          donor_id: t.donor_id,
+          ngo_id: t.ngo_id,
+          station: t.station || null,
+          fro_worker_id: t.fro_worker_id || null,
+          donor_name: t.donor_name || null,
+          mobile_number: t.mobile_number || null,
+          data_category: t.data_category || null,
+          status_at_delete: t.status || null,
+          batch_type: t.batch_type || null,
+          logs_deleted: Number(t.log_count || 0),
+          schedules_deleted: Number(t.schedule_count || 0),
+          tickets_deleted: Number(t.ticket_count || 0),
+          queue_rows_deleted: Number(t.queue_count || 0),
+          had_dnd_mark: !!t.had_dnd_mark,
+          deleted_by: actorId,
+          deleted_by_name: req.user?.name || null,
+          deleted_by_role: req.user?.role || null,
+          deleted_by_email: req.user?.email || null,
+        })));
+        if (auditErr) throw new Error(auditErr.message);
+
+        return { logsDeleted, schedulesDeleted, ticketsDeleted, queueRowsDeleted: queueRows.length, assignmentsDeleted };
+      });
+    } catch (txErr) {
+      // 42P01 = undefined_table. The most likely cause by far is migration 174
+      // not yet applied, and the answer is to apply it rather than to retry, so
+      // say that instead of surfacing a raw Postgres message.
+      if (txErr && (txErr.code === '42P01' || /station_donor_deletions/i.test(txErr.message || ''))) {
+        console.error('[station-donors] delete aborted: station_donor_deletions is missing — apply migration 174');
+        return res.status(503).json({
+          message: 'Station donor deletion audit table is missing. Apply migration 174_station_donor_deletion_audit.sql, then retry. Nothing was deleted.',
+          deleted: 0,
+        });
+      }
+      throw txErr;
+    }
+
+    // Station/donor counts are cached for the TL dashboard (bustTlCache), and the
+    // removal is exactly the kind of change a stale cache would misreport.
+    // bustStationCache covers the TL cache too, plus the station list and the
+    // disposition roll-up, all of which just lost rows.
+    bustStationCache();
+
+    console.log(
+      `[station-donors] user=${req.user.id} assignments=${counts.assignmentsDeleted} `
+      + `logs=${counts.logsDeleted} schedules=${counts.schedulesDeleted} `
+      + `tickets=${counts.ticketsDeleted} queue=${counts.queueRowsDeleted}`
+      + ` station=${targets[0]?.station || '(mixed)'} ngo=${targets[0]?.ngo_id || '(mixed)'}`
+    );
+
+    const dndFlagged = targets.filter(t => t.had_dnd_mark).length;
+
+    return res.json({
+      deleted: counts.assignmentsDeleted,
+      per_donor: targets.map(previewRow),
+      blocked: [],
+      totals: {
+        logs: counts.logsDeleted,
+        schedules: counts.schedulesDeleted,
+        tickets: counts.ticketsDeleted,
+        queue_rows: counts.queueRowsDeleted,
+      },
+      dnd_marked: dndFlagged,
+      // Ids that were requested but matched nothing: another admin already
+      // removed them, they were already 'reassigned', or they belong to an NGO
+      // this caller cannot touch. Reported so a bulk delete never looks
+      // complete when it silently covered fewer rows than were ticked.
+      not_found: notFound,
+      message: `${counts.assignmentsDeleted} donor(s) removed from ${targets[0]?.station || 'the station'}`
+        + (notFound > 0 ? ` (${notFound} of ${ids.length} requested were no longer active)` : '')
+        + (dndFlagged > 0
+          ? ` — ${dndFlagged} still carry an active DND mark for this NGO, so the number stays suppressed until it is released`
+          : ''),
+    });
+  } catch (error) {
+    console.error('deleteStationDonors ERROR:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -3805,6 +4337,10 @@ export const transferStationData = async (req, res) => {
       station.trim(), target_station.trim(), donor_count, autoReturnAt, req.user.id
     );
 
+    // Moved donors between two stations, so both stations' counts and the
+    // disposition roll-up change.
+    bustStationCache();
+
     return res.json({
       message: `Transferred ${result.transferred} donors to ${target_station}`,
       transfer: result.transfer,
@@ -3824,6 +4360,10 @@ export const returnTransferEarly = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
     const count = await reverseTransfer(id);
+    // reverseTransfer marks the transferred rows 'reassigned' and re-inserts them
+    // under the original station, which both station roll-ups count. No rows moved
+    // means nothing to invalidate.
+    if (count > 0) bustStationCache();
     return res.json({
       message: `Returned ${count} donors to original FRO`,
       returned: count,
@@ -4589,6 +5129,7 @@ export const seedStations = async (req, res) => {
       results.push({ ngo: ngoName, created });
     }
 
+    if (totalCreated > 0) bustStationCache();
     return res.json({ message: `${totalCreated} stations created`, details: results });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -4630,6 +5171,8 @@ export const cleanupOrphanedStations = async (req, res) => {
       .in('id', ids);
 
     if (delErr) throw delErr;
+
+    bustStationCache();
 
     return res.json({
       message: `${ids.length} orphaned station(s) deleted`,
@@ -4759,6 +5302,10 @@ export const uploadOldData = async (req, res) => {
         }
       }
     }
+
+    // Same effect as uploadOldDataForStation, which is the station-scoped
+    // sibling of this endpoint: it inserts assignments into existing stations.
+    if (createdAssignments > 0 || createdProfiles > 0) bustStationCache();
 
     return res.json({
       message: `${createdAssignments} assignments created across ${ngoEntries.length} NGO(s)`,
@@ -4940,6 +5487,10 @@ export const uploadOldDataForStation = async (req, res) => {
       if (batchErr) errors.push(`Batch insert error: ${batchErr.message}`);
       else createdAssignments = assignmentsToInsert.length;
     }
+
+    // The upload adds donors to this station, so its cached donor_count and the
+    // disposition roll-up are stale the moment the insert commits.
+    if (createdAssignments > 0 || createdProfiles > 0) bustStationCache();
 
     return res.json({
       message: `${createdAssignments} assignments created for station ${station} (${ngoEntries.map(e => e.ngoName).join(', ')})`,
@@ -6224,6 +6775,10 @@ export const reassignFollowup = async (req, res) => {
     const { error } = await db.from('fro_assignments').update(updates).eq('id', assignmentId);
     if (error) throw error;
 
+    // Moving an assignment to a different FRO changes the per-FRO donor counts the
+    // stations screen shows, even though the station totals do not move.
+    if (updates.fro_worker_id) bustStationCache();
+
     return res.json({ message: 'Follow-up reassigned successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -6766,6 +7321,9 @@ export const restoreWrongAssignments = async (req, res) => {
       }
     }
 
+    // Wrong assignments were deleted above, so the station they belonged to just
+    // lost donors.
+    if (restoredCount > 0) bustStationCache();
     return res.json({ restored: restoredCount, details });
   } catch (error) {
     console.error('restoreWrongAssignments error:', error.message);
@@ -7525,6 +8083,12 @@ export const bulkRenameStations = async (req, res) => {
         post_verify: { old_codes_remaining: 0, unscoped_old_rows: unscoped },
       };
     });
+
+    // A rename rewrites station codes in every table the roll-ups read, so the
+    // station list, the disposition stats and the TL dashboard are all stale.
+    // This is the highest-stakes invalidation in the file — a cached copy here
+    // would show donors under a station name that no longer exists.
+    bustStationCache();
 
     return res.json(summary);
   } catch (error) {

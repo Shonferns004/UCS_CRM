@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/auth';
 import { toast } from './Toast';
 import { istMonthKey } from '../utils/istDate';
@@ -64,62 +64,97 @@ function SourcePill({ row }) {
   );
 }
 
-function Row({ row, saving, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState('');
+function Row({ row, onEdit }) {
   const needsAttention = row.target_source === 'not_set';
-
-  const open = () => {
-    setValue(row.target_source === 'not_set' ? '' : String(row.target ?? 0));
-    setEditing(true);
-  };
-
-  const save = async () => {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n < 0) { toast('Enter a non-negative amount', 'error'); return; }
-    await onSave(row, n);
-    setEditing(false);
-  };
+  const td = { padding: '10px 12px', borderBottom: '1px solid #eee' };
 
   return (
     <tr style={{ background: needsAttention ? '#fff7ed' : undefined }}>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontWeight: 600 }}>
+      <td style={{ ...td, fontWeight: 600 }}>
         {row.name}
         {needsAttention && <span style={{ marginLeft: 8, fontSize: 11, color: '#b45309', fontWeight: 600 }}>needs a target</span>}
       </td>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee', color: '#6b7280', fontSize: 13 }}>{row.login_id || '—'}</td>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>{money(row.salary)}</td>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>{row.months_employed != null ? row.months_employed + 1 : '—'}</td>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-        {editing ? (
-          <input
-            autoFocus
-            type="number"
-            min="0"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') save();
-              if (e.key === 'Escape') setEditing(false);
-            }}
-            style={{ width: 120, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
-          />
-        ) : money(row.target)}
+      <td style={{ ...td, color: '#6b7280', fontSize: 13 }}>{row.login_id || '—'}</td>
+      <td style={td}>{money(row.salary)}</td>
+      <td style={td}>{row.months_employed != null ? row.months_employed + 1 : '—'}</td>
+      <td style={{ ...td, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{money(row.target)}</td>
+      <td style={td}>
+        <button className="btn btn-sm btn-outline" onClick={() => onEdit(row)}>
+          {needsAttention ? 'Set target' : 'Edit'}
+        </button>
       </td>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>
-        {editing ? (
-          <span style={{ display: 'inline-flex', gap: 6 }}>
-            <button className="btn btn-sm btn-primary" onClick={save} disabled={saving}>Save</button>
-            <button className="btn btn-sm btn-outline" onClick={() => setEditing(false)}>Cancel</button>
-          </span>
-        ) : (
-          <button className="btn btn-sm btn-outline" onClick={open}>
-            {row.target_source === 'not_set' ? 'Set target' : 'Edit'}
-          </button>
-        )}
-      </td>
-      <td style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}><SourcePill row={row} /></td>
+      <td style={td}><SourcePill row={row} /></td>
     </tr>
+  );
+}
+
+// Editing used to swap a 120px input in beside two buttons inside the row, which
+// overflowed the Target column and left no room for the number you were typing.
+// This is a real dialog instead: the amount gets a full-width field with a rupee
+// affix, the current value and where it came from are stated up front, and
+// Enter/Escape behave the way they do in the rest of the app.
+function TargetModal({ row, month, value, setValue, saving, onSave, onClose }) {
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const field = {
+    width: '100%', padding: '10px 12px', fontSize: 16, fontWeight: 600,
+    border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box',
+  };
+  const label = { fontSize: 11, textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', fontWeight: 600 };
+
+  return (
+    <div
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(17,24,39,.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}
+    >
+      <div
+        role="dialog" aria-modal="true" aria-label={`Set target for ${row.name}`}
+        style={{
+          background: '#fff', borderRadius: 12, width: '100%', maxWidth: 400,
+          boxShadow: '0 20px 45px rgba(0,0,0,.22)', overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #f3f4f6' }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{row.target_source === 'not_set' ? 'Set target' : 'Edit target'}</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{row.name}{row.login_id ? ` · ${row.login_id}` : ''}</div>
+        </div>
+
+        <div style={{ padding: '16px 20px' }}>
+          <div style={{ ...label, marginBottom: 6 }}>Collection target for {fmtMonth(month)}</div>
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#6b7280', fontSize: 15, fontWeight: 600 }}>₹</span>
+            <input
+              ref={inputRef}
+              type="number" min="0" step="1" value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onSave(); }}
+              style={{ ...field, paddingLeft: 30 }}
+            />
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+            Current: <strong>{money(row.target)}</strong> · <SourcePill row={row} />
+          </div>
+        </div>
+
+        <div style={{ padding: '12px 20px', background: '#f9fafb', borderTop: '1px solid #f3f4f6', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn-sm btn-outline" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-sm btn-primary" onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save target'}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -130,6 +165,19 @@ export default function FroTargets() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [editingRow, setEditingRow] = useState(null);
+  const [editValue, setEditValue] = useState('');
+
+  const openEditor = useCallback((row) => {
+    setEditValue(row.target_source === 'not_set' ? '' : String(row.target ?? 0));
+    setEditingRow(row);
+  }, []);
+
+  const closeEditor = useCallback(() => {
+    if (saving) return;
+    setEditingRow(null);
+    setEditValue('');
+  }, [saving]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -142,6 +190,7 @@ export default function FroTargets() {
   useEffect(load, [load]);
 
   const save = async (row, amount) => {
+    if (!Number.isFinite(amount) || amount < 0) { toast('Enter a non-negative amount', 'error'); return; }
     setSaving(true);
     try {
       await apiPost('/ngo-admin/targets', {
@@ -152,6 +201,8 @@ export default function FroTargets() {
       });
       toast(`Target set for ${row.name}`, 'success');
       load();
+      setEditingRow(null);
+      setEditValue('');
     } catch (err) {
       toast(err.message || 'Could not save target', 'error');
     } finally {
@@ -235,11 +286,23 @@ export default function FroTargets() {
             ) : visible.length === 0 ? (
               <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No FROs match this filter.</td></tr>
             ) : (
-              visible.map((r) => <Row key={r.id} row={r} saving={saving} onSave={save} />)
+              visible.map((r) => <Row key={r.id} row={r} onEdit={openEditor} />)
             )}
           </tbody>
         </table>
       </div>
+
+      {editingRow && (
+        <TargetModal
+          row={editingRow}
+          month={month}
+          value={editValue}
+          setValue={setEditValue}
+          saving={saving}
+          onSave={() => save(editingRow, Number(editValue))}
+          onClose={closeEditor}
+        />
+      )}
     </div>
   );
 }

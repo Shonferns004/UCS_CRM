@@ -73,6 +73,35 @@ export const getLatestTargetsBeforeMonthForWorkers = async (workerIds, month) =>
   return best;
 };
 
+// The same batch lookup, but for the month actually being viewed.
+//
+// This board used to fetch that month per NGO via getTargetsByNgo, which drops
+// any row whose ngo_id no longer matches the NGO the FRO is currently listed
+// under. The table is keyed on (fro_worker_id, ngo_id, month), so a target set
+// before an FRO moved between NGOs stayed invisible here and the row resolved
+// as not_set - a set target that rendered as "Set target". The display contract
+// is one row per FRO, so key off the worker and let the caller break the
+// duplicate tie exactly as getTargetByWorker does.
+export const getTargetsForWorkersMonth = async (workerIds, month) => {
+  if (!workerIds || workerIds.length === 0) return new Map();
+  const { data, error } = await db
+    .from('fro_monthly_targets')
+    .select('fro_worker_id, ngo_id, month, target_amount, achieved_target, incentive, created_at')
+    .in('fro_worker_id', workerIds)
+    .eq('month', month)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  const best = new Map();
+  for (const row of data || []) {
+    const key = String(row.fro_worker_id);
+    // Rows arrive newest-write-first, so the first one seen per worker is the
+    // same row getTargetByWorker would return with its LIMIT 1.
+    if (!best.has(key)) best.set(key, row);
+  }
+  return best;
+};
+
 export const getTargetsByNgo = async (ngoId, month) => {
   const { data, error } = await db
     .from('fro_monthly_targets')

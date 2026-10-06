@@ -5,15 +5,14 @@ const ngoAdminData = {
   "roles": [
     "admin"
   ],
-  "description": "NGO-specific administration for donor CRM, FRO worker assignments, station management, collections, targets, and daily operations.",
+  "description": "NGO-specific administration for FRO worker assignments, station management, collections, targets, and daily operations.",
   "keyFeatures": [
-    "Full donor CRM with search, filter, transaction history",
+    "Master search across donors, FROs, and stations, with a shared donor detail view",
     "FRO station assignment and reassignment with data transfer",
     "New donor data bulk distribution to FROs",
     "Suspense resolution: link to donor or mark unmatched",
     "Call analytics with FRO-level performance metrics",
-    "Alert management with acknowledge/resolve workflow",
-    "Master search across donors, FROs, stations, and leads"
+    "Alert management with acknowledge/resolve workflow"
   ],
   "screens": [
     {
@@ -59,33 +58,14 @@ const ngoAdminData = {
       ]
     },
     {
-      "name": "Donor CRM",
-      "path": "/ngo-admin/donor-crm",
-      "description": "Full donor CRM with CRUD",
+      "name": "Master Search",
+      "path": "/ngo-admin",
+      "description": "Panel-wide search across donors, FROs and stations. Replaces the standalone Donor CRM and Donors pages, which were removed; the donor detail view itself is still served by the shared DonorDetailModal.",
       "features": [
         {
-          "name": "Donor CRM APIs",
+          "name": "Master Search API",
           "description": "",
           "apis": [
-            {
-              "method": "GET",
-              "path": "/api/ngo-admin/donors",
-              "auth": "admin, super_admin",
-              "description": "Get paginated donor list.",
-              "curl": "curl -X GET \"https://ucs-crm-backend.vercel.app/api/ngo-admin/donors?page=1&limit=50\" -H \"Authorization: Bearer <token>\"",
-              "requestBody": null,
-              "responseBody": {
-                "donors": [
-                  {
-                    "id": 1,
-                    "name": "John Donor",
-                    "mobile_number": "9876543210",
-                    "total_amount": 15000
-                  }
-                ],
-                "total": 5000
-              }
-            },
             {
               "method": "GET",
               "path": "/api/ngo-admin/master-search",
