@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/sevak-library/:path*", "destination": "https://api.beingsevak.org/api/sevak-library/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

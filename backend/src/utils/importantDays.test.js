@@ -34,3 +34,21 @@ test('same month/day exists in every supported year', () => {
     assert.equal(rows.find((r) => r.name === 'World Food Day')?.date, `${year}-10-16`);
   }
 });
+
+test('comprehensive fixed calendar covers key UN/global days every year', () => {
+  const byDate = (year, m1, m2) => getInternationalDaysInRange(`${year}-${m1}-01`, `${year}-${m2}-01`);
+  assert.equal(byDate(2026, '03', '04').find((r) => r.name === 'International Day of Happiness')?.date, '2026-03-20');
+  assert.equal(byDate(2026, '03', '04').find((r) => r.name === 'World Theatre Day')?.date, '2026-03-27');
+  assert.equal(byDate(2026, '05', '06').find((r) => r.name === 'World Telecommunication and Information Society Day')?.date, '2026-05-17');
+  assert.equal(byDate(2026, '05', '06').find((r) => r.name === 'World Metrology Day')?.date, '2026-05-20');
+  assert.equal(byDate(2026, '06', '07').find((r) => r.name === 'World Milk Day')?.date, '2026-06-01');
+  assert.equal(byDate(2026, '09', '10').find((r) => r.name === 'World Heart Day')?.date, '2026-09-29');
+  assert.equal(getInternationalDaysInRange('2026-12-01', '2027-01-01').find((r) => r.name === 'International Mountain Day')?.date, '2026-12-11');
+  assert.ok(byDate(2026, '01', '02').every((r) => r.type === 'international'));
+});
+
+test('no duplicate date+name within the fixed list', () => {
+  const rows = getInternationalDaysInRange('2026-01-01', '2027-01-01');
+  const keys = rows.map((r) => `${r.date}::${r.name.toLowerCase()}`);
+  assert.equal(new Set(keys).size, keys.length, 'duplicate fixed-day entries found');
+});
