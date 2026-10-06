@@ -15,6 +15,10 @@ import {
   fetchPlannerSuggestions,
   setPlannerSuggestionSelected,
   generateNgoMonthlyReport,
+  fetchImportantDays,
+  suggestFestivalPrograms,
+  getFestivalSuggestions,
+  setFestivalSuggestionSelected,
 } from '../store.jsx'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
@@ -146,6 +150,14 @@ const reportDate = (ymd) => {
    The on-screen preview, the Excel sheet and the PDF are all rendered from the
    single buildMonthlyReport() result below, so the three can never disagree. */
 const REPORT_HEADERS = ['Date', 'Day', 'Activity', 'Programme', 'Status', 'AI Suggested Programme']
+
+/* The monthly-planner grid download. Each downloadable unit is one selected AI
+   festival programme, so the columns answer "what is this date's festival, who
+   serves it, and what programme did I pick for them?". Sector and Activity come
+   from the suggestion the server stored (Sector is the generating sector, while
+   Activity is only filled when a single best-fit activity was used — otherwise
+   '—'), so the export never invents rows the UI did not show. */
+const FESTIVAL_REPORT_HEADERS = ['Date', 'Day', 'Festival/Important Day', 'NGO', 'Sector', 'Activity', 'Beneficiary', 'AI Suggested Programme', 'Status']
 
 /* Marks an activity the user ticked for this download. A tick rather than a word
    so the eye can find the chosen ones down a column, and it survives being copied
@@ -946,6 +958,163 @@ export default function ActivityPlanner() {
   useEffect(() => { loadMonthEvents() }, [loadMonthEvents])
   useEffect(() => { loadNgoStats() }, [loadNgoStats])
 
+  /* ── Festival view of the month ──────────────────────────────────────────
+     The grid shows every date of the chosen month, matched against the
+     country's important days (Calendarific when the key is configured,
+     otherwise the curated + fixed international lists). Its job is to match a
+     festival/day to a beneficiary NGO and pick programmes for it — so unlike
+     the rows above, this grid is date-wise, not activity-wise. */
+
+  const [importantDays, setImportantDays] = useState([])
+  const [festivalError, setFestivalError] = useState('')
+  const [festivalSuggestions, setFestivalSuggestions] = useState([])
+  // `key` = "date::festival". Held as an object so a re-run can be told apart
+  // from the day that started it, while the grid disables only that row.
+  const [festGenerating, setFestGenerating] = useState(null)
+  const [festBusy, setFestBusy] = useState(false)
+
+  const loadImportantDays = useCallback(() => {
+    const [y, m] = month.split('-').map(Number)
+    fetchImportantDays({ year: y, month: m, scope: 'all' })
+      .then((d) => {
+        const list = Array.isArray(d?.days) ? d.days : Array.isArray(d?.observances) ? d.observances : []
+        setImportantDays(list)
+        if (d && d.ok === false) setFestivalError(d.error || '')
+      })
+      .catch(() => { setImportantDays([]); setFestivalError('Could not load the festival calendar.') })
+  }, [month])
+
+  // Days are a property of the month alone, so they reload on month change but
+  // not on NGO change. Errors are cleared at the top, so a stale "could not
+  // load" never lingers once a month loads fine.
+  useEffect(() => { setFestivalError(''); loadImportantDays() }, [loadImportantDays])
+
+  /* The suggestions already stored for this month + NGO. Without an NGO the
+     server returns every NGO's programmes separately (labelled row by row), so
+     BSCT, MANN and AFLF data is never mixed into one generation call. */
+  const loadFestivalSuggestions = useCallback(() => {
+    const [y, m] = month.split('-').map(Number)
+    getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined })
+      .then((l) => setFestivalSuggestions(Array.isArray(l) ? l : []))
+      .catch(() => setFestivalSuggestions([]))
+  }, [month, ngoId])
+
+  useEffect(() => { loadFestivalSuggestions() }, [loadFestivalSuggestions])
+
+  /* Every selectable day of the month, a festival-less date included. */
+  const festivalDates = useMemo(() => daysInMonth(month), [month])
+
+  /* Important days bucketed by date, so one day can list several festivals.
+     Sorted by name so a given date always reads the same. */
+  const observancesByDate = useMemo(() => {
+    const map = {}
+    for (const o of importantDays) {
+      const d = String(o?.date || '').slice(0, 10)
+      if (!d) continue
+      if (!map[d]) map[d] = []
+      map[d].push(o)
+    }
+    for (const d in map) map[d].sort((a, b) => String(a.name).localeCompare(String(b.name)))
+    return map
+  }, [importantDays])
+
+  /* Suggestions grouped by the date::festival pair that created them, so each
+     festival shows its own generated list with no cross-NGO mixing. */
+  const festivalSuggestionsByKey = useMemo(() => {
+    const map = {}
+    for (const s of festivalSuggestions) {
+      const key = `${String(s.observance_date || '').slice(0, 10)}::${String(s.festival || '')}`
+      if (key === '::') continue
+      if (!map[key]) map[key] = []
+      map[key].push(s)
+    }
+    return map
+  }, [festivalSuggestions])
+
+  /* Feeds the count in the grid header and the download bar. */
+  const selectedFestivalCount = useMemo(
+    () => festivalSuggestions.filter((s) => Boolean(s.is_selected)).length,
+    [festivalSuggestions]
+  )
+
+  /* The NGO column prints the single NGO in scope; on "All NGOs" it prints the
+     scope label and each suggestion row prints its own stored NGO, so a reader
+     always knows whose programme they are looking at. */
+  const festivalNgoLabel = useMemo(() => (ngo ? ngoShortLabel(ngo) : '—'), [ngo])
+
+  /* Fixed per NGO by the server at generation time; this is only the value the
+     grid shows before any suggestions exist. */
+  const festivalBeneficiary = useMemo(() => (ngo ? (NGO_BENEFICIARY[ngoCodeKey(ngo)] || '—') : '—'), [ngo])
+
+  /* Generates a day's programmes for one NGO. The server decides the activity
+     and the beneficiary; the page only sends the day, festival name and NGO
+     (sector is carried across to steer the suggestions). Selections are saved
+     per suggestion, so re-running a day never resets a tick. */
+  const suggestFestival = async (date, festivalName) => {
+    const key = `${date}::${festivalName}`
+    setFestivalError('')
+    if (!ngoId) {
+      setFestivalError('Pick a single NGO to generate festival programmes for it.')
+      return
+    }
+    if (festGenerating?.key === key) return
+    setFestGenerating({ key })
+    try {
+      const res = await suggestFestivalPrograms({
+        month, date, festival: festivalName, ngo_id: ngoId, sector_id: sectorFilter || null,
+      })
+      const added = Array.isArray(res?.suggestions) ? res.suggestions : []
+      if (added.length) {
+        const [y, m] = month.split('-').map(Number)
+        const fresh = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId }).catch(() => [])
+        setFestivalSuggestions(Array.isArray(fresh) ? fresh : [])
+        showToast(`${added.length} programme${added.length === 1 ? '' : 's'} suggested for ${shortDate(date)} · ${festivalName}.`)
+      } else if (res?.ai && res.ai.available === false) {
+        setFestivalError(res.ai.reason || 'AI suggestions are not available on this server yet.')
+      } else {
+        setFestivalError('No programmes could be generated for this day.')
+      }
+    } catch (e) {
+      setFestivalError(e?.message || 'Could not generate festival programmes.')
+    } finally {
+      setFestGenerating((cur) => (cur?.key === key ? null : cur))
+    }
+  }
+
+  /* Tick of a single programme. The box flips optimistically, then the server's
+     own answer wins; a failed save restores the box and says so. */
+  const toggleFestivalSuggestion = async (s, checked) => {
+    const before = Boolean(s.is_selected)
+    setFestivalSuggestions((list) => list.map((x) => (x.id === s.id ? { ...x, is_selected: checked } : x)))
+    try {
+      const saved = await setFestivalSuggestionSelected(s.id, checked)
+      if (saved) {
+        setFestivalSuggestions((list) => list.map((x) => (x.id === s.id ? { ...x, is_selected: Boolean(saved.is_selected ?? checked) } : x)))
+      }
+    } catch (e) {
+      setFestivalSuggestions((list) => list.map((x) => (x.id === s.id ? { ...x, is_selected: before } : x)))
+      showToast(e?.message || 'Could not save the selection.')
+    }
+  }
+
+  /* Select-all / clear over the grid's visible month + NGO set, followed by a
+     re-read so the count and every box agree with what is stored. */
+  const setFestivalSelectionAll = async (checked) => {
+    const targets = festivalSuggestions.filter((s) => Boolean(s.is_selected) !== checked)
+    if (!targets.length) return
+    setFestBusy(true); setFestivalError('')
+    try {
+      await Promise.all(targets.map((s) => setFestivalSuggestionSelected(s.id, checked).catch(() => null)))
+      const [y, m] = month.split('-').map(Number)
+      const fresh = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined }).catch(() => [])
+      setFestivalSuggestions(Array.isArray(fresh) ? fresh : [])
+    } catch (e) {
+      setFestivalError(e?.message || 'Could not update the selection.')
+    } finally {
+      setFestBusy(false)
+    }
+  }
+
   /* Bucket the month's events by activity id so each row can show what it
      already has. The calendar feed returns an activities[] array per event,
      which is all the matching this needs — no per-activity request. */
@@ -1380,12 +1549,69 @@ const pendingAll = scopedSuggestions
     }
   }, [month, ngo])
 
+  /* The off-screen preview the PDF captures, and the row cache both downloads
+     render from. Set together by prepareFestivalExport so the Excel file, the
+     PDF and the counter describe the same selection. */
+  const [festivalRows, setFestivalRows] = useState([])
+  const [festivalRowsNgo, setFestivalRowsNgo] = useState('')
+  const [festivalRowsLabel, setFestivalRowsLabel] = useState('')
+  const [festivalRowsStamp, setFestivalRowsStamp] = useState('')
+
+  /* The download is the user's selected programmes, freshly read so it always
+     matches the server even if the UI has not reloaded since a tick. Sorted by
+     date then festival — one row per selected programme, so the export row
+     count is exactly the "N programmes selected" counter. Sector and Activity
+     are the stored values the server chose at generation time. */
+  const buildFestivalExportRows = useCallback(async () => {
+    const [y, m] = month.split('-').map(Number)
+    const sel = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined, selected_only: true })
+      .catch(() => [])
+    if (!Array.isArray(sel)) return []
+    const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
+    return sel
+      .slice()
+      .sort((a, b) => {
+        if (a.observance_date !== b.observance_date) {
+          return String(a.observance_date) < String(b.observance_date) ? -1 : 1
+        }
+        return String(a.festival || '').localeCompare(String(b.festival || ''))
+      })
+      .map((s) => {
+        const n = ngoById.get(String(s.ngo_id))
+        const observed = String(s.observance_date || '')
+        return {
+          dateLabel: shortDate(observed),
+          weekday: observed ? new Date(`${observed}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
+          festival: s.festival || '—',
+          ngoLabel: ngoShortLabel(n),
+          sector: s.sector_name || '—',
+          activity: s.activity_name || '—',
+          beneficiary: s.beneficiary || '—',
+          title: s.title || '—',
+          status: s.suggested_event_id ? 'Scheduled' : 'Draft',
+        }
+      })
+  }, [month, ngos, ngoId])
+
+  /* Loads the cut-down rows once, mirrors them into state (which the off-screen
+     preview renders and the PDF captures), and waits two frames so the freshly
+     committed DOM is what html2canvas sees. Returns the rows for Excel. */
+  const prepareFestivalExport = async () => {
+    const rows = await buildFestivalExportRows()
+    setFestivalRows(rows)
+    setFestivalRowsNgo(reportMeta.ngoName)
+    setFestivalRowsLabel(reportMeta.label)
+    setFestivalRowsStamp(new Date().toLocaleString('en-IN'))
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    return rows
+  }
+
   const downloadExcel = async () => {
     if (!reportMeta.base) return
     setDownloading('excel')
     try {
       const XLSX = await import('xlsx-js-style')
-      const headers = REPORT_HEADERS
+      const headers = FESTIVAL_REPORT_HEADERS
       const thin = { style: 'thin', color: { rgb: 'D5D9E4' } }
       const headerStyle = {
         font: { bold: true, sz: 11, color: { rgb: '1F2430' } },
@@ -1393,148 +1619,52 @@ const pendingAll = scopedSuggestions
         border: { top: thin, bottom: thin, left: thin, right: thin },
         alignment: { vertical: 'center', wrapText: true },
       }
-      const blockStyle = {
-        font: { bold: true, sz: 11, color: { rgb: '1F2430' } },
-        fill: { fgColor: { rgb: 'F2F4FB' } },
-        alignment: { vertical: 'center' },
-      }
+      const bodyStyle = { font: { sz: 11, color: { rgb: '1F2430' } }, alignment: { vertical: 'top', wrapText: true } }
 
-      /* The same rows, blocks and pending list the on-screen preview renders, in the
-         same order, so the file cannot say something the screen did not. */
+      /* One row per selected programme, freshly read, sorted by date then
+         festival — the file and the "N programmes selected" counter can never
+         disagree because both are counts over the same selected set. */
+      const rows = await prepareFestivalExport()
+
       const aoa = [
-        ['Monthly Planner Report'],
-        ['NGO', reportMeta.ngoName],
-        ['Month', reportMeta.label],
-        ['Generated', new Date().toLocaleString('en-IN')],
+        ['Monthly Planner — Festival Programmes'],
+        ['NGO', festivalRowsNgo],
+        ['Month', festivalRowsLabel],
+        ['Generated', festivalRowsStamp],
+        ['Selected programmes', `${rows.length}`],
         [],
+        headers,
       ]
-
-      /* Opens by naming what was chosen. A file that only listed rows left the
-         reader to work out the selection from them, which is the whole problem
-         this tick exists to solve. */
-      aoa.push([`ACTIVITIES SELECTED FOR THIS DOWNLOAD — ${report.selectedActivities.length} of ${report.activitiesInScope}`])
-      const selectedHeadingRow = aoa.length - 1
-      if (report.selectedActivities.length) {
-        aoa.push(['Activity', 'NGO', 'Programmes in this download'])
-        for (const a of report.selectedActivities) {
-          aoa.push([`${REPORT_TICK} ${a.name}`, a.ngoLabel, a.programmes])
-        }
-      } else {
-        aoa.push([`No activities ticked for this download. Tick an activity's "In download" box on the Monthly Planner, then download again — only ticked activities are listed.`])
+      for (const r of rows) {
+        aoa.push([r.dateLabel, r.weekday, r.festival, r.ngoLabel, r.sector, r.activity, r.beneficiary, r.title, r.status])
       }
-      aoa.push([])
-
-      aoa.push(['MONTH AT A GLANCE'])
-      aoa.push(['NGO', 'Target', 'Programmes Done', 'In this report', 'Remaining', 'Status'])
-      for (const b of report.blocks) {
-        aoa.push([
-          b.label,
-          b.target,
-          b.done,
-          b.inReport,
-          b.remaining,
-          b.over ? `Over target by ${b.over}` : b.remaining ? `${b.remaining} still to plan` : 'Target met',
-        ])
-      }
-      aoa.push([
-        'ALL NGOs',
-        report.totals.target,
-        report.totals.done,
-        report.totals.inReport,
-        report.totals.remaining,
-        report.totals.over ? `Over target by ${report.totals.over}` : '',
-      ])
-      aoa.push([])
-      aoa.push(['PROGRAMMES BY NGO'])
-      aoa.push([])
-
-      const styledRanges = []
-      for (const block of report.blocks) {
-        aoa.push([`${block.label} — Target ${block.target} · Done ${block.done} · Remaining ${block.remaining}${block.over ? ` · Over by ${block.over}` : ''} · In this report: ${block.inReport}`])
-        styledRanges.push({ row: aoa.length - 1, style: blockStyle, cols: headers.length })
-        if (block.rows.length) {
-          aoa.push(headers)
-          styledRanges.push({ row: aoa.length - 1, style: headerStyle, cols: headers.length })
-          for (const r of block.rows) {
-            aoa.push([r.dateLabel, r.weekday, r.activity, r.programme, r.status, reportSuggestionCell(r.suggestion)])
-          }
-        } else {
-          aoa.push([`No programmes in this download for ${block.label}.`, '', '', '', '', ''])
-        }
-        aoa.push([])
-      }
-
-      /* Selections with no programme yet. Listed, never dropped. */
-      aoa.push(['SELECTED AI SUGGESTIONS — NOT SCHEDULED YET'])
-      styledRanges.push({ row: aoa.length - 1, style: blockStyle, cols: headers.length })
-      if (unlinkedSuggestions.length) {
-        aoa.push(['AI Suggested Programme', 'Activity', 'Priority', 'Objective / Materials'])
-        styledRanges.push({ row: aoa.length - 1, style: headerStyle, cols: 4 })
-        for (const s of unlinkedSuggestions) {
-          aoa.push([
-            s.title,
-            s.activity,
-            s.priority || '—',
-            [s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n'),
-          ])
-        }
-        if (report.suggestionsLeftOut) {
-          aoa.push([`${report.suggestionsLeftOut} further selected suggestion${report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.`])
-        }
-      } else {
-        aoa.push([report.suggestionsLeftOut
-          ? `No unscheduled suggestions for the ticked activities. ${report.suggestionsLeftOut} suggestion${report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.`
-          : 'Every AI suggestion selected this month has been scheduled as a programme.'])
+      if (!rows.length) {
+        aoa.push([`No programmes selected. Tick an AI suggestion's box in the Activities grid, then download again — only selected programmes are listed.`])
       }
 
       const ws = XLSX.utils.aoa_to_sheet(aoa)
-      for (const { row, style, cols } of styledRanges) {
-        for (let c = 0; c < cols; c++) {
-          const addr = XLSX.utils.encode_cell({ r: row, c })
-          if (!ws[addr]) continue
-          ws[addr].s = style
-        }
-      }
+
       const titleCell = ws['A1']
       if (titleCell) titleCell.s = { font: { bold: true, sz: 14, color: { rgb: '1F2430' } } }
-
-      // Section headings and the at-a-glance header are bold on the tint, so the
-      // sheet can be skimmed without reading a single row. Located by their own
-      // text, because the row numbers move as the selected-activity list grows.
-      const headingStyle = { font: { bold: true, sz: 11, color: { rgb: '1F2430' } }, fill: { fgColor: { rgb: 'F2F4FB' } } }
-      const paintRow = (r, style, cols) => {
-        if (r < 0) return
-        for (let c = 0; c < cols; c++) {
+      // Header row sits at 6 (0-based), directly under the metadata block.
+      for (let c = 0; c < headers.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 6, c })
+        if (ws[addr]) ws[addr].s = headerStyle
+      }
+      for (let r = 7; r < aoa.length; r++) {
+        for (let c = 0; c < headers.length; c++) {
           const addr = XLSX.utils.encode_cell({ r, c })
-          if (!ws[addr]) continue
-          ws[addr].s = style
+          if (ws[addr]) ws[addr].s = bodyStyle
         }
       }
-      paintRow(selectedHeadingRow, headingStyle, headers.length)
-      paintRow(aoa.findIndex((x) => x && x[0] === 'MONTH AT A GLANCE'), headingStyle, headers.length)
-      paintRow(aoa.findIndex((x) => x && x[0] === 'PROGRAMMES BY NGO'), headingStyle, headers.length)
-      paintRow(aoa.findIndex((r) => r && r[0] === 'NGO' && r[1] === 'Target'), headerStyle, 6)
-      paintRow(aoa.findIndex((r) => r && r[0] === 'Activity' && r[1] === 'NGO'), headerStyle, 3)
 
-      // A ticked activity is the reader's own decision, so it is tinted rather
-      // than left to be read out one cell at a time.
-      const tickStyle = {
-        font: { bold: true, sz: 11, color: { rgb: '14532D' } },
-        fill: { fgColor: { rgb: 'E9F7EF' } },
-        alignment: { vertical: 'center' },
-      }
-      for (const [i, r] of aoa.entries()) {
-        if (!r || typeof r[0] !== 'string' || !r[0].startsWith(REPORT_TICK)) continue
-        paintRow(i, tickStyle, Math.max(1, r.length))
-      }
-
-      ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 22 }, { wch: 32 }, { wch: 12 }, { wch: 58 }]
+      ws['!cols'] = [{ wch: 11 }, { wch: 9 }, { wch: 26 }, { wch: 9 }, { wch: 20 }, { wch: 18 }, { wch: 20 }, { wch: 60 }, { wch: 10 }]
       ws['!rows'] = []
       ws['!rows'][0] = { hpt: 22 }
-      for (const { row } of styledRanges) ws['!rows'][row] = { hpt: 20 }
+      for (let r = 7; r < aoa.length; r++) ws['!rows'][r] = { hpt: 64 }
 
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Monthly Planner')
+      XLSX.utils.book_append_sheet(wb, ws, 'Festival Programmes')
       XLSX.writeFile(wb, `${reportMeta.base}.xlsx`)
     } catch (e) {
       console.error('downloadExcel error:', e)
@@ -1544,13 +1674,19 @@ const pendingAll = scopedSuggestions
     }
   }
 
-  /* The PDF is a capture of the off-screen preview above, so the file and the
-     screen are the same document by construction. */
+  /* The PDF is a capture of the off-screen festival preview below, so the file
+     and the screen are the same document by construction. */
   const downloadPdf = async () => {
     const el = reportRef.current
     if (!el) return
     setDownloading('pdf')
     try {
+      const rows = await prepareFestivalExport()
+      if (!rows.length) {
+        setToast('Nothing to export — tick some programmes first.')
+        setDownloading('')
+        return
+      }
       const { default: html2canvas } = await import('html2canvas')
       const { default: jsPDF } = await import('jspdf')
       const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false })
@@ -1800,14 +1936,14 @@ const pendingAll = scopedSuggestions
           style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}
         >
           <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>
-            {reportMeta.ngoName} · {monthLabel(month)} · {beneficiaryFilter ? `${beneficiaryFilter} · ` : ''}{scopedSuggestions.length} suggestion{scopedSuggestions.length === 1 ? '' : 's'} selected
+            {reportMeta.ngoName} · {monthLabel(month)} · {selectedFestivalCount} programme{selectedFestivalCount === 1 ? '' : 's'} selected for download
           </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               className="eh-btn"
               onClick={downloadExcel}
               disabled={downloading === 'excel'}
-              title={`Date-wise monthly report for ${reportMeta.ngoName}, ${monthLabel(month)} — as Excel`}
+              title={`Selected festival programmes for ${reportMeta.ngoName}, ${monthLabel(month)} — as Excel`}
             >
               {downloading === 'excel' ? 'Building…' : 'Download Excel'}
             </button>
@@ -1815,7 +1951,7 @@ const pendingAll = scopedSuggestions
               className="eh-btn"
               onClick={downloadPdf}
               disabled={downloading === 'pdf'}
-              title={`Date-wise monthly report for ${reportMeta.ngoName}, ${monthLabel(month)} — as PDF`}
+              title={`Selected festival programmes for ${reportMeta.ngoName}, ${monthLabel(month)} — as PDF`}
             >
               {downloading === 'pdf' ? 'Building…' : 'Download PDF'}
             </button>
@@ -1936,342 +2072,208 @@ const pendingAll = scopedSuggestions
           <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{reportMeta.ngoName} · {monthLabel(month)}</span>
           {/* The tick decides what the download contains, so the count is stated
               here rather than left to be discovered in the file. */}
-          {rows.length > 0 && (
-            <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)', fontWeight: 600 }}>
-              {report.selectedActivities.length} of {report.activitiesInScope} activit{report.activitiesInScope === 1 ? 'y' : 'ies'} selected for download
+          {selectedFestivalCount > 0 && (
+            <span style={{ fontSize: 12, color: 'var(--eh-success)', fontWeight: 700 }}>
+              {selectedFestivalCount} programme{selectedFestivalCount === 1 ? '' : 's'} selected for download
             </span>
           )}
-          {rows.length > 0 && (
-            <button
-              className="eh-btn eh-btn-sm"
-              style={{ marginLeft: 'auto' }}
-              disabled={tickBusy}
-              /* Decided from the rows actually on screen, so a filter that hides
-                 ticked activities cannot make the button describe the wrong action. */
-              title={allShownTicked ? 'Clear the tick on every activity shown' : 'Tick every activity shown for the download'}
-              onClick={() => setActivityInReport(rows, !allShownTicked)}
-            >
-              {allShownTicked ? 'Untick all shown' : 'Tick all shown'}
-            </button>
+          {festivalSuggestions.length > 0 && (
+            <>
+              <button
+                className="eh-btn eh-btn-sm"
+                style={{ marginLeft: 'auto' }}
+                disabled={festBusy}
+                title="Tick every festival programme shown for the download"
+                onClick={() => setFestivalSelectionAll(true)}
+              >
+                Select all
+              </button>
+              <button
+                className="eh-btn eh-btn-sm"
+                disabled={festBusy}
+                title="Clear every download tick shown"
+                onClick={() => setFestivalSelectionAll(false)}
+              >
+                Clear selection
+              </button>
+            </>
           )}
-          {loadingActs && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Loading activities…</span>}
-          {loadingEvents && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Loading month…</span>}
         </div>
 
-        {actsError && (
-          <div style={{ margin: '0 15px 15px', padding: '11px 14px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13 }}>{actsError}</div>
+        {festivalError && (
+          <div style={{ margin: '0 15px 15px', padding: '11px 14px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13 }}>{festivalError}</div>
         )}
 
-        {!actsError && rows.length === 0 && !loadingActs && (
-          <Empty icon="＋">
-            {ngo
-              ? <>No activities for {ngo.name} yet. Use <b>+ Add Activity</b> to add one, then ask AI for programme suggestions.</>
-              : 'No activities to plan yet. Pick a single NGO to add and plan its activities.'}
-          </Empty>
-        )}
-
-        {rows.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table>
-              <thead>
-                <tr>
-                  {/* First, because it is the column the download is built from. */}
-                  <th style={{ width: 92 }}>In download</th>
-                  {/* On "All NGOs" the rows span NGOs, so the list has to say
-                      which one each activity belongs to. */}
-                  {!ngo && <th style={{ width: 100 }}>NGO</th>}
-                  <th>Activity</th>
-                  <th style={{ width: '30%' }}>Planned in {monthName}</th>
-                  <th style={{ width: 210 }}>Programmes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bySector.map((g) => (
-                  <Fragment key={g.key}>
-                    <tr>
-                      <td colSpan={ngo ? 4 : 5} style={{ padding: '9px 14px', background: 'var(--eh-tint-1)', borderBottom: '1px solid var(--eh-line)', fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
-                        {g.key} · {g.rows.length}
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 88 }}>Date</th>
+                <th>Festival / Day</th>
+                <th style={{ width: 92 }}>NGO</th>
+                <th style={{ width: 148 }}>Beneficiary</th>
+                <th style={{ width: '42%' }}>AI Suggestion</th>
+                <th style={{ width: 80 }}>Select</th>
+              </tr>
+            </thead>
+            <tbody>
+              {festivalDates.map((date) => {
+                const obs = observancesByDate[date] || []
+                if (!obs.length) {
+                  return (
+                    <tr key={date}>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{ fontSize: 12.5, color: 'var(--eh-ink)' }}>{shortDate(date)}</span>
+                      </td>
+                      <td colSpan={5}>
+                        <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>No festival / important day</span>
                       </td>
                     </tr>
-                    {g.rows.map((a) => {
-                      const planned = plannedByActivity.get(String(a.id)) || []
-                      // Each activity belongs to one NGO, so its own NGO is used
-                      // when the page is on "All NGOs" and it has none.
-                      const rowNgo = ngo || ngos.find((x) => String(x.id) === String(a.ngo_id)) || null
-                      const open = suggestFor?.id === a.id
-                      return (
-                        <Fragment key={a.id}>
-                          <tr>
-                            <td>
-                              <label
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: tickBusy ? 'wait' : 'pointer' }}
-                                title={a.in_report
-                                  ? `${a.name} is in the download. Untick to leave it out.`
-                                  : `${a.name} is not in the download. Tick to include its programmes.`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={a.in_report === true}
-                                  disabled={tickBusy}
-                                  onChange={(e) => setActivityInReport(a, e.target.checked)}
-                                  style={{ width: 16, height: 16, cursor: tickBusy ? 'wait' : 'pointer', accentColor: 'var(--eh-primary)' }}
-                                />
-                                <span style={{ fontSize: 11, fontWeight: 700, color: a.in_report === true ? 'var(--eh-success)' : 'var(--eh-ink-faint)' }}>
-                                  {a.in_report === true ? 'Yes' : 'No'}
+                  )
+                }
+                return obs.map((o, oi) => {
+                  const key = `${date}::${o.name}`
+                  const sugg = festivalSuggestionsByKey[key] || []
+                  const generating = festGenerating?.key === key
+                  return (
+                    <Fragment key={key}>
+                      <tr style={oi === 0 ? { background: 'var(--eh-tint-1)' } : undefined}>
+                        {oi === 0 && (
+                          <td rowSpan={obs.length} style={{ padding: '10px 14px', verticalAlign: 'top' }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)' }}>{shortDate(date)}</span>
+                          </td>
+                        )}
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{o.name}</span>
+                            {o.type && <Badge tone={o.type === 'india' ? 'primary' : 'secondary'}>{o.type}</Badge>}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{festivalNgoLabel}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>{festivalBeneficiary}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <button
+                            className="eh-btn eh-btn-sm"
+                            disabled={!ngoId || festGenerating !== null}
+                            title={!ngoId
+                              ? 'Pick a single NGO to generate festival programmes for it'
+                              : festGenerating
+                                ? 'A festival programme set is already generating'
+                                : `Generate AI programme ideas for ${o.name}`}
+                            onClick={() => suggestFestival(date, o.name)}
+                          >
+                            {generating ? 'Generating…' : '✦ Suggest programmes'}
+                          </button>
+                        </td>
+                        <td style={{ padding: '10px 14px' }} />
+                      </tr>
+                      {generating && (
+                        <tr key={`${key}-busy`}>
+                          <td />
+                          <td />
+                          <td>{ngo ? ngoShortLabel(ngo) : '—'}</td>
+                          <td>{festivalBeneficiary}</td>
+                          <td colSpan={2}>
+                            <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Generating programme ideas…</span>
+                          </td>
+                        </tr>
+                      )}
+                      {sugg.map((s) => (
+                        <tr key={s.id} style={{ background: s.is_selected ? 'var(--eh-tint-1)' : undefined }}>
+                          <td /><td />
+                          <td style={{ padding: '9px 14px' }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
+                              {ngoShortLabel(ngos.find((x) => String(x.id) === String(s.ngo_id)) || {}) || '—'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '9px 14px' }}>
+                            <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>{s.beneficiary || '—'}</span>
+                          </td>
+                          <td style={{ padding: '9px 14px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{s.title || '—'}</span>
+                              {[s.format, s.priority].filter(Boolean).length > 0 && (
+                                <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  {s.format && <Badge tone="secondary">{s.format}</Badge>}
+                                  {s.priority && <Badge tone="muted">Priority: {s.priority}</Badge>}
                                 </span>
-                              </label>
-                            </td>
-                            {!ngo && (
-                              <td>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{ngoShortLabel(rowNgo)}</span>
-                              </td>
-                            )}
-                            <td>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--eh-ink)' }}>{a.name}</span>
-                                {String(a.id) === String(justAddedId) && (
-                                  <span>
-                                    <Badge tone="primary">Just added</Badge>
-                                  </span>
-                                )}
-                                {/* Who this activity serves, on the row itself — that is
-                                    the "which programme does what for whom" answer. */}
-                                <BeneficiaryCell group={activityBeneficiary(a, ngos, ngo)} />
-                                {a.description && (
-                                  <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>
-                                    {String(a.description).slice(0, 90)}{String(a.description).length > 90 ? '…' : ''}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td>
-                              {planned.length === 0 ? (
-                                <Badge tone="muted">Not planned</Badge>
-                              ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  {planned.map((p) => (
-                                    <div key={p.id} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                      <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>
-                                        <b style={{ fontWeight: 700 }}>{shortDate(p.date)}</b> · {p.title}
-                                      </span>
-                                      <StatusPill status={p.status} />
-                                    </div>
-                                  ))}
-                                </div>
                               )}
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                <button
-                                  className={open ? 'eh-btn eh-btn-sm' : 'eh-btn eh-btn-primary eh-btn-sm'}
-                                  disabled={!rowNgo}
-                                  title={rowNgo ? `Show AI programme ideas for ${a.name}` : 'This activity has no NGO assigned'}
-                                  onClick={() => setSuggestFor(open ? null : a)}
-                                >
-                                  {open ? '✕ Close suggestions' : '✦ Suggest programmes'}
-                                </button>
-                                <button
-                                  className="eh-btn eh-btn-sm"
-                                  disabled={!rowNgo}
-                                  onClick={() => setPlanEntry({ activity: a, suggestion: null })}
-                                >
-                                  Add programme
-                                </button>
-                                <button
-                                  className="eh-btn eh-btn-sm"
-                                  style={{ color: 'var(--eh-danger)', borderColor: 'var(--eh-danger)' }}
-                                  title={`Delete ${a.name}`}
-                                  onClick={() => setDeleteTarget({ activity: a, planned })}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                          {/* Suggestions open under their own activity row, so the
-                              list never disappears behind a modal. */}
-                          {open && (
-                            <tr>
-                              <td colSpan={ngo ? 3 : 4} style={{ padding: '0 14px 14px' }}>
-                                <SuggestionPanel
-                                  activity={a}
-                                  ngo={rowNgo}
-                                  month={month}
-                                  refreshRev={suggestRev}
-                                  onSelectionChange={loadSelectedSuggestions}
-                                  onClose={() => { setSuggestFor(null); loadSelectedSuggestions() }}
-                                  onPlan={(s) => { setSuggestFor(null); setPlanEntry({ activity: a, suggestion: s }) }}
-                                />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      )
-                    })}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '9px 14px' }}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(s.is_selected)}
+                              disabled={festBusy}
+                              title={s.is_selected ? `${s.title} is in the download. Untick to leave it out.` : `${s.title} is not in the download. Tick to include it.`}
+                              onChange={(e) => toggleFestivalSuggestion(s, e.target.checked)}
+                              style={{ width: 16, height: 16, cursor: festBusy ? 'wait' : 'pointer', accentColor: 'var(--eh-primary)' }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  )
+                })
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Off-screen preview. The Excel sheet and this node are rendered from the same
-        `report` object, so the screen can never promise something the file does
-        not deliver — and the PDF is captured from here. */}
+      {/* Off-screen preview. The Excel sheet, this node and the PDF all read the
+        same festivalRows state (set by prepareFestivalExport before either
+        download starts), so the screen can never promise something the file
+        does not deliver — and the PDF is captured from here. */}
       <div
         ref={reportRef}
         aria-hidden="true"
         style={{ position: 'absolute', left: '-10000px', top: 0, width: 1100, background: '#fff', padding: 24, fontFamily: 'inherit' }}
       >
-        <div style={{ fontSize: 17, fontWeight: 800, color: '#1F2430' }}>Monthly Planner Report</div>
-        <div style={{ fontSize: 12, color: '#4A5061', marginTop: 4 }}>NGO: {reportMeta.ngoName}</div>
-        <div style={{ fontSize: 12, color: '#4A5061' }}>Month: {reportMeta.label}</div>
-        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Generated: {new Date().toLocaleString('en-IN')}</div>
+        <div style={{ fontSize: 17, fontWeight: 800, color: '#1F2430' }}>Monthly Planner — Festival Programmes</div>
+        <div style={{ fontSize: 12, color: '#4A5061', marginTop: 4 }}>NGO: {festivalRowsNgo}</div>
+        <div style={{ fontSize: 12, color: '#4A5061' }}>Month: {festivalRowsLabel}</div>
+        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Generated: {festivalRowsStamp}</div>
 
         {/* Names the selection before any row is shown, so the reader can tell
             what the file is from without inferring it. */}
         <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 14 }}>
-          ACTIVITIES SELECTED FOR THIS DOWNLOAD — {report.selectedActivities.length} of {report.activitiesInScope}
+          SELECTED PROGRAMMES — {festivalRows.length}
         </div>
-        {report.selectedActivities.length ? (
+
+        {festivalRows.length ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6, fontSize: 11 }}>
             <thead>
               <tr>
-                {['Activity', 'NGO', 'Programmes in this download'].map((h) => (
+                {FESTIVAL_REPORT_HEADERS.map((h) => (
                   <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {report.selectedActivities.map((a) => (
-                <tr key={`sel-${a.id}`} style={{ background: '#E9F7EF' }}>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', fontWeight: 700, color: '#14532D' }}>{REPORT_TICK} {a.name}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{a.ngoLabel}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{a.programmes}</td>
+              {festivalRows.map((r, i) => (
+                <tr key={`${r.dateLabel}-${r.festival}-${i}`} style={{ background: i % 2 ? '#F7F8FC' : '#fff' }}>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.dateLabel}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.weekday}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.festival}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.ngoLabel}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.sector}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.activity}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.beneficiary}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap', fontWeight: 600 }}>{r.title}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.status}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
           <div style={{ fontSize: 11, color: '#8A5A00', background: '#FFF7E6', border: '1px solid #F0D9A8', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
-            No activities ticked for this download. Tick an activity’s “In download” box on the Monthly
-            Planner, then download again — only ticked activities are listed.
-          </div>
-        )}
-
-        {/* Quota totals, straight from the same blocks the tables below use. */}
-        <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>MONTH AT A GLANCE</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6, fontSize: 11 }}>
-          <thead>
-            <tr>
-              {['NGO', 'Target', 'Programmes Done', 'In this report', 'Remaining', 'Status'].map((h) => (
-                <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {report.blocks.map((b) => (
-              <tr key={`glance-${b.key}`}>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', fontWeight: 600 }}>{b.label}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.target}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.done}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.inReport}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.remaining}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>
-                  {b.over ? `Over target by ${b.over}` : b.remaining ? `${b.remaining} still to plan` : 'Target met'}
-                </td>
-              </tr>
-            ))}
-            <tr style={{ background: '#F2F4FB', fontWeight: 700 }}>
-              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>ALL NGOs</td>
-              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.target}</td>
-              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.done}</td>
-              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.inReport}</td>
-              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.remaining}</td>
-              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.over ? `Over target by ${report.totals.over}` : ''}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>PROGRAMMES BY NGO</div>
-
-        {report.blocks.map((block) => (
-          <div key={block.key} style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#1F2430' }}>
-              {block.label} — Target {block.target} · Done {block.done} · Remaining {block.remaining}
-              {block.over ? ` · Over by ${block.over}` : ''} · In this report: {block.inReport}
-            </div>
-
-            {block.rows.length === 0 ? (
-              <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
-                No programmes in this download for {block.label}.
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 11 }}>
-                <thead>
-                  <tr>
-                    {REPORT_HEADERS.map((h) => (
-                      <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((r, i) => (
-                    <tr key={`${block.key}-${r.eventId}-${r.dateLabel}`} style={{ background: i % 2 ? '#F7F8FC' : '#fff' }}>
-                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.dateLabel}</td>
-                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.weekday}</td>
-                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.activity}</td>
-                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.programme}</td>
-                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.status}</td>
-                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap', fontWeight: 600 }}>
-                        {reportSuggestionCell(r.suggestion).split('\n').map((line, k) => (
-                          <span key={k}>{k > 0 && <br />}{line}</span>
-                        ))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        ))}
-
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>
-          Selected AI Suggestions — Not Scheduled Yet
-        </div>
-        {unlinkedSuggestions.length === 0 ? (
-          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
-            {report.suggestionsLeftOut
-              ? `No unscheduled suggestions for the ticked activities. ${report.suggestionsLeftOut} suggestion${report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.`
-              : 'Every AI suggestion selected this month has been scheduled as a programme.'}
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 11 }}>
-            <thead>
-              <tr>
-                {['AI Suggested Programme', 'Activity', 'Priority', 'Objective / Materials'].map((h) => (
-                  <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {unlinkedSuggestions.map((s) => (
-                <tr key={s.id}>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{s.title}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{s.activity || '—'}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{s.priority || '—'}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>
-                    {[s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {unlinkedSuggestions.length > 0 && report.suggestionsLeftOut > 0 && (
-          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
-            {report.suggestionsLeftOut} further selected suggestion{report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.
+            No programmes selected. Tick an AI suggestion’s box in the Activities grid, then
+            download again — only selected programmes are listed.
           </div>
         )}
       </div>
