@@ -562,6 +562,49 @@ export const setPlannerSuggestionSelected = async (id, is_selected = true, sugge
   return res?.suggestion || null
 }
 
+/* ── Monthly Planner Activities · festival-driven suggestions ──
+   One festival row in the monthly grid generates several AI ideas for the
+   selected NGO (beneficiary is derived server-side from the NGO's code and
+   stored on each idea, so BSCT/MANN/AFLF data is never mixed). Ticks persist
+   server-side and are what the Excel/PDF export is built from. */
+export const suggestFestivalPrograms = async (payload = {}) => {
+  try {
+    return await apiPost('/event-head/planner/suggest-festival-programs', {
+      month: payload.month,
+      date: payload.date,
+      festival: payload.festival,
+      ngo_id: payload.ngo_id || null,
+      sector_id: payload.sector_id || null,
+      activity_id: payload.activity_id || null,
+    })
+  } catch (err) {
+    console.warn('suggestFestivalPrograms: server unavailable:', err?.message || err)
+    return {
+      month: payload.month,
+      date: payload.date,
+      festival: payload.festival,
+      suggestions: [],
+      ai: {
+        available: false,
+        reason: 'AI festival programme ideas need the updated backend, which is not available on this server yet.',
+      },
+    }
+  }
+}
+
+export const getFestivalSuggestions = async (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString()
+  const res = await apiGet('/event-head/planner/festival-suggestions' + (q ? '?' + q : ''))
+  return Array.isArray(res) ? res : (res?.suggestions || [])
+}
+
+export const setFestivalSuggestionSelected = async (id, is_selected = true, suggested_event_id = null) => {
+  const body = { is_selected }
+  if (suggested_event_id != null) body.suggested_event_id = Number(suggested_event_id) || null
+  const res = await apiPut('/event-head/planner/festival-suggestions/' + id + '/select', body)
+  return res?.suggestion || null
+}
+
 /* ── Events sheet import / export ── */
 export const importEventsSheet = (opts = {}, file) => {
   const fd = new FormData()

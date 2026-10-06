@@ -792,6 +792,78 @@ export const setPlannerSuggestionSelected = async (id, is_selected, suggested_ev
   return data;
 };
 
+// ─── FESTIVAL SUGGESTIONS (Monthly Planner: per festival/day AI ideas) ─────
+// A lighter, festival-anchored cousin of the activity suggestions above. Rows
+// are keyed by (activity_id, month, observance_date, festival, title) so a
+// re-run of the generator cannot duplicate ideas — and cannot reset a tick.
+
+export const saveFestivalSuggestions = async ({
+  ngo_id, activity_id, month, year, observance_date, festival, beneficiary = null,
+  sector_name = null, activity_name = null, batch_no = 1, suggestions = [], created_by = null,
+}) => {
+  if (!suggestions.length) return [];
+  const rows = suggestions.map((s) => ({
+    ngo_id: ngo_id ?? null,
+    activity_id: Number.isInteger(activity_id) && activity_id > 0 ? activity_id : null,
+    month: Number(month),
+    year: Number(year),
+    observance_date,
+    festival: String(festival || '').trim(),
+    beneficiary: beneficiary || null,
+    sector_name: sector_name || null,
+    activity_name: activity_name || null,
+    batch_no,
+    title: String(s.title || '').trim(),
+    format: s.format || null,
+    priority: s.priority || null,
+    audience: s.audience || null,
+    duration: s.duration || null,
+    objective: s.objective || null,
+    rationale: s.rationale || null,
+    materials: Array.isArray(s.materials) ? s.materials : [],
+    created_by,
+  })).filter((r) => r.title && r.observance_date && r.festival);
+
+  if (!rows.length) return [];
+
+  const { error } = await db.from('event_head_festival_suggestions')
+    .upsert(rows, { onConflict: 'activity_id,month,observance_date,festival,title', ignoreDuplicates: true });
+  if (error) throw error;
+
+  // Re-read the batch so the caller gets real ids and the user's current ticks.
+  return getFestivalSuggestions({ month, year, ngo_id, activity_id, date: observance_date, festival, batch_no });
+};
+
+export const getFestivalSuggestions = async ({
+  ngo_id, activity_id, month, year, date, festival, batch_no, selected_only = false,
+} = {}) => {
+  let query = db.from('event_head_festival_suggestions').select('*').order('observance_date', { ascending: true }).order('created_at', { ascending: true });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (activity_id) query = query.eq('activity_id', Number(activity_id));
+  if (month) query = query.eq('month', Number(month));
+  if (year) query = query.eq('year', Number(year));
+  if (date) query = query.eq('observance_date', date);
+  if (festival) query = query.eq('festival', String(festival).trim());
+  if (batch_no) query = query.eq('batch_no', Number(batch_no));
+  if (selected_only) query = query.eq('is_selected', true);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+export const setFestivalSuggestionSelected = async (id, is_selected, suggested_event_id) => {
+  const patch = { is_selected: Boolean(is_selected) };
+  if (suggested_event_id != null && suggested_event_id !== '') {
+    const evId = Number(suggested_event_id);
+    if (Number.isInteger(evId) && evId > 0) patch.suggested_event_id = evId;
+  }
+  const { data, error } = await db.from('event_head_festival_suggestions')
+    .update(patch)
+    .eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+};
+
 export const getAllActivities = async ({ ngo_id, sector_id } = {}) => {
   let query = db.from('event_head_activities').select('*').order('created_at', { ascending: false });
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
