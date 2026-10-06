@@ -19,6 +19,7 @@ import {
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
 import { getCalendarificObservancesInRange, mergeCalendarific } from '../utils/calendarific.js';
+import { getInternationalDaysInRange } from '../utils/importantDays.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
 // must pass through unchanged as a string. sector_id / activity_id are always
@@ -2260,6 +2261,113 @@ export const listCalendarObservances = async (req, res) => {
     });
   } catch (error) {
     console.error('listCalendarObservances error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Important Days calendar (GET /api/important-days) ──────────────────────
+// The single endpoint the frontend calendar grid and "Important Days" side
+// panel fetch. It merges FOUR sources into one list, each row tagged with a
+// `type` of 'india' or 'international':
+//   1. the curated reference calendar (observances.js) — deterministic
+//   2. operator-managed `holidays` rows (optional overlay, graceful on DB
+//      failure)
+//   3. the fixed international days list (importantDays.js) — deterministic,
+//      ships with the deploy, needs no API
+//   4. Calendarific (India festivals/national days + worldwide/UN observance
+//      days) — cached once per country+year on disk and in memory
+// Curated/DB rows win on exact date+name duplicates; merges are append-only.
+// `scope` mirrors the UI toggle: 'all' | 'worldwide' | 'india'.
+
+const pad2M = (n) => String(n).padStart(2, '0');
+const importantDayType = (o) => (o.scope === 'worldwide' ? 'international' : 'india');
+
+export const listImportantDays = async (req, res) => {
+  try {
+    const scopeRaw = String(req.query.scope || 'all').toLowerCase();
+    const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
+    const yearNum = Number(req.query.year);
+    const monthNum = Number(req.query.month);
+
+    // Explicit start/end wins; otherwise derive the month range from year+month
+    // (default: the current month so ?year=&month= is enough to test quickly).
+    let start;
+    let end;
+    if (DATE_RE.test(String(req.query.start || '')) && DATE_RE.test(String(req.query.end || ''))) {
+      start = String(req.query.start);
+      end = String(req.query.end);
+    } else {
+      const y = Number.isInteger(yearNum) && yearNum >= 1900 && yearNum <= 2200 ? yearNum : new Date().getFullYear();
+      const m = Number.isInteger(monthNum) && monthNum >= 1 && monthNum <= 12 ? monthNum : new Date().getMonth() + 1;
+      start = `${y}-${pad2M(m)}-01`;
+      const next = m === 12 ? new Date(y + 1, 0, 1) : new Date(y, m, 1);
+      end = `${next.getFullYear()}-${pad2M(next.getMonth() + 1)}-01`;
+    }
+    if (end <= start) return res.status(400).json({ message: 'end must be after start' });
+
+    const spanDays = Math.round((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000);
+    if (spanDays > MAX_RANGE_DAYS) {
+      return res.status(400).json({ message: `Date range too large — request at most ${MAX_RANGE_DAYS} days` });
+    }
+
+    // 1 + 2. Curated reference calendar (both scopes) + operator holiday overlay.
+    const curated = getObservancesInRange(start, end, { scope: 'all' });
+    const holidays = await getHolidaysCached();
+    const base = holidays.length ? mergeCustomObservances(curated, holidays) : curated;
+
+    // 3. Fixed international days (deduped — curated wins on exact date+name).
+    const withFixed = mergeCalendarific(base, getInternationalDaysInRange(start, end), 'all');
+
+    // 4. Calendarific (cached once per country+year; degrades to the rows above).
+    const allRows = mergeCalendarific(withFixed, await getCalendarificObservancesInRange(start, end), 'all');
+
+    // The toggle filters by bucket, not by raw scope.
+    const wantedType = scope === 'all' ? null : scope === 'worldwide' ? 'international' : 'india';
+
+    const days = allRows
+      .filter((o) => !wantedType || importantDayType(o) === wantedType)
+      .map((o) => ({
+        date: o.date,
+        type: importantDayType(o),
+        name: o.name,
+        kind: o.kind,
+        scope: o.scope,
+        source: o.source || 'curated',
+        precision: o.precision || 'fixed',
+        note: o.note || null,
+        themes: Array.isArray(o.themes) ? o.themes : [],
+      }))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.name.localeCompare(b.name)));
+
+    const byDate = {};
+    for (const d of days) (byDate[d.date] ||= []).push(d);
+
+    return res.json({
+      year: Number(start.slice(0, 4)),
+      month: Number(start.slice(5, 7)),
+      scope,
+      start,
+      end,
+      count: days.length,
+      india: days.filter((d) => d.type === 'india').length,
+      international: days.filter((d) => d.type === 'international').length,
+      days,
+      by_date: byDate,
+      available_years: availableYears(),
+      lunar_years: SUPPORTED_LUNAR_YEARS,
+      themes: allThemes(),
+      reliability: {
+        dates_source: 'curated + international reference days + calendarific (no AI)',
+        ai_generated_dates: false,
+        lunar_rows: days.filter((o) => o.precision === 'lunar').length,
+        calendarific: {
+          available: Boolean(process.env.CALENDARIFIC_API_KEY),
+          sources: 'india festivals/national days + worldwide/UN observances',
+        },
+      },
+    });
+  } catch (error) {
+    console.error('listImportantDays error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

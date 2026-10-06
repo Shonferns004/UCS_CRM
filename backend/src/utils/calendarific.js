@@ -5,13 +5,21 @@
 //
 // Design rules:
 //   - one HTTP request per country+year (Calendarific's billing unit), cached
-//     in memory with a TTL so repeated month views do not burn the quota
+//     in memory AND persisted to a JSON file on disk, so a server restart does
+//     not re-call the API (TTL 24h)
 //   - in-flight dedup: two concurrent range requests for the same year make a
 //     single upstream call
 //   - graceful failure: missing key, timeout, HTTP error or quota exhaustion
 //     degrade to the curated list alone (return []), never throw
 //   - append-only merge: curated/DB rows always win on exact duplicates; a
 //     Calendarific row is added only when its date+normalizedName is new
+//   - diagnostics: every upstream call logs whether the key is present (the
+//     value is NEVER logged), the request URL (api_key redacted), the HTTP
+//     status and the raw response body (trimmed)
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const CALENDARIFIC_API_BASE = 'https://calendarific.com/api/v2/holidays';
 const CALENDARIFIC_COUNTRY = 'IN';
@@ -20,6 +28,18 @@ const CALENDARIFIC_TTL_MS = 24 * 60 * 60 * 1000;
 const CALENDARIFIC_TIMEOUT_MS = 8000;
 const CALENDARIFIC_FAILURE_BUDGET = 3;
 const CALENDARIFIC_COOLDOWN_MS = 5 * 60 * 1000;
+
+// Max characters of the raw upstream body echoed to logs. A full year of
+// holidays is tens of KB; the first slice is enough to debug a quota/mapping
+// issue without drowning the console.
+const LOG_RAW_LIMIT = 4000;
+
+// Persisted cache: '<country>:<year>' -> { fetchedAt, rows }. Written after each
+// successful fetch so the API quota is spent once per year, not once per
+// restart. Overridable in tests via CALENDARIFIC_CACHE_FILE.
+const CACHE_FILE =
+  process.env.CALENDARIFIC_CACHE_FILE ||
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.cache', 'calendarific.json');
 
 // Calendarific tags India's religious days with the religion name itself
 // (e.g. type: ["Hinduism", "Optional holiday"]) instead of a generic flag.
@@ -31,6 +51,33 @@ const RELIGION_SIGNALS = [
 const cache = new Map();      // `${country}:${year}` -> { rows|null, expiresAt, inFlight }
 const failures = new Map();   // `${country}:${year}` -> consecutive failure count
 const retryAfter = new Map(); // `${country}:${year}` -> timestamp to retry after
+
+// Disk-persisted cache, loaded lazily on first need so a cold process does not
+// fall through to the network just because it has not touched Calendarific yet.
+let diskCache = {};
+let diskLoaded = false;
+
+function loadDiskCache() {
+  if (diskLoaded) return diskCache;
+  diskLoaded = true;
+  if (!fs.existsSync(CACHE_FILE)) return diskCache;
+  try {
+    diskCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')) || {};
+  } catch (err) {
+    console.warn(`[calendarific] disk cache unreadable (${CACHE_FILE}): ${err.message || err}`);
+    diskCache = {};
+  }
+  return diskCache;
+}
+
+function persistDiskCache() {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(diskCache));
+  } catch (err) {
+    console.warn(`[calendarific] disk cache write failed (${CACHE_FILE}): ${err.message || err}`);
+  }
+}
 
 const yearKey = (year) => `${CALENDARIFIC_COUNTRY}:${year}`;
 
@@ -57,8 +104,15 @@ export function classifyCalendarific(raw) {
 export function mapCalendarificRows(rawRows) {
   const out = [];
   for (const raw of rawRows || []) {
-    const date = String(raw?.date?.iso || '').slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    // Calendarific delivers dates as holiday.date.iso, e.g. '2026-11-08' (or the
+    // full '2026-11-08T00:00:00+05:30'); trimming to the first 10 chars yields
+    // the YYYY-MM-DD key the calendar groups by.
+    const iso = String(raw?.date?.iso || '');
+    const date = iso.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      console.warn('[calendarific] skipping row with non-ISO date:', JSON.stringify(raw?.date || {}));
+      continue;
+    }
     const name = String(raw?.name || '').trim();
     if (!name) continue;
     const cls = classifyCalendarific(raw);
@@ -110,29 +164,47 @@ export function mergeCalendarific(list, rows, scope = 'all') {
 /** One upstream request for a country+year, mapped to observance entries. */
 async function fetchCalendarificYear(year) {
   const apiKey = process.env.CALENDARIFIC_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) {
+    console.log(`[calendarific] API key MISSING — skipping the upstream call for ${year}`);
+    return [];
+  }
+  console.log(`[calendarific] API key present (defined) — calling Calendarific for ${year}`);
+
   const url = new URL(CALENDARIFIC_API_BASE);
   url.searchParams.set('api_key', apiKey);
   url.searchParams.set('country', CALENDARIFIC_COUNTRY);
   url.searchParams.set('year', String(year));
   url.searchParams.set('type', CALENDARIFIC_TYPES.join(','));
+  // Redact the api_key before logging the URL so secrets never reach the logs.
+  console.log('[calendarific] request:', url.toString().replace(/api_key=[^&]*/, 'api_key=***'));
 
   const res = await fetch(url, { signal: AbortSignal.timeout(CALENDARIFIC_TIMEOUT_MS) });
+  console.log('[calendarific] http status:', res.status, res.statusText || '');
   if (!res.ok) {
     const err = new Error(`calendarific http ${res.status}`);
     err.code = 'CALENDARIFIC_HTTP';
     throw err;
   }
+
   const body = await res.json();
+  console.log(`[calendarific] raw response (trimmed to ${LOG_RAW_LIMIT} chars):`, JSON.stringify(body).slice(0, LOG_RAW_LIMIT));
+
+  // Verify the shape the mapping depends on: body.response.holidays.
   if (!body?.response?.holidays) {
+    console.log('[calendarific] response.response.holidays is MISSING — treating as empty');
     throw new Error(body?.meta?.error_detail || 'calendarific empty response');
   }
-  return mapCalendarificRows(body.response.holidays);
+
+  // Date comes from holiday.date.iso, trimmed to YYYY-MM-DD (see mapCalendarificRows).
+  const rows = mapCalendarificRows(body.response.holidays);
+  console.log(`[calendarific] parsed response.response.holidays -> ${rows.length} observance rows for ${year}`);
+  return rows;
 }
 
 /**
  * Cached fetch for one year. Same process, same country+year = at most one
  * upstream call per TTL, and never a throw: callers always receive an array.
+ * A fresh disk copy is rehydrated so a process restart does not re-call the API.
  */
 export async function getCalendarificObservancesForYear(year) {
   if (!process.env.CALENDARIFIC_API_KEY) return [];
@@ -148,11 +220,26 @@ export async function getCalendarificObservancesForYear(year) {
   // The API is in cooldown after repeated failures: stale rows still beat nothing.
   if ((retryAfter.get(key) || 0) > now) return entry?.rows || [];
 
+  // Disk cache: a freshly fetched year survives a restart.
+  if (!entry?.rows) {
+    const disk = loadDiskCache()[key];
+    if (disk && Array.isArray(disk.rows) && now - (disk.fetchedAt || 0) < CALENDARIFIC_TTL_MS) {
+      cache.set(key, { rows: disk.rows, expiresAt: (disk.fetchedAt || now) + CALENDARIFIC_TTL_MS });
+      console.log(`[calendarific] served ${key} from the disk cache (${disk.rows.length} rows)`);
+      return disk.rows;
+    }
+  }
+
   const inFlight = fetchCalendarificYear(year)
     .then((rows) => {
-      cache.set(key, { rows, expiresAt: Date.now() + CALENDARIFIC_TTL_MS });
+      const expiresAt = Date.now() + CALENDARIFIC_TTL_MS;
+      cache.set(key, { rows, expiresAt });
+      // Persist so the next process start reads from disk instead of the API.
+      diskCache[key] = { fetchedAt: expiresAt - CALENDARIFIC_TTL_MS, rows };
+      persistDiskCache();
       failures.delete(key);
       retryAfter.delete(key);
+      console.log(`[calendarific] cached ${key}: ${rows.length} rows (memory + disk)`);
       return rows;
     })
     .catch((err) => {
