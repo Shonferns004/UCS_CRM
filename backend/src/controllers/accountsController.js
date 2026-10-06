@@ -78,7 +78,7 @@ const ensureAssignmentForDonorReceipt = async ({ client = db, receipt, workerId 
     .select('id, donor_id, fro_worker_id, ngo_id, status')
     .eq('donor_id', receipt.donor_id)
     .eq('ngo_id', ngoId)
-    .limit(1);
+    .limit(20);
   const active = (existing || []).find(a => a.status === null || a.status !== 'reassigned');
   if (active) return { created: false, assignment: active, reason: 'already_assigned' };
 
@@ -4557,7 +4557,7 @@ export const backfillReceiptAssignments = async (req, res) => {
         .select('id, status')
         .eq('donor_id', row.donor_id)
         .eq('ngo_id', row.ngo_id)
-        .limit(1);
+        .limit(20);
       if ((existing || []).some(a => a.status === null || a.status !== 'reassigned')) {
         skippedAlreadyAssigned.push({ donor_id: row.donor_id, ngo_id: row.ngo_id });
         continue;
@@ -4616,7 +4616,7 @@ export const createDonorAssignment = async (req, res) => {
     if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
 
     const { data: existing, error: existingErr } = await db.from('fro_assignments')
-      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).or('status.neq.reassigned,status.is.null').maybeSingle();
+      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).or('status.neq.reassigned,status.is.null').limit(1).maybeSingle();
     if (existingErr) throw existingErr;
     if (existing) return res.status(409).json({ message: 'This donor already has an active assignment for this NGO; replace that assignment instead' });
 
