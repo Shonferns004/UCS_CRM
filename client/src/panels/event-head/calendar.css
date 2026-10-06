@@ -243,19 +243,28 @@
 }
 .eh-obs-chip:active { transform: scale(.97); }
 
-/* Collapsed remainder. Same click behaviour (it carries data-obs-date), so it
-   opens the day panel listing every observance on that date. */
-.eh-obs-more {
-  border-left-color: transparent;
-  background: transparent;
-  color: var(--eh-ink-soft, #6b6480);
-  font-weight: 700;
+/* Selected Monthly Planner AI programmes inside a day cell. Read-only chips:
+   their date is the stored suggestion date (never draggable), they show the
+   programme plus its NGO · beneficiary tag, and the festival it belongs to
+   rides on the tooltip so the box keeps the pairing from the planner grid. */
+.fc .fc-daygrid-event.eh-fprog { padding: 0; background: transparent; border: none; box-shadow: none; }
+.fc .fc-daygrid-event.eh-fprog .fc-event-time,
+.fc .fc-daygrid-event.eh-fprog .fc-event-title { display: none; }
+.eh-fp-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: color-mix(in srgb, var(--eh-secondary, #6b38d4) 11%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--eh-secondary, #6b38d4) 32%, #ffffff);
+  border-left: 3px solid var(--eh-secondary, #6b38d4);
+  border-radius: 6px;
+  padding: 2px 5px;
+  margin: 1px 0;
+  cursor: default;
 }
-.eh-obs-more:hover {
-  background: color-mix(in srgb, var(--eh-primary, #2036bd) 10%, transparent);
-  box-shadow: none;
-  text-decoration: underline;
-}
+.eh-fp-title { font-size: 10.5px; font-weight: 600; line-height: 1.25; color: #1a1a2e; overflow-wrap: anywhere; }
+.eh-fp-tag { font-size: 8.5px; font-weight: 700; color: color-mix(in srgb, var(--eh-secondary, #6b38d4) 80%, #111827); }
+.fc .fc-daygrid-day:has(.eh-fp-chip) .fc-daygrid-day-frame { min-height: 84px; }
 
 /* Give the day cell a touch more room when it carries observance chips. */
 .fc .fc-daygrid-day:has(.eh-obs-strip) .fc-daygrid-day-frame { min-height: 74px; }

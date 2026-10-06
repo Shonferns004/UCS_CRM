@@ -18,6 +18,54 @@ export const avatarColor = (name) => {
 };
 export const initials = (n) => (n||'').trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase();
 
+/* ── Shared export normalizer (Calendar Download + Monthly Planner Download) ──
+   Final validation/deduplication step run before Excel/PDF generation. Collapses
+   every selected AI programme onto ONE row per unique key date + festival + NGO
+   + beneficiary, so choosing several programmes for the same festival yields a
+   single row with the programme titles comma-joined — never one duplicate
+   date/festival row per programme. Distinct festivals sharing a date stay
+   separate. First-seen order is preserved; joined values are de-duplicated and
+   listed in the order they were first selected. */
+export const mergeProgrammeRows = (rows, keyFields, { join = ', ' } = {}) => {
+  const key = (r) => keyFields.map((f) => String(r[f] ?? '')).join('\u0000')
+  const pushUnique = (arr, v) => {
+    const vv = String(v ?? '').trim()
+    if (vv && vv !== '—' && !arr.includes(vv)) arr.push(vv)
+  }
+  const seen = new Map()
+  for (const r of rows || []) {
+    const k = key(r)
+    if (!seen.has(k)) seen.set(k, { row: r, programmes: [], activities: [], statuses: [] })
+    const agg = seen.get(k)
+    pushUnique(agg.programmes, r.programme ?? r.title)
+    pushUnique(agg.activities, r.activity)
+    pushUnique(agg.statuses, r.status)
+  }
+  return [...seen.values()].map(({ row, programmes, activities, statuses }) => ({
+    ...row,
+    programme: programmes.length ? programmes.join(join) : (row.programme || row.title || '—'),
+    activity: activities.length ? activities.join(join) : (row.activity || '—'),
+    status: statuses.length ? statuses.join(join) : (row.status || '—'),
+  }))
+}
+
+/* Run AFTER mergeProgrammeRows. Fills the Date/Day cells only on the FIRST row
+   of each date; every later row of that same date gets blank date/day cells, so
+   a date that carries several festivals (each shown on its own row) never
+   repeats the date text. Original row values are read, not the blanked output,
+   so groups are detected reliably. */
+export const blankRepeatedDates = (rows, dateField = 'date', dayField = 'day') => {
+  let firstOf = null
+  return (rows || []).map((r) => {
+    const d = String(r[dateField] ?? '')
+    if (d !== firstOf) {
+      firstOf = d === '' ? null : d
+      return r
+    }
+    return { ...r, [dateField]: '', [dayField]: '' }
+  })
+}
+
 /* ── Events ── */
 export const fetchEvents = (params = {}) => {
   const qs = new URLSearchParams()
