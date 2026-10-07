@@ -1180,9 +1180,6 @@ export default function Certificates() {
                     <div className="field-block" key={f.field_key}>
                       <label>
                         {f.display_name || humanKey(f.field_key)} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
-                        {!f.in_template && (
-                          <span className="badge cus" style={{ background: '#fef3c7', color: '#92400e', marginLeft: 8 }}>Not found in template</span>
-                        )}
                       </label>
                       {f.field_type === 'longtext' ? (
                         <textarea className="fld" rows={3} value={values[f.field_key] || ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
