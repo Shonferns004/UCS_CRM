@@ -224,7 +224,9 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
                     justifyContent: s.textAlign === 'left' ? 'flex-start' : s.textAlign === 'right' ? 'flex-end' : 'center',
                     padding: 2, wordBreak: 'break-word', whiteSpace: 'pre-wrap',
                   }}>
-                    {sampleValues[f.field_key] || f.default_value || (f.display_name || f.field_key)}
+                    <span style={{ width: '100%', display: 'block', overflowWrap: 'break-word' }}>
+                      {sampleValues[f.field_key] || f.default_value || (f.display_name || f.field_key)}
+                    </span>
                   </div>
                   {selected === i && (
                     <div
