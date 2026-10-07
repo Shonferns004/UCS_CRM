@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import mammoth from 'mammoth'
 import { useUcs } from '../../../store'
 import { certificateApi } from '../api/certificates'
+import CertificateImageEditor from '../components/CertificateImageEditor'
 import { toast } from '../../../components/Toast'
 import {
   FileText, Presentation, Plus, Edit3, Copy, Archive, ArchiveRestore, Trash2, Download,
   Wand2, Search, X, ChevronLeft, UploadCloud, RefreshCw, Loader2, CheckCircle2, AlertTriangle,
-  History, Sparkles, Info, ExternalLink, ArrowLeft, Users, MoreVertical, Wrench,
+  History, Sparkles, Info, ExternalLink, ArrowLeft, Users, MoreVertical, Wrench, Image as ImageIcon,
 } from 'lucide-react'
 
 const MINT = '#5B6B4E'
@@ -235,7 +236,7 @@ export default function Certificates() {
 
   const openWizard = useCallback(() => {
     setEditingId(null)
-    setDraft({ name: '', description: '', file_format: null, file_name: '', placeholders: [], fields: [], ngo_id: '', purpose: '' })
+    setDraft({ name: '', description: '', file_format: null, template_type: 'image', file_name: '', placeholders: [], fields: [], ngo_id: '', purpose: '' })
     setView('wizard')
   }, [])
 
@@ -274,7 +275,12 @@ export default function Certificates() {
 
   const handleUploadFile = async (file) => {
     if (!file) return
-    if (!/\.(docx|pptx)$/i.test(file.name)) {
+    if (draft?.template_type === 'image') {
+      if (!/\.(png|jpe?g|webp)$/i.test(file.name)) {
+        toast('Only .png, .jpg, .jpeg or .webp images are supported.', 'error'); return
+      }
+      if (file.size > 10 * 1024 * 1024) { toast('File too large (max 10 MB).', 'error'); return }
+    } else if (!/\.(docx|pptx)$/i.test(file.name)) {
       toast('Only .docx or .pptx templates are supported.', 'error'); return
     }
     if (file.size > 50 * 1024 * 1024) { toast('File too large (max 50 MB).', 'error'); return }
@@ -295,7 +301,9 @@ export default function Certificates() {
 
   const handleReupload = async (file) => {
     if (!file || !editingId) return
-    if (!/\.(docx|pptx)$/i.test(file.name)) { toast('Only .docx or .pptx files.', 'error'); return }
+    if (draft?.file_format === 'image') {
+      if (!/\.(png|jpe?g|webp)$/i.test(file.name)) { toast('Only PNG, JPG or WEBP images.', 'error'); return }
+    } else if (!/\.(docx|pptx)$/i.test(file.name)) { toast('Only .docx or .pptx files.', 'error'); return }
     const formData = new FormData()
     formData.append('template', file)
     try {
@@ -343,6 +351,7 @@ export default function Certificates() {
       default_value: f.default_value || '',
       sort_order: i,
       in_template: f.in_template,
+      style: f.style,
     }))
     if (!fields.some((f) => f.field_key?.trim())) {
       toast('Add at least one field before saving.', 'error'); return
@@ -464,7 +473,7 @@ export default function Certificates() {
     try {
       const res = await certificateApi.generate({ template_id: genTpl.id, field_values: values, certificate_number: certNumber || undefined })
       toast(`${res.certificate.certificate_number} generated`, 'success')
-      saveOrOpen(res.certificate.generated_file, `${res.certificate.certificate_number}.${genTpl.file_format}`)
+      saveOrOpen(res.certificate.generated_pdf || res.certificate.generated_file, `${res.certificate.certificate_number}.${res.certificate.generated_pdf ? 'pdf' : (genTpl.file_format === 'image' ? 'png' : genTpl.file_format)}`)
       if (showHistory) loadHistory(historyQ)
     } catch (e) { toast(e.message, 'error') } finally { setGenerating(false) }
   }
@@ -905,7 +914,7 @@ export default function Certificates() {
                     </div>
                     <div className="hist-recipient" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(c.generated_at)}</div>
                     <div className="hist-actions">
-                      <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(c.generated_file, `${c.certificate_number}.${(c.generated_file || '').split('.').pop()}`)}>
+                      <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(c.generated_pdf || c.generated_file, `${c.certificate_number}.${c.generated_pdf ? 'pdf' : (c.generated_file || '').split('.').pop()}`)}>
                         <ExternalLink size={14} />
                       </button>
                     </div>
@@ -925,6 +934,27 @@ export default function Certificates() {
               /* ---------- step 1: upload ---------- */
               <>
                 <TemplateMeta ngos={ngos} purposes={purposes} value={draft} onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))} required />
+                <div className="field">
+                  <label>Template type</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {[['image', 'Image (recommended)'], ['docx', 'Word (.docx)'], ['pptx', 'PowerPoint (.pptx)']].map(([k, l]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`tab ${draft.template_type === k ? 'active' : ''}`}
+                        style={{ padding: '8px 14px', fontSize: 13 }}
+                        onClick={() => setDraft((d) => ({ ...d, template_type: k }))}
+                      >
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                  {draft.template_type === 'image' && (
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 6 }}>
+                      Upload a certificate background (PNG/JPG/WEBP). Add your text fields on top in the visual editor — no {'{placeholder}'} text needed inside the image.
+                    </div>
+                  )}
+                </div>
                 <div className="field">
                   <label>Template name</label>
                   <input
@@ -950,13 +980,29 @@ export default function Certificates() {
                   onDrop={(e) => { e.preventDefault(); handleUploadFile([...e.dataTransfer.files][0]) }}
                 >
                   <UploadCloud size={30} style={{ color: 'var(--sage)' }} />
-                  <div className="dz-main">Drop your certificate template here</div>
-                  <div className="dz-sub">or click to browse — fields like {`{name}`}, {`{certificate_no}`}, {`{date}`} are auto-detected</div>
-                  <div className="dz-sub" style={{ marginTop: 6 }}><b>.docx</b> or <b>.pptx</b> · up to 50 MB</div>
+                  {draft.template_type === 'image' ? (
+                    <>
+                      <div className="dz-main">Drop your certificate background here</div>
+                      <div className="dz-sub">or click to browse — you will place fields on top in the next step</div>
+                      <div className="dz-sub" style={{ marginTop: 6 }}><b>.png</b>, <b>.jpg</b>/<b>.jpeg</b> or <b>.webp</b> · up to 10 MB</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="dz-main">Drop your certificate template here</div>
+                      <div className="dz-sub">or click to browse — fields like {`{name}`}, {`{certificate_no}`}, {`{date}`} are auto-detected</div>
+                      <div className="dz-sub" style={{ marginTop: 6 }}><b>.docx</b> or <b>.pptx</b> · up to 50 MB</div>
+                    </>
+                  )}
                 </div>
                 <div className="wiz-hint">
+                  {draft.template_type === 'image' ? (
+                    <>The image is the certificate background/design only. Text fields are added and positioned visually in the editor — the image itself stays untouched. The original is never modified.</>
+                  ) : (
+                    <>
                   <Info size={13} style={{ verticalAlign: -2, marginRight: 6 }} />
                   Placeholders are plain text like <code>{`{name}`}</code> inside your Word / PowerPoint file. They are <b>data only</b> — never executed. Spaces inside braces ({' '}<code>{`{ name }`}</code>{' '}) are normalised automatically. The original template is never modified.
+                    </>
+                  )}
                 </div>
               </>
             ) : (
@@ -964,7 +1010,7 @@ export default function Certificates() {
               <>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div className={`tpl-type ${draft.file_format === 'pptx' ? 'pptx' : ''}`}>
-                    {draft.file_format === 'pptx' ? <Presentation size={20} /> : <FileText size={20} />}
+                    {draft.file_format === 'pptx' ? <Presentation size={20} /> : draft.file_format === 'image' ? <ImageIcon size={20} /> : <FileText size={20} />}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="tpl-title" style={{ whiteSpace: 'normal' }}>{draft.name}</div>
@@ -981,6 +1027,19 @@ export default function Certificates() {
                   </div>
                 </div>
 
+                {draft.file_format === 'image' ? (
+                  <CertificateImageEditor
+                    draft={draft}
+                    setDraft={setDraft}
+                    canManage={canManage}
+                    onSave={() => saveFields()}
+                    onCancel={() => setView('library')}
+                    TemplateMeta={TemplateMeta}
+                    ngos={ngos}
+                    purposes={purposes}
+                  />
+                ) : (
+                  <>
                 <div className="wiz-hint" style={{ fontSize: 12 }}>
                   {draft.placeholders?.length > 0
                     ? <>Detected <b>{draft.placeholders.length}</b> placeholder{(draft.placeholders.length === 1) ? '' : 's'}:{' '}
@@ -1057,19 +1116,21 @@ export default function Certificates() {
                     </div>
                   </div>
                 </div>
+                  </>
+                )}
               </>
             )}
             <input
               ref={uploadInputRef}
               type="file"
-              accept=".docx,.pptx"
-              hidden
-              onChange={(e) => { handleUploadFile(e.target.files[0]); e.target.value = '' }}
+            accept={draft?.template_type === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
+            hidden
+            onChange={(e) => { handleUploadFile(e.target.files[0]); e.target.value = '' }}
             />
             <input
               ref={fileInputRef}
               type="file"
-              accept=".docx,.pptx"
+              accept={draft?.file_format === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
               hidden
               onChange={(e) => { const f = e.target.files[0]; if (f) handleReupload(f); e.target.value = '' }}
             />
@@ -1252,7 +1313,7 @@ export default function Certificates() {
                                 <span className="hist-num">{r.certificate_number}</span>
                                 <span className="hist-recipient">{r.certificate.recipient_name || '—'}</span>
                                 <span className="hist-actions">
-                                  <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(r.generated_file, `${r.certificate_number}.${genTpl.file_format}`)}>
+                                  <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(r.certificate?.generated_pdf || r.generated_file, `${r.certificate_number}.${r.certificate?.generated_pdf ? 'pdf' : (genTpl.file_format === 'image' ? 'png' : genTpl.file_format)}`)}>
                                     <ExternalLink size={13} />
                                   </button>
                                 </span>

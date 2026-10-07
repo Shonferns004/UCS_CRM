@@ -6377,10 +6377,14 @@ export const getMyDisposedLeads = async (req, res) => {
     const workerId = req.user.id;
     const { station: stationFilter, ngo_id: ngoFilter } = req.query;
 
-    const { data: disposedLogs, error: logErr } = await db
+    let disposedQuery = db
       .from('fro_donor_logs')
-      .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
-      .eq('fro_worker_id', realOperatorId(req.user))
+      .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
+      .eq('fro_assignments.fro_worker_id', workerId);
+    if (req.user.impersonation && req.user.imposter_id != null) {
+      disposedQuery = disposedQuery.eq('fro_worker_id', realOperatorId(req.user));
+    }
+    const { data: disposedLogs, error: logErr } = await disposedQuery
       // History is scoped to THIS billing month's work. The daily rollover
       // archives the previous month's call logs out of fro_donor_logs anyway,
       // but that runs at 04:00 IST — a hard clamp here keeps the 1st-of-month
