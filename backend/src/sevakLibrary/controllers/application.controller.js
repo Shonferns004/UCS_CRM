@@ -121,6 +121,14 @@ export const reject = async (req, res, next) => {
   }
 }
 
+export const renew = async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await applicationService.renewApplication(req.params.id, { fee: req.body.fee }) })
+  } catch (err) {
+    next(err)
+  }
+}
+
 export const importMembers = async (req, res, next) => {
   try {
     res.json({ success: true, data: await applicationService.importMembers(req.body.rows) })

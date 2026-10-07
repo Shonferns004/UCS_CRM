@@ -216,39 +216,95 @@ export async function sendCouponEmails(couponId, applicationIds) {
   return { ok: true, mode: 'coupon', couponCode: coupon.code, results }
 }
 
-// Automatic one-off renewal reminder for APPROVED members whose end_date has
-// passed and who have not yet received it. Mirrors the edge function's
-// renewal_scan. Flags renewal_email_sent only on success.
+// Advance expiry reminder: sent once when an APPROVED membership is within 7
+// days of its end date, carrying the due date, days left and the renew link so
+// the member can act before expiry. One-off per period via renewal_soon_sent
+// (re-armed by renewApplication when the period is extended).
+const buildRenewalSoonEmail = (app) => {
+  const today = new Date().toISOString().slice(0, 10)
+  const due = app.end_date ?? ''
+  let daysLeft = null
+  if (due) {
+    const d = Math.round(
+      (new Date(`${due}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86400000
+    )
+    if (Number.isFinite(d)) daysLeft = d
+  }
+  const renewUrl = APP_URL
+  const html = shell(`
+    <p>Dear <strong>${app.full_name ?? ''}</strong>,</p>
+    <p>Your Sevak Library membership is expiring soon. Please renew before the due date to keep your membership uninterrupted.</p>
+    <table style="border-collapse:collapse;width:100%;margin:16px 0">
+      ${cardRow('Membership ID', app.membership_id ?? '')}
+      ${cardRow('Membership Type', app.membership_type ?? '')}
+      ${cardRow('Valid Till (Due Date)', due)}
+      ${daysLeft !== null ? cardRow('Days Left', daysLeft <= 0 ? 'Expires today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'}`) : ''}
+    </table>
+    <p>Renew by submitting your membership renewal below:</p>
+    <p style="text-align:center">${btn(renewUrl, 'Renew my membership')}</p>
+    <p style="color:#5f6368;font-size:12.5px">Or copy this link into your browser: <br><span style="color:#1a7f4b">${renewUrl}</span></p>
+    <p>If you have already renewed, please ignore this email.</p>
+  `)
+  return { subject: 'Your Sevak Library membership expires soon', html }
+}
+
+// Send one reminder email and flip its one-off flag on success only (failed
+// sends stay unflagged so the next scan retries). The flag column is a fixed
+// internal identifier, never user input.
+async function sendRenewalMail(app, build, flagColumn) {
+  const { subject, html } = build(app)
+  let sent = false
+  let errMsg = null
+  try {
+    await smtpSend(app.email, subject, html)
+    sent = true
+  } catch (e) {
+    errMsg = e && e.message ? e.message : String(e)
+  }
+  await logMail({ applicationId: app.id, toEmail: app.email, subject, body: html, membershipId: app.membership_id ?? null, sent, error: errMsg })
+  if (sent) await sql(`UPDATE public.applications SET ${flagColumn} = true WHERE id = $1`, [app.id])
+  return { id: app.id, sent, error: errMsg }
+}
+
+// Automatic renewal reminders for APPROVED members (mirrors the edge function's
+// renewal_scan), in two sweeps:
+//   soon — end_date within the next 7 days, still untouched by the advance flag
+//   due  — end_date already passed, renewal_email_sent still false
+// Both flags are re-armed by renewApplication, so each renewed period gets a
+// fresh advance reminder and a fresh post-expiry reminder.
 export async function runRenewalScan() {
   const today = new Date().toISOString().slice(0, 10)
-  const due = await sql(
-    `SELECT id, ref, full_name, email, mobile, membership_id, membership_type, start_date, end_date
+  const projection = `id, ref, full_name, email, mobile, membership_id, membership_type, start_date, end_date`
+
+  const soon = await sql(
+    `SELECT ${projection}
        FROM public.applications
-      WHERE status = 'APPROVED' AND renewal_email_sent = false AND end_date <= $1`,
+      WHERE status = 'APPROVED' AND renewal_soon_sent = false
+        AND end_date > $1 AND end_date <= ($1::date + interval '7 days')
+      ORDER BY end_date`,
+    [today]
+  )
+  const due = await sql(
+    `SELECT ${projection}
+       FROM public.applications
+      WHERE status = 'APPROVED' AND renewal_email_sent = false AND end_date <= $1
+      ORDER BY end_date`,
     [today]
   )
 
-  const sentIds = []
-  const failIds = []
-  for (const app of due) {
-    const { subject, html } = buildRenewalEmail(app)
-    let sent = false
-    let errMsg = null
-    try {
-      await smtpSend(app.email, subject, html)
-      sent = true
-    } catch (e) {
-      errMsg = e && e.message ? e.message : String(e)
-    }
-    await logMail({ applicationId: app.id, toEmail: app.email, subject, body: html, membershipId: app.membership_id ?? null, sent, error: errMsg })
+  const soonResults = []
+  for (const app of soon) soonResults.push(await sendRenewalMail(app, buildRenewalSoonEmail, 'renewal_soon_sent'))
+  const dueResults = []
+  for (const app of due) dueResults.push(await sendRenewalMail(app, buildRenewalEmail, 'renewal_email_sent'))
 
-    if (sent) {
-      sentIds.push(app.id)
-      await sql(`UPDATE public.applications SET renewal_email_sent = true WHERE id = $1`, [app.id])
-    } else {
-      failIds.push(app.id)
-    }
+  return {
+    ok: true,
+    mode: 'renewal_scan',
+    processed: dueResults.length,
+    sentIds: dueResults.filter((r) => r.sent).map((r) => r.id),
+    failIds: dueResults.filter((r) => !r.sent).map((r) => r.id),
+    soonProcessed: soonResults.length,
+    soonSentIds: soonResults.filter((r) => r.sent).map((r) => r.id),
+    soonFailIds: soonResults.filter((r) => !r.sent).map((r) => r.id),
   }
-
-  return { ok: true, mode: 'renewal_scan', processed: due.length, sentIds, failIds }
 }
