@@ -666,25 +666,25 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'scheduled' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'scheduled' });
           }
         });
         (callbacks || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at || null, type: 'callback' });
           }
         });
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'callback' });
           }
         });
         (promises || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
           }
         });
         setFollowUps(items);
