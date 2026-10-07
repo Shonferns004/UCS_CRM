@@ -8,6 +8,7 @@ import {
 } from '../services/certificateDocx.js';
 import { snapshotToPng } from '../services/slideSnapshot.js';
 import { renderImageCertificate, getImageDimensions } from '../services/certificateImageRenderer.js';
+import { toPdfBuffer } from '../services/certificatePdf.js';
 
 const BUCKET = 'certificates';
 const VALID_STATUS = new Set(['active', 'draft', 'archived']);
@@ -675,12 +676,23 @@ async function generateOne(template, fieldValuesIn, certNumberIn, actorName) {
   const key = `generated/${template.id}-${slugify(template.name)}-${safeNum}.${out.ext}`;
   const url = await uploadFile(key, out.buffer, out.mime);
 
+  // Landscape PDF alongside the native output. Failure to produce a PDF never
+  // fails the certificate itself.
+  let pdfUrl = '';
+  try {
+    const pdfBuffer = await toPdfBuffer(out);
+    if (pdfBuffer) {
+      const pdfKey = `generated/${template.id}-${slugify(template.name)}-${safeNum}.pdf`;
+      pdfUrl = await uploadFile(pdfKey, pdfBuffer, 'application/pdf');
+    }
+  } catch { /* pdf is best-effort */ }
+
   const { rows } = await db._pool.query(
     `INSERT INTO certificates
-       (template_id, template_name, template_version, template_file, certificate_number, recipient_name, field_values, generated_file, generated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+       (template_id, template_name, template_version, template_file, certificate_number, recipient_name, field_values, generated_file, generated_pdf, generated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
     [template.id, template.name, template.version, template.template_file, number, recipient,
-     JSON.stringify(fieldValuesIn || {}), url, actorName]);
+     JSON.stringify(fieldValuesIn || {}), url, pdfUrl, actorName]);
   return { certificate: rows[0] };
 }
 
@@ -694,7 +706,7 @@ export const generateCertificate = async (req, res) => {
     const me = identity(req);
     const result = await generateOne(template, field_values, certificate_number, me.name || me.id);
     if (result.error) return res.status(400).json({ message: result.error });
-    return res.json({ message: 'Certificate generated', certificate: await signFiles(['generated_file'], result.certificate) });
+    return res.json({ message: 'Certificate generated', certificate: await signFiles(['generated_file','generated_pdf'], result.certificate) });
   } catch (e) {
     return res.status(400).json({ message: `Generation failed: ${e.message}` });
   }
@@ -723,7 +735,7 @@ export const bulkGenerateCertificates = async (req, res) => {
           results.push({ index: i, error: result.error, certificate_number: row.certificate_number || '' });
         } else {
           ok += 1;
-          const signedCert = await signFiles(['generated_file'], result.certificate);
+          const signedCert = await signFiles(['generated_file','generated_pdf'], result.certificate);
           results.push({
             index: i,
             certificate: signedCert,
@@ -759,11 +771,11 @@ export const listCertificates = async (req, res) => {
     }
     const { rows } = await db._pool.query(
       `SELECT c.id, c.template_id, c.template_name, c.template_version, c.template_file, c.certificate_number,
-              c.recipient_name, c.field_values, c.generated_file, c.generated_by, c.generated_at
+              c.recipient_name, c.field_values, c.generated_file, c.generated_pdf, c.generated_by, c.generated_at
          FROM certificates c ${where}
         ORDER BY c.generated_at DESC
         LIMIT 300`, params);
-    return res.json(await Promise.all(rows.map((r) => signFiles(['generated_file'], r))));
+    return res.json(await Promise.all(rows.map((r) => signFiles(['generated_file','generated_pdf'], r))));
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -773,10 +785,10 @@ export const getCertificate = async (req, res) => {
   try {
     const { rows } = await db._pool.query(
       `SELECT id, template_id, template_name, template_version, template_file, certificate_number,
-              recipient_name, field_values, generated_file, generated_by, generated_at
+              recipient_name, field_values, generated_file, generated_pdf, generated_by, generated_at
          FROM certificates WHERE id = $1`, [req.params.id]);
     if (!rows.length) return res.status(404).json({ message: 'Certificate not found' });
-    return res.json(await signFiles(['generated_file'], rows[0]));
+    return res.json(await signFiles(['generated_file','generated_pdf'], rows[0]));
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
