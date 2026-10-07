@@ -4353,10 +4353,16 @@ export const getMyHistory = async (req, res) => {
     // writes logs on the impersonated FRO's assignment, so those actions appear
     // in the owner's history (and never come back to the real operator's own
     // account after the session ends).
-    const { data: logs, error } = await db
+    // Inside a "work as" session the operator sees only the actions they
+    // logged themselves, never the owner's full history.
+    let historyQuery = db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
-      .eq('fro_assignments.fro_worker_id', workerId)
+      .eq('fro_assignments.fro_worker_id', workerId);
+    if (req.user.impersonation && req.user.imposter_id != null) {
+      historyQuery = historyQuery.eq('fro_worker_id', realOperatorId(req.user));
+    }
+    const { data: logs, error } = await historyQuery
       .order('created_at', { ascending: false })
       .limit(200);
 
@@ -6368,7 +6374,7 @@ export const getMyDisposedLeads = async (req, res) => {
     const { data: disposedLogs, error: logErr } = await db
       .from('fro_donor_logs')
       .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
-      .eq('fro_worker_id', workerId)
+      .eq('fro_worker_id', realOperatorId(req.user))
       // History is scoped to THIS billing month's work. The daily rollover
       // archives the previous month's call logs out of fro_donor_logs anyway,
       // but that runs at 04:00 IST — a hard clamp here keeps the 1st-of-month
