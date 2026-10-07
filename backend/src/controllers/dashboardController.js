@@ -6,6 +6,7 @@ import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import db from '../config/db.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
+import { dayTotalsForWorkers } from '../services/froTimeSessions.js';
 import { istDateStr, effectiveIdleSeconds, idleFreezeCutoffMs } from '../utils/froIdle.js';
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
@@ -1513,9 +1514,23 @@ export const getSuperAdminAlerts = async (req, res) => {
         }
         const nowMs = Date.now();
         const idleByWorker = {};
+        const frozenFor = {};
         for (const f of idleFros || []) {
           const frozenAt = isCovered(coversByTarget, f.worker_id) ? idleFreezeCutoffMs(f) : NaN;
+          frozenFor[String(f.worker_id)] = frozenAt;
           idleByWorker[f.worker_id] = effectiveIdleSeconds(f, null, nowMs, frozenAt);
+        }
+        try {
+          const ledger = await dayTotalsForWorkers((idleFros || []).map(f => f.worker_id), {
+            nowMs,
+            nowFor: (id) => frozenFor[id],
+          });
+          for (const f of idleFros || []) {
+            const t = ledger.get(String(f.worker_id));
+            if (t) idleByWorker[f.worker_id] = t.idle_seconds;
+          }
+        } catch (e) {
+          console.error('High idle alert ledger read failed:', e.message);
         }
 
       const highIdle = (idleFros || []).filter(f =>

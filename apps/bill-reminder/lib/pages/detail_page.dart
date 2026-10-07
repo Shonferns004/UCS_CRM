@@ -83,7 +83,9 @@ class _DetailPageState extends State<DetailPage> {
 
     return Scaffold(
       backgroundColor: p.bg,
-      body: CustomScrollView(
+      body: SafeArea(
+        top: false,
+        child: CustomScrollView(
         slivers: [
           SliverAppBar(
             pinned: true,
@@ -311,6 +313,7 @@ class _DetailPageState extends State<DetailPage> {
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 20)),
         ],
+        ),
       ),
     );
   }

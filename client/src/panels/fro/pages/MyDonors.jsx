@@ -66,9 +66,9 @@ const HIDDEN_STATUSES = new Set([
   'call_disconnected',
   'others',
 ]);
-// My Leads = pending work ONLY. A lead with any other status has already been
-// dispositioned this month and belongs in History / Callbacks / Follow-ups /
-// Overdue — the backend now returns only 'pending' rows for the list too, and
+// My Leads = pending + retryable not-connected work. A lead with any other
+// status has already been dispositioned this month and belongs in History /
+// Callbacks / Follow-ups / Overdue — the backend returns the same set, and
 // this filter is the client-side guarantee (realtime patches / list merges can
 // never re-introduce a worked lead). The monthly rollover resets every worked
 // status back to 'pending', so a lead disposed last month re-enters here.
@@ -92,9 +92,6 @@ const SUPPRESS_REASON_LABELS = {
 // that were easy to leave enabled. The per-row SUPPRESS_REASON_LABELS badge still
 // explains any individual lead, so nothing is opaque without them.
 
-function isNewDonor(d) {
-  return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
-}
 // Queue-only filter: drops donors the backend already considers worked/done so
 // the auto-advance cursor never re-serves them. The My Leads LIST shows only
 // 'pending' leads (see filterAndSortDonors), so the queue and the list agree.
@@ -116,7 +113,10 @@ function dedupeDonors(list) {
 
 function isPendingStatus(d) {
   // NULL/empty status = never-worked assignment; treated as pending.
-  return d.status === 'pending' || d.status == null || d.status === '';
+  // Retryable not-connected leads (ringing/busy/…) stay workable: the backend
+  // drops the ones dialled today and returns them the next day at the tail.
+  return d.status === 'pending' || d.status == null || d.status === ''
+    || RETRYABLE_NOT_CONNECTED.has(d.status);
 }
 // Sorts the fetched list, keeping ONLY 'pending' leads. My Leads is the FRO's
 // queue of work still to do; anything already dispositioned this month lives in
@@ -124,19 +124,17 @@ function isPendingStatus(d) {
 // monthly rollover resets it to pending.
 function filterAndSortDonors(list) {
   return dedupeDonors(list).filter(isPendingStatus).sort((a, b) => {
-      const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
-      const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
       // Suppressed (DND / donated this month) always sorts last so the
       // workable stack stays on top even with "Show suppressed" on.
       const aHidden = a.is_suppressed ? 1 : 0;
       const bHidden = b.is_suppressed ? 1 : 0;
       if (aHidden !== bHidden) return aHidden - bHidden;
-      // tier: 0 = new workable, 1 = old workable, 2 = retryable tail
-      const aNew = isNewDonor(a);
-      const bNew = isNewDonor(b);
-      const tierA = aRetry ? 2 : (aNew ? 0 : 1);
-      const tierB = bRetry ? 2 : (bNew ? 0 : 1);
-      if (tierA !== tierB) return tierA - tierB;
+      // Called longest ago first, most recently called last, never-called at the bottom.
+      const ca = a.last_contacted_at ? new Date(a.last_contacted_at).getTime() : null;
+      const cb = b.last_contacted_at ? new Date(b.last_contacted_at).getTime() : null;
+      if (ca === null && cb !== null) return 1;
+      if (ca !== null && cb === null) return -1;
+      if (ca !== null && cb !== null && ca !== cb) return ca - cb;
       const ta = a.assigned_at ? new Date(a.assigned_at).getTime() : 0;
       const tb = b.assigned_at ? new Date(b.assigned_at).getTime() : 0;
       return ta - tb;
@@ -201,7 +199,7 @@ function DonationDoneStamp({ donor }) {
           </div>
           <div style={{ marginTop: 12 }}>
             <span style={{ display: 'inline-block', border: '2px solid #fff', borderRadius: 999, padding: '3px 16px', fontSize: 10, fontWeight: 800, letterSpacing: .8 }}>
-              {donor.has_verified_donation_current_month ? '✓  VERIFIED' : '●  PENDING VERIFICATION'}
+              {donor.has_verified_donation_current_month ? '✓  VERIFIED' : '�  PENDING VERIFICATION'}
             </span>
           </div>
         </div>
@@ -668,25 +666,25 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'scheduled' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'scheduled' });
           }
         });
         (callbacks || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at || null, type: 'callback' });
           }
         });
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'callback' });
           }
         });
         (promises || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
           }
         });
         setFollowUps(items);
@@ -1886,9 +1884,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   ? `Showing ${renderedItems.length} of ${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
-                  : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads`
-                    + (hasMoreRef.current ? ' · scroll for more' : '')
-                    + (closedCount ? ` \u00b7 ${closedCount} already worked \u2014 filter by status` : '')
+                  : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads (total: ${total || donors.length})`
+                    + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
+                    + (closedCount ? ` · ${closedCount} already worked — filter by status` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
         </div>
       </div>

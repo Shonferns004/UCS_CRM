@@ -262,19 +262,25 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   //    row exists yet).
   //
   // Ghost-row guard: a (donor_id, ngo_id) pair must resolve to exactly ONE
-  // fro_assignments row, otherwise a donor can surface twice (or flip tabs via
-  // a batch_type=NULL row) and re-add "already handled" leads. Before INSERTing
-  // a fresh row, reuse ANY existing row for this (donor_id, ngo_id) that falls
-  // in the worker's (station, ngo) scope — even one stamped reassigned/owned by
-  // another FRO who no longer covers that scope — instead of duplicating it.
+  // active fro_assignments row, otherwise the same donor surfaces in two
+  // stations at once and two FROs work (and call) the same lead.
+  //
+  // The reuse pass below only claims rows that already fall in the worker's
+  // (station, ngo) scope. If a live row exists that we cannot claim — because
+  // it belongs to a different station, or to an active co-worker in this one —
+  // we must NOT fall through to the INSERT: that is exactly how the duplicate
+  // rows were born (22k+ cross-station pairs). Return null instead; every
+  // caller answers 404, which is the correct outcome for a donor this worker
+  // does not own.
   if (ngoId != null) {
     const { data: anyRows } = await db
       .from('fro_assignments')
-      .select('id, station, fro_worker_id')
+      .select('id, station, fro_worker_id, status')
       .eq('donor_id', donorId)
       .eq('ngo_id', ngoId)
       .limit(20);
-    for (const c of (anyRows || [])) {
+    const rows = anyRows || [];
+    for (const c of rows) {
       if (myStationRows && scopePairs.size > 0 && scopePairs.has(`${c.station}|${ngoId}`)) {
         // This row is already inside the worker's scope; claim it if it isn't
         // already theirs (e.g. an orphan/reassigned row left by a staff change).
@@ -289,6 +295,8 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
         }
       }
     }
+    // A live row exists that this worker may not claim -> refuse to duplicate.
+    if (rows.some(c => c.status !== 'reassigned')) return null;
   }
 
   const myStation = (myStationRows || []).find(s => s.ngo_id === ngoId);
@@ -318,7 +326,8 @@ async function getFroAssignment(donorId, workerId, ngoId) {
     .select('id, ngo_id')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
-    .not('status', 'eq', 'reassigned');
+    .not('status', 'eq', 'reassigned')
+    .limit(1);
   if (ngoId) query = query.eq('ngo_id', ngoId);
   const { data } = await query.maybeSingle();
   return data || null;
@@ -1152,7 +1161,13 @@ export const getMyPerformance = async (req, res) => {
         }
       }
     }
-    const idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
+    let idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
+    try {
+      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs });
+      if (ts.hasLedger) idleSeconds = ts.totals.idle_seconds;
+    } catch (ledgerErr) {
+      console.error('performance strip ledger idle read failed:', ledgerErr.message);
+    }
 
     return res.json({
       // Whose figures these are: the person at the keyboard. Identical to
@@ -2018,33 +2033,61 @@ export const claimSuspenseReceipt = async (req, res) => {
     // Attach to the donor's open assignment owned by THIS claiming FRO for THIS
     // NGO (or open a fresh one) so the created lead shows up in Lead Verification
     // and credits the claimant — never another worker's or another NGO's assignment.
-    const { data: assignment } = await db
+    //
+    // "Fresh one" must mean: no active row for this (donor, NGO) exists AT ALL.
+    // Looking only at rows owned by the claimant made every claim against a donor
+    // owned by someone else insert a second active row — which is how the same
+    // donor ended up sitting in two stations at once. Reuse the donor's existing
+    // row instead; the lead still credits the claimant because the log below
+    // carries creditWorkerId, not the assignment's owner.
+    let { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id, status')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .eq('ngo_id', receiptNgoId)
       .neq('status', 'reassigned')
+      .limit(1)
       .maybeSingle();
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
-      const { scope: claimScope } = await getMyStationScope(workerId, froActPairs(req));
-      const scopeRow = (claimScope || []).find(s => s.ngo_id === receiptNgoId);
-      const { data: created, error: asgErr } = await db
+      const { data: anyActive } = await db
         .from('fro_assignments')
-        .insert({
-          donor_id: donorId,
-          fro_worker_id: workerId,
-          ngo_id: receiptNgoId,
-          station: scopeRow?.station || null,
-          status: 'lead_done',
-          assigned_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-      if (asgErr) throw asgErr;
-      assignmentId = created.id;
+        .select('id, fro_worker_id, status')
+        .eq('donor_id', donorId)
+        .eq('ngo_id', receiptNgoId)
+        .neq('status', 'reassigned')
+        .order('id', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (anyActive) {
+        assignment = anyActive;
+        assignmentId = anyActive.id;
+      } else {
+        // A receipt claim is a MONEY action, never an allotment. Do not stamp
+        // the claimant's station on the row it creates: getMyDonors only serves
+        // rows whose station is in the FRO's scope (`.in('station', ...)`, with
+        // no fallback), so a station-less row keeps this donor out of every My
+        // Leads list — including later, when resetCycledDonors / the monthly
+        // rollover flip lead_done back to pending. Credit is unaffected: the log
+        // below carries creditWorkerId, and Lead Verification joins the
+        // assignment through fro_worker_id, which still points at the claimant.
+        const { data: created, error: asgErr } = await db
+          .from('fro_assignments')
+          .insert({
+            donor_id: donorId,
+            fro_worker_id: workerId,
+            ngo_id: receiptNgoId,
+            station: null,
+            status: 'lead_done',
+            assigned_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        if (asgErr) throw asgErr;
+        assignmentId = created.id;
+      }
     }
 
     // Never collide with an explicit-id row from a data migration/import: keep
@@ -2328,7 +2371,7 @@ export const getMyDonors = async (req, res) => {
       if (req.query.new_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
       } else if (req.query.old_only === 'true') {
-        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && (a.is_new === false || a.is_new == null)));
       }
     }
 
@@ -2771,17 +2814,21 @@ export const getMyDonors = async (req, res) => {
     }
 
     // ─── My Leads = pending work ONLY ────────────────────────────────────────
-    // The list is the FRO's queue of leads still to call. Any row already
-    // dispositioned this month (ring/busy retryables, scheduled callbacks,
+    // The list is the FRO's queue of leads still to call: pending rows plus
+    // retryable not-connected rows (ringing/busy/switched-off/…), which come
+    // back the day after they were dialled and sink to the tail. Any other row
+    // dispositioned this month (scheduled callbacks,
     // refusals, donation-done, …) belongs in History / Callbacks / Follow-ups /
     // Overdue, not here — this month's dispositions carry their own tabs. The
     // monthly rollover resets every worked status back to 'pending', so a lead
     // disposed last month returns here when the new cycle starts. The
     // verified_only view (Donors panel) is exempt because it is a money-
     // reconciliation list, not a calling queue.
+    const isQueueableStatus = (r) => r.status === 'pending' || r.status == null || r.status === ''
+      || RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
     if (req.query.verified_only !== 'true') {
       filtered = filtered.filter(r => {
-        const isPendingStatus = r.status === 'pending' || r.status == null || r.status === '';
+        const isPendingStatus = isQueueableStatus(r);
         // A lead dispositioned today must leave Leads even when its surfaced
         // assignment row still reads 'pending' — which happens when the donor
         // has a duplicate/twin assignment row and today's disposition log was
@@ -2802,7 +2849,7 @@ export const getMyDonors = async (req, res) => {
     // Follow-ups / Overdue until the monthly rollover resets it to pending.
     const workableFiltered = result.filter(r => {
       // NULL/empty status rows are never-worked assignments; treat as pending.
-      if (!(r.status === 'pending' || r.status == null || r.status === '')) return false;
+      if (!isQueueableStatus(r)) return false;
       if (disposedTodayIds.has(r.donor_id)) return false;
       if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
       if (MONEY_DONE_STATUSES.has(r.status)) return false;
@@ -2812,22 +2859,22 @@ export const getMyDonors = async (req, res) => {
       return true;
     });
 
-    const isNewAssignment = (r) => r.batch_type === 'new_data' || (r.batch_type == null && r.is_new !== false);
-    const groupOf = (r) => {
-      const isRetryable = RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
-      const isNew = isNewAssignment(r);
-      if (isRetryable) return isNew ? 2 : 3;
-      if (isNew) return 0;
-      return 1;
-    };
-
-    filtered.sort((a, b) => {
-      const groupA = groupOf(a);
-      const groupB = groupOf(b);
-      if (groupA !== groupB) return groupA - groupB;
+    // Called longest ago first, most recently called last, never-called at the bottom.
+    const contactedMs = (r) => (r.last_contacted_at ? new Date(r.last_contacted_at).getTime() : null);
+    const byContactedAsc = (a, b) => {
+      const ca = contactedMs(a);
+      const cb = contactedMs(b);
+      if (ca === null && cb !== null) return 1;
+      if (ca !== null && cb === null) return -1;
+      if (ca !== null && cb !== null && ca !== cb) return ca - cb;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
       return dateA - dateB;
+    };
+    workableFiltered.sort(byContactedAsc);
+    filtered.sort((a, b) => {
+      if (a.is_suppressed !== b.is_suppressed) return a.is_suppressed ? 1 : -1;
+      return byContactedAsc(a, b);
     });
 
     // ─── Backend-authoritative current donor (controlled queue) ──────────────
@@ -3969,6 +4016,7 @@ export const getFroScheduled = async (req, res) => {
         donor_name: d?.name || 'Unknown',
         donor_mobile: d?.mobile_number || '',
         scheduled_at: c.scheduled_at,
+        station: a.station || null,
         schedule_id: c.id,
         schedule_notes: c.notes,
         assignment_id: a.id,
@@ -4038,6 +4086,7 @@ export const getFroCallbacks = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
+        station: a.station || null,
         status: a.status,
         next_follow_up: a.next_follow_up,
         assignment_id: a.id,
@@ -4119,6 +4168,7 @@ export const getFroPromises = async (req, res) => {
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
         due_date: a.next_follow_up || scheduleMap[a.id] || null,
+        station: a.station || null,
         status: a.status,
         next_follow_up: a.next_follow_up,
         assignment_id: a.id,
@@ -4309,10 +4359,16 @@ export const getMyHistory = async (req, res) => {
     // writes logs on the impersonated FRO's assignment, so those actions appear
     // in the owner's history (and never come back to the real operator's own
     // account after the session ends).
-    const { data: logs, error } = await db
+    // Inside a "work as" session the operator sees only the actions they
+    // logged themselves, never the owner's full history.
+    let historyQuery = db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
-      .eq('fro_assignments.fro_worker_id', workerId)
+      .eq('fro_assignments.fro_worker_id', workerId);
+    if (req.user.impersonation && req.user.imposter_id != null) {
+      historyQuery = historyQuery.eq('fro_worker_id', realOperatorId(req.user));
+    }
+    const { data: logs, error } = await historyQuery
       .order('created_at', { ascending: false })
       .limit(200);
 
@@ -4912,7 +4968,11 @@ export const updateLiveStatus = async (req, res) => {
       if (!agentRow || !agentRow.is_active) {
         return res.status(401).json({ message: 'This agent login is no longer active. Please login again.' });
       }
-      if (String(agentRow.worker_id) !== String(req.user.id)) {
+      // A deliberate work-as switch points the token at another FRO, so
+      // req.user.id is then the COVERED target, not the agent's assigned FRO.
+      // The mismatch is only the reassignment kick when the session is on the
+      // agent's own account; a live cover of somebody else must not be bounced.
+      if (!req.user.impersonation && String(agentRow.worker_id) !== String(req.user.id)) {
         return res.status(401).json({ message: 'Your agent assignment has changed. Please login again.' });
       }
       try {
@@ -6320,7 +6380,7 @@ export const getMyDisposedLeads = async (req, res) => {
     const { data: disposedLogs, error: logErr } = await db
       .from('fro_donor_logs')
       .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
-      .eq('fro_worker_id', workerId)
+      .eq('fro_worker_id', realOperatorId(req.user))
       // History is scoped to THIS billing month's work. The daily rollover
       // archives the previous month's call logs out of fro_donor_logs anyway,
       // but that runs at 04:00 IST — a hard clamp here keeps the 1st-of-month

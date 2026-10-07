@@ -304,10 +304,12 @@ export const resetCrmAgentPassword = async (req, res) => {
 
 // What the signed-in session actually is.
 //
-// The FRO panel already knows it is in a work-as session, but it cannot tell
-// whether the person typing is an agent (bound to one FRO, cannot switch) or an
-// admin mid-cover (may switch). The difference decides whether to offer the
-// account switcher at all, so it is worth answering explicitly.
+// The FRO panel already knows it is in a work-as session, and an agent may use
+// the account switcher exactly like an admin mid-cover (the switch is gated by a
+// single-use admin-generated code on the server). is_agent tells the UI who is
+// typing so it can label the session; can_switch_fro is kept for callers that
+// want to gate the switcher, and is true for everyone because the server is the
+// real gate.
 export const getMyCrmAgentContext = async (req, res) => {
   try {
     const agentId = req.user?.agent_user_id || null;
@@ -325,7 +327,7 @@ export const getMyCrmAgentContext = async (req, res) => {
     const agent = rows?.[0] || null;
     return res.json({
       is_agent: true,
-      can_switch_fro: false,
+      can_switch_fro: true,
       agent: agent
         ? {
             login_id: agent.login_id,
