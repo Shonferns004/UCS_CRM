@@ -201,7 +201,7 @@ function DonationDoneStamp({ donor }) {
           </div>
           <div style={{ marginTop: 12 }}>
             <span style={{ display: 'inline-block', border: '2px solid #fff', borderRadius: 999, padding: '3px 16px', fontSize: 10, fontWeight: 800, letterSpacing: .8 }}>
-              {donor.has_verified_donation_current_month ? '✓  VERIFIED' : '●  PENDING VERIFICATION'}
+              {donor.has_verified_donation_current_month ? '✓  VERIFIED' : '�  PENDING VERIFICATION'}
             </span>
           </div>
         </div>
@@ -1886,9 +1886,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   ? `Showing ${renderedItems.length} of ${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
-                  : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads`
-                    + (hasMoreRef.current ? ' · scroll for more' : '')
-                    + (closedCount ? ` \u00b7 ${closedCount} already worked \u2014 filter by status` : '')
+                  : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads (total: ${total || donors.length})`
+                    + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
+                    + (closedCount ? ` · ${closedCount} already worked — filter by status` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
         </div>
       </div>
