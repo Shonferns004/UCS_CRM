@@ -602,6 +602,9 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
       ('Address', _address),
       ('Pincode', _b['pincode']?.toString() ?? ''),
       ('NGO', _ngoName),
+      ('Last Event', _b['kit_event_name']?.toString() ?? '-'),
+      ('Last Visit',
+          _fmt(_b['kit_given_at']).isEmpty ? '-' : _fmt(_b['kit_given_at'])),
       ('Disability', _disability),
       ('Needed', _b['needed']?.toString() ?? ''),
     ].where((r) => r.$2.isNotEmpty).toList();

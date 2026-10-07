@@ -196,16 +196,24 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
   if (search) {
-    query = query.or(`beneficiary_code.ilike.%${search}%,full_name.ilike.%${search}%,mobile.ilike.%${search}%`);
+    // Commas and parens are PostgREST or= separators, so a typed event name
+    // like "Diwali, Camp" must not reach the expression raw.
+    const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (term) {
+      query = query.or(
+        `beneficiary_code.ilike.%${term}%,full_name.ilike.%${term}%,mobile.ilike.%${term}%,kit_event_name.ilike.%${term}%`
+      );
+    }
   }
   if (status) query = query.eq('status', status);
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
   if (state) query = query.eq('state', state);
   if (city) query = query.eq('city', city);
+  if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
   if (kit_given !== undefined && kit_given !== null) {
     query = query.eq('kit_given', kit_given === true || kit_given === 'true');
   }
@@ -330,16 +338,23 @@ export const searchByMobile = async (mobile) => {
   return data || [];
 };
 
-export const markKitGiven = async (id, givenBy) => {
+export const markKitGiven = async (id, givenBy, event = null) => {
   const now = new Date().toISOString();
+  const update = {
+    kit_given: true,
+    kit_given_at: now,
+    kit_given_by: givenBy || 'system',
+    updated_at: now,
+  };
+  // Only overwrite the recorded event when this handout actually had one —
+  // a kit given with no event assigned keeps the beneficiary's last known event.
+  if (event && event.id != null) {
+    update.kit_event_id = event.id;
+    update.kit_event_name = event.name || null;
+  }
   const { data, error } = await db
     .from('beneficiaries')
-    .update({
-      kit_given: true,
-      kit_given_at: now,
-      kit_given_by: givenBy || 'system',
-      updated_at: now,
-    })
+    .update(update)
     .eq('id', id)
     .select('*')
     .single();

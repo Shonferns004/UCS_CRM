@@ -32,8 +32,18 @@ export default function AllBeneficiaries() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [eventFilter, setEventFilter] = useState('')
+  const [events, setEvents] = useState([])
   const [page, setPage] = useState(1)
   const pageSize = 25
+
+  // Event filter options — the same operator_events rows the app's Operator
+  // Details screen types into. Failing to load them must not break the list.
+  useEffect(() => {
+    apiGet('/operator/events')
+      .then((list) => setEvents(Array.isArray(list) ? list : []))
+      .catch((e) => console.error('Failed to load events:', e))
+  }, [])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -41,6 +51,7 @@ export default function AllBeneficiaries() {
       const params = new URLSearchParams({ page, pageSize })
       if (search) params.set('search', search)
       if (statusFilter) params.set('status', statusFilter)
+      if (eventFilter) params.set('event_id', eventFilter)
       const result = await apiGet(`/beneficiaries?${params}`)
       setData(result)
     } catch (e) {
@@ -48,7 +59,7 @@ export default function AllBeneficiaries() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, statusFilter])
+  }, [page, search, statusFilter, eventFilter])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -126,6 +137,14 @@ export default function AllBeneficiaries() {
           <option value="DECEASED">Deceased</option>
           <option value="DUPLICATE">Duplicate</option>
         </select>
+        <select value={eventFilter} onChange={(e) => { setEventFilter(e.target.value); setPage(1) }} style={styles.input}>
+          <option value="">All Events</option>
+          {events.map((ev) => (
+            <option key={ev.id} value={ev.id}>
+              {ev.title || ev.name || `Event #${ev.id}`}{ev.event_date ? ` — ${ev.event_date}` : ''}
+            </option>
+          ))}
+        </select>
         {selected.size > 0 && (
           <button onClick={handleDeleteSelected} style={{ ...styles.btn, background: '#dc2626', color: '#fff' }}>
             Delete Selected ({selected.size})
@@ -161,6 +180,7 @@ export default function AllBeneficiaries() {
                   <th style={styles.th}>City</th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Kit</th>
+                  <th style={styles.th}>Event</th>
                   <th style={styles.th}>Fingerprint</th>
                   <th style={styles.th}>Registered</th>
                   <th style={styles.th}>Actions</th>
@@ -194,6 +214,9 @@ export default function AllBeneficiaries() {
                         )}>
                           {b.kit_given ? 'Yes' : 'No'}
                         </span>
+                      </td>
+                      <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.kit_event_name || '-'}
                       </td>
                       <td style={styles.td}>
                         <span style={styles.pill(

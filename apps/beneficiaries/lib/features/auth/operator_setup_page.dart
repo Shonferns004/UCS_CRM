@@ -10,7 +10,6 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
-import '../operator/operator_event_page.dart';
 
 class OperatorSetupPage extends StatefulWidget {
   final VoidCallback onComplete;
@@ -25,12 +24,11 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
   bool _saving = false;
   String? _error;
 
-  List<Map<String, dynamic>> _events = [];
   List<Map<String, dynamic>> _kits = [];
   List<Map<String, dynamic>> _organizers = [];
   String? _selectedState;
   String? _selectedCity;
-  int? _selectedEventId;
+  final TextEditingController _eventController = TextEditingController();
   int? _selectedKitId;
   int? _selectedOrganizerId;
   String? _selfieBase64;
@@ -42,6 +40,12 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
     _loadDashboard();
   }
 
+  @override
+  void dispose() {
+    _eventController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadDashboard() async {
     setState(() {
       _loading = true;
@@ -50,9 +54,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
     try {
       final body = await ApiService.get('/operator/dashboard');
       if (!mounted) return;
-      final events = (body['events'] as List?) ?? [];
       setState(() {
-        _events = events.map((e) => Map<String, dynamic>.from(e)).toList();
         _kits = ((body['kits'] as List?) ?? [])
             .map((e) => Map<String, dynamic>.from(e))
             .toList();
@@ -62,8 +64,8 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
         _selectedState = body['state']?.toString();
         _selectedCity = body['city']?.toString();
         final event = body['event'] as Map<String, dynamic>?;
-        _selectedEventId =
-            event?['id'] != null ? (event?['id'] as num).toInt() : null;
+        final savedEvent = event?['title']?.toString() ?? '';
+        if (savedEvent.isNotEmpty) _eventController.text = savedEvent;
         _selectedKitId = body['kit_id'] != null
             ? (body['kit_id'] as num).toInt()
             : null;
@@ -129,7 +131,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
       await ApiService.post('/operator/self-assign', body: {
         'state': _selectedState,
         'city': _selectedCity,
-        'event_id': _selectedEventId,
+        'event_name': _eventController.text.trim(),
         'kit_id': _selectedKitId,
         'organizer_id': _selectedOrganizerId,
         'selfie_url': selfieUrl,
@@ -208,27 +210,13 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                       ),
                       const SizedBox(height: 16),
 
-                      DropdownButtonFormField<int>(
-                        initialValue: _selectedEventId,
-                        decoration: const InputDecoration(labelText: 'Event'),
-                        hint: const Text('Select event'),
-                        items: (_events.isEmpty
-                                ? [
-                                    {'id': null, 'title': 'No events yet'}
-                                  ]
-                                : _events)
-                            .map((e) => DropdownMenuItem<int>(
-                                value: e['id'] != null
-                                    ? (e['id'] as num).toInt()
-                                    : null,
-                                child: Text(
-                                  e['title']?.toString() ?? 'Event',
-                                  overflow: TextOverflow.ellipsis,
-                                )))
-                            .toList(),
-                        isExpanded: true,
-                        onChanged: (v) =>
-                            setState(() => _selectedEventId = v),
+                      TextFormField(
+                        controller: _eventController,
+                        decoration: const InputDecoration(
+                          labelText: 'Event',
+                          hintText: 'Type the event name (e.g. Diwali Camp)',
+                        ),
+                        textInputAction: TextInputAction.next,
                       ),
                       const SizedBox(height: 16),
 
@@ -271,39 +259,6 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                         onChanged: (v) =>
                             setState(() => _selectedOrganizerId = v),
                       ),
-
-                      if (_selectedEventId != null) ...[
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              final ev = _events.firstWhere(
-                                (e) =>
-                                    e['id'] != null &&
-                                    (e['id'] as num).toInt() ==
-                                        _selectedEventId,
-                                orElse: () => {
-                                  'id': _selectedEventId,
-                                  'title': 'Event'
-                                },
-                              );
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => OperatorEventPage(
-                                    eventId: _selectedEventId!,
-                                    eventTitle:
-                                        ev['title']?.toString() ?? 'Event',
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(LucideIcons.calendar, size: 18),
-                            label: const Text('View Event'),
-                          ),
-                        ),
-                      ],
 
                       const SizedBox(height: 28),
                       const SectionHeader(title: 'Your photo'),
