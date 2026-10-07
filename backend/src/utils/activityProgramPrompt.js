@@ -25,11 +25,11 @@ export const ACTIVITY_SUGGESTION_LIMIT = 6;
 /**
  * The one beneficiary group each NGO serves, by its short code.
  *
- * This is the single source of truth for the planner's beneficiary group: the
- * prompt, the monthly filter and the table column all read it rather than a
- * per-activity free-text tag, so an activity cannot claim a group its NGO does
- * not serve. Kept here, next to the prompt, so aiming the AI at the group and
- * filtering by it cannot drift apart.
+ * Kept only as a READ fallback: activities created before the category dropdown
+ * existed fall back to their NGO's group so they never drop out of the filter,
+ * and the festival flow still reports the NGO's own group. Nothing chooses a
+ * category from this map any more — the dropdown's closed vocabulary below is
+ * the only list a category is picked from.
  */
 export const NGO_BENEFICIARY_GROUP = {
   bsct: 'Visually Impaired',
@@ -42,17 +42,29 @@ export const beneficiaryGroupForNgo = (code) =>
   NGO_BENEFICIARY_GROUP[String(code || '').trim().toLowerCase()] || '';
 
 /**
- * The closed vocabulary of groups, in a stable order.
+ * The closed vocabulary of beneficiary categories, in a stable order.
  *
- * An activity stores the group it serves, so this is what an activity's own
+ * An activity stores the category it serves, so this is what an activity's own
  * value is matched against: trimmed and case-insensitive, and '' for anything
- * outside the three. A value outside the vocabulary must not reach the prompt —
- * it would aim the AI at a group nothing else in the system knows about, and it
- * could not be filtered on later.
+ * outside the list. A value outside the vocabulary must not reach the prompt —
+ * it would aim the AI at a category nothing else in the system knows about, and
+ * it could not be filtered on later.
+ *
+ * MUST stay identical to BENEFICIARY_CATEGORIES in
+ * client/src/panels/event-head/store.jsx: the UI only offers these values, so a
+ * category the backend does not list would be canonicalised away on read.
  */
-export const ACTIVITY_BENEFICIARY_GROUPS = Object.values(NGO_BENEFICIARY_GROUP);
+export const ACTIVITY_BENEFICIARY_GROUPS = [
+  'Visually Impaired',
+  'Children',
+  'Senior Citizens',
+  'Women',
+  'Underprivileged Families',
+  'Persons with Disabilities',
+  'Others',
+];
 
-/** The saved spelling of a group, or '' when it is not one of the three. */
+/** The saved spelling of a category, or '' when it is not in the vocabulary. */
 export const canonicalActivityBeneficiary = (value) => {
   const v = String(value ?? '').trim().toLowerCase();
   if (!v) return '';
