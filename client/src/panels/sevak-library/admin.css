@@ -16,7 +16,7 @@
 /* Scoped copy of the standalone sevak-library admin stylesheet. Selectors are
    prefixed with .panel-sevak so they can never clash with the hosting HR /
    Accounts panels. */
-.panel-sevak /* ============================ embedded panel shell ============================ */
+/* ============================ embedded panel shell ============================ */
 .panel-sevak .sevak-panel-head {
   display: flex;
   align-items: center;
@@ -1154,31 +1154,38 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
   display: flex;
-  justify-content: flex-end;
-  z-index: 60;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Above the hosting Accounts topbar (index.css z-index:1001) so the sticky
+     "Accounts / Library" header never paints over the detail modal. */
+  z-index: 1060;
 
 }
 .panel-sevak .drawer {
 
   width: 100%;
-  max-width: 560px;
-  height: 100%;
-  height: 100dvh;
+  max-width: 600px;
+  height: auto;
+  max-height: 92vh;
+  max-height: 92dvh;
   background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.18);
-  animation: drawerIn 0.25s ease;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+  animation: drawerIn 0.22s ease;
 
 }
 @keyframes drawerIn {
 
   from {
-    transform: translateX(40px);
+    transform: translateY(14px) scale(0.98);
     opacity: 0;
   }
   to {
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
     opacity: 1;
   }
 
@@ -1812,7 +1819,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 70;
+  z-index: 1070;
   padding: 20px;
 
 }
@@ -2031,7 +2038,7 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  z-index: 100;
+  z-index: 1090;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3121,7 +3128,7 @@
   position: fixed;
   inset: 0;
   background: rgba(32, 33, 36, 0.45);
-  z-index: 55;
+  z-index: 1055;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3385,6 +3392,17 @@
   color: #b91c1c;
   border-left-color: #ef4444;
 }
+/* pending rows: "Starts" chip instead of the renewal countdown */
+.panel-sevak .date-tag.date-starts.tone-next {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-left-color: #0ea5e9;
+}
+.panel-sevak .date-tag.date-starts.tone-past {
+  background: #f1f3f2;
+  color: #5f6368;
+  border-left-color: #9aa0a6;
+}
 @keyframes renewPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
   50% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
@@ -3434,3 +3452,1257 @@
     display: none;
   }
 }
+
+/* ================= Applications page — designed.md spec ================= */
+
+/* spec §4 page title */
+.panel-sevak .view-title-spec {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+/* whole row opens the detail modal */
+.panel-sevak .app-table tbody tr.app-row {
+  cursor: pointer;
+}
+.panel-sevak .app-table tbody tr.app-row:hover {
+  background: #f5faf7;
+}
+
+/* spec §5 compact summary statistics */
+.panel-sevak .sum-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.panel-sevak .sum-card {
+  --sc: #0b7fdb;
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px 12px 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  overflow: hidden;
+  font-family: inherit;
+}
+.panel-sevak .sum-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--sc);
+}
+.panel-sevak .sum-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.panel-sevak .sum-label {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.panel-sevak .sum-card:hover {
+  border-color: var(--sc);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.07);
+}
+.panel-sevak .sum-card.active {
+  border-color: var(--sc);
+  box-shadow: 0 0 0 1px var(--sc);
+}
+
+/* spec §6 filter toolbar */
+.panel-sevak .btn-filter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.panel-sevak .btn-filter:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+.panel-sevak .btn-filter:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.panel-sevak .btn-filter.has-filters {
+  border-color: var(--green);
+  color: var(--green-dark);
+  background: var(--green-light);
+}
+.panel-sevak .filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.panel-sevak .filter-wrap {
+  position: relative;
+}
+.panel-sevak .filter-pop {
+  position: fixed;
+  z-index: 1080;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.16);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.panel-sevak .filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.panel-sevak .filter-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.panel-sevak .filter-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.panel-sevak .filter-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+  cursor: pointer;
+  margin: 0;
+}
+.panel-sevak .filter-check em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: #f1f3f2;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.panel-sevak .filter-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* small buttons (filter popover, row menu) */
+.panel-sevak .btn-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.panel-sevak .btn-mini:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+.panel-sevak .btn-mini:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.panel-sevak .btn-mini.apply {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.panel-sevak .btn-mini.apply:hover:not(:disabled) {
+  background: var(--green-dark);
+  border-color: var(--green-dark);
+  color: #fff;
+}
+.panel-sevak .btn-mini.approve {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+.panel-sevak .btn-mini.approve:hover:not(:disabled) {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
+.panel-sevak .btn-mini.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.panel-sevak .btn-mini.danger:hover:not(:disabled) {
+  background: #b3261e;
+  border-color: #b3261e;
+  color: #fff;
+}
+
+/* spec §18 bulk selection bar */
+.panel-sevak .bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.panel-sevak .bulk-bar strong {
+  font-size: 13.5px;
+  color: #1d4ed8;
+}
+.panel-sevak .bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #bfdbfe;
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+.panel-sevak .bulk-btn:hover:not(:disabled) {
+  background: #dbeafe;
+}
+.panel-sevak .bulk-btn.danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.panel-sevak .bulk-btn.danger:hover:not(:disabled) {
+  background: #fee2e2;
+}
+.panel-sevak .bulk-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.panel-sevak .bulk-clear {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.panel-sevak .bulk-clear:disabled {
+  opacity: 0.5;
+}
+.panel-sevak .bulk-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.panel-sevak .bulk-confirm p {
+  margin: 0;
+  font-size: 13.5px;
+  color: #7f1d1d;
+}
+
+/* membership id line under the status badge */
+.panel-sevak .mid {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+/* mobile number line inside the applicant cell */
+.panel-sevak .cell-name small.cell-mobile {
+  color: var(--muted);
+}
+
+/* spec §10 reference copy-on-click */
+.panel-sevak .ref-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 3px 5px;
+  margin: -3px -5px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.panel-sevak .ref-copy:hover {
+  background: #f1f3f2;
+}
+.panel-sevak .ref-copy .ref-icon {
+  opacity: 0;
+  color: var(--muted);
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.panel-sevak .ref-copy:hover .ref-icon {
+  opacity: 1;
+}
+.panel-sevak .ref-copy .ref-check {
+  color: #16a34a;
+  flex-shrink: 0;
+}
+/* spec §11-12 date cells */
+.panel-sevak .app-table td.date-cell {
+  white-space: nowrap;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.panel-sevak .date-cell small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.panel-sevak .date-cell .exp-tag {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* spec §13 days remaining */
+.panel-sevak .days-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.panel-sevak .days-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.panel-sevak .days-pill.tone-green {
+  background: #dcfce7;
+  color: #15803d;
+}
+.panel-sevak .days-pill.tone-yellow {
+  background: #fef9c3;
+  color: #a16207;
+}
+.panel-sevak .days-pill.tone-orange {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.panel-sevak .days-pill.tone-red {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+/* pending rows count down to start_date instead of end_date */
+.panel-sevak .days-pill.tone-blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.panel-sevak .days-pill.tone-gray {
+  background: #f1f3f2;
+  color: #5f6368;
+}
+
+/* spec §39 right-aligned currency */
+.panel-sevak .app-table .col-fee {
+  text-align: right;
+}
+.panel-sevak .num-td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* selection checkbox column */
+.panel-sevak .app-table .col-check {
+  width: 40px;
+  padding-left: 14px;
+  padding-right: 0;
+}
+.panel-sevak .app-table .col-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
+/* spec §17 row actions (⋮ menu) */
+.panel-sevak .actions-cell {
+  white-space: nowrap;
+}
+.panel-sevak .actions-cell .btn-view {
+  margin-right: 4px;
+}
+.panel-sevak .menu-wrap {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.panel-sevak .btn-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: none;
+  border-radius: 8px;
+  padding: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.panel-sevak .btn-more:hover:not(:disabled),
+.panel-sevak .btn-more.active {
+  background: #f1f3f2;
+  border-color: var(--border);
+  color: var(--ink);
+}
+.panel-sevak .btn-more:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.panel-sevak .row-menu {
+  position: fixed;
+  z-index: 1080;
+  min-width: 230px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.panel-sevak .row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: left;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.panel-sevak .row-menu-item:hover:not(:disabled) {
+  background: #f4f6f5;
+}
+.panel-sevak .row-menu-item.danger {
+  color: #b91c1c;
+}
+.panel-sevak .row-menu-item.danger:hover:not(:disabled) {
+  background: #fef2f2;
+}
+.panel-sevak .row-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.panel-sevak .row-menu-box {
+  width: 268px;
+  padding: 12px;
+  gap: 8px;
+}
+.panel-sevak .row-menu-box strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.panel-sevak .menu-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.panel-sevak .menu-kv b {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+.panel-sevak .menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.panel-sevak .menu-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+.panel-sevak .menu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.panel-sevak .menu-field textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink);
+  resize: vertical;
+  outline: none;
+}
+.panel-sevak .menu-field textarea:focus {
+  border-color: var(--green);
+}
+.panel-sevak .menu-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.panel-sevak .menu-text {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.panel-sevak .menu-text .mono {
+  color: var(--muted);
+  font-size: 12px;
+}
+.panel-sevak .menu-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* spec §33 pagination */
+.panel-sevak .pagination-split {
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.panel-sevak .page-range {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.panel-sevak .page-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.panel-sevak .page-num {
+  min-width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.panel-sevak .page-num:hover:not(.active) {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+.panel-sevak .page-num.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  font-weight: 700;
+}
+.panel-sevak .page-ellipsis {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 0 2px;
+}
+.panel-sevak .page-size {
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+  cursor: pointer;
+}
+
+/* spec §34 empty state */
+.panel-sevak .app-empty .empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+.panel-sevak .app-empty .empty-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+.panel-sevak .app-empty .btn-view {
+  margin-top: 6px;
+}
+
+/* spec §35 loading skeleton */
+.panel-sevak .skeleton-table {
+  display: flex;
+  flex-direction: column;
+}
+.panel-sevak .skeleton-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.panel-sevak .skeleton-row:last-child {
+  border-bottom: none;
+}
+.panel-sevak .skeleton-row span {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eef1f0 25%, #f7f9f8 50%, #eef1f0 75%);
+  background-size: 200% 100%;
+  animation: skel 1.2s ease infinite;
+}
+@keyframes skel {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* wider column set */
+.panel-sevak .app-table {
+  min-width: 1040px;
+}
+
+/* spec §36 mobile application cards (hidden on desktop) */
+.panel-sevak .app-cards {
+  display: none;
+}
+.panel-sevak .app-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.panel-sevak .app-card:hover {
+  border-color: var(--green);
+}
+.panel-sevak .app-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.panel-sevak .app-card-id {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+.panel-sevak .app-card-id strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-sevak .app-card-id .mono {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.panel-sevak .app-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+.panel-sevak .app-card-rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 10px;
+}
+.panel-sevak .app-card-rows div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+.panel-sevak .app-card-rows dt {
+  color: var(--muted);
+}
+.panel-sevak .app-card-rows dd {
+  margin: 0;
+  text-align: right;
+}
+.panel-sevak .app-card-view {
+  width: 100%;
+  padding: 10px;
+  font-size: 13.5px;
+  text-align: center;
+}
+
+/* responsive columns + layout (spec §36) */
+@media (max-width: 1180px) {
+  .panel-sevak .app-table {
+    min-width: 940px;
+  }
+  .panel-sevak .app-table .col-expire {
+    display: none;
+  }
+}
+@media (max-width: 1020px) {
+  .panel-sevak .app-table {
+    min-width: 720px;
+  }
+  .panel-sevak .app-table .col-plan,
+  .panel-sevak .app-table .col-fee {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .panel-sevak .drawer-overlay {
+    padding: 12px;
+  }
+  .panel-sevak .drawer {
+    max-height: 96vh;
+    max-height: 96dvh;
+    border-radius: 14px;
+  }
+  .panel-sevak .view-title-spec {
+    font-size: 24px;
+  }
+  .panel-sevak .app-table-desktop {
+    display: none;
+  }
+  .panel-sevak .app-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .panel-sevak .sum-cards {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+  .panel-sevak .filter-pop {
+    width: min(320px, calc(100vw - 40px));
+  }
+}
+
+/* ---------- application detail modal (wireframe redesign) ---------- */
+
+.panel-sevak .drawer-head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.panel-sevak .drawer-head-main h3 {
+  font-size: 17px;
+  margin: 0;
+}
+.panel-sevak .drawer-head-main .mono {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.panel-sevak .drawer-head-main .admin-badge {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.panel-sevak .drawer-body .d-section:last-child {
+  margin-bottom: 0;
+}
+
+/* profile hero */
+.panel-sevak .detail-hero {
+  text-align: center;
+  padding: 6px 0 20px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-sevak .detail-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--green-light);
+  color: var(--green-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 auto 12px;
+}
+.panel-sevak .detail-name {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 0;
+  color: var(--ink);
+}
+.panel-sevak .detail-meta {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 5px 0 10px;
+}
+.panel-sevak .detail-contact {
+  font-size: 13.5px;
+  color: var(--ink);
+  margin: 3px 0;
+  word-break: break-all;
+}
+
+/* section blocks (uppercase title + bordered rows) */
+.panel-sevak .d-section {
+  margin-bottom: 20px;
+}
+.panel-sevak .d-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.panel-sevak .d-rows {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.panel-sevak .d-rows-pad {
+  padding: 12px 14px;
+}
+.panel-sevak .d-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.panel-sevak .d-row:last-child {
+  border-bottom: none;
+}
+.panel-sevak .d-row-label {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.panel-sevak .d-row-value {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+  min-width: 0;
+  word-break: break-word;
+}
+.panel-sevak .d-address-line {
+  font-size: 13.5px;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+.panel-sevak .d-address-line:last-child {
+  margin-bottom: 0;
+}
+.panel-sevak .d-muted {
+  color: var(--muted);
+}
+
+/* vertical application progress */
+.panel-sevak .progress-list {
+  display: flex;
+  flex-direction: column;
+}
+.panel-sevak .pr-item {
+  display: flex;
+  gap: 12px;
+}
+.panel-sevak .pr-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+.panel-sevak .pr-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #d9dedd;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.panel-sevak .pr-item.done .pr-dot {
+  border-color: var(--green);
+  background: var(--green-light);
+  color: var(--green-dark);
+}
+.panel-sevak .pr-item.current .pr-dot {
+  border-color: var(--green);
+  background: var(--green);
+}
+.panel-sevak .pr-core {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  display: block;
+}
+.panel-sevak .pr-line {
+  width: 2px;
+  flex: 1;
+  min-height: 20px;
+  background: #d9dedd;
+  margin: 3px 0;
+}
+.panel-sevak .pr-label {
+  font-size: 13.5px;
+  color: var(--muted);
+  padding: 2px 0 16px;
+  line-height: 1.3;
+}
+.panel-sevak .pr-item.current .pr-label {
+  font-weight: 700;
+  color: var(--green-dark);
+}
+.panel-sevak .pr-item.done .pr-label {
+  color: var(--ink);
+}
+.panel-sevak .pr-item:last-child .pr-label {
+  padding-bottom: 0;
+}
+
+/* payment pill + payment ref copy */
+.panel-sevak .pay-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.panel-sevak .pay-pill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+}
+.panel-sevak .pay-pill.pending {
+  background: #fffbeb;
+  color: #b45309;
+}
+.panel-sevak .pay-pill.paid {
+  background: #f0fdf4;
+  color: #15803d;
+}
+.panel-sevak .ref-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.panel-sevak .ref-inline .mono {
+  font-size: 12.5px;
+}
+.panel-sevak .ref-copy-mini {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 7px;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+}
+.panel-sevak .ref-copy-mini:hover {
+  color: var(--green-dark);
+  border-color: var(--green);
+}
+
+/* documents list (view mode) */
+.panel-sevak .doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.panel-sevak .doc-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.panel-sevak .doc-item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #f1f3f2;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-sevak .doc-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.panel-sevak .doc-item-main strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.panel-sevak .doc-item-main small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.panel-sevak .doc-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.panel-sevak .doc-view-btn:hover {
+  border-color: var(--green);
+  color: var(--green-dark);
+}
+.panel-sevak .doc-none {
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* activity feed */
+.panel-sevak .activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 0;
+}
+.panel-sevak .act-item {
+  display: flex;
+  gap: 12px;
+}
+.panel-sevak .act-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-light);
+  margin-top: 5px;
+  flex-shrink: 0;
+  display: block;
+}
+.panel-sevak .act-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.panel-sevak .act-body strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.panel-sevak .act-body small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.panel-sevak .act-item.failed .act-dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px #fee2e2;
+}
+.panel-sevak .act-item.failed .act-body strong {
+  color: #b91c1c;
+}
+.panel-sevak .act-body em {
+  font-style: normal;
+  font-size: 12px;
+  color: #b91c1c;
+  word-break: break-word;
+}
+
+/* footer actions: one compact wrapped row, primary left / danger right */
+.panel-sevak .d-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.panel-sevak .d-actions .btn-act {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.panel-sevak .d-actions-danger {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.panel-sevak .d-actions-end {
+  margin-left: auto;
+}
+
+/* document preview (eye icon -> lightbox) */
+.panel-sevak .doc-view-icon {
+  padding: 8px;
+}
+.panel-sevak .doc-lightbox {
+  position: fixed;
+  inset: 0;
+  /* Above the drawer overlay (1060), toasts (1090) and mobile sidebar (1100)
+     so the document preview paints over the whole detail modal. */
+  z-index: 1120;
+  background: rgba(15, 23, 42, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.panel-sevak .doc-lightbox-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border-radius: 9px;
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+}
+.panel-sevak .doc-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.panel-sevak .doc-lightbox-fig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  cursor: default;
+}
+.panel-sevak .doc-lightbox-fig img {
+  max-width: min(92vw, 900px);
+  max-height: 82dvh;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 12px;
+  display: block;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.panel-sevak .doc-lightbox-fig figcaption {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+}
+
+/* ---------- dashboard: expiring-soon alert ---------- */
+
+.panel-sevak .expiry-alert {
+  border: 1px solid #fecaca;
+  background: #fffbfb;
+}
+.panel-sevak .expiry-alert .chart-title {
+  color: #b91c1c;
+}
+.panel-sevak .expiry-alert .recent-row:hover {
+  background: #fff1f1;
+}
+

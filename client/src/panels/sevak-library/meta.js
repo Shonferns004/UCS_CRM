@@ -60,6 +60,56 @@ export function renewalInfo(row) {
   return { days: d, tone, rel: d === 0 ? 'today' : `${Math.abs(d)}d` }
 }
 
+// Spec §13/§15: days-remaining cell — tone + text (never color alone).
+// green >=15 · yellow 7-14 · orange 1-6 · red 0/expired
+export function daysRemainingInfo(endDate) {
+  const d = daysUntil(endDate)
+  if (d === null) return null
+  let tone
+  let text
+  if (d < 0) {
+    tone = 'red'
+    text = `Expired ${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'} ago`
+  } else if (d === 0) {
+    tone = 'red'
+    text = 'Expires today'
+  } else if (d <= 6) {
+    tone = 'orange'
+    text = `${d} day${d === 1 ? '' : 's'}`
+  } else if (d <= 14) {
+    tone = 'yellow'
+    text = `${d} days`
+  } else {
+    tone = 'green'
+    text = `${d} days`
+  }
+  return { days: d, tone, text }
+}
+
+// Status-aware days cell: the membership only counts down once approved.
+// approved → days left until end_date (spec tones above).
+// pending  → days remaining until the selected start_date: "Starts in 4d" /
+//            "Starts today" / "Start overdue" once the selected start passes.
+// rejected → nothing (there is no membership to wait for).
+export function daysRemainingForRow(row) {
+  if (!row || row.status === 'REJECTED') return null
+  if (row.status === 'APPROVED') return daysRemainingInfo(row.end_date)
+  const d = daysUntil(row.start_date)
+  if (d === null) return null
+  if (d > 0) return { days: d, tone: 'blue', text: `Starts in ${d}d`, pending: true }
+  if (d === 0) return { days: d, tone: 'blue', text: 'Starts today', pending: true }
+  return { days: d, tone: 'orange', text: 'Start overdue', pending: true }
+}
+
+// Spec §6 membership filter buckets (based on expiry date).
+export function membershipState(row) {
+  const d = daysUntil(row.end_date)
+  if (d === null) return null
+  if (d < 0) return 'expired'
+  if (d <= 14) return 'expiring'
+  return 'active'
+}
+
 export function toLocalIso(d) {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`

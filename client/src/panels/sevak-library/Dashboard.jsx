@@ -34,7 +34,10 @@ export default function Dashboard({ rows, onOpen, onDrill }) {
     const rejected = count('REJECTED')
     const revenue = rows
       .filter((r) => r.status === 'VERIFIED' || r.status === 'APPROVED')
-      .reduce((s, r) => s + (Number(r.membership_fee) || 0), 0)
+      .reduce(
+        (s, r) => s + (Number(r.membership_fee) || 0) + (Number(r.renewal_fees) || 0),
+        0
+      )
     const newThisWeek = (s) =>
       rows.filter((r) => r.status === s && inLastDays(r.created_at, 7)).length
     const monthKey = (offset = 0) => {
@@ -144,6 +147,18 @@ export default function Dashboard({ rows, onOpen, onDrill }) {
 
   const recent = rows.slice(0, 6)
 
+  const expiringList = useMemo(
+    () =>
+      rows
+        .filter((r) => {
+          if (r.status !== 'APPROVED' || !r.end_date) return false
+          const d = daysUntil(r.end_date)
+          return d !== null && d >= 0 && d <= 30
+        })
+        .sort((a, b) => (daysUntil(a.end_date) ?? 0) - (daysUntil(b.end_date) ?? 0)),
+    [rows]
+  )
+
   const tooltipStyle = {
     borderRadius: 8,
     border: '1px solid #dadce0',
@@ -206,6 +221,46 @@ export default function Dashboard({ rows, onOpen, onDrill }) {
           }
         />
       </div>
+
+      {expiringList.length > 0 && (
+        <div className="chart-card expiry-alert">
+          <div className="recent-head">
+            <h3 className="chart-title">
+              <AlertTriangle size={16} /> Expiring soon
+              <small className="chart-hint">
+                {expiringList.length} ending within 30 days
+              </small>
+            </h3>
+            <button type="button" className="recent-all" onClick={() => drill({ renewal: true })}>
+              View all <ArrowRight size={14} />
+            </button>
+          </div>
+          <div className="recent-table">
+            {expiringList.slice(0, 6).map((r) => (
+              <button key={r.id} className="recent-row" onClick={() => onOpen(r)}>
+                <div className="recent-avatar">{r.full_name ? r.full_name.charAt(0).toUpperCase() : '?'}</div>
+                <div className="recent-main">
+                  <strong>{r.full_name}</strong>
+                  <span>{r.ref}</span>
+                  <span className="recent-dates">
+                    <AppliedDate iso={r.created_at} />
+                    <RenewalDate row={r} />
+                  </span>
+                </div>
+                <span
+                  className="plan-tag"
+                  style={{ '--pc': PLAN_COLORS[r.membership_type] || '#9aa0a6' }}
+                >
+                  {r.membership_type || '—'}
+                </span>
+                <span className="recent-fee mono">{formatINR(r.membership_fee)}</span>
+                <span className={`admin-badge ${r.status}`}>{statusLabel(r.status)}</span>
+                <ArrowRight size={16} className="recent-arrow" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="chart-card funnel-card">
         <div className="funnel-head">
