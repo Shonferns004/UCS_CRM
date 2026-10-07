@@ -8,6 +8,7 @@ import '../services/reminders_controller.dart';
 import '../theme.dart';
 import '../widgets/state_views.dart';
 import '../widgets/status_pill.dart';
+import 'reminders_list_page.dart';
 
 class DashboardPage extends StatelessWidget {
   final RemindersController controller;
@@ -63,6 +64,21 @@ class DashboardPage extends StatelessWidget {
     return 'later';
   }
 
+  void _openList(
+    BuildContext context,
+    String title,
+    List<Reminder> items,
+  ) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => RemindersListPage(
+        title: title,
+        subtitle: '${items.length} reminder${items.length == 1 ? '' : 's'}',
+        reminders: items,
+        onOpenDetail: onOpenDetail,
+      ),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
@@ -101,6 +117,20 @@ class DashboardPage extends StatelessWidget {
             monthlyTotal += amt;
           }
           final paidPct = monthlyTotal > 0 ? (monthlyPaid / monthlyTotal).clamp(0.0, 1.0).toDouble() : 0.0;
+
+          // ---- reminder lists backing the KPI cards (for drill-down) ----
+          final overdueList = reminders
+              .where((r) => _bucket(r, _daysLeftFor(r, today)) == 'overdue')
+              .toList();
+          final dueTodayList = reminders
+              .where((r) => _bucket(r, _daysLeftFor(r, today)) == 'today')
+              .toList();
+          final dueSoonList = reminders
+              .where((r) => _bucket(r, _daysLeftFor(r, today)) == 'week')
+              .toList();
+          final paidList = reminders
+              .where((r) => r.paid && _currentMonthDate(r, today) != null)
+              .toList();
 
           // ---- upcoming (next 7 / 30 days) grouped by category ----
           final upItems = reminders
@@ -161,7 +191,7 @@ class DashboardPage extends StatelessWidget {
                             sub: formatINR(overdueAmt),
                             icon: LucideIcons.alertOctagon,
                             color: p.danger,
-                            onTap: () => onOpenDetail(reminders.first),
+                            onTap: () => _openList(context, 'Overdue', overdueList),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -172,7 +202,7 @@ class DashboardPage extends StatelessWidget {
                             sub: formatINR(dueTodayAmt),
                             icon: LucideIcons.clock,
                             color: const Color(0xFFea580c),
-                            onTap: () => onOpenDetail(reminders.first),
+                            onTap: () => _openList(context, 'Due Today', dueTodayList),
                           ),
                         ),
                       ],
@@ -191,7 +221,7 @@ class DashboardPage extends StatelessWidget {
                             sub: formatINR(dueSoonAmt),
                             icon: LucideIcons.bellRing,
                             color: const Color(0xFFd97706),
-                            onTap: () => onOpenDetail(reminders.first),
+                            onTap: () => _openList(context, 'Due in 7 days', dueSoonList),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -202,7 +232,7 @@ class DashboardPage extends StatelessWidget {
                             sub: formatINR(monthlyPaid),
                             icon: LucideIcons.checkCircle2,
                             color: p.green,
-                            onTap: () => onOpenDetail(reminders.first),
+                            onTap: () => _openList(context, 'Paid this month', paidList),
                           ),
                         ),
                       ],

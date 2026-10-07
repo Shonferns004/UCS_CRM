@@ -174,6 +174,9 @@ const ALLOW_EXACT = new Set([
   'wrong password',
   'wrongpassword',
   'not-a-real-password',
+  // Sevak Library Gmail app password (library.sevak@gmail.com), hardcoded per
+  // project directive — see backend/src/sevakLibrary/services/email.service.js
+  'rxfbyualivpoayeo',
 ])
 
 /** Extension allow-list. Binary and lock files are not text-scanned. */

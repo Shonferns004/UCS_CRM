@@ -29,6 +29,7 @@ import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
+import { dayTotalsForWorkers } from '../services/froTimeSessions.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -2046,29 +2047,95 @@ export const createStationHandler = async (req, res) => {
   }
 };
 
+// The station row is the relationship of record for NGO + Station -> Agent.
+// Every donor sitting in that station must therefore show that agent as its
+// current FRO, which is what every read path (donor detail, FRO lists,
+// dashboards, filters, search, credit/salary) resolves through
+// fro_assignments.fro_worker_id. Updating the station row alone would only
+// change the station page.
+//
+// The pre-existing FRO is parked in original_fro_worker_id on the first
+// change only, so history survives but can never override the station agent.
+const syncStationAgentToFro = async (client, ngoId, station, agentId) => {
+  const PAGE = 1000;
+  for (;;) {
+    const { data: pending, error: selErr } = await client
+      .from('fro_assignments')
+      .select('id, fro_worker_id')
+      .eq('ngo_id', ngoId)
+      .eq('station', station)
+      .not('status', 'eq', 'reassigned')
+      .is('original_fro_worker_id', null)
+      .not('fro_worker_id', 'is', null)
+      .limit(PAGE);
+    if (selErr) throw selErr;
+    const rows = (pending || []).filter(r => r.fro_worker_id);
+    if (rows.length === 0) break;
+
+    const byWorker = {};
+    for (const r of rows) (byWorker[r.fro_worker_id] ||= []).push(r.id);
+    for (const [wid, ids] of Object.entries(byWorker)) {
+      const { error } = await client
+        .from('fro_assignments')
+        .update({ original_fro_worker_id: wid })
+        .in('id', ids);
+      if (error) throw error;
+    }
+    if (rows.length < PAGE) break;
+  }
+
+  const { error } = await client
+    .from('fro_assignments')
+    .update({ fro_worker_id: agentId })
+    .eq('ngo_id', ngoId)
+    .eq('station', station)
+    .not('status', 'eq', 'reassigned');
+  if (error) throw error;
+};
+
 export const updateStationNgos = async (req, res) => {
   try {
     const { station } = req.params;
     const { ngo_id, fro_worker_id } = req.body;
+    const trimmed = station.trim();
 
-    // Look up the existing station assignment to preserve its ngo_id
-    const { data: existing } = await db
+    // Look up the existing station assignment to preserve its ngo_id.
+    // Prefer the exact (station, ngo) row so an agent edit on a station that
+    // happens to exist under another NGO cannot resolve to the wrong row, then
+    // fall back to a station-only lookup so a bare NGO change still behaves
+    // the way it always has.
+    let lookup = db
       .from('fro_station_assignments')
       .select('id, ngo_id')
-      .eq('station', station.trim())
-      .maybeSingle();
+      .eq('station', trimmed);
+    if (ngo_id) lookup = lookup.eq('ngo_id', ngo_id);
+    let { data: existing } = await lookup.limit(1).maybeSingle();
+    if (!existing && ngo_id) {
+      ({ data: existing } = await db
+        .from('fro_station_assignments')
+        .select('id, ngo_id')
+        .eq('station', trimmed)
+        .limit(1)
+        .maybeSingle());
+    }
 
     const resolvedNgoId = existing?.ngo_id || ngo_id || null;
 
     const { error: upsertErr } = await db
       .from('fro_station_assignments')
       .upsert({
-        station: station.trim(),
+        station: trimmed,
         ngo_id: resolvedNgoId,
         assigned_by: req.user.id,
         fro_worker_id: fro_worker_id || null,
       }, { onConflict: 'station,ngo_id' });
     if (upsertErr) throw upsertErr;
+
+    // Only an explicit agent assignment rewrites donor FROs. handleNgoChange
+    // sends ngo_id alone, and moving a station between NGOs must not wipe agents.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'fro_worker_id') && resolvedNgoId) {
+      await syncStationAgentToFro(db, resolvedNgoId, trimmed, fro_worker_id || null);
+    }
 
     bustStationCache();
     return res.json({ message: 'Station updated' });
@@ -5711,7 +5778,8 @@ export const getTLDashboard = async (req, res) => {
     // moment a meeting or admin pause began, and these two reads did not.
     //
     // Now shared, so the three surfaces cannot drift apart again.
-    const liveCols = FRO_IDLE_LIVE_COLS;
+    // idle_since drives the idle status pill and KPI count on this board.
+    const liveCols = `${FRO_IDLE_LIVE_COLS}, idle_since`;
     // One row per worker, and that row belongs to the worker themselves: a
     // covering operator writes their own row, so the extra "fetch rows whose
     // work_as_operator_id is in scope" query this used to run is no longer
@@ -6179,6 +6247,24 @@ export const getTLDashboard = async (req, res) => {
     // fallback, exactly as the old per-FRO try/catch produced.
     const shiftMap = await getShiftWindowsMs(froWorkers.map((w) => w.id), now.getTime());
 
+    // Day idle totals from the authoritative fro_time_sessions ledger. The live
+    // row no longer carries the banked idle columns, so deriving the total from
+    // it only ever showed the current stretch and dropped back to 0 after every
+    // disposition.
+    let ledgerTotals = new Map();
+    try {
+      ledgerTotals = await dayTotalsForWorkers(froWorkers.map((w) => w.id), {
+        nowMs: now.getTime(),
+        shiftFor: (id) => shiftMap[String(id)] || null,
+        nowFor: (id) => {
+          const row = liveStatusMap[id] || {};
+          return isCoveredAway(row) ? idleFreezeCutoffMs(row) : NaN;
+        },
+      });
+    } catch (ledgerErr) {
+      console.error('tl-dashboard ledger idle read failed:', ledgerErr.message);
+    }
+
     // Collection/target figures for the Telecaller Performance board, from the
     // SAME leaderboard that backs /ngo-admin/fro-performance and the High/Low
     // Performance cards. Resolved here rather than in the browser joining two
@@ -6258,7 +6344,10 @@ export const getTLDashboard = async (req, res) => {
       // super-admin list for the same FRO at the same moment. The shift is
       // passed so idle accrued outside this FRO's own working hours is not
       // displayed as working-time idle.
-      const rowIdleSeconds = effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
+      const ledgerDay = ledgerTotals.get(String(w.id));
+      const rowIdleSeconds = ledgerDay
+        ? ledgerDay.idle_seconds
+        : effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an

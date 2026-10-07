@@ -12,7 +12,7 @@ import { AppError } from '../middleware/errorHandler.js'
 // Gmail user/password). Fill in the 16-character app password below to enable
 // sends.
 const GMAIL_USER = 'library.sevak@gmail.com'
-const GMAIL_APP_PASSWORD = ''
+const GMAIL_APP_PASSWORD = 'rxfbyualivpoayeo'
 const APP_URL = process.env.SEVAK_APP_URL || 'https://api.beingsevak.org/sevak-library'
 
 const transport = nodemailer.createTransport({

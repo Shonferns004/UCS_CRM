@@ -13,6 +13,11 @@ class ApiService {
 
   static String get baseUrl => Config.apiBaseUrl;
 
+  /// Invoked when the stored auth token is rejected (expired/invalid) so the
+  /// app can clear the session and return to the login screen instead of
+  /// silently failing to load data.
+  static void Function()? onUnauthorized;
+
   static Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
@@ -56,19 +61,36 @@ class ApiService {
     };
   }
 
-  static Future<void> _check(http.Response res) {
-    if (res.statusCode >= 200 && res.statusCode < 300) return Future.value();
+  static Future<void> _check(http.Response res) async {
+    if (res.statusCode >= 200 && res.statusCode < 300) return;
+
+    String message;
     try {
       final body = jsonDecode(res.body);
-      throw Exception(body['message'] ?? 'Request failed (${res.statusCode})');
-    } on FormatException {
-      throw Exception('Server error (${res.statusCode}). Please try again.');
+      message = (body is Map && body['message'] != null)
+          ? body['message'].toString()
+          : 'Request failed (${res.statusCode})';
+    } catch (_) {
+      message = 'Server error (${res.statusCode}). Please try again.';
     }
+
+    if (res.statusCode == 401) {
+      // Only treat it as an expired session when we actually had a token —
+      // a 401 from the login endpoint should surface as a normal error.
+      final hadToken = (await getToken()) != null;
+      if (hadToken) {
+        await clearAuth();
+        onUnauthorized?.call();
+        throw Exception('Session expired. Please sign in again.');
+      }
+    }
+
+    throw Exception(message);
   }
 
   static Future<Map<String, dynamic>> login(String identifier, String password) async {
     final res = await http.post(
-      Uri.parse('$baseUrl/auth/login'),
+      Uri.parse('$baseUrl/auth/worker/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'identifier': identifier, 'password': password}),
     );

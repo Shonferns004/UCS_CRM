@@ -798,18 +798,15 @@ export const unifiedLogin = async (req, res) => {
 // take over their stations through this flow.
 export const impersonateFRO = async (req, res) => {
   try {
-    // An agent is bound to the one FRO they were assigned. Letting it use the
-    // manual switch would move it onto somebody else's account mid-shift, which
-    // is precisely the state the 1:1 assignment exists to prevent — and because
-    // an agent's heartbeat files under the painted FRO, it would credit the wrong
-    // person's figures rather than merely showing the wrong data. Checked before
-    // anything else so it cannot be reached by any combination of the checks
-    // below. The admin-facing flow is entirely unaffected.
-    if (req.user?.agent_user_id) {
-      return res.status(403).json({
-        message: 'Agent logins are tied to their assigned FRO and cannot switch accounts.',
-      });
-    }
+    // An agent may switch FROs like any operator: the switch endpoint on the
+    // FRO panel is gated by a fresh single-use admin code, and the identity
+    // handling below deliberately treats an agent's switch as a real cover
+    // (operator = the agent's crm_agents id) rather than an impersonation of the
+    // agent by the covered FRO. That part is what the old hard reject got wrong:
+    // it believed the agent's heartbeat would file under the COVERED FRO and
+    // credit the wrong person, but liveRowWorkerId already keys agent sessions
+    // on the painted account — so a switched agent filing under the new target
+    // is exactly the intended "this FRO is being worked" semantics.
 
     const { worker_id } = req.body;
     if (!worker_id) return res.status(400).json({ message: 'worker_id is required' });
@@ -846,6 +843,20 @@ export const impersonateFRO = async (req, res) => {
     const identity = resolveOperatorIdentity(req.user);
     let imposterId = identity.imposterId;
     let imposterName = identity.imposterName;
+    // An agent has no workers row — their identity lives in crm_agents — and the
+    // agent login deliberately stamps impersonation:false, so resolveOperatorIdentity
+    // above would hand back the PAINTED FRO as the operator. Every downstream step
+    // here is keyed on the operator (releasing the previous cover, parking idle,
+    // branding the covered FRO, and the reissued token's imposter_id), and all of
+    // it must point at the agent's uuid, or a switched agent would be filed as the
+    // FRO operating themselves: their old cover would survive, their idle would be
+    // parked on the wrong row, and subsequent chained switches would release
+    // somebody else's sessions.
+    const agentSession = !!req.user?.agent_user_id;
+    if (agentSession) {
+      imposterId = String(req.user.agent_user_id);
+      imposterName = String(req.user.agent_label || '');
+    }
     // Resolve the operator's display name. New worker tokens carry it, but older
     // sessions / admin accounts may not — fall back to a DB lookup.
     if (!imposterName && imposterId != null) {
@@ -857,14 +868,18 @@ export const impersonateFRO = async (req, res) => {
       }
     }
     const { imposter_worker_id } = req.body;
-    if (imposter_worker_id && String(imposter_worker_id) !== String(req.user.id)) {
+    // The "who are you" picker lets a manual operator rename themselves; an agent
+    // must not be renamed onto a workers row, so the body cannot override the
+    // agent identity forced above. (The picker does not send it for agents today;
+    // this just keeps a future caller from breaking the identity.)
+    if (!agentSession && imposter_worker_id && String(imposter_worker_id) !== String(req.user.id)) {
       const imposterWorker = await getWorkerById(String(imposter_worker_id).trim());
       if (!imposterWorker) return res.status(404).json({ message: 'Acting FRO worker not found' });
       const impDept = String(imposterWorker.department || '').toLowerCase().trim();
       if (impDept !== 'fro') return res.status(400).json({ message: 'Acting FRO must be an FRO worker' });
       imposterId = imposterWorker.id;
       imposterName = imposterWorker.name || '';
-    } else if (imposter_worker_id && String(imposter_worker_id) === String(req.user.id)) {
+    } else if (!agentSession && imposter_worker_id && String(imposter_worker_id) === String(req.user.id)) {
       // Picking yourself — use the JWT's existing identity, no worker validation needed.
     }
 
@@ -880,7 +895,9 @@ export const impersonateFRO = async (req, res) => {
       return res.status(400).json({ message: 'Invalid or expired code' });
     }
 
-    const used = await markImpersonationCodeUsed(codeRow.id, req.user.id || null);
+    // The code is consumed by the person at the keyboard. For an agent switch that
+    // is the agent's uuid; req.user.id would name the covered FRO instead.
+    const used = await markImpersonationCodeUsed(codeRow.id, agentSession ? imposterId : (req.user.id || null));
     if (!used) {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
@@ -1046,6 +1063,14 @@ export const impersonateFRO = async (req, res) => {
       impersonation: true,
       imposter_id: imposterId,
       imposter_name: imposterName,
+      // An agent's identity must survive the switch: the heartbeat on the newly
+      // covered FRO validates the agent, logout must release their cover, and
+      // changing their password must hit the crm_agents branch. Dropping these
+      // would silently turn a switched agent into a manual operator — an agent
+      // uuid written into a workers-keyed live row would then fail the FK.
+      ...(agentSession
+        ? { agent_user_id: String(req.user.agent_user_id), agent_label: String(req.user.agent_label || '') }
+        : {}),
     };
     if (actStations && actStations.length > 0) tokenPayload.act_stations = actStations;
 
@@ -1066,6 +1091,9 @@ export const impersonateFRO = async (req, res) => {
       impersonation: true,
       imposter_id: imposterId,
       imposter_name: imposterName,
+      ...(agentSession
+        ? { agent_user_id: String(req.user.agent_user_id), agent_label: String(req.user.agent_label || '') }
+        : {}),
     };
     if (actStations && actStations.length > 0) userPayload.act_stations = actStations;
 
@@ -1253,6 +1281,48 @@ export const releaseWorkAs = async (req, res) => {
         // Non-fatal: cosmetic label only.
       }
     }
+
+    // An agent ending a work-as cover returns to their OWN assigned FRO. While
+    // impersonating, req.user.id is the covered FRO, and the switch released the
+    // agent's sessions outright — so the assigned FRO's cover must be re-claimed
+    // here. The heartbeat never recreates a claim (refreshCoverExpiry only pushes
+    // an existing expiry forward), so without this an agent who exits work-as
+    // leaves their assigned FRO uncovered: idle would accrue while they work, and
+    // their stations would become claimable by anyone.
+    if (req.user?.agent_user_id && req.user.impersonation && req.user.id != null) {
+      try {
+        const opAgent = await getAgentById(String(req.user.agent_user_id));
+        const assignedFroId = opAgent?.worker_id;
+        if (assignedFroId && String(assignedFroId) !== String(req.user.id)) {
+          const { data: owned } = await db
+            .from('fro_station_assignments')
+            .select('station, ngo_id')
+            .eq('fro_worker_id', String(assignedFroId));
+          if (owned?.length) {
+            const opName = req.user.agent_label || opAgent?.label || null;
+            // Best-effort: someone else may cover the assigned FRO by now, in
+            // which case claimStations returns conflicts rather than throwing,
+            // and the agent's own session still works without the claim.
+            await claimStations({
+              targetWorkerId: String(assignedFroId),
+              pairs: owned,
+              operatorUserId: String(req.user.agent_user_id),
+              operatorName: opName,
+            });
+            await db
+              .from('fro_live_status')
+              .update({
+                work_as_operator_id: String(req.user.agent_user_id),
+                work_as_operator_name: opName,
+              })
+              .eq('worker_id', String(assignedFroId));
+          }
+        }
+      } catch (e) {
+        console.warn('[auth] agent cover restore on exit failed:', e?.message || String(e));
+      }
+    }
+
     return res.json({ message: 'Work-as sessions released', released });
   } catch (error) {
     return res.status(500).json({ message: error.message });
