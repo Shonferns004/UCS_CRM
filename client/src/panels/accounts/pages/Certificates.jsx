@@ -1013,7 +1013,13 @@ export default function Certificates() {
                     {draft.file_format === 'pptx' ? <Presentation size={20} /> : draft.file_format === 'image' ? <ImageIcon size={20} /> : <FileText size={20} />}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="tpl-title" style={{ whiteSpace: 'normal' }}>{draft.name}</div>
+                    <div className="tpl-title" style={{ whiteSpace: 'normal', fontWeight: 600, marginBottom: 4 }}>
+                      <input
+                        style={{ padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, fontWeight: 600, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+                        value={draft.name}
+                        onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                      />
+                    </div>
                     <div className="tpl-meta" style={{ gap: 6 }}>
                       <span>{draft.file_name}</span>
                       {editingId && <span>v{draft.version}</span>}
