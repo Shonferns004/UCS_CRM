@@ -271,13 +271,25 @@ test('a saved beneficiary group is accepted whatever its spacing or casing', () 
   }
 });
 
-test('a value outside the three groups is refused, so it cannot reach the prompt', () => {
+test('the vocabulary is exactly the seven beneficiary categories the UI offers', () => {
+  assert.deepEqual(ACTIVITY_BENEFICIARY_GROUPS, [
+    'Visually Impaired',
+    'Children',
+    'Senior Citizens',
+    'Women',
+    'Underprivileged Families',
+    'Persons with Disabilities',
+    'Others',
+  ]);
+});
+
+test('a value outside the vocabulary is refused, so it cannot reach the prompt', () => {
   assert.equal(canonicalActivityBeneficiary('Everyone'), '');
   assert.equal(canonicalActivityBeneficiary('Visually Impaired, Women'), '');
   assert.equal(canonicalActivityBeneficiary('Visually Impairedx'), '');
 });
 
-test('an absent group is empty, which is what makes the NGO default apply', () => {
+test('an absent group is empty, which is what makes the NGO fallback apply', () => {
   assert.equal(canonicalActivityBeneficiary(''), '');
   assert.equal(canonicalActivityBeneficiary(null), '');
   assert.equal(canonicalActivityBeneficiary(undefined), '');

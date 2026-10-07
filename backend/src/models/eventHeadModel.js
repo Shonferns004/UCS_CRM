@@ -830,8 +830,38 @@ export const saveFestivalSuggestions = async ({
     .upsert(rows, { onConflict: 'activity_id,month,observance_date,festival,title', ignoreDuplicates: true });
   if (error) throw error;
 
+  /* The upsert never rewrites a title that already exists, so a re-run under a
+     NEW beneficiary from the row's dropdown would leave the earlier rows
+     showing the old category in the grid and the export. Align every stored
+     row of this festival (this NGO, month, date) with the category the
+     generation was actually aimed at. Only titles can differ between runs —
+     never the beneficiary of a live suggestion set. */
+  if (ngo_id !== undefined && ngo_id !== null && ngo_id !== '') {
+    await setFestivalSuggestionsBeneficiary({ ngo_id, month, observance_date, festival, beneficiary });
+  }
+
   // Re-read the batch so the caller gets real ids and the user's current ticks.
   return getFestivalSuggestions({ month, year, ngo_id, activity_id, date: observance_date, festival, batch_no });
+};
+
+/* Writes the Beneficiary dropdown's chosen category onto every stored
+   suggestion of one festival (NGO + month + date + festival). Called by the
+   generator after a run, and by the planner when the user changes the dropdown
+   without regenerating — the grid, the post-reload fallback and the Excel/PDF
+   export must all show the category that was actually picked. */
+export const setFestivalSuggestionsBeneficiary = async ({
+  ngo_id, month, observance_date, festival, beneficiary = null,
+}) => {
+  if (ngo_id === undefined || ngo_id === null || ngo_id === '') return 0;
+  const { data, error } = await db.from('event_head_festival_suggestions')
+    .update({ beneficiary: beneficiary || null })
+    .eq('month', Number(month))
+    .eq('observance_date', observance_date)
+    .eq('festival', String(festival || '').trim())
+    .eq('ngo_id', ngo_id)
+    .select('id');
+  if (error) throw error;
+  return Array.isArray(data) ? data.length : 0;
 };
 
 export const getFestivalSuggestions = async ({
