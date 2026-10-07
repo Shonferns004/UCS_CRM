@@ -1,5 +1,6 @@
 import db, { getTableColumns } from '../config/db.js';
 import { istDateString } from '../utils/ist.js';
+import { servedFestivalBeneficiary } from '../utils/activityProgramPrompt.js';
 
 // ─── EVENTS ───
 export const createEventHeadEvent = async (data) => {
@@ -797,11 +798,36 @@ export const setPlannerSuggestionSelected = async (id, is_selected, suggested_ev
 // are keyed by (activity_id, month, observance_date, festival, title) so a
 // re-run of the generator cannot duplicate ideas — and cannot reset a tick.
 
+/* Whether migration 176's beneficiary_picked column is on the table. A write
+   that set an unknown column would fail with "column not found", and a read
+   could not tell an auto-filled legacy value from one the user picked — so
+   both guard on this: writes omit the flag and reads fall back to comparing
+   the value against the NGO's mapped group until the migration is applied.
+   Cached per column for the life of the process (same pattern as
+   activityColumnExists): apply the migration and restart the server to pick
+   it up. */
+const festivalColumnProbeCache = new Map();
+const festivalColumnExists = (column) => {
+  if (!festivalColumnProbeCache.has(column)) {
+    festivalColumnProbeCache.set(column, (async () => {
+      try {
+        const { error } = await db.from('event_head_festival_suggestions').select(column).limit(1);
+        return !error;
+      } catch {
+        return false;
+      }
+    })());
+  }
+  return festivalColumnProbeCache.get(column);
+};
+const festivalBeneficiaryPickedColumnExists = () => festivalColumnExists('beneficiary_picked');
+
 export const saveFestivalSuggestions = async ({
   ngo_id, activity_id, month, year, observance_date, festival, beneficiary = null,
   sector_name = null, activity_name = null, batch_no = 1, suggestions = [], created_by = null,
 }) => {
   if (!suggestions.length) return [];
+  const pickedColumn = await festivalBeneficiaryPickedColumnExists();
   const rows = suggestions.map((s) => ({
     ngo_id: ngo_id ?? null,
     activity_id: Number.isInteger(activity_id) && activity_id > 0 ? activity_id : null,
@@ -810,6 +836,7 @@ export const saveFestivalSuggestions = async ({
     observance_date,
     festival: String(festival || '').trim(),
     beneficiary: beneficiary || null,
+    ...(pickedColumn ? { beneficiary_picked: Boolean(beneficiary) } : {}),
     sector_name: sector_name || null,
     activity_name: activity_name || null,
     batch_no,
@@ -848,13 +875,19 @@ export const saveFestivalSuggestions = async ({
    suggestion of one festival (NGO + month + date + festival). Called by the
    generator after a run, and by the planner when the user changes the dropdown
    without regenerating — the grid, the post-reload fallback and the Excel/PDF
-   export must all show the category that was actually picked. */
+   export must all show the category that was actually picked. The write also
+   records that the value WAS picked (beneficiary_picked, migration 176);
+   clearing the dropdown stores null and drops the flag, so the reads know
+   nothing was chosen. */
 export const setFestivalSuggestionsBeneficiary = async ({
   ngo_id, month, observance_date, festival, beneficiary = null,
 }) => {
   if (ngo_id === undefined || ngo_id === null || ngo_id === '') return 0;
+  const pickedColumn = await festivalBeneficiaryPickedColumnExists();
+  const patch = { beneficiary: beneficiary || null };
+  if (pickedColumn) patch.beneficiary_picked = Boolean(beneficiary);
   const { data, error } = await db.from('event_head_festival_suggestions')
-    .update({ beneficiary: beneficiary || null })
+    .update(patch)
     .eq('month', Number(month))
     .eq('observance_date', observance_date)
     .eq('festival', String(festival || '').trim())
@@ -878,7 +911,32 @@ export const getFestivalSuggestions = async ({
   if (selected_only) query = query.eq('is_selected', true);
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+  const rows = data || [];
+  if (!rows.length) return rows;
+
+  /* Every consumer — the grid, the Excel/PDF export, the Calendar report and
+     the save's own re-read — comes through here, so withholding the
+     beneficiary at this one point hides the NGO's old auto-filled default
+     from every surface at once. After migration 176 a stored value is served
+     only when it was really picked; until then a value equal to the NGO's
+     mapped group is treated as auto-filled and withheld. See
+     servedFestivalBeneficiary. */
+  const pickedColumn = await festivalBeneficiaryPickedColumnExists();
+  let codeByNgoId = null;
+  if (!pickedColumn) {
+    const ids = [...new Set(rows.map((r) => r.ngo_id).filter((v) => v !== null && v !== undefined && v !== ''))];
+    if (ids.length) {
+      const { data: ngoRows } = await db.from('ngos').select('id, code').in('id', ids);
+      codeByNgoId = new Map((ngoRows || []).map((n) => [String(n.id), n.code]));
+    }
+  }
+  return rows.map((r) => ({
+    ...r,
+    beneficiary: servedFestivalBeneficiary(r, {
+      pickedColumn,
+      ngoCode: codeByNgoId ? (codeByNgoId.get(String(r.ngo_id)) || '') : '',
+    }),
+  }));
 };
 
 export const setFestivalSuggestionSelected = async (id, is_selected, suggested_event_id) => {

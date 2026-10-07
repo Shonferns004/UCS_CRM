@@ -69,17 +69,6 @@ const shortDate = (ymd) => {
 const ngoShortLabel = (n) =>
   String(n?.code || '').trim() || String(n?.name || '').trim() || 'NGO'
 
-/* Who each NGO serves. Only used as a READ fallback for activities created
-   before the category dropdown existed (so old rows never drop out of the
-   filter) and as the value a festival row's Beneficiary dropdown starts on —
-   it is always changeable there. Never offered as a suggestion; every category
-   is chosen from BENEFICIARY_GROUPS below. */
-const NGO_BENEFICIARY = {
-  bsct: 'Visually Impaired',
-  aflf: 'Underprivileged Families',
-  mann: 'Women',
-}
-
 /* The closed vocabulary for the Add Activity dropdown and the Beneficiary
    filter, in a stable order. Shared with every other page that picks a
    category (Activities, Activity detail, Distribution) via the store, and
@@ -97,26 +86,18 @@ const canonicalBeneficiary = (value) => {
   return BENEFICIARY_GROUPS.find((g) => g.toLowerCase() === v) || ''
 }
 
-/* The NGO an activity belongs to, resolved even when the page is on "All NGOs"
-   and the row itself carries no NGO. */
-const activityNgo = (a, ngos, ngo) => {
-  if (ngo) return ngo
-  return ngos.find((x) => String(x.id) === String(a.ngo_id)) || null
-}
-
-/* The group an activity serves. The group's own choice first, then the NGO's
-   fixed group — which is what every activity created before the dropdown existed
-   falls back to, so old rows stay correct and never drop out of the filter.
-   Every read goes through this, so the table, the filter, the search and the
-   suggestion scoping can never disagree. */
-const activityBeneficiary = (a, ngos, ngo) =>
-  canonicalBeneficiary(a?.beneficiary_group)
-  || NGO_BENEFICIARY[ngoCodeKey(activityNgo(a, ngos, ngo))] || ''
+/* The group an activity serves: the category saved on the activity itself,
+   and nothing else. There is deliberately no fallback to the NGO's fixed
+   group — an activity nobody chose a category for shows blank and matches no
+   category filter, so the filter, the search and the suggestion scoping can
+   never report an audience nobody picked. Every read goes through this one
+   function, so those three can never disagree. */
+const activityBeneficiary = (a) => canonicalBeneficiary(a?.beneficiary_group) || ''
 
 /* How many programmes each NGO is expected to run in a month. This is the one
    place the quota lives: change a number here and every card, the header total
-   and the remaining count follow. Keyed by the same short code as the
-   beneficiary map above, because that is how the team identifies an NGO.
+   and the remaining count follow. Keyed by the NGO's short code, because that
+   is how the team identifies an NGO.
    An NGO with no entry falls back to the smallest common quota rather than
    showing a target of 0, which would read as "already complete". */
 const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 20 }
@@ -280,17 +261,6 @@ function Field({ label, hint, children }) {
       {hint && <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>{hint}</span>}
     </label>
   )
-}
-
-/* The beneficiary an activity serves, shown on its row.
-
-   The group's own choice when it has one, otherwise the group fixed for its NGO
-   (see activityBeneficiary). That is what makes the Beneficiary filter usable —
-   every activity resolves to exactly one of the closed categories, so the
-   filter always has real options and nothing is ever left blank. */
-function BeneficiaryCell({ group }) {
-  if (!group) return <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>—</span>
-  return <Badge tone="secondary">{group}</Badge>
 }
 
 /* The festival grid's Beneficiary cell: a real dropdown, not a label. What is
@@ -623,14 +593,11 @@ function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0
           <div style={{ border: '1px solid var(--eh-line)', borderRadius: 12, padding: '11px 13px' }}>
             <div style={{ ...LABEL, marginBottom: 7 }}>Observances in {monthLabel(month)}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {observances.slice(0, 14).map((o, k) => (
+              {observances.map((o, k) => (
                 <span key={`${o.date}-${o.name}-${k}`} style={{ fontSize: 11, fontWeight: 600, background: 'var(--eh-tint-1)', borderRadius: 6, padding: '3px 7px', color: 'var(--eh-ink)' }}>
                   {shortDate(o.date)} · {o.name}
                 </span>
               ))}
-              {observances.length > 14 && (
-                <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>+{observances.length - 14} more</span>
-              )}
             </div>
             <div style={{ fontSize: 10, color: 'var(--eh-ink-faint)', marginTop: 7 }}>
               ✓ Verified dates · from the reference calendar, not AI
@@ -1094,14 +1061,14 @@ export default function ActivityPlanner() {
   /* The category a festival row's dropdown shows, and the value sent when that
      festival's programmes are generated: the user's pending choice first, then
      the category the stored suggestions were actually generated with (so a
-     reload keeps showing the truth), then the group fixed for the NGO as the
-     pre-generation default. */
+     reload keeps showing the truth). Never auto-filled from the NGO — the row
+     starts on "Select a category…" and shows only what the user picks, so the
+     grid never claims an audience nobody chose. */
   const festivalBeneficiaryFor = useCallback((key) => {
     if (festBenef[key]) return festBenef[key]
     const stored = (festivalSuggestionsByKey[key] || []).map((s) => s.beneficiary).find(Boolean)
-    if (stored) return stored
-    return ngo ? (NGO_BENEFICIARY[ngoCodeKey(ngo)] || '') : ''
-  }, [festBenef, festivalSuggestionsByKey, ngo])
+    return stored || ''
+  }, [festBenef, festivalSuggestionsByKey])
 
   /* Changing the row's Beneficiary dropdown. The pending choice shows at once,
      and when the festival already has stored suggestions the server copy is
@@ -1132,15 +1099,20 @@ export default function ActivityPlanner() {
   }
 
   /* Generates a day's programmes for one NGO, aimed at the category chosen in
-     that row's Beneficiary dropdown (the NGO's own group when nothing was
-     chosen). The server accepts only the closed category vocabulary, so a bad
-     value can never reach the model. Selections are saved per suggestion, so
-     re-running a day never resets a tick. */
+     that row's Beneficiary dropdown. Nothing runs while the dropdown is empty:
+     the programmes must be aimed at a category the user actually picked, never
+     at the NGO's own group by default. The server accepts only the closed
+     category vocabulary, so a bad value can never reach the model. Selections
+     are saved per suggestion, so re-running a day never resets a tick. */
   const suggestFestival = async (date, festivalName) => {
     const key = `${date}::${festivalName}`
     setFestivalError('')
     if (!ngoId) {
       setFestivalError('Pick a single NGO to generate festival programmes for it.')
+      return
+    }
+    if (!festivalBeneficiaryFor(key)) {
+      setFestivalError('Pick a Beneficiary category for this festival first.')
       return
     }
     if (festGenerating?.key === key) return
@@ -1227,14 +1199,14 @@ export default function ActivityPlanner() {
     if (sectorFilter) list = list.filter((a) => String(a.sector_id) === String(sectorFilter))
     if (beneficiaryFilter) {
       const want = beneficiaryFilter.trim().toLowerCase()
-      list = list.filter((a) => activityBeneficiary(a, ngos, ngo).toLowerCase() === want)
+      list = list.filter((a) => activityBeneficiary(a).toLowerCase() === want)
     }
     const q = search.trim().toLowerCase()
     if (q) {
-      list = list.filter((a) => [a.name, a.sector_name, activityBeneficiary(a, ngos, ngo), a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
+      list = list.filter((a) => [a.name, a.sector_name, activityBeneficiary(a), a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
     }
     return list
-  }, [activities, ngos, ngo, sectorFilter, beneficiaryFilter, search])
+  }, [activities, sectorFilter, beneficiaryFilter, search])
 
   /* The full closed category list, always — not a set derived from whatever
      happens to be in scope. Every category is offered whether or not an activity
@@ -1393,9 +1365,9 @@ export default function ActivityPlanner() {
     return selectedSuggestions.filter((s) => {
       const a = byId.get(String(s?.activity_id))
       if (!a) return false
-      return activityBeneficiary(a, ngos, ngo).toLowerCase() === want
+      return activityBeneficiary(a).toLowerCase() === want
     })
-  }, [selectedSuggestions, activities, ngos, ngo, beneficiaryFilter])
+  }, [selectedSuggestions, activities, beneficiaryFilter])
 
   /* Suggestions indexed three ways, because a programme is linked to an idea in
      three different ways depending on how it was made:
@@ -2272,14 +2244,16 @@ const pendingAll = scopedSuggestions
                         <td className="ai divider nowrap">
                           <button
                             className="eh-btn eh-btn-sm"
-                            disabled={!ngoId || festGenerating !== null}
+                            disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
                             title={!ngoId
                               ? 'Pick a single NGO to generate festival programmes for it'
-                              : festGenerating
-                                ? 'A festival programme set is already generating'
-                                : sugg.length
-                                  ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
-                                  : `Generate AI programme ideas for ${o.name}`}
+                              : !festivalBeneficiaryFor(key)
+                                ? 'Pick a Beneficiary category for this festival first'
+                                : festGenerating
+                                  ? 'A festival programme set is already generating'
+                                  : sugg.length
+                                    ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
+                                    : `Generate AI programme ideas for ${o.name}`}
                             onClick={() => suggestFestival(date, o.name)}
                           >
                             {generating ? 'Generating…' : '✦ Suggest programmes'}
@@ -2312,12 +2286,16 @@ const pendingAll = scopedSuggestions
                             <button
                               className="eh-btn eh-btn-sm"
                               style={{ marginTop: 6 }}
-                              disabled={!ngoId || festGenerating !== null}
+                              disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
                               title={!ngoId
                                 ? 'Pick a single NGO to generate festival programmes for it'
-                                : festGenerating
-                                  ? 'A festival programme set is already generating'
-                                  : `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`}
+                                : !festivalBeneficiaryFor(key)
+                                  ? 'Pick a Beneficiary category for this festival first'
+                                  : festGenerating
+                                    ? 'A festival programme set is already generating'
+                                    : sugg.length
+                                      ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
+                                      : `Generate AI programme ideas for ${o.name}`}
                               onClick={() => suggestFestival(date, o.name)}
                             >
                               {generating ? 'Generating…' : '✦ Suggest again'}

@@ -25,11 +25,12 @@ export const ACTIVITY_SUGGESTION_LIMIT = 6;
 /**
  * The one beneficiary group each NGO serves, by its short code.
  *
- * Kept only as a READ fallback: activities created before the category dropdown
- * existed fall back to their NGO's group so they never drop out of the filter,
- * and the festival flow still reports the NGO's own group. Nothing chooses a
- * category from this map any more — the dropdown's closed vocabulary below is
- * the only list a category is picked from.
+ * Kept only as the masking key for festival rows written before migration 176:
+ * back then the generator auto-filled this group into the Beneficiary column
+ * with nothing recording who chose it, so servedFestivalBeneficiary compares a
+ * legacy value against this map and withholds the ones nobody picked. Nothing
+ * chooses or suggests a category from this map — the closed vocabulary below
+ * is the only list a category is picked from.
  */
 export const NGO_BENEFICIARY_GROUP = {
   bsct: 'Visually Impaired',
@@ -40,6 +41,29 @@ export const NGO_BENEFICIARY_GROUP = {
 /** '' for an unknown or missing code — the prompt then simply drops the line. */
 export const beneficiaryGroupForNgo = (code) =>
   NGO_BENEFICIARY_GROUP[String(code || '').trim().toLowerCase()] || '';
+
+/**
+ * What a stored festival suggestion's Beneficiary should show, or null when
+ * nothing was really picked.
+ *
+ * Two generations of data share the column:
+ *   - with migration 176 applied, `beneficiary_picked` decides: a true flag is
+ *     a category somebody chose — even when it equals the NGO's old default
+ *     (BSCT → Visually Impaired and so on) — and a false flag is withheld;
+ *   - before the migration the flag does not exist, so the value itself is
+ *     judged: the NGO's fixed group was auto-filled back then and is withheld,
+ *     while any other category was chosen by hand and is served as-is.
+ *
+ * The model calls this on every read of event_head_festival_suggestions — the
+ * single point the grid, the Excel/PDF export and the Calendar report all load
+ * their beneficiary from — so masking here hides a default from every surface.
+ */
+export const servedFestivalBeneficiary = (row, { pickedColumn = false, ngoCode = '' } = {}) => {
+  const value = String(row?.beneficiary || '').trim() || null;
+  if (!value) return null;
+  if (pickedColumn) return row?.beneficiary_picked ? value : null;
+  return value === beneficiaryGroupForNgo(ngoCode) ? null : value;
+};
 
 /**
  * The closed vocabulary of beneficiary categories, in a stable order.
@@ -153,9 +177,14 @@ export function buildActivityProgramPrompt({
   const activity = String(activityName || '').trim().slice(0, MAX_TITLE_LEN);
   const month = monthLabel(monthYmd) || 'the selected month';
 
+  // Every occasion of the month reaches the model — the merged Indian calendar
+  // peaks around 35 rows (March/April 2026), and the old cap of 25 silently
+  // dropped the last ten, so the AI could miss festivals at the end of a month.
+  // 120 is a guard against a pathological calendar, not a real limit: it is far
+  // above any month this API has ever returned and costs nothing when unused.
   const occasionLines = (Array.isArray(observances) ? observances : [])
     .filter((o) => o && o.name)
-    .slice(0, 25)
+    .slice(0, 120)
     .map((o) => `- ${String(o.name).slice(0, 90)}${o.kind ? ` (${o.scope || 'all'}/${o.kind})` : ''}`);
 
   const done = (Array.isArray(existingTitles) ? existingTitles : [])

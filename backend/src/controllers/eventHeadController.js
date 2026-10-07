@@ -4,7 +4,6 @@ import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName,
 import db, { getTableColumns } from '../config/db.js';
 import groq from '../config/groq.js';
 import {
-  getObservancesInRange, getObservancesOnDate, mergeCustomObservances,
   availableYears, allThemes, SUPPORTED_LUNAR_YEARS,
 } from '../utils/observances.js';
 import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
@@ -18,11 +17,9 @@ import {
   parseActivityProgramSuggestions,
   parseFestivalProgramSuggestions,
   canonicalActivityBeneficiary,
-  beneficiaryGroupForNgo,
   ACTIVITY_BENEFICIARY_GROUPS,
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
-import { getCalendarificObservancesInRange, mergeCalendarific } from '../utils/calendarific.js';
 import { getMergedObservancesInRange, findObservanceForDate } from '../utils/observanceMerge.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
@@ -2237,24 +2234,15 @@ export const listCalendarObservances = async (req, res) => {
       return res.status(400).json({ message: `Date range too large — request at most ${MAX_RANGE_DAYS} days` });
     }
 
-    const curated = getObservancesInRange(start, end, { scope });
-
-    // Operator holiday rows are a bonus layer; a DB failure must not break or
-    // delay the calendar, so it degrades to the curated list alone.
+    // All four deterministic sources in one merge — the curated reference
+    // calendar + operator `holidays` rows + the fixed international-days list +
+    // Calendarific (India's festivals/national days, dated for any year). The
+    // overlay and the API are bonus layers: a DB failure or a Calendarific
+    // outage degrades to the rows above without breaking or delaying anything.
+    // The shared helper filters by scope itself, so this endpoint returns
+    // exactly what /api/important-days shows for the same range.
     const holidays = await getHolidaysCached();
-    // Merge for EVERY scope (an admin should not lose their custom holiday just
-    // because the view is filtered to India or worldwide), then re-apply the
-    // scope filter since a custom row can carry its own scope.
-    const merged = holidays.length
-      ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
-      : curated;
-
-    // Calendarific enriches the calendar with India's festivals/national days
-    // and worldwide/UN observance days, properly dated for any year. It is an
-    // append-only layer: curated/DB rows win on exact duplicates, and an API
-    // failure degrades to the data above without breaking or delaying anything.
-    const calendarific = await getCalendarificObservancesInRange(start, end);
-    const observances = calendarific.length ? mergeCalendarific(merged, calendarific, scope) : merged;
+    const observances = await getMergedObservancesInRange(start, end, { holidays, scope });
 
     // byDate lets the client render a day cell without re-grouping.
     const byDate = {};
@@ -2558,11 +2546,14 @@ export const suggestDayPrograms = async (req, res) => {
     const dateYmdReq = String(req.body?.date || '').slice(0, 10);
     if (!DATE_RE.test(dateYmdReq)) return res.status(400).json({ message: 'date is required as YYYY-MM-DD' });
 
-    // Server-resolved context — the client cannot override these.
-    const observances = getObservancesOnDate(dateYmdReq);
+    // Server-resolved context — the client cannot override these. All four
+    // deterministic sources (curated + operator holidays + fixed international
+    // days + Calendarific) via the shared merge, so the day plan the model
+    // reasons about is the same calendar the page displays.
     const scopeRaw = String(req.body?.scope || 'all').toLowerCase();
     const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
-    const scoped = observances.filter((o) => scope === 'all' || o.scope === scope);
+    const holidays = await getHolidaysCached();
+    const scoped = await getMergedObservancesInRange(dateYmdReq, addDaysYmd(dateYmdReq, 1), { holidays, scope });
     const sectorName = String(req.body?.sector_name || '').slice(0, 120) || null;
     const sectorId = String(req.body?.sector_id || '').slice(0, 60) || null;
 
@@ -2759,21 +2750,16 @@ export const suggestActivityPrograms = async (req, res) => {
     const sectorRow = (sectors || []).find((s) => String(s.id) === String(activity.sector_id));
     const sectorName = sectorRow?.name || null;
 
-    // ── Real observance dates for the month. Deterministic, never AI-generated.
+    // ── Real observance dates for the month. Deterministic, never AI-generated:
+    // all four sources (curated + operator holidays + fixed international days +
+    // Calendarific) through the same merge the calendar grid reads, so the model
+    // never plans against a narrower calendar than the planner shows.
     const scopeRaw = String(req.body?.scope || 'all').toLowerCase();
     const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
     const first = monthFirstDay(month);
     const endExclusive = monthEndExclusive(month);
-    const curated = getObservancesInRange(first, endExclusive, { scope });
-
-    // Operator holiday rows are a bonus layer; a DB failure must not break the
-    // planner, so it degrades to the curated list alone. Merged for EVERY scope
-    // and then re-filtered, exactly as listCalendarObservances does — a custom
-    // holiday can carry its own scope and must not vanish from a filtered view.
     const holidays = await getHolidaysCached();
-    const observances = holidays.length
-      ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
-      : curated;
+    const observances = await getMergedObservancesInRange(first, endExclusive, { holidays, scope });
 
     // ── Programmes this NGO already has in the month, so the model avoids them.
     const existingTitles = [];
@@ -2957,8 +2943,10 @@ export const setPlannerSuggestionSelected = async (req, res) => {
 // beneficiary group comes from the row's own dropdown — the client sends it
 // from the closed ACTIVITY_BENEFICIARY_GROUPS vocabulary only, so BSCT/MANN/AFLF
 // data can never be mixed and a value outside the list is refused outright.
-// With no dropdown value (older clients, empty selection) the NGO's own group
-// remains the fallback, so nothing that worked before changes behaviour.
+// With no dropdown value nothing is stored and the prompt carries no
+// beneficiary line: the NGO's fixed group is never invented as a default, so
+// the grid, the exports and the reports only ever show a category somebody
+// actually picked.
 //
 // The festival + date are validated against the same merged calendar the grid
 // renders, so the model cannot be fed a made-up occasion.
@@ -2986,8 +2974,9 @@ export const suggestFestivalPrograms = async (req, res) => {
 
     // No AI can be aimed at a beneficiary that does not exist. The row's
     // dropdown sends one category from the closed vocabulary; anything else is
-    // refused rather than silently rewritten. Empty falls back to the group
-    // fixed for the NGO, which is what every pre-dropdown client sent.
+    // refused rather than silently rewritten. Empty means nobody picked a
+    // category: nothing is stored and the prompt drops the beneficiary line —
+    // never the NGO's own group by default.
     const requestedRaw = req.body?.beneficiary_group;
     let requestedGroup = '';
     if (requestedRaw !== undefined && requestedRaw !== null && String(requestedRaw).trim() !== '') {
@@ -2998,7 +2987,7 @@ export const suggestFestivalPrograms = async (req, res) => {
     }
     const ngoRow = await EventHead.getEventHeadNgoById(ngoId).catch(() => null);
     if (!ngoRow) return res.status(404).json({ message: 'NGO not found' });
-    const beneficiaryGroup = requestedGroup || beneficiaryGroupForNgo(ngoRow?.code) || null;
+    const beneficiaryGroup = requestedGroup || null;
 
     // Optional sector only provides flavour; it never picks the beneficiary.
     const sectorIdRaw = req.body?.sector_id;
