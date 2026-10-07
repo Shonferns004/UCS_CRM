@@ -112,7 +112,7 @@ async function loadTemplateDetail(id) {
        WHERE t.id = $1`, [id]);
   if (!templates.length) return null;
   const { rows: fields } = await db._pool.query(
-    `SELECT id, field_key, display_name, field_type, required, default_value, in_template, sort_order, style
+    `SELECT id, field_key, display_name, field_type, required, default_value, in_template, sort_order, style, options
        FROM certificate_template_fields WHERE template_id = $1 ORDER BY sort_order ASC, id ASC`, [id]);
   const tpl = templates[0];
   const { rows: certCount } = await db._pool.query(
@@ -133,10 +133,10 @@ async function replaceFields(templateId, fields) {
     const type = VALID_TYPES.has(f.field_type) ? f.field_type : 'text';
     await db._pool.query(
       `INSERT INTO certificate_template_fields
-         (template_id, field_key, display_name, field_type, required, default_value, sort_order, style)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         (template_id, field_key, display_name, field_type, required, default_value, sort_order, style, options)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [templateId, key, String(f.display_name || humanizeKey(key)).slice(0, 80), type,
-       f.required !== false, String(f.default_value ?? ''), Number(f.sort_order ?? i), JSON.stringify(f.style || {})]);
+       f.required !== false, String(f.default_value ?? ''), Number(f.sort_order ?? i), JSON.stringify(f.style || {}), String(f.options ?? '')]);
   }
 }
 

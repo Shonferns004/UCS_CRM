@@ -57,6 +57,8 @@ const FONTS = [
   { name: 'Glacial Indifference Bold', file: 'GlacialIndifference-Bold.ttf', dir: ASSETS_DIR },
   { name: 'Cormorant Garamond', file: 'CormorantGaramond-Regular-inst.ttf', dir: ASSETS_DIR },
   { name: 'Cormorant Garamond Bold', file: 'CormorantGaramond-Bold-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Podkova', file: 'Podkova-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Podkova Bold', file: 'Podkova-Bold-inst.ttf', dir: ASSETS_DIR },
 ];
 
 export const FONT_FAMILIES = [...new Set(FONTS.map((f) => f.name.replace(/ Bold$/, '')))];

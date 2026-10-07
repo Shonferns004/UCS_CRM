@@ -15,7 +15,7 @@ export const CERT_FONT_FAMILIES = [
   'Arial', 'Calibri', 'Cambria', 'Georgia', 'Times New Roman', 'Verdana',
   'Tahoma', 'Courier New', 'Impact', 'Comic Sans MS', 'Segoe UI', 'Bookman Old Style',
   'Poppins', 'Montserrat', 'Open Sans', 'Playfair Display', 'Cinzel', 'Inter', 'Lato',
-  'Glacial Indifference', 'Cormorant Garamond', 'Kelvinch', 'Kelvinch Italic',
+  'Glacial Indifference', 'Cormorant Garamond', 'Kelvinch', 'Kelvinch Italic', 'Podkova',
 ]
 
 const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']
@@ -275,6 +275,7 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
               : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-soft)' }}><Loader2 size={18} className="spin" /></div>}
             {fields.map((f, i) => {
               const s = f.style || {}
+              if (s.hidden) return null
               return (
                 <div
                   key={i}
@@ -336,6 +337,18 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
               </select>
               <label style={{ fontSize: 12 }}>Default value</label>
               <input style={{ padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} value={sel.default_value || ''} onChange={(e) => updateField(selected, { default_value: e.target.value })} />
+              {sel.field_type === 'select' && (
+                <>
+                  <label style={{ fontSize: 12 }}>Options (one per line)</label>
+                  <textarea
+                    rows={4}
+                    style={{ padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+                    placeholder={'Appreciation\nParticipation\nAchievement'}
+                    value={sel.options || ''}
+                    onChange={(e) => updateField(selected, { options: e.target.value })}
+                  />
+                </>
+              )}
               <label style={{ fontSize: 12 }}>Sample value (preview in editor)</label>
               <input style={{ padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} value={sampleValues[sel.field_key] || ''} onChange={(e) => setSampleValues((v) => ({ ...v, [sel.field_key]: e.target.value }))} placeholder="e.g. Shon Fernandes" />
 
@@ -389,6 +402,9 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
               <input type="number" step="0.5" value={selStyle.letterSpacing ?? 0} style={{ width: '100%', padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} onChange={(e) => patchStyle(selected, { letterSpacing: Number(e.target.value) })} />
               <label style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input type="checkbox" checked={selStyle.autoFit !== false} onChange={(e) => patchStyle(selected, { autoFit: e.target.checked })} /> Auto-fit long text (shrink to fit)
+              </label>
+              <label style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="checkbox" checked={!selStyle.hidden} onChange={(e) => patchStyle(selected, { hidden: !e.target.checked })} /> Show this field on canvas
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-sm" onClick={() => duplicateField(selected)}><Copy size={13} /> Duplicate</button>
