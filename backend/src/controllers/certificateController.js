@@ -434,7 +434,7 @@ export const updateTemplate = async (req, res) => {
     }
     if (fields !== undefined) {
       // All fields are mandatory per product rule.
-      await replaceFields(id, (Array.isArray(fields) ? fields : []).map((f) => ({ ...f, required: true })));
+      await replaceFields(id, (Array.isArray(fields) ? fields : []).map((f) => ({ ...f, required: f.required !== false })));
       await syncFieldsWithPlaceholders(id, template.placeholders);
     } else {
       await syncFieldsWithPlaceholders(id, template.placeholders);

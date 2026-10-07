@@ -313,7 +313,7 @@ export default function Certificates() {
       field_key: f.field_key,
       display_name: f.display_name || humanKey(f.field_key),
       field_type: f.field_type || 'text',
-      required: true,
+      required: f.required !== false,
       default_value: f.default_value || '',
       sort_order: i,
       in_template: f.in_template,

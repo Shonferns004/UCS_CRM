@@ -300,20 +300,10 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
                     </span>
                   </div>
                   {selected === i && (
-                    <>
-                      <div
-                        onPointerDown={(e) => { e.stopPropagation(); setDrag({ mode: 'resize', index: i, startX: e.clientX, startY: e.clientY, orig: { x: s.x || 0, y: s.y || 0, width: s.width || 100, height: s.height || 40 } }) }}
-                        style={{ position: 'absolute', right: 0, bottom: 0, width: 12, height: 12, background: 'var(--sage)', cursor: 'nwse-resize', borderRadius: 2 }}
-                      />
-                      <button
-                        type="button"
-                        title="Hide field from canvas"
-                        onClick={(e) => { e.stopPropagation(); patchStyle(i, { hidden: true }) }}
-                        style={{ position: 'absolute', top: -9, left: -9, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#dc2626', color: '#fff', fontSize: 12, lineHeight: 1, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        ×
-                      </button>
-                    </>
+                    <div
+                      onPointerDown={(e) => { e.stopPropagation(); setDrag({ mode: 'resize', index: i, startX: e.clientX, startY: e.clientY, orig: { x: s.x || 0, y: s.y || 0, width: s.width || 100, height: s.height || 40 } }) }}
+                      style={{ position: 'absolute', right: 0, bottom: 0, width: 12, height: 12, background: 'var(--sage)', cursor: 'nwse-resize', borderRadius: 2 }}
+                    />
                   )}
                 </div>
               )
@@ -361,6 +351,9 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
               )}
               <label style={{ fontSize: 12 }}>Sample value (preview in editor)</label>
               <input style={{ padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} value={sampleValues[sel.field_key] || ''} onChange={(e) => setSampleValues((v) => ({ ...v, [sel.field_key]: e.target.value }))} placeholder="e.g. Shon Fernandes" />
+              <label style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="checkbox" checked={sel.required !== false} onChange={(e) => updateField(selected, { required: e.target.checked })} /> Required (uncheck to make optional)
+              </label>
 
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Text style</div>
               <label style={{ fontSize: 12 }}>Font</label>
