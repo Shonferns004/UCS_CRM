@@ -221,9 +221,12 @@ export async function renderImageCertificate(imageBuffer, fields, values) {
   let overlays = '';
   for (const f of fields || []) {
     const style = f.style || {};
-    const value = values && values[f.field_key] != null && String(values[f.field_key]).trim() !== ''
-      ? String(values[f.field_key])
-      : String(f.default_value ?? '');
+    const raw = values && values[f.field_key] != null ? String(values[f.field_key]) : null;
+    // Optional fields stay blank unless the user actually typed something —
+    // never silently substitute their template default.
+    const value = raw != null && raw.trim() !== ''
+      ? raw
+      : (f.required === false ? '' : String(f.default_value ?? ''));
     if (!value) continue;
     const font = getFont(style.fontFamily, isBoldWeight(style.fontWeight));
     overlays += svgForField({ ...style, x: style.x ?? f.position_x, y: style.y ?? f.position_y, width: style.width ?? f.width, height: style.height ?? f.height }, value, font);
