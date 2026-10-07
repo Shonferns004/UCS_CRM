@@ -8,6 +8,7 @@ import {
 } from './api.js'
 import { pdfMemberDoc } from './MembershipFormDoc.jsx'
 import { statusLabel } from './meta.js'
+import { AppliedDate, RenewalDate } from './DateTags.jsx'
 import { formatINR, formatDate, computeEndDate } from './formUtils.js'
 import { MEMBERSHIP_PRICES, INDIA_STATES } from './formConfig.js'
 import { validateField, validateIdentityDocument } from './validate.js'
@@ -381,7 +382,13 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
     ['Address', d.currentAddress && [d.currentAddress, d.city, d.state, d.pinCode].filter(Boolean).join(', ')],
     ['Plan', row.membership_type],
     ['Fee', formatINR(row.membership_fee)],
-    ['Start → End', row.start_date && row.end_date ? `${formatDate(row.start_date)} → ${formatDate(row.end_date)}` : '—'],
+    ['Applied', <AppliedDate key="applied" iso={row.created_at} />],
+    ['Membership period', row.start_date && row.end_date ? (
+      <span key="period" className="date-period">
+        <span className="dp-range">{formatDate(row.start_date)} →</span>
+        <RenewalDate row={row} />
+      </span>
+    ) : '—'],
     ['Identity proof', row.identity_proof_type ? `${row.identity_proof_type}${row.identity_number ? ` · ${row.identity_number}` : ''}` : '—'],
     ['Payment ref', row.payment_ref],
     ...(paymentInfo ? [['Payment', paymentInfo]] : []),
@@ -402,6 +409,10 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
             <h3>{row.full_name}</h3>
             <span className="mono">{row.ref}</span>
             <span className={`admin-badge ${row.status}`}>{statusLabel(row.status)}</span>
+            <span className="drawer-dates">
+              <AppliedDate iso={row.created_at} />
+              <RenewalDate row={row} />
+            </span>
           </div>
           <button className="drawer-close" onClick={onClose} aria-label="Close">
             <X size={18} />

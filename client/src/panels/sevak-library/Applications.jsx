@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Inbox, FileText, Loader2 } from 'lucide-react'
-import { STATUS_ORDER, statusLabel } from './meta.js'
+import { Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Inbox, FileText, Loader2, Timer } from 'lucide-react'
+import { STATUS_ORDER, statusLabel, statusMeta, PLAN_COLORS, isRenewalDue } from './meta.js'
+import { AppliedDate, RenewalDate } from './DateTags.jsx'
 import { exportApplicationsCsv, getPhotoUrls } from './api.js'
 import { pdfMemberDoc } from './MembershipFormDoc.jsx'
-import { formatINR, formatDate } from './formUtils.js'
+import { formatINR } from './formUtils.js'
 import { useToast } from './toast.jsx'
 
 const PAGE_SIZE = 10
 
-export default function Applications({ rows, onOpen }) {
+export default function Applications({ rows, onOpen, initialFilters = {} }) {
   const toast = useToast()
-  const [q, setQ] = useState('')
-  const [status, setStatus] = useState('ALL')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [q, setQ] = useState(initialFilters.q || '')
+  const [status, setStatus] = useState(initialFilters.status || 'ALL')
+  const [plan, setPlan] = useState(initialFilters.plan || 'ALL')
+  const [renewal, setRenewal] = useState(!!initialFilters.renewal)
+  const [from, setFrom] = useState(initialFilters.from || '')
+  const [to, setTo] = useState(initialFilters.to || '')
   const [sortKey, setSortKey] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
   const [page, setPage] = useState(1)
@@ -24,6 +27,22 @@ export default function Applications({ rows, onOpen }) {
     STATUS_ORDER.forEach((s) => (c[s] = rows.filter((r) => r.status === s).length))
     return c
   }, [rows])
+
+  const planCounts = useMemo(() => {
+    const c = { ALL: rows.length }
+    rows.forEach((r) => {
+      const p = r.membership_type || 'Other'
+      c[p] = (c[p] || 0) + 1
+    })
+    return c
+  }, [rows])
+
+  const planList = useMemo(
+    () => Object.keys(planCounts).filter((p) => p !== 'ALL'),
+    [planCounts]
+  )
+
+  const renewalCount = useMemo(() => rows.filter((r) => isRenewalDue(r)).length, [rows])
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -36,6 +55,8 @@ export default function Applications({ rows, onOpen }) {
       )
     }
     if (status !== 'ALL') list = list.filter((r) => r.status === status)
+    if (plan !== 'ALL') list = list.filter((r) => (r.membership_type || 'Other') === plan)
+    if (renewal) list = list.filter((r) => isRenewalDue(r))
     if (from) list = list.filter((r) => (r.created_at || '').slice(0, 10) >= from)
     if (to) list = list.filter((r) => (r.created_at || '').slice(0, 10) <= to)
 
@@ -47,7 +68,7 @@ export default function Applications({ rows, onOpen }) {
       if (sortKey === 'membership_fee') return ((Number(a.membership_fee) || 0) - (Number(b.membership_fee) || 0)) * dir
       return String(av || '').localeCompare(String(bv || '')) * dir
     })
-  }, [rows, q, status, from, to, sortKey, sortDir])
+  }, [rows, q, status, plan, renewal, from, to, sortKey, sortDir])
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, pages)
@@ -59,7 +80,18 @@ export default function Applications({ rows, onOpen }) {
 
   useEffect(() => {
     setPage(1)
-  }, [q, status, from, to])
+  }, [q, status, plan, renewal, from, to])
+
+  const hasFilters = status !== 'ALL' || plan !== 'ALL' || renewal || !!from || !!to || !!q
+
+  const clearFilters = () => {
+    setQ('')
+    setStatus('ALL')
+    setPlan('ALL')
+    setRenewal(false)
+    setFrom('')
+    setTo('')
+  }
 
   const toggleSort = (key) => {
     if (sortKey === key) {
@@ -139,12 +171,57 @@ export default function Applications({ rows, onOpen }) {
       </div>
 
       <div className="status-chips">
-        <button className={`chip ${status === 'ALL' ? 'active' : ''}`} onClick={() => setStatus('ALL')}>
+        <button
+          className={`chip ${status === 'ALL' && !renewal ? 'active' : ''}`}
+          onClick={() => { setStatus('ALL'); setRenewal(false) }}
+        >
           All <span>{counts.ALL}</span>
         </button>
-        {STATUS_ORDER.map((s) => (
-          <button key={s} className={`chip ${status === s ? 'active' : ''}`} onClick={() => setStatus(s)}>
-            {statusLabel(s)} <span>{counts[s]}</span>
+        {STATUS_ORDER.map((s) => {
+          const m = statusMeta(s)
+          const active = status === s
+          return (
+            <button
+              key={s}
+              className={`chip chip-status ${active ? 'active' : ''}`}
+              style={{ '--cc': m.dot, '--csoft': m.soft, '--ctext': m.text }}
+              onClick={() => { setStatus(s); setRenewal(false) }}
+            >
+              <i className="chip-dot" />
+              {m.label} <span>{counts[s]}</span>
+            </button>
+          )
+        })}
+        <button
+          className={`chip chip-renewal ${renewal ? 'active' : ''}`}
+          onClick={() => { setRenewal((v) => !v); setStatus('ALL') }}
+          title="Approved memberships expiring within 30 days (or already expired)"
+        >
+          <Timer size={13} /> Renewals due <span>{renewalCount}</span>
+        </button>
+        {hasFilters && (
+          <button className="chip chip-clear" onClick={clearFilters}>
+            ✕ Clear filters
+          </button>
+        )}
+      </div>
+
+      <div className="status-chips plan-chips">
+        <button
+          className={`chip ${plan === 'ALL' ? 'active' : ''}`}
+          onClick={() => setPlan('ALL')}
+        >
+          All plans <span>{planCounts.ALL}</span>
+        </button>
+        {planList.map((p) => (
+          <button
+            key={p}
+            className={`chip chip-plan ${plan === p ? 'active' : ''}`}
+            style={{ '--pc': PLAN_COLORS[p] || '#9aa0a6' }}
+            onClick={() => setPlan(plan === p ? 'ALL' : p)}
+          >
+            <i className="chip-dot" />
+            {p} <span>{planCounts[p]}</span>
           </button>
         ))}
       </div>
@@ -165,6 +242,7 @@ export default function Applications({ rows, onOpen }) {
                 <th><SortBtn label="Fee" k="membership_fee" /></th>
                 <th>Status</th>
                 <th><SortBtn label="Applied" k="created_at" /></th>
+                <th><SortBtn label="Renewal" k="end_date" /></th>
                 <th />
               </tr>
             </thead>
@@ -181,13 +259,21 @@ export default function Applications({ rows, onOpen }) {
                       </span>
                     </div>
                   </td>
-                  <td>{r.membership_type}</td>
+                  <td>
+                    <span
+                      className="plan-tag"
+                      style={{ '--pc': PLAN_COLORS[r.membership_type] || '#9aa0a6' }}
+                    >
+                      {r.membership_type || '—'}
+                    </span>
+                  </td>
                   <td>{formatINR(r.membership_fee)}</td>
                   <td>
                     <span className={`admin-badge ${r.status}`}>{statusLabel(r.status)}</span>
                     {r.membership_id && <div className="mid mono">{r.membership_id}</div>}
                   </td>
-                  <td className="muted-td">{formatDate(r.created_at)}</td>
+                  <td className="muted-td"><AppliedDate iso={r.created_at} /></td>
+                  <td><RenewalDate row={r} /></td>
                   <td>
                     <button className="btn-view" onClick={() => onOpen(r)}>View</button>
                   </td>
