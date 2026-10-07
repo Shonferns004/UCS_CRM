@@ -3,7 +3,7 @@ import { certificateApi } from '../api/certificates'
 import { toast } from '../../../components/Toast'
 import {
   Plus, Trash2, Wand2, CheckCircle2, ChevronLeft, Type as TypeIcon,
-  AlignLeft, AlignCenter, AlignRight, Bold, Italic, ZoomIn, ZoomOut, Maximize, Loader2, X, Copy,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, ZoomIn, ZoomOut, Maximize, Loader2, X, Copy,
 } from 'lucide-react'
 
 // Visaul certificate editor for image templates. The uploaded image is the
@@ -14,6 +14,8 @@ import {
 export const CERT_FONT_FAMILIES = [
   'Arial', 'Calibri', 'Cambria', 'Georgia', 'Times New Roman', 'Verdana',
   'Tahoma', 'Courier New', 'Impact', 'Comic Sans MS', 'Segoe UI', 'Bookman Old Style',
+  'Poppins', 'Montserrat', 'Open Sans', 'Playfair Display', 'Cinzel', 'Inter', 'Lato',
+  'Glacial Indifference', 'Cormorant Garamond',
 ]
 
 const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']
@@ -44,6 +46,7 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
   const [previewUrl, setPreviewUrl] = useState(null)
   const [previewBusy, setPreviewBusy] = useState(false)
   const [sampleValues, setSampleValues] = useState({})
+  const [guides, setGuides] = useState(null)
   const stageRef = useRef(null)
   const wrapRef = useRef(null)
 
@@ -119,27 +122,47 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
     const onMove = (e) => {
       const dx = (e.clientX - drag.startX) / scale
       const dy = (e.clientY - drag.startY) / scale
+      if (drag.mode === 'move') {
+        // Snap toward the canvas center (helps center fields) and show guides.
+        const f = fields[drag.index]?.style || {}
+        const fw = f.width || 100
+        const fh = f.height || 40
+        let nx = drag.orig.x + dx
+        let ny = drag.orig.y + dy
+        const g = { vCenter: false, hCenter: false, vLeft: false, hTop: false, vRight: false, hBottom: false }
+        const cx = nx + fw / 2
+        if (Math.abs(cx - canvasW / 2) < 8) { nx = canvasW / 2 - fw / 2; g.vCenter = true }
+        const cy = ny + fh / 2
+        if (Math.abs(cy - canvasH / 2) < 8) { ny = canvasH / 2 - fh / 2; g.hCenter = true }
+        if (Math.abs(nx) < 6) { nx = 0; g.vLeft = true }
+        if (Math.abs(ny) < 6) { ny = 0; g.hTop = true }
+        if (Math.abs(nx + fw - canvasW) < 6) { nx = canvasW - fw; g.vRight = true }
+        if (Math.abs(ny + fh - canvasH) < 6) { ny = canvasH - fh; g.hBottom = true }
+        setGuides(g)
+        setDraft((d) => ({
+          ...d,
+          fields: (d.fields || []).map((f2, i) => (i === drag.index
+            ? { ...f2, style: { ...(f2.style || {}), x: Math.round(Math.max(0, Math.min(canvasW - 20, nx))), y: Math.round(Math.max(0, Math.min(canvasH - 10, ny))) } }
+            : f2)),
+        }))
+        return
+      }
       setDraft((d) => {
-        const fields = (d.fields || []).map((f, i) => {
-          if (i !== drag.index) return f
-          const s = { ...(f.style || {}) }
-          if (drag.mode === 'move') {
-            s.x = Math.round(Math.max(0, Math.min(canvasW - 20, drag.orig.x + dx)))
-            s.y = Math.round(Math.max(0, Math.min(canvasH - 10, drag.orig.y + dy)))
-          } else {
-            s.width = Math.round(Math.max(40, drag.orig.width + dx))
-            s.height = Math.round(Math.max(16, drag.orig.height + dy))
-          }
-          return { ...f, style: s }
+        const fields2 = (d.fields || []).map((f2, i) => {
+          if (i !== drag.index) return f2
+          const s = { ...(f2.style || {}) }
+          s.width = Math.round(Math.max(40, drag.orig.width + dx))
+          s.height = Math.round(Math.max(16, drag.orig.height + dy))
+          return { ...f2, style: s }
         })
-        return { ...d, fields }
+        return { ...d, fields: fields2 }
       })
     }
-    const onUp = () => setDrag(null)
+    const onUp = () => { setDrag(null); setGuides(null) }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
-  }, [drag, scale, canvasW, canvasH, setDraft])
+  }, [drag, scale, canvasW, canvasH, setDraft, fields])
 
   const fitToWidth = () => {
     if (wrapRef.current) setScale(Math.min(2, (wrapRef.current.clientWidth - 4) / canvasW))
@@ -221,7 +244,7 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
                     fontStyle: s.fontStyle || 'normal', color: s.color || '#111', textAlign: s.textAlign || 'center',
                     lineHeight: s.lineHeight || 1.2, letterSpacing: (s.letterSpacing || 0) * scale,
                     width: '100%', height: '100%', display: 'flex', alignItems: s.verticalAlign === 'top' ? 'flex-start' : s.verticalAlign === 'bottom' ? 'flex-end' : 'center',
-                    justifyContent: s.textAlign === 'left' ? 'flex-start' : s.textAlign === 'right' ? 'flex-end' : 'center',
+                    justifyContent: s.textAlign === 'left' ? 'flex-start' : s.textAlign === 'right' ? 'flex-end' : 'stretch',
                     padding: 2, wordBreak: 'break-word', whiteSpace: 'pre-wrap',
                   }}>
                     <span style={{ width: '100%', display: 'block', overflowWrap: 'break-word' }}>
@@ -237,6 +260,16 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
                 </div>
               )
             })}
+            {guides && (
+              <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                {guides.vCenter && <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: '#ec4899' }} />}
+                {guides.hCenter && <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, background: '#ec4899' }} />}
+                {guides.vLeft && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 1, background: '#3b82f6' }} />}
+                {guides.hTop && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: '#3b82f6' }} />}
+                {guides.vRight && <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 1, background: '#3b82f6' }} />}
+                {guides.hBottom && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: '#3b82f6' }} />}
+              </div>
+            )}
           </div>
         </div>
 
@@ -289,6 +322,7 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
                 {alignBtn('left', AlignLeft)}
                 {alignBtn('center', AlignCenter)}
                 {alignBtn('right', AlignRight)}
+                {alignBtn('justify', AlignJustify)}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div>
