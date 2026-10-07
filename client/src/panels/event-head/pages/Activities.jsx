@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { fetchActivities, fetchSectors, fetchWorkspaceNgos, createActivity, updateActivity, setActivityStatus, importActivitiesSheet, exportActivitiesSheet, suggestSectorActivities } from '../store'
+import { fetchActivities, fetchSectors, fetchWorkspaceNgos, createActivity, updateActivity, setActivityStatus, importActivitiesSheet, exportActivitiesSheet, suggestSectorActivities, BENEFICIARY_CATEGORIES } from '../store'
 import { EnhancedTable } from '../components/Table'
 
-const emptyForm = { name: '', ngo_id: '', sector_id: '', description: '', banner: '' }
+const emptyForm = { name: '', ngo_id: '', sector_id: '', description: '', banner: '', beneficiary_group: '' }
 
 export default function Activities() {
   const navigate = useNavigate()
@@ -72,7 +72,7 @@ export default function Activities() {
   const openAdd = () => { setEditing(null); setForm({ ...emptyForm, sector_id: sectorFilter || '' }); setError(''); setAiSuggestions([]); setModal(true) }
   const openEdit = (row) => {
     setEditing(row)
-    setForm({ name: row.name || '', ngo_id: row.ngo_id ? String(row.ngo_id) : '', sector_id: row.sector_id ? String(row.sector_id) : '', description: row.description || '', banner: row.banner || '' })
+    setForm({ name: row.name || '', ngo_id: row.ngo_id ? String(row.ngo_id) : '', sector_id: row.sector_id ? String(row.sector_id) : '', description: row.description || '', banner: row.banner || '', beneficiary_group: row.beneficiary_group || '' })
     setError(''); setAiSuggestions([])
     setModal(true)
   }
@@ -89,6 +89,8 @@ export default function Activities() {
       sector_id: Number(form.sector_id),
       description: form.description || null,
       banner: form.banner || null,
+      // Closed list from the dropdown; empty is stored as null.
+      beneficiary_group: form.beneficiary_group || null,
     }
     try {
       if (editing) {
@@ -169,6 +171,7 @@ export default function Activities() {
     },
     { header: 'NGO', accessor: 'ngo_name', render: (row) => row.ngo_name ? <span style={{ fontWeight: 500 }}>{row.ngo_name}</span> : '—' },
     { header: 'Sector', accessor: 'sector_name' },
+    { header: 'Beneficiary', accessor: 'beneficiary_group', render: (row) => row.beneficiary_group || '—' },
     { header: 'Events', accessor: 'event_count', render: (row) => row.event_count || 0 },
     {
       header: 'Actions',
@@ -331,6 +334,12 @@ export default function Activities() {
                   <div className="field"><label>Sector *</label><select name="sector_id" value={form.sector_id} onChange={handleChange} required>
                     <option value="">Select sector</option>
                     {sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select></div>
+                </div>
+                <div className="form-row" style={{ marginBottom: 12 }}>
+                  <div className="field"><label>Beneficiary Category</label><select name="beneficiary_group" value={form.beneficiary_group} onChange={handleChange}>
+                    <option value="">Select category</option>
+                    {BENEFICIARY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select></div>
                 </div>
                 <div className="form-row" style={{ marginBottom: 12 }}>

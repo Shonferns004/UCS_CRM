@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { fetchActivityById, fetchSectors, fetchWorkspaceNgos, updateActivity, setActivityStatus } from '../store'
+import { fetchActivityById, fetchSectors, fetchWorkspaceNgos, updateActivity, setActivityStatus, BENEFICIARY_CATEGORIES } from '../store'
 
 export default function ActivityDetail() {
   const { id } = useParams()
@@ -29,7 +29,7 @@ export default function ActivityDetail() {
   }, [id])
 
   const startEdit = () => {
-    setForm({ name: activity.name, ngo_id: activity.ngo_id ? String(activity.ngo_id) : '', sector_id: activity.sector_id ? String(activity.sector_id) : '', description: activity.description || '', banner: activity.banner || '' })
+    setForm({ name: activity.name, ngo_id: activity.ngo_id ? String(activity.ngo_id) : '', sector_id: activity.sector_id ? String(activity.sector_id) : '', description: activity.description || '', banner: activity.banner || '', beneficiary_group: activity.beneficiary_group || '' })
     setError('')
     setEditing(true)
   }
@@ -47,6 +47,7 @@ export default function ActivityDetail() {
         sector_id: Number(form.sector_id),
         description: form.description || null,
         banner: form.banner || null,
+        beneficiary_group: form.beneficiary_group || null,
       })
       setActivity({ ...activity, ...updated })
       setEditing(false)
@@ -109,6 +110,12 @@ export default function ActivityDetail() {
                 </select></div>
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
+                <div className="field"><label>Beneficiary Category</label><select name="beneficiary_group" value={form.beneficiary_group} onChange={handleChange}>
+                  <option value="">Select category</option>
+                  {BENEFICIARY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select></div>
+              </div>
+              <div className="form-row" style={{ marginBottom: 12 }}>
                 <div className="field"><label>Description</label><textarea name="description" value={form.description} onChange={handleChange} rows={3} style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} /></div>
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
@@ -138,6 +145,7 @@ export default function ActivityDetail() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, fontSize: 13 }}>
                 <div><span style={{ color: 'var(--ink-soft)' }}>NGO:</span> <b>{activity.ngo_name || '—'}</b></div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>Sector:</span> <b>{activity.sector_name || '—'}</b></div>
+                <div><span style={{ color: 'var(--ink-soft)' }}>Beneficiary:</span> <b>{activity.beneficiary_group || '—'}</b></div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>Events:</span> <b>{activity.event_count || 0}</b></div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>Created:</span> {activity.created_at ? new Date(activity.created_at).toLocaleDateString() : '—'}</div>
                 {activity.sector_description && <div style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 4 }}>{activity.sector_description}</div>}

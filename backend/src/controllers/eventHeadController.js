@@ -4,7 +4,6 @@ import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName,
 import db, { getTableColumns } from '../config/db.js';
 import groq from '../config/groq.js';
 import {
-  getObservancesInRange, getObservancesOnDate, mergeCustomObservances,
   availableYears, allThemes, SUPPORTED_LUNAR_YEARS,
 } from '../utils/observances.js';
 import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
@@ -18,10 +17,9 @@ import {
   parseActivityProgramSuggestions,
   parseFestivalProgramSuggestions,
   canonicalActivityBeneficiary,
-  beneficiaryGroupForNgo,
+  ACTIVITY_BENEFICIARY_GROUPS,
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
-import { getCalendarificObservancesInRange, mergeCalendarific } from '../utils/calendarific.js';
 import { getMergedObservancesInRange, findObservanceForDate } from '../utils/observanceMerge.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
@@ -39,6 +37,22 @@ const sanitize = (data) => {
     }
   }
   return clean;
+};
+
+/* The beneficiary category is picked from the UI's closed dropdown, but this is
+   an API: a value outside the vocabulary would store fine and then read back as
+   blank (every report canonicalises on read), so the save would look successful
+   and show nothing. Refuse instead — the same rule as in_report below. Empty is
+   the honest "no category" and stores as null. */
+const canonicalBeneficiaryFields = (fields) => {
+  if (!Object.prototype.hasOwnProperty.call(fields, 'beneficiary_group')) return fields;
+  const canonical = canonicalActivityBeneficiary(fields.beneficiary_group);
+  if (!canonical && fields.beneficiary_group) {
+    const err = new Error(`beneficiary_group must be one of: ${ACTIVITY_BENEFICIARY_GROUPS.join(', ')}`);
+    err.status = 400;
+    throw err;
+  }
+  return { ...fields, beneficiary_group: canonical || null };
 };
 
 // Event Head workspace shows ALL NGOs to every event-head user; the NGO,
@@ -1477,15 +1491,16 @@ export const createActivity = async (req, res) => {
     if (!name || !body.sector_id) {
       return res.status(400).json({ message: 'Activity name and sector are required' });
     }
-    const activity = await EventHead.createActivity({
+    const activity = await EventHead.createActivity(canonicalBeneficiaryFields({
       ...body,
       name,
       created_by: String(req.user.id || ''),
       status: body.status || 'Active',
-    });
+    }));
     return res.status(201).json(activity);
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ message: 'An activity with this name already exists for this NGO' });
+    if (error.status === 400) return res.status(400).json({ message: error.message });
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
@@ -1950,7 +1965,7 @@ export const updateActivity = async (req, res) => {
     const existing = await EventHead.getActivityById(req.params.id);
     if (!existing) return res.status(404).json({ message: 'Activity not found' });
     const body = sanitize(req.body);
-    const updates = { ...body };
+    const updates = canonicalBeneficiaryFields({ ...body });
     if (updates.name !== undefined) updates.name = String(updates.name || '').trim();
     if (updates.name !== undefined && !updates.name) return res.status(400).json({ message: 'Activity name cannot be empty' });
     // "Include in my download" is the user's decision about what the monthly file
@@ -1964,6 +1979,7 @@ export const updateActivity = async (req, res) => {
     return res.json(activity);
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ message: 'An activity with this name already exists for this NGO' });
+    if (error.status === 400) return res.status(400).json({ message: error.message });
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
@@ -2218,24 +2234,15 @@ export const listCalendarObservances = async (req, res) => {
       return res.status(400).json({ message: `Date range too large — request at most ${MAX_RANGE_DAYS} days` });
     }
 
-    const curated = getObservancesInRange(start, end, { scope });
-
-    // Operator holiday rows are a bonus layer; a DB failure must not break or
-    // delay the calendar, so it degrades to the curated list alone.
+    // All four deterministic sources in one merge — the curated reference
+    // calendar + operator `holidays` rows + the fixed international-days list +
+    // Calendarific (India's festivals/national days, dated for any year). The
+    // overlay and the API are bonus layers: a DB failure or a Calendarific
+    // outage degrades to the rows above without breaking or delaying anything.
+    // The shared helper filters by scope itself, so this endpoint returns
+    // exactly what /api/important-days shows for the same range.
     const holidays = await getHolidaysCached();
-    // Merge for EVERY scope (an admin should not lose their custom holiday just
-    // because the view is filtered to India or worldwide), then re-apply the
-    // scope filter since a custom row can carry its own scope.
-    const merged = holidays.length
-      ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
-      : curated;
-
-    // Calendarific enriches the calendar with India's festivals/national days
-    // and worldwide/UN observance days, properly dated for any year. It is an
-    // append-only layer: curated/DB rows win on exact duplicates, and an API
-    // failure degrades to the data above without breaking or delaying anything.
-    const calendarific = await getCalendarificObservancesInRange(start, end);
-    const observances = calendarific.length ? mergeCalendarific(merged, calendarific, scope) : merged;
+    const observances = await getMergedObservancesInRange(start, end, { holidays, scope });
 
     // byDate lets the client render a day cell without re-grouping.
     const byDate = {};
@@ -2539,11 +2546,14 @@ export const suggestDayPrograms = async (req, res) => {
     const dateYmdReq = String(req.body?.date || '').slice(0, 10);
     if (!DATE_RE.test(dateYmdReq)) return res.status(400).json({ message: 'date is required as YYYY-MM-DD' });
 
-    // Server-resolved context — the client cannot override these.
-    const observances = getObservancesOnDate(dateYmdReq);
+    // Server-resolved context — the client cannot override these. All four
+    // deterministic sources (curated + operator holidays + fixed international
+    // days + Calendarific) via the shared merge, so the day plan the model
+    // reasons about is the same calendar the page displays.
     const scopeRaw = String(req.body?.scope || 'all').toLowerCase();
     const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
-    const scoped = observances.filter((o) => scope === 'all' || o.scope === scope);
+    const holidays = await getHolidaysCached();
+    const scoped = await getMergedObservancesInRange(dateYmdReq, addDaysYmd(dateYmdReq, 1), { holidays, scope });
     const sectorName = String(req.body?.sector_name || '').slice(0, 120) || null;
     const sectorId = String(req.body?.sector_id || '').slice(0, 60) || null;
 
@@ -2740,21 +2750,16 @@ export const suggestActivityPrograms = async (req, res) => {
     const sectorRow = (sectors || []).find((s) => String(s.id) === String(activity.sector_id));
     const sectorName = sectorRow?.name || null;
 
-    // ── Real observance dates for the month. Deterministic, never AI-generated.
+    // ── Real observance dates for the month. Deterministic, never AI-generated:
+    // all four sources (curated + operator holidays + fixed international days +
+    // Calendarific) through the same merge the calendar grid reads, so the model
+    // never plans against a narrower calendar than the planner shows.
     const scopeRaw = String(req.body?.scope || 'all').toLowerCase();
     const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
     const first = monthFirstDay(month);
     const endExclusive = monthEndExclusive(month);
-    const curated = getObservancesInRange(first, endExclusive, { scope });
-
-    // Operator holiday rows are a bonus layer; a DB failure must not break the
-    // planner, so it degrades to the curated list alone. Merged for EVERY scope
-    // and then re-filtered, exactly as listCalendarObservances does — a custom
-    // holiday can carry its own scope and must not vanish from a filtered view.
     const holidays = await getHolidaysCached();
-    const observances = holidays.length
-      ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
-      : curated;
+    const observances = await getMergedObservancesInRange(first, endExclusive, { holidays, scope });
 
     // ── Programmes this NGO already has in the month, so the model avoids them.
     const existingTitles = [];
@@ -2935,8 +2940,13 @@ export const setPlannerSuggestionSelected = async (req, res) => {
 // (from the shared four-source merge), and asks the model for several useful
 // programmes per festival. This is deliberately NOT anchored to a single
 // activity: the unit of generation is (festival/day × NGO), and the
-// beneficiary group is resolved server-side from the NGO's code — the client
-// can never supply a beneficiary, so BSCT/MANN/AFLF data can never be mixed.
+// beneficiary group comes from the row's own dropdown — the client sends it
+// from the closed ACTIVITY_BENEFICIARY_GROUPS vocabulary only, so BSCT/MANN/AFLF
+// data can never be mixed and a value outside the list is refused outright.
+// With no dropdown value nothing is stored and the prompt carries no
+// beneficiary line: the NGO's fixed group is never invented as a default, so
+// the grid, the exports and the reports only ever show a category somebody
+// actually picked.
 //
 // The festival + date are validated against the same merged calendar the grid
 // renders, so the model cannot be fed a made-up occasion.
@@ -2962,11 +2972,22 @@ export const suggestFestivalPrograms = async (req, res) => {
       return res.status(400).json({ message: 'Pick a single NGO to generate festival programmes' });
     }
 
-    // No AI can be aimed at a beneficiary that does not exist. The GROUP is
-    // derived here from the NGO's code; the CLIENT never sends it.
+    // No AI can be aimed at a beneficiary that does not exist. The row's
+    // dropdown sends one category from the closed vocabulary; anything else is
+    // refused rather than silently rewritten. Empty means nobody picked a
+    // category: nothing is stored and the prompt drops the beneficiary line —
+    // never the NGO's own group by default.
+    const requestedRaw = req.body?.beneficiary_group;
+    let requestedGroup = '';
+    if (requestedRaw !== undefined && requestedRaw !== null && String(requestedRaw).trim() !== '') {
+      requestedGroup = canonicalActivityBeneficiary(requestedRaw);
+      if (!requestedGroup) {
+        return res.status(400).json({ message: `beneficiary_group must be one of: ${ACTIVITY_BENEFICIARY_GROUPS.join(', ')}` });
+      }
+    }
     const ngoRow = await EventHead.getEventHeadNgoById(ngoId).catch(() => null);
     if (!ngoRow) return res.status(404).json({ message: 'NGO not found' });
-    const beneficiaryGroup = beneficiaryGroupForNgo(ngoRow?.code) || null;
+    const beneficiaryGroup = requestedGroup || null;
 
     // Optional sector only provides flavour; it never picks the beneficiary.
     const sectorIdRaw = req.body?.sector_id;
@@ -3011,6 +3032,21 @@ export const suggestFestivalPrograms = async (req, res) => {
       .catch(() => []);
     for (const ev of inRange || []) {
       const t = String(ev?.name || '').trim();
+      if (t) existingTitles.push(t.slice(0, 100));
+    }
+
+    // ── Plus the ideas already stored for THIS festival. Without them a
+    //    "Suggest again" after a reload hands the model the same occasion and
+    //    it happily repeats what is already on screen — the upsert then
+    //    dedupes every title away and nothing visibly happens. Listed here the
+    //    model is asked for genuinely new programmes instead, and the parser
+    //    de-dupes against the same list as a second line of defence.
+    const alreadyStored = await EventHead.getFestivalSuggestions({
+      ngo_id: ngoId, month: Number(month.slice(5, 7)), year: Number(month.slice(0, 4)),
+      date, festival: observance.name,
+    }).catch(() => []);
+    for (const s of alreadyStored || []) {
+      const t = String(s?.title || '').trim();
       if (t) existingTitles.push(t.slice(0, 100));
     }
 
@@ -3167,6 +3203,55 @@ export const setFestivalSuggestionSelected = async (req, res) => {
     return res.json({ suggestion: row });
   } catch (error) {
     console.error('setFestivalSuggestionSelected error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/* Saves the planner's Beneficiary dropdown choice onto every stored suggestion
+   of one festival, so the grid, the post-reload fallback and the Excel/PDF
+   export all show the category the user actually picked — even when they never
+   regenerate. The value is validated against the closed vocabulary here, so an
+   unknown category can never be stored or exported. */
+export const setFestivalSuggestionsBeneficiary = async (req, res) => {
+  try {
+    const { ngo_id, festival } = req.body || {};
+    const month = Number(req.body?.month);
+    const year = Number(req.body?.year);
+    const date = String(req.body?.date || '').trim();
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000) {
+      return res.status(400).json({ message: 'month (1-12) and year are required' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: 'date (YYYY-MM-DD) is required' });
+    if (Number(date.slice(5, 7)) !== month) {
+      return res.status(400).json({ message: 'date must be inside the given month' });
+    }
+    if (!String(festival || '').trim()) return res.status(400).json({ message: 'festival is required' });
+    if (ngo_id === undefined || ngo_id === null || ngo_id === '') {
+      return res.status(400).json({ message: 'ngo_id is required' });
+    }
+    const beneficiary = canonicalActivityBeneficiary(req.body?.beneficiary) || null;
+    // Stored rows carry ngo_id exactly as suggestFestivalPrograms wrote it —
+    // a string — so it is passed through uncoerced or the .eq() would miss.
+    const ngoKey = String(ngo_id);
+
+    const updated = await EventHead.setFestivalSuggestionsBeneficiary({
+      ngo_id: ngoKey,
+      month,
+      observance_date: date,
+      festival: String(festival).trim(),
+      beneficiary,
+    });
+
+    const suggestions = await EventHead.getFestivalSuggestions({
+      ngo_id: ngoKey,
+      month,
+      year,
+      date,
+      festival: String(festival).trim(),
+    }).catch(() => []);
+    return res.json({ updated, beneficiary, suggestions });
+  } catch (error) {
+    console.error('setFestivalSuggestionsBeneficiary error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

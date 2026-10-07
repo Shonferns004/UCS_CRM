@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { fetchEvents, fetchBeneficiaries, createBeneficiary, createDistribution, fetchMaterials } from '../store'
+import { fetchEvents, fetchBeneficiaries, createBeneficiary, createDistribution, fetchMaterials, BENEFICIARY_CATEGORIES } from '../store'
 
 export default function BeneficiaryDistribution() {
   const [events, setEvents] = useState([])
@@ -57,8 +57,12 @@ export default function BeneficiaryDistribution() {
               <div className="form-row">
                 <div className="field"><label>Address</label><input value={form.address} onChange={e => setForm({...form,address:e.target.value})} /></div>
                 <div className="field"><label>Category</label>
+                  {/* The same closed category list the Activity forms use, so a
+                      category recorded here means the same thing as on an
+                      activity. Options only; this Select never types a value. */}
                   <select value={form.category} onChange={e => setForm({...form,category:e.target.value})}>
-                    <option value="">Select</option><option value="BPL">BPL</option><option value="APL">APL</option><option value="Disabled">Disabled</option><option value="Senior Citizen">Senior Citizen</option><option value="Women">Women</option><option value="Child">Child</option>
+                    <option value="">Select</option>
+                    {BENEFICIARY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>

@@ -31,6 +31,17 @@ test('classifies an observance as worldwide/observance (Calendars official bucke
   );
 });
 
+// Calendarific tags Indian religious observances as ["Observance","<religion>"]
+// (Sharad Navratri start, Durga Puja start, Janmashtami (Smarta)). The religion
+// check runs FIRST so those stay under the India filter instead of vanishing
+// into the worldwide Observance bucket.
+test('religion tag beats the observance bucket (stays india/religious)', () => {
+  assert.deepEqual(
+    classifyCalendarific({ type: ['Observance', 'Hinduism'], primary_type: 'Observance' }),
+    { scope: 'india', kind: 'religious' },
+  );
+});
+
 test('religion primary_type also maps to india/religious', () => {
   assert.deepEqual(
     classifyCalendarific({ type: [], primary_type: 'Christian' }),

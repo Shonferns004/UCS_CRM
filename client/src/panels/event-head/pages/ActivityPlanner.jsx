@@ -19,8 +19,10 @@ import {
   suggestFestivalPrograms,
   getFestivalSuggestions,
   setFestivalSuggestionSelected,
+  setFestivalSuggestionsBeneficiary,
   mergeProgrammeRows,
   blankRepeatedDates,
+  BENEFICIARY_CATEGORIES,
 } from '../store.jsx'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
@@ -67,52 +69,35 @@ const shortDate = (ymd) => {
 const ngoShortLabel = (n) =>
   String(n?.code || '').trim() || String(n?.name || '').trim() || 'NGO'
 
-/* Who each NGO serves. These three NGOs work for one distinct group each, so
-   the group defaults to a property of the NGO rather than something every
-   activity has to be tagged with individually — which is what left the
-   Beneficiary filter empty and untaggable. Keyed by the code the team already
-   uses. */
-const NGO_BENEFICIARY = {
-  bsct: 'Visually Impaired',
-  aflf: 'Underprivileged Families',
-  mann: 'Women',
-}
+/* The closed vocabulary for the Add Activity dropdown and the Beneficiary
+   filter, in a stable order. Shared with every other page that picks a
+   category (Activities, Activity detail, Distribution) via the store, and
+   mirrored by ACTIVITY_BENEFICIARY_GROUPS on the backend, so a value picked
+   here is accepted on save. */
+const BENEFICIARY_GROUPS = BENEFICIARY_CATEGORIES
 
-/* The closed vocabulary, in a stable order for the Add Activity dropdown. Kept
-   as a list rather than read off the object above so the three NGOs always show
-   the same three groups in the same order. */
-const BENEFICIARY_GROUPS = Object.values(NGO_BENEFICIARY)
-
-/* The saved spelling of a group, or '' when the value is not one of the three.
-   Trimmed and case-insensitive so " women " and "Women" are the same group, and
-   strict about membership so a stray value typed before this feature existed
-   cannot put a fourth, unknown group into the table and the filter. */
+/* The saved spelling of a category, or '' when the value is not in the closed
+   list. Trimmed and case-insensitive so " women " and "Women" are the same
+   category, and strict about membership so a stray legacy value cannot put an
+   unknown category into the table and the filter. */
 const canonicalBeneficiary = (value) => {
   const v = String(value ?? '').trim().toLowerCase()
   if (!v) return ''
   return BENEFICIARY_GROUPS.find((g) => g.toLowerCase() === v) || ''
 }
 
-/* The NGO an activity belongs to, resolved even when the page is on "All NGOs"
-   and the row itself carries no NGO. */
-const activityNgo = (a, ngos, ngo) => {
-  if (ngo) return ngo
-  return ngos.find((x) => String(x.id) === String(a.ngo_id)) || null
-}
-
-/* The group an activity serves. The group's own choice first, then the NGO's
-   fixed group — which is what every activity created before the dropdown existed
-   falls back to, so old rows stay correct and never drop out of the filter.
-   Every read goes through this, so the table, the filter, the search and the
-   suggestion scoping can never disagree. */
-const activityBeneficiary = (a, ngos, ngo) =>
-  canonicalBeneficiary(a?.beneficiary_group)
-  || NGO_BENEFICIARY[ngoCodeKey(activityNgo(a, ngos, ngo))] || ''
+/* The group an activity serves: the category saved on the activity itself,
+   and nothing else. There is deliberately no fallback to the NGO's fixed
+   group — an activity nobody chose a category for shows blank and matches no
+   category filter, so the filter, the search and the suggestion scoping can
+   never report an audience nobody picked. Every read goes through this one
+   function, so those three can never disagree. */
+const activityBeneficiary = (a) => canonicalBeneficiary(a?.beneficiary_group) || ''
 
 /* How many programmes each NGO is expected to run in a month. This is the one
    place the quota lives: change a number here and every card, the header total
-   and the remaining count follow. Keyed by the same short code as the
-   beneficiary map above, because that is how the team identifies an NGO.
+   and the remaining count follow. Keyed by the NGO's short code, because that
+   is how the team identifies an NGO.
    An NGO with no entry falls back to the smallest common quota rather than
    showing a target of 0, which would read as "already complete". */
 const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 20 }
@@ -278,15 +263,24 @@ function Field({ label, hint, children }) {
   )
 }
 
-/* The beneficiary an activity serves, shown on its row.
-
-   The group's own choice when it has one, otherwise the group fixed for its NGO
-   (see activityBeneficiary). That is what makes the Beneficiary filter usable —
-   every activity resolves to exactly one of the three groups, so the filter
-   always has real options and nothing is ever left blank. */
-function BeneficiaryCell({ group }) {
-  if (!group) return <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>—</span>
-  return <Badge tone="secondary">{group}</Badge>
+/* The festival grid's Beneficiary cell: a real dropdown, not a label. What is
+   chosen here is who the AI is aimed at the next time that festival's
+   programmes are generated — the closed category list, one option per
+   category, and nothing else can be typed in. */
+function FestivalBeneficiarySelect({ value, disabled, title, onChange }) {
+  return (
+    <select
+      className="eh-select"
+      value={value}
+      disabled={disabled}
+      title={title}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ width: '100%', minWidth: 0, padding: '7px 9px', fontSize: 12.5, borderRadius: 9 }}
+    >
+      <option value="">Select a category…</option>
+      {BENEFICIARY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+    </select>
+  )
 }
 
 /* ── Step 3 · Add Activity (NGO-wise) ────────────────────────────────────── */
@@ -295,14 +289,11 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   const [name, setName] = useState('')
   const [sectorId, setSectorId] = useState('')
   const [description, setDescription] = useState('')
-  // Which of the three groups this activity serves. Defaults to the one the NGO
-  // works for, but is a real choice: an activity can serve a different group from
-  // the rest of its NGO, and every read (table, filter, search, AI prompt) then
-  // follows this value instead of the NGO's.
+  // Which category this activity serves, picked from the closed dropdown. Empty
+  // is allowed (the form does not have to claim an audience), but anything typed
+  // must be one of the BENEFICIARY_GROUPS values — canonicalBeneficiary on save
+  // enforces that so an unknown value never reaches the backend.
   const [beneficiaryGroup, setBeneficiaryGroup] = useState('')
-  // The group box itself is hidden until this is ticked, so an activity that
-  // serves nobody in particular shows no beneficiary at all.
-  const [showGroupPicker, setShowGroupPicker] = useState(false)
   const chosenGroup = canonicalBeneficiary(beneficiaryGroup)
   // Whether this activity belongs in the monthly download. On by default here
   // because someone adding an activity has already decided it matters; the tick on
@@ -318,22 +309,6 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   // Only days of the month on screen, so the programme it creates always lands
   // in this month's counts and download rather than somewhere invisible.
   const days = useMemo(() => daysInMonth(month), [month])
-
-  const ngoDefault = NGO_BENEFICIARY[ngoCodeKey(ngo)] || ''
-
-  /* No pre-selection, on purpose. An empty box is the honest state: the form does
-     not claim the activity serves anybody until it is told, and the prompt takes
-     the same view — no group chosen means no beneficiary line at all. Changing NGO
-     only has to drop a choice that is no longer available, never invent one. */
-  useEffect(() => {
-    setBeneficiaryGroup((prev) => (canonicalBeneficiary(prev) ? prev : ''))
-  }, [ngoDefault])
-
-  /* Clearing the group hides its own box, so "no beneficiary" and "a beneficiary
-     is being chosen" can never both be on screen. */
-  useEffect(() => {
-    if (!chosenGroup) setShowGroupPicker(false)
-  }, [chosenGroup])
 
   const submit = async () => {
     if (!ngo) return setError('Choose an NGO first.')
@@ -436,37 +411,23 @@ const payload = {
           />
         </Field>
 
-        {/* Shown only once a group is chosen, or the form would be making a claim the
-            user never made. Nothing is written until then, and the AI is given no
-            beneficiary to aim at. */}
-        {chosenGroup && (
-          <Field
-            label="Beneficiary group"
-            hint={`AI programme suggestions will be aimed at ${chosenGroup}.`}
-          >
-            <Select
-              value={chosenGroup}
-              onChange={(e) => setBeneficiaryGroup(e.target.value)}
-            >
-              {BENEFICIARY_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
-            </Select>
-          </Field>
-        )}
-
-        <label
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5,
-            color: 'var(--eh-ink-soft)', cursor: 'pointer',
-          }}
+        {/* Always visible: this is where the activity's beneficiary category is
+            chosen. One closed list, no NGO-derived suggestion and no tick-box —
+            empty simply means no category has been picked yet. */}
+        <Field
+          label="Beneficiary category"
+          hint={chosenGroup
+            ? `AI programme suggestions will be aimed at ${chosenGroup}.`
+            : 'Pick who this activity serves from the list.'}
         >
-          <input
-            type="checkbox"
-            checked={showGroupPicker}
-            onChange={(e) => { setShowGroupPicker(e.target.checked); if (!e.target.checked) setBeneficiaryGroup('') }}
-            style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--eh-primary)' }}
-          />
-          This activity serves a specific beneficiary group
-        </label>
+          <Select
+            value={beneficiaryGroup}
+            onChange={setBeneficiaryGroup}
+          >
+            <option value="">Select a category…</option>
+            {BENEFICIARY_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </Select>
+        </Field>
 
         <Field
           label="First programme date (optional)"
@@ -632,14 +593,11 @@ function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0
           <div style={{ border: '1px solid var(--eh-line)', borderRadius: 12, padding: '11px 13px' }}>
             <div style={{ ...LABEL, marginBottom: 7 }}>Observances in {monthLabel(month)}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {observances.slice(0, 14).map((o, k) => (
+              {observances.map((o, k) => (
                 <span key={`${o.date}-${o.name}-${k}`} style={{ fontSize: 11, fontWeight: 600, background: 'var(--eh-tint-1)', borderRadius: 6, padding: '3px 7px', color: 'var(--eh-ink)' }}>
                   {shortDate(o.date)} · {o.name}
                 </span>
               ))}
-              {observances.length > 14 && (
-                <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>+{observances.length - 14} more</span>
-              )}
             </div>
             <div style={{ fontSize: 10, color: 'var(--eh-ink-faint)', marginTop: 7 }}>
               ✓ Verified dates · from the reference calendar, not AI
@@ -1011,6 +969,18 @@ export default function ActivityPlanner() {
   // from the day that started it, while the grid disables only that row.
   const [festGenerating, setFestGenerating] = useState(null)
   const [festBusy, setFestBusy] = useState(false)
+  // Pending beneficiary choice per festival, keyed "date::festival". A festival
+  // with stored suggestions keeps showing the category they were generated for
+  // until the user picks another; the new choice reaches the server the next
+  // time that festival's programmes are generated.
+  const [festBenef, setFestBenef] = useState({})
+  /* Festivals whose suggestion block is open THIS session, keyed
+     "date::festival". Stored suggestions are never auto-opened: a reload or a
+     navigation back starts every row collapsed on its "✦ Suggest programmes"
+     button, so asking the AI is always one click away. Ticks live server-side
+     and the download count reads them directly, so closing a block never loses
+     a selection. */
+  const [festOpen, setFestOpen] = useState(() => new Set())
 
   const loadImportantDays = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1039,6 +1009,13 @@ export default function ActivityPlanner() {
   }, [month, ngoId])
 
   useEffect(() => { loadFestivalSuggestions() }, [loadFestivalSuggestions])
+
+  /* A new NGO has its own stored suggestions and its own default group, so a
+     pending choice made under the previous NGO must not leak into it. An open
+     block belongs to the NGO it was generated for — every row collapses back
+     to its button, so switching NGO or month always starts fresh. */
+  useEffect(() => { setFestBenef({}) }, [ngoId])
+  useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
 
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
@@ -1081,14 +1058,52 @@ export default function ActivityPlanner() {
      always knows whose programme they are looking at. */
   const festivalNgoLabel = useMemo(() => (ngo ? ngoShortLabel(ngo) : '—'), [ngo])
 
-  /* Fixed per NGO by the server at generation time; this is only the value the
-     grid shows before any suggestions exist. */
-  const festivalBeneficiary = useMemo(() => (ngo ? (NGO_BENEFICIARY[ngoCodeKey(ngo)] || '—') : '—'), [ngo])
+  /* The category a festival row's dropdown shows, and the value sent when that
+     festival's programmes are generated: the user's pending choice first, then
+     the category the stored suggestions were actually generated with (so a
+     reload keeps showing the truth). Never auto-filled from the NGO — the row
+     starts on "Select a category…" and shows only what the user picks, so the
+     grid never claims an audience nobody chose. */
+  const festivalBeneficiaryFor = useCallback((key) => {
+    if (festBenef[key]) return festBenef[key]
+    const stored = (festivalSuggestionsByKey[key] || []).map((s) => s.beneficiary).find(Boolean)
+    return stored || ''
+  }, [festBenef, festivalSuggestionsByKey])
 
-  /* Generates a day's programmes for one NGO. The server decides the activity
-     and the beneficiary; the page only sends the day, festival name and NGO
-     (sector is carried across to steer the suggestions). Selections are saved
-     per suggestion, so re-running a day never resets a tick. */
+  /* Changing the row's Beneficiary dropdown. The pending choice shows at once,
+     and when the festival already has stored suggestions the server copy is
+     updated too — so the grid, the dropdown's fallback after a reload and the
+     Excel/PDF Beneficiary column all show exactly what was picked, even if the
+     user never regenerates. A failed save rolls the row back to what the
+     server holds: a category that looks chosen but exports as the old one is
+     worse than an honest error. */
+  const handleFestivalBeneficiary = async (key, value) => {
+    const prevFor = festivalBeneficiaryFor(key)
+    setFestBenef((cur) => ({ ...cur, [key]: value }))
+    const stored = festivalSuggestionsByKey[key] || []
+    if (!stored.length) return // nothing stored yet — the choice travels with the next generation
+    const [date, ...rest] = key.split('::')
+    const festival = rest.join('::')
+    const [y, m] = month.split('-').map(Number)
+    try {
+      await setFestivalSuggestionsBeneficiary({ month: m, year: y, ngo_id: ngoId, date, festival, beneficiary: value })
+      setFestivalSuggestions((list) => list.map((x) => (
+        String(x.observance_date || '').slice(0, 10) === date && String(x.festival || '') === festival
+          ? { ...x, beneficiary: value }
+          : x
+      )))
+    } catch (e) {
+      setFestBenef((cur) => ({ ...cur, [key]: prevFor }))
+      showToast(e?.message || 'Could not save the beneficiary category.')
+    }
+  }
+
+  /* Generates a day's programmes for one NGO, aimed at the category chosen in
+     that row's Beneficiary dropdown. Nothing runs while the dropdown is empty:
+     the programmes must be aimed at a category the user actually picked, never
+     at the NGO's own group by default. The server accepts only the closed
+     category vocabulary, so a bad value can never reach the model. Selections
+     are saved per suggestion, so re-running a day never resets a tick. */
   const suggestFestival = async (date, festivalName) => {
     const key = `${date}::${festivalName}`
     setFestivalError('')
@@ -1096,17 +1111,25 @@ export default function ActivityPlanner() {
       setFestivalError('Pick a single NGO to generate festival programmes for it.')
       return
     }
+    if (!festivalBeneficiaryFor(key)) {
+      setFestivalError('Pick a Beneficiary category for this festival first.')
+      return
+    }
     if (festGenerating?.key === key) return
     setFestGenerating({ key })
     try {
       const res = await suggestFestivalPrograms({
         month, date, festival: festivalName, ngo_id: ngoId, sector_id: sectorFilter || null,
+        beneficiary_group: festivalBeneficiaryFor(key) || null,
       })
       const added = Array.isArray(res?.suggestions) ? res.suggestions : []
       if (added.length) {
         const [y, m] = month.split('-').map(Number)
         const fresh = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId }).catch(() => [])
         setFestivalSuggestions(Array.isArray(fresh) ? fresh : [])
+        // Open this festival's block so the fresh batch is on screen — the
+        // only time a block opens by itself, and only for the row that asked.
+        setFestOpen((cur) => new Set(cur).add(key))
         showToast(`${added.length} programme${added.length === 1 ? '' : 's'} suggested for ${shortDate(date)} · ${festivalName}.`)
       } else if (res?.ai && res.ai.available === false) {
         setFestivalError(res.ai.reason || 'AI suggestions are not available on this server yet.')
@@ -1176,36 +1199,23 @@ export default function ActivityPlanner() {
     if (sectorFilter) list = list.filter((a) => String(a.sector_id) === String(sectorFilter))
     if (beneficiaryFilter) {
       const want = beneficiaryFilter.trim().toLowerCase()
-      list = list.filter((a) => activityBeneficiary(a, ngos, ngo).toLowerCase() === want)
+      list = list.filter((a) => activityBeneficiary(a).toLowerCase() === want)
     }
     const q = search.trim().toLowerCase()
     if (q) {
-      list = list.filter((a) => [a.name, a.sector_name, activityBeneficiary(a, ngos, ngo), a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
+      list = list.filter((a) => [a.name, a.sector_name, activityBeneficiary(a), a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
     }
     return list
-  }, [activities, ngos, ngo, sectorFilter, beneficiaryFilter, search])
+  }, [activities, sectorFilter, beneficiaryFilter, search])
 
-  /* The groups the activities in scope actually serve, plus the group fixed for
-     each NGO in scope so a group is always offered before anything carries it.
-     Derived from the rows rather than only from the NGOs, because an activity
-     can now be tagged with a group other than its NGO's. */
-  const beneficiaryOptions = useMemo(() => {
-    const set = new Set()
-    for (const n of (ngo ? [ngo] : ngos)) {
-      const def = NGO_BENEFICIARY[ngoCodeKey(n)]
-      if (def) set.add(def)
-    }
-    for (const a of activities) {
-      const g = activityBeneficiary(a, ngos, ngo)
-      if (g) set.add(g)
-    }
-    // Kept in the fixed vocabulary's order rather than alphabetically, so the
-    // list does not reshuffle as activities are added.
-    return BENEFICIARY_GROUPS.filter((g) => set.has(g))
-  }, [ngos, ngo, activities])
+  /* The full closed category list, always — not a set derived from whatever
+     happens to be in scope. Every category is offered whether or not an activity
+     carries it yet, so a filter can be set up before the first activity of that
+     kind exists (it simply shows none), and the options never reshuffle. */
+  const beneficiaryOptions = useMemo(() => BENEFICIARY_GROUPS, [])
 
-  /* A filter still pointing at a group the current NGO does not use would show an
-     empty list with no way back, because that option no longer exists. */
+  /* A filter still pointing at a category the vocabulary no longer contains
+     (list edited between sessions) would show an empty list with no way back. */
   useEffect(() => {
     if (beneficiaryFilter && !beneficiaryOptions.includes(beneficiaryFilter)) setBeneficiaryFilter('')
   }, [beneficiaryFilter, beneficiaryOptions])
@@ -1355,9 +1365,9 @@ export default function ActivityPlanner() {
     return selectedSuggestions.filter((s) => {
       const a = byId.get(String(s?.activity_id))
       if (!a) return false
-      return activityBeneficiary(a, ngos, ngo).toLowerCase() === want
+      return activityBeneficiary(a).toLowerCase() === want
     })
-  }, [selectedSuggestions, activities, ngos, ngo, beneficiaryFilter])
+  }, [selectedSuggestions, activities, beneficiaryFilter])
 
   /* Suggestions indexed three ways, because a programme is linked to an idea in
      three different ways depending on how it was made:
@@ -1952,7 +1962,7 @@ const pendingAll = scopedSuggestions
 
           <Field label="Beneficiary">
             <Select value={beneficiaryFilter} onChange={setBeneficiaryFilter} style={{ minWidth: 190 }}>
-              {/* One option per beneficiary group in scope, so this is never empty. */}
+              {/* The full closed category list, in its fixed order. */}
               <option value="">All beneficiaries</option>
               {beneficiaryOptions.map((g) => <option key={g} value={g}>{g}</option>)}
             </Select>
@@ -2125,7 +2135,9 @@ const pendingAll = scopedSuggestions
               {selectedFestivalCount} programme{selectedFestivalCount === 1 ? '' : 's'} selected for download
             </span>
           )}
-          {festivalSuggestions.length > 0 && (
+          {/* Only while a block is open: ticking rows nobody can see would
+              make the count move with no visible cause. */}
+          {festivalSuggestions.length > 0 && festOpen.size > 0 && (
             <>
               <button
                 className="eh-btn eh-btn-sm"
@@ -2190,8 +2202,13 @@ const pendingAll = scopedSuggestions
                 // Sub-dividers cut only those two columns between ideas, so the
                 // suggestions stay visually tied to their festival without any
                 // giant blank cells. Full dividers separate festival blocks.
+                // A collapsed festival (block not open this session) renders
+                // exactly one action row regardless of what is stored, so the
+                // date cell's rowSpan must count rendered rows, not stored
+                // suggestions.
                 const blockRows = (o) => {
                   const key = `${date}::${o.name}`
+                  if (!festOpen.has(key)) return 1
                   return Math.max(1, (festivalSuggestionsByKey[key] || []).length)
                 }
                 const totalRows = obs.reduce((acc, o) => acc + blockRows(o), 0)
@@ -2206,24 +2223,37 @@ const pendingAll = scopedSuggestions
                   const sugg = festivalSuggestionsByKey[key] || []
                   const generating = festGenerating?.key === key
                   const trs = []
-                  if (sugg.length === 0) {
-                    // No programmes yet — one slim action row with the generate
-                    // button where the first idea title would sit.
+                  if (sugg.length === 0 || !festOpen.has(key)) {
+                    // Nothing stored, or stored but not open this session — one
+                    // slim action row: pick the beneficiary category, then
+                    // generate aimed at it. Saved suggestions never open by
+                    // themselves after a reload; the button is always here.
                     trs.push(
                       <tr key={`${key}-g`}>
                         {oi === 0 && <td className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>}
                         <td className="ff divider">{festivalCell(o)}</td>
                         <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
-                        <td className="bn divider">{festivalBeneficiary}</td>
+                        <td className="bn divider">
+                          <FestivalBeneficiarySelect
+                            value={festivalBeneficiaryFor(key)}
+                            disabled={festBusy || festGenerating !== null}
+                            title="Who the AI should aim this festival's programmes at"
+                            onChange={(v) => handleFestivalBeneficiary(key, v)}
+                          />
+                        </td>
                         <td className="ai divider nowrap">
                           <button
                             className="eh-btn eh-btn-sm"
-                            disabled={!ngoId || festGenerating !== null}
+                            disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
                             title={!ngoId
                               ? 'Pick a single NGO to generate festival programmes for it'
-                              : festGenerating
-                                ? 'A festival programme set is already generating'
-                                : `Generate AI programme ideas for ${o.name}`}
+                              : !festivalBeneficiaryFor(key)
+                                ? 'Pick a Beneficiary category for this festival first'
+                                : festGenerating
+                                  ? 'A festival programme set is already generating'
+                                  : sugg.length
+                                    ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
+                                    : `Generate AI programme ideas for ${o.name}`}
                             onClick={() => suggestFestival(date, o.name)}
                           >
                             {generating ? 'Generating…' : '✦ Suggest programmes'}
@@ -2240,11 +2270,38 @@ const pendingAll = scopedSuggestions
                     const cells = []
                     if (firstRow) {
                       if (oi === 0) cells.push(<td key="d" className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>)
-                      cells.push(
-                        <td key="f" className="ff divider" rowSpan={sugg.length}>{festivalCell(o)}</td>,
-                        <td key="n" className="ng divider" rowSpan={sugg.length}><span className="ng-pill">{festivalNgoLabel}</span></td>,
-                        <td key="b" className="bn divider" rowSpan={sugg.length}>{festivalBeneficiary}</td>,
-                      )
+                        cells.push(
+                          <td key="f" className="ff divider" rowSpan={sugg.length}>{festivalCell(o)}</td>,
+                          <td key="n" className="ng divider" rowSpan={sugg.length}><span className="ng-pill">{festivalNgoLabel}</span></td>,
+                          <td key="b" className="bn divider" rowSpan={sugg.length}>
+                            <FestivalBeneficiarySelect
+                              value={festivalBeneficiaryFor(key)}
+                              disabled={festBusy || festGenerating !== null}
+                              title="Who the AI should aim this festival's programmes at. Change it, then run Suggest again to regenerate."
+                              onChange={(v) => handleFestivalBeneficiary(key, v)}
+                            />
+                            {/* Regenerate without collapsing the block: new
+                                ideas join the ones already here and nothing
+                                ticked is lost. */}
+                            <button
+                              className="eh-btn eh-btn-sm"
+                              style={{ marginTop: 6 }}
+                              disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
+                              title={!ngoId
+                                ? 'Pick a single NGO to generate festival programmes for it'
+                                : !festivalBeneficiaryFor(key)
+                                  ? 'Pick a Beneficiary category for this festival first'
+                                  : festGenerating
+                                    ? 'A festival programme set is already generating'
+                                    : sugg.length
+                                      ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
+                                      : `Generate AI programme ideas for ${o.name}`}
+                              onClick={() => suggestFestival(date, o.name)}
+                            >
+                              {generating ? 'Generating…' : '✦ Suggest again'}
+                            </button>
+                          </td>,
+                        )
                     }
                     const aiCls = `ai${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
                     const selCls = `sel${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
