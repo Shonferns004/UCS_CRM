@@ -16,7 +16,7 @@ export const CERT_FONT_FAMILIES = [
   'Tahoma', 'Courier New', 'Impact', 'Comic Sans MS', 'Segoe UI', 'Bookman Old Style',
 ]
 
-const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext']
+const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']
 
 const defaultStyle = (canvasW, canvasH, i) => ({
   x: Math.round(canvasW * 0.25),

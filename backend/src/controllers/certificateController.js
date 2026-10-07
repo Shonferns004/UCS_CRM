@@ -12,7 +12,7 @@ import { toPdfBuffer } from '../services/certificatePdf.js';
 
 const BUCKET = 'certificates';
 const VALID_STATUS = new Set(['active', 'draft', 'archived']);
-const VALID_TYPES = new Set(['text', 'number', 'date', 'time', 'datetime', 'longtext']);
+const VALID_TYPES = new Set(['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']);
 const MAX_FIELDS = 60;
 
 const slugify = (s) =>

@@ -17,7 +17,7 @@ const STATUS_META = {
   archived: { label: 'Archived', cls: 'pill-gray' },
 }
 const TYPE_LABEL = { docx: 'DOCX', pptx: 'PPTX' }
-const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext']
+const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']
 const DEFAULT_PURPOSES = [{ id: -1, name: 'Appreciation certificate' }, { id: -2, name: 'Achievement certificate' }, { id: -3, name: 'Other' }]
 const inputTypeFor = (t) => (t === 'datetime' ? 'datetime-local' : ['date', 'time', 'number'].includes(t) ? t : 'text')
 
@@ -1186,6 +1186,15 @@ export default function Certificates() {
                       </label>
                       {f.field_type === 'longtext' ? (
                         <textarea className="fld" rows={3} value={values[f.field_key] || ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
+                      ) : f.field_type === 'select' ? (
+                        <select
+                          className={`fld ${missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
+                          value={values[f.field_key] ?? f.default_value ?? ''}
+                          onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
+                        >
+                          <option value="">Select…</option>
+                          {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
+                        </select>
                       ) : (
                         <input
                           className={`fld ${missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
@@ -1279,6 +1288,14 @@ export default function Certificates() {
                                     <td key={f.field_key}>
                                       {sharedCell ? (
                                         <span className="bulk-shared" title="Same for all rows — set it in the shared fields above">{r[f.field_key] || '—'}</span>
+                                      ) : f.field_type === 'select' ? (
+                                        <select
+                                          value={r[f.field_key] ?? ''}
+                                          onChange={(e) => patchBulkCell(ri, f.field_key, e.target.value)}
+                                        >
+                                          <option value="">Select…</option>
+                                          {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
+                                        </select>
                                       ) : (
                                         <input
                                           type={inputTypeFor(f.field_type)}
