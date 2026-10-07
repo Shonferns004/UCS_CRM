@@ -39,6 +39,26 @@ async function fetchFile(url, key) {
   return Buffer.from(await resp.arrayBuffer());
 }
 
+// Stored URLs point at a PRIVATE S3 bucket, so they 403 if opened directly.
+// Everything the API returns to browsers goes through this signer, which
+// exchanges the raw URL for a time-limited presigned download URL.
+async function signFiles(fields, row) {
+  if (!row) return row;
+  const out = { ...row };
+  for (const f of fields) {
+    const url = out[f];
+    if (!url || typeof url !== 'string') continue;
+    const m = url.match(/\/((?:templates|previews|generated)\/[^?#]+)/);
+    if (!m) continue;
+    try {
+      const key = decodeURIComponent(m[1]);
+      const res = await db.storage.from(BUCKET).presignDownload(key);
+      if (res && res.data && res.data.url) out[f] = res.data.url;
+    } catch { /* keep raw url */ }
+  }
+  return out;
+}
+
 async function uploadFile(key, buffer, contentType) {
   const { error } = await db.storage.from(BUCKET).upload(key, buffer, { contentType });
   if (error) throw error;
@@ -214,7 +234,7 @@ export const createTemplate = async (req, res) => {
       // No auto-detected placeholders for image templates — fields are added
       // visually in the certificate editor.
       const template = await loadTemplateDetail(id);
-      return res.json({ message: 'Template created', template, detected: [] });
+      return res.json({ message: 'Template created', template: await signFiles(['template_file','preview_image'], template), detected: [] });
     }
 
     // --- DOCX/PPTX branch (unchanged) ------------------------------------------
@@ -250,7 +270,7 @@ export const createTemplate = async (req, res) => {
     await replaceFields(id, placeholders.map((p, i) => ({ field_key: p.key, display_name: p.display, field_type: 'text', required: true, sort_order: i })));
     const template = await loadTemplateDetail(id);
     await autosnapshotTemplate(template);
-    return res.json({ message: 'Template created', template: await loadTemplateDetail(id), detected: placeholders });
+    return res.json({ message: 'Template created', template: await signFiles(['template_file','preview_image'], await loadTemplateDetail(id)), detected: placeholders });
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -287,7 +307,7 @@ export const listTemplates = async (req, res) => {
          LEFT JOIN ngos n ON n.id = t.ngo_id
          ${where}
         ORDER BY t.updated_at DESC, t.created_at DESC`, params);
-    return res.json(rows);
+    return res.json(await Promise.all(rows.map((r) => signFiles(['template_file', 'preview_image'], r))));
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -377,7 +397,7 @@ export const getTemplate = async (req, res) => {
   try {
     const template = await loadTemplateDetail(req.params.id);
     if (!template) return res.status(404).json({ message: 'Template not found' });
-    return res.json(template);
+    return res.json(await signFiles(['template_file','preview_image'], template));
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -419,7 +439,7 @@ export const updateTemplate = async (req, res) => {
       await syncFieldsWithPlaceholders(id, template.placeholders);
     }
 
-    return res.json({ message: 'Template updated', template: await loadTemplateDetail(id) });
+    return res.json({ message: 'Template updated', template: await signFiles(['template_file','preview_image'], await loadTemplateDetail(id)) });
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -446,7 +466,7 @@ export const reuploadTemplateFile = async (req, res) => {
               SET template_file = $1, template_key = $2, placeholders = '[]'::jsonb, version = $3, preview_image = $1, preview_key = '', canvas_width = $4, canvas_height = $5, updated_at = NOW()
             WHERE id = $6`,
           [url, key, version, dims.width, dims.height, id]);
-        return res.json({ message: 'Template file replaced', template: await loadTemplateDetail(id), detected: [] });
+        return res.json({ message: 'Template file replaced', template: await signFiles(['template_file','preview_image'], await loadTemplateDetail(id)), detected: [] });
       }
       return res.status(400).json({ message: 'Invalid file. Upload a valid .docx or .pptx template.' });
     }
@@ -470,7 +490,7 @@ export const reuploadTemplateFile = async (req, res) => {
     await syncFieldsWithPlaceholders(id, placeholders);
     await autosnapshotTemplate(await loadTemplateDetail(id));
 
-    return res.json({ message: 'Template file replaced', template: await loadTemplateDetail(id), detected: placeholders });
+    return res.json({ message: 'Template file replaced', template: await signFiles(['template_file','preview_image'], await loadTemplateDetail(id)), detected: placeholders });
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -491,7 +511,7 @@ export const setTemplatePreview = async (req, res) => {
 
     await savePreviewImage(id, template, req.file.buffer, ext, req.file.mimetype || 'image/png');
 
-    return res.json({ message: 'Preview image saved', template: await loadTemplateDetail(id) });
+    return res.json({ message: 'Preview image saved', template: await signFiles(['template_file','preview_image'], await loadTemplateDetail(id)) });
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -553,7 +573,7 @@ export const duplicateTemplate = async (req, res) => {
       required: f.required, default_value: f.default_value, sort_order: i, style: f.style,
     })));
 
-    return res.json({ message: 'Template duplicated', template: await loadTemplateDetail(newId) });
+    return res.json({ message: 'Template duplicated', template: await signFiles(['template_file','preview_image'], await loadTemplateDetail(newId)) });
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -674,7 +694,7 @@ export const generateCertificate = async (req, res) => {
     const me = identity(req);
     const result = await generateOne(template, field_values, certificate_number, me.name || me.id);
     if (result.error) return res.status(400).json({ message: result.error });
-    return res.json({ message: 'Certificate generated', certificate: result.certificate });
+    return res.json({ message: 'Certificate generated', certificate: await signFiles(['generated_file'], result.certificate) });
   } catch (e) {
     return res.status(400).json({ message: `Generation failed: ${e.message}` });
   }
@@ -703,11 +723,12 @@ export const bulkGenerateCertificates = async (req, res) => {
           results.push({ index: i, error: result.error, certificate_number: row.certificate_number || '' });
         } else {
           ok += 1;
+          const signedCert = await signFiles(['generated_file'], result.certificate);
           results.push({
             index: i,
-            certificate: result.certificate,
-            certificate_number: result.certificate.certificate_number,
-            generated_file: result.certificate.generated_file,
+            certificate: signedCert,
+            certificate_number: signedCert.certificate_number,
+            generated_file: signedCert.generated_file,
           });
         }
       } catch (e) {
@@ -742,7 +763,7 @@ export const listCertificates = async (req, res) => {
          FROM certificates c ${where}
         ORDER BY c.generated_at DESC
         LIMIT 300`, params);
-    return res.json(rows);
+    return res.json(await Promise.all(rows.map((r) => signFiles(['generated_file'], r))));
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
@@ -755,7 +776,7 @@ export const getCertificate = async (req, res) => {
               recipient_name, field_values, generated_file, generated_by, generated_at
          FROM certificates WHERE id = $1`, [req.params.id]);
     if (!rows.length) return res.status(404).json({ message: 'Certificate not found' });
-    return res.json(rows[0]);
+    return res.json(await signFiles(['generated_file'], rows[0]));
   } catch (e) {
     return res.status(e.status || 500).json({ message: e.message });
   }
