@@ -1105,6 +1105,18 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/fro-idle-reconcile', requireCronAuth, async (req, res) => {
+      try {
+        const { runFroIdleReconciliation } = await import('./services/froIdleReconcileScheduler.js');
+        const now = req.body?.nowMs || req.query?.now || Date.now();
+        const result = await runFroIdleReconciliation(Number(now));
+        res.json({ success: true, ...result });
+      } catch (error) {
+        console.error('FRO idle reconcile cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
     app.post('/api/cron/sevak-renewals', requireCronAuth, async (req, res) => {
       try {
         const { runRenewalScan } = await import('./sevakLibrary/services/email.service.js');
@@ -1183,6 +1195,7 @@ if (!process.env.VERCEL) {
     import('./services/dbHealthWatchdog.js');
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
     import('./services/froMonthlyRollover.js').then((m) => m.start?.());
+    import('./services/froIdleReconcileScheduler.js').then((m) => m.start?.());
     // Hard ceiling on resident memory: restart (via PM2) if RSS stays over
     // MEM_WATCHDOG_MB (default 900) for 20s, so the 2 GB box can never OOM.
     startMemoryWatchdog();
