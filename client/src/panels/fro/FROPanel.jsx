@@ -1502,7 +1502,6 @@ useEffect(() => onFroAction((action) => {
         </div>
       )}
       <ToastContainer />
-      <DispositionTimer />
     </div>
     </CallProvider>
   )
