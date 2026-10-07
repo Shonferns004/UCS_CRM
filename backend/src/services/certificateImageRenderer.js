@@ -50,6 +50,10 @@ const FONTS = [
   { name: 'Lato', file: 'Lato-Regular.ttf', dir: ASSETS_DIR },
   { name: 'Lato Bold', file: 'Lato-Bold.ttf', dir: ASSETS_DIR },
   { name: 'Glacial Indifference', file: 'GlacialIndifference-Regular.ttf', dir: ASSETS_DIR },
+  { name: 'Kelvinch', file: 'Kelvinch-Roman.ttf', dir: ASSETS_DIR },
+  { name: 'Kelvinch Bold', file: 'Kelvinch-Bold.ttf', dir: ASSETS_DIR },
+  { name: 'Kelvinch Italic', file: 'Kelvinch-Italic.ttf', dir: ASSETS_DIR },
+  { name: 'Kelvinch Bold Italic', file: 'Kelvinch-BoldItalic.ttf', dir: ASSETS_DIR },
   { name: 'Glacial Indifference Bold', file: 'GlacialIndifference-Bold.ttf', dir: ASSETS_DIR },
   { name: 'Cormorant Garamond', file: 'CormorantGaramond-Regular-inst.ttf', dir: ASSETS_DIR },
   { name: 'Cormorant Garamond Bold', file: 'CormorantGaramond-Bold-inst.ttf', dir: ASSETS_DIR },
@@ -90,9 +94,15 @@ function getFont(family, bold) {
 
 function measure(font, text, size, letterSpacing = 0) {
   if (!font) return text.length * size * 0.55;
-  const run = font.layout(text);
-  const advance = run.advanceWidth / font.unitsPerEm;
-  return advance * size + Math.max(0, text.length - 1) * letterSpacing;
+  try {
+    const run = font.layout(text);
+    const advance = run.advanceWidth / font.unitsPerEm;
+    return advance * size + Math.max(0, text.length - 1) * letterSpacing;
+  } catch {
+    // Some fonts expose broken OTL tables that crash fontkit’s layout engine.
+    // Degrade to a conservative average-width estimate so rendering still works.
+    return text.length * size * 0.55 + Math.max(0, text.length - 1) * letterSpacing;
+  }
 }
 
 function isBoldWeight(w) {
@@ -161,6 +171,9 @@ function svgForField(style, value, font) {
   const w = Math.max(10, Number(style.width) || 100);
   const h = Math.max(10, Number(style.height) || 40);
   const align = ['left', 'center', 'right', 'justify'].includes(style.textAlign) ? style.textAlign : 'center';
+  const svgFamilyRaw = String(style.fontFamily || 'Arial');
+  const svgFontFamily = svgFamilyRaw.replace(/\s*(Bold\s*)?Italic$/i, '').trim() || 'Arial';
+  const svgItalic = String(style.fontStyle || '').toLowerCase() === 'italic' || /italic/i.test(svgFamilyRaw);
   const valign = ['top', 'middle', 'bottom'].includes(style.verticalAlign) ? style.verticalAlign : 'middle';
   const color = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(String(style.color || '')) ? style.color : '#111111';
   const { size, lines, lineHeight, letterSpacing } = layoutField(font, value, style);
@@ -186,14 +199,14 @@ function svgForField(style, value, font) {
         let cx = x + 4;
         let out = '';
         words.forEach((wl, wi) => {
-          out += `<text x="${cx}" y="${ly}" font-family="${escapeXml(style.fontFamily || 'Arial')}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${italic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="start" letter-spacing="${letterSpacing}">${escapeXml(wl)}</text>`;
+          out += `<text x="${cx}" y="${ly}" font-family="${escapeXml(svgFontFamily)}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${svgItalic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="start" letter-spacing="${letterSpacing}">${escapeXml(wl)}</text>`;
           cx += wordWidths[wi] + gap + letterSpacing;
         });
         return out;
       }
-      return `<text x="${x + 4}" y="${ly}" font-family="${escapeXml(style.fontFamily || 'Arial')}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${italic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="start" letter-spacing="${letterSpacing}">${escapeXml(line)}</text>`;
+      return `<text x="${x + 4}" y="${ly}" font-family="${escapeXml(svgFontFamily)}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${svgItalic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="start" letter-spacing="${letterSpacing}">${escapeXml(line)}</text>`;
     }
-    return `<text x="${anchorX}" y="${ly}" font-family="${escapeXml(style.fontFamily || 'Arial')}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${italic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="${anchor}" letter-spacing="${letterSpacing}">${escapeXml(line)}</text>`;
+    return `<text x="${anchorX}" y="${ly}" font-family="${escapeXml(svgFontFamily)}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${svgItalic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="${anchor}" letter-spacing="${letterSpacing}">${escapeXml(line)}</text>`;
   }).join('');
   return tspans;
 }

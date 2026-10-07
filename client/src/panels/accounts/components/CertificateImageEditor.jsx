@@ -15,7 +15,7 @@ export const CERT_FONT_FAMILIES = [
   'Arial', 'Calibri', 'Cambria', 'Georgia', 'Times New Roman', 'Verdana',
   'Tahoma', 'Courier New', 'Impact', 'Comic Sans MS', 'Segoe UI', 'Bookman Old Style',
   'Poppins', 'Montserrat', 'Open Sans', 'Playfair Display', 'Cinzel', 'Inter', 'Lato',
-  'Glacial Indifference', 'Cormorant Garamond',
+  'Glacial Indifference', 'Cormorant Garamond', 'Kelvinch', 'Kelvinch Italic',
 ]
 
 const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']
