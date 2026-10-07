@@ -6,6 +6,12 @@ import { existsSync } from 'node:fs';
 // uploaded certificate background. No LibreOffice, no placeholder text in the
 // image. Coordinates are always in the ORIGINAL image pixel space.
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const FONT_ASSETS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../assets/fonts');
+const ASSETS_DIR = FONT_ASSETS;
+
 const FONTS = [
   { name: 'Arial', file: 'arial.ttf' },
   { name: 'Arial Bold', file: 'arialbd.ttf' },
@@ -29,6 +35,24 @@ const FONTS = [
   { name: 'Segoe UI Bold', file: 'segoeuib.ttf' },
   { name: 'Bookman Old Style', file: 'BOOKOS.TTF' },
   { name: 'Bookman Old Style Bold', file: 'BOOKOSB.TTF' },
+  { name: 'Poppins', file: 'Poppins-Regular.ttf', dir: ASSETS_DIR },
+  { name: 'Poppins Bold', file: 'Poppins-Bold.ttf', dir: ASSETS_DIR },
+  { name: 'Montserrat', file: 'Montserrat-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Montserrat Bold', file: 'Montserrat-Bold-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Open Sans', file: 'OpenSans-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Open Sans Bold', file: 'OpenSans-Bold-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Playfair Display', file: 'PlayfairDisplay-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Playfair Display Bold', file: 'PlayfairDisplay-Bold-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Cinzel', file: 'Cinzel-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Cinzel Bold', file: 'Cinzel-Bold-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Inter', file: 'Inter-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Inter Bold', file: 'Inter-Bold-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Lato', file: 'Lato-Regular.ttf', dir: ASSETS_DIR },
+  { name: 'Lato Bold', file: 'Lato-Bold.ttf', dir: ASSETS_DIR },
+  { name: 'Glacial Indifference', file: 'GlacialIndifference-Regular.ttf', dir: ASSETS_DIR },
+  { name: 'Glacial Indifference Bold', file: 'GlacialIndifference-Bold.ttf', dir: ASSETS_DIR },
+  { name: 'Cormorant Garamond', file: 'CormorantGaramond-Regular-inst.ttf', dir: ASSETS_DIR },
+  { name: 'Cormorant Garamond Bold', file: 'CormorantGaramond-Bold-inst.ttf', dir: ASSETS_DIR },
 ];
 
 export const FONT_FAMILIES = [...new Set(FONTS.map((f) => f.name.replace(/ Bold$/, '')))];
@@ -42,7 +66,7 @@ function fontPathFor(family, bold) {
   const wanted = bold ? FONTS.find((f) => f.name === `${base} Bold`) : FONTS.find((f) => f.name === base);
   const reg = FONTS.find((f) => f.name === base) || FONTS.find((f) => f.name === 'Arial');
   const pick = wanted || reg || FONTS[0];
-  for (const dir of FONT_DIRS) {
+  for (const dir of (pick.dir ? [pick.dir, ...FONT_DIRS] : FONT_DIRS)) {
     const p = `${dir}\\${pick.file}`.replace(/\\/g, '/').replace(/\/\/+/g, '/');
     const p2 = dir.includes('Windows') ? p : `${dir}/${pick.file}`;
     if (existsSync(p2)) return p2;
@@ -136,7 +160,7 @@ function svgForField(style, value, font) {
   const y = Number(style.y) || 0;
   const w = Math.max(10, Number(style.width) || 100);
   const h = Math.max(10, Number(style.height) || 40);
-  const align = ['left', 'center', 'right'].includes(style.textAlign) ? style.textAlign : 'center';
+  const align = ['left', 'center', 'right', 'justify'].includes(style.textAlign) ? style.textAlign : 'center';
   const valign = ['top', 'middle', 'bottom'].includes(style.verticalAlign) ? style.verticalAlign : 'middle';
   const color = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(String(style.color || '')) ? style.color : '#111111';
   const { size, lines, lineHeight, letterSpacing } = layoutField(font, value, style);
@@ -153,6 +177,22 @@ function svgForField(style, value, font) {
   }
   const tspans = lines.map((line, i) => {
     const ly = startY + i * lineH + ascent;
+    if (align === 'justify') {
+      const words = line.split(/\s+/).filter(Boolean);
+      if (i < lines.length - 1 && words.length > 1) {
+        const wordWidths = words.map((w) => measure(font, w, size, letterSpacing));
+        const total = wordWidths.reduce((a, b) => a + b, 0);
+        const gap = (w - total) / (words.length - 1);
+        let cx = x + 4;
+        let out = '';
+        words.forEach((wl, wi) => {
+          out += `<text x="${cx}" y="${ly}" font-family="${escapeXml(style.fontFamily || 'Arial')}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${italic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="start" letter-spacing="${letterSpacing}">${escapeXml(wl)}</text>`;
+          cx += wordWidths[wi] + gap + letterSpacing;
+        });
+        return out;
+      }
+      return `<text x="${x + 4}" y="${ly}" font-family="${escapeXml(style.fontFamily || 'Arial')}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${italic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="start" letter-spacing="${letterSpacing}">${escapeXml(line)}</text>`;
+    }
     return `<text x="${anchorX}" y="${ly}" font-family="${escapeXml(style.fontFamily || 'Arial')}" font-size="${size}" font-weight="${bold ? 700 : 400}" font-style="${italic ? 'italic' : 'normal'}" fill="${escapeXml(color)}" text-anchor="${anchor}" letter-spacing="${letterSpacing}">${escapeXml(line)}</text>`;
   }).join('');
   return tspans;
@@ -174,8 +214,17 @@ export async function renderImageCertificate(imageBuffer, fields, values) {
     overlays += svgForField({ ...style, x: style.x ?? f.position_x, y: style.y ?? f.position_y, width: style.width ?? f.width, height: style.height ?? f.height }, value, font);
   }
   const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${overlays}</svg>`;
+  const { Resvg } = await import('@resvg/resvg-js');
+  const resvg = new Resvg(svg, {
+    font: {
+      fontDirs: [FONT_ASSETS, 'C:\\Windows\\Fonts', '/usr/share/fonts', '/usr/local/share/fonts', '/Library/Fonts', '/System/Library/Fonts'].filter((d) => existsSync(d)),
+      loadSystemFonts: true,
+      defaultFontFamily: 'Arial',
+    },
+  });
+  const overlay = Buffer.from(resvg.render().asPng());
   const png = await sharp(imageBuffer)
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .composite([{ input: overlay, top: 0, left: 0 }])
     .png()
     .toBuffer();
   return { buffer: png, width, height };
