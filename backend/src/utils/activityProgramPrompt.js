@@ -25,11 +25,12 @@ export const ACTIVITY_SUGGESTION_LIMIT = 6;
 /**
  * The one beneficiary group each NGO serves, by its short code.
  *
- * This is the single source of truth for the planner's beneficiary group: the
- * prompt, the monthly filter and the table column all read it rather than a
- * per-activity free-text tag, so an activity cannot claim a group its NGO does
- * not serve. Kept here, next to the prompt, so aiming the AI at the group and
- * filtering by it cannot drift apart.
+ * Kept only as the masking key for festival rows written before migration 176:
+ * back then the generator auto-filled this group into the Beneficiary column
+ * with nothing recording who chose it, so servedFestivalBeneficiary compares a
+ * legacy value against this map and withholds the ones nobody picked. Nothing
+ * chooses or suggests a category from this map — the closed vocabulary below
+ * is the only list a category is picked from.
  */
 export const NGO_BENEFICIARY_GROUP = {
   bsct: 'Visually Impaired',
@@ -42,17 +43,52 @@ export const beneficiaryGroupForNgo = (code) =>
   NGO_BENEFICIARY_GROUP[String(code || '').trim().toLowerCase()] || '';
 
 /**
- * The closed vocabulary of groups, in a stable order.
+ * What a stored festival suggestion's Beneficiary should show, or null when
+ * nothing was really picked.
  *
- * An activity stores the group it serves, so this is what an activity's own
- * value is matched against: trimmed and case-insensitive, and '' for anything
- * outside the three. A value outside the vocabulary must not reach the prompt —
- * it would aim the AI at a group nothing else in the system knows about, and it
- * could not be filtered on later.
+ * Two generations of data share the column:
+ *   - with migration 176 applied, `beneficiary_picked` decides: a true flag is
+ *     a category somebody chose — even when it equals the NGO's old default
+ *     (BSCT → Visually Impaired and so on) — and a false flag is withheld;
+ *   - before the migration the flag does not exist, so the value itself is
+ *     judged: the NGO's fixed group was auto-filled back then and is withheld,
+ *     while any other category was chosen by hand and is served as-is.
+ *
+ * The model calls this on every read of event_head_festival_suggestions — the
+ * single point the grid, the Excel/PDF export and the Calendar report all load
+ * their beneficiary from — so masking here hides a default from every surface.
  */
-export const ACTIVITY_BENEFICIARY_GROUPS = Object.values(NGO_BENEFICIARY_GROUP);
+export const servedFestivalBeneficiary = (row, { pickedColumn = false, ngoCode = '' } = {}) => {
+  const value = String(row?.beneficiary || '').trim() || null;
+  if (!value) return null;
+  if (pickedColumn) return row?.beneficiary_picked ? value : null;
+  return value === beneficiaryGroupForNgo(ngoCode) ? null : value;
+};
 
-/** The saved spelling of a group, or '' when it is not one of the three. */
+/**
+ * The closed vocabulary of beneficiary categories, in a stable order.
+ *
+ * An activity stores the category it serves, so this is what an activity's own
+ * value is matched against: trimmed and case-insensitive, and '' for anything
+ * outside the list. A value outside the vocabulary must not reach the prompt —
+ * it would aim the AI at a category nothing else in the system knows about, and
+ * it could not be filtered on later.
+ *
+ * MUST stay identical to BENEFICIARY_CATEGORIES in
+ * client/src/panels/event-head/store.jsx: the UI only offers these values, so a
+ * category the backend does not list would be canonicalised away on read.
+ */
+export const ACTIVITY_BENEFICIARY_GROUPS = [
+  'Visually Impaired',
+  'Children',
+  'Senior Citizens',
+  'Women',
+  'Underprivileged Families',
+  'Persons with Disabilities',
+  'Others',
+];
+
+/** The saved spelling of a category, or '' when it is not in the vocabulary. */
 export const canonicalActivityBeneficiary = (value) => {
   const v = String(value ?? '').trim().toLowerCase();
   if (!v) return '';
@@ -141,9 +177,14 @@ export function buildActivityProgramPrompt({
   const activity = String(activityName || '').trim().slice(0, MAX_TITLE_LEN);
   const month = monthLabel(monthYmd) || 'the selected month';
 
+  // Every occasion of the month reaches the model — the merged Indian calendar
+  // peaks around 35 rows (March/April 2026), and the old cap of 25 silently
+  // dropped the last ten, so the AI could miss festivals at the end of a month.
+  // 120 is a guard against a pathological calendar, not a real limit: it is far
+  // above any month this API has ever returned and costs nothing when unused.
   const occasionLines = (Array.isArray(observances) ? observances : [])
     .filter((o) => o && o.name)
-    .slice(0, 25)
+    .slice(0, 120)
     .map((o) => `- ${String(o.name).slice(0, 90)}${o.kind ? ` (${o.scope || 'all'}/${o.kind})` : ''}`);
 
   const done = (Array.isArray(existingTitles) ? existingTitles : [])

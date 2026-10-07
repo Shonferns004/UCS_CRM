@@ -18,6 +18,22 @@ export const avatarColor = (name) => {
 };
 export const initials = (n) => (n||'').trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase();
 
+/* ── Beneficiary categories (the ONE closed list) ──
+   Every place a beneficiary is picked uses this exact list: the Monthly
+   Planner's Add Activity form, the Activities catalog, the Activity detail
+   editor, the Beneficiary filter and the Distribution entry form. Backend
+   equivalent: ACTIVITY_BENEFICIARY_GROUPS in activityProgramPrompt.js — keep
+   both lists identical so a category picked in the UI is never dropped on save. */
+export const BENEFICIARY_CATEGORIES = [
+  'Visually Impaired',
+  'Children',
+  'Senior Citizens',
+  'Women',
+  'Underprivileged Families',
+  'Persons with Disabilities',
+  'Others',
+]
+
 /* ── Shared export normalizer (Calendar Download + Monthly Planner Download) ──
    Final validation/deduplication step run before Excel/PDF generation. Collapses
    every selected AI programme onto ONE row per unique key date + festival + NGO
@@ -624,6 +640,10 @@ export const suggestFestivalPrograms = async (payload = {}) => {
       ngo_id: payload.ngo_id || null,
       sector_id: payload.sector_id || null,
       activity_id: payload.activity_id || null,
+      // The row's Beneficiary dropdown value — one category from the closed
+      // vocabulary, so the AI is aimed at exactly who was picked. Without it
+      // the server falls back to the NGO's own group.
+      beneficiary_group: payload.beneficiary_group || null,
     })
   } catch (err) {
     console.warn('suggestFestivalPrograms: server unavailable:', err?.message || err)
@@ -651,6 +671,23 @@ export const setFestivalSuggestionSelected = async (id, is_selected = true, sugg
   if (suggested_event_id != null) body.suggested_event_id = Number(suggested_event_id) || null
   const res = await apiPut('/event-head/planner/festival-suggestions/' + id + '/select', body)
   return res?.suggestion || null
+}
+
+/* Saves the row's Beneficiary dropdown choice onto that festival's stored
+   suggestions, so the screen, the value shown after a reload and the Excel/PDF
+   Beneficiary column all read the category the user actually picked — even
+   when they never regenerate. The server refuses anything outside the closed
+   vocabulary, so a bad value can never be stored or exported. */
+export const setFestivalSuggestionsBeneficiary = async (payload = {}) => {
+  const res = await apiPut('/event-head/planner/festival-suggestions/beneficiary', {
+    month: payload.month,
+    year: payload.year,
+    ngo_id: payload.ngo_id,
+    date: payload.date,
+    festival: payload.festival,
+    beneficiary: payload.beneficiary,
+  })
+  return Array.isArray(res?.suggestions) ? res.suggestions : []
 }
 
 /* ── Events sheet import / export ── */

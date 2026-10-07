@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, suggestDayPrograms, observancesOnDate, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
+import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, suggestDayPrograms, observancesOnDate, fetchCalendarObservances, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
 import { PageHeader } from '../components/ui'
 import VoluntaryPicker from '../components/VoluntaryPicker'
 import ActivitySelect from '../components/ActivitySelect'
@@ -262,12 +262,34 @@ export default function CreateEvent() {
 
   const canSuggestForDate = Boolean(form.date && form.sector_id)
 
-  /* Which festival / important day the chosen date actually carries. Read from
-     the bundled reference calendar, so it is correct the instant the date is
-     picked — no API call, no AI, nothing to wait for. Shows EVERY observance on
-     that date, because one date can carry three (e.g. Akshaya Tritiya +
-     Ambedkar Jayanti + World Parkinson's Day). */
-  const dayObservances = useMemo(() => (form.date ? observancesOnDate(form.date) : []), [form.date])
+  /* Which festival / important day the chosen date actually carries. The
+     bundled reference calendar answers instantly — no API call, no AI, nothing
+     to wait for — and stays as the offline fallback. The server range (curated
+     + operator holidays + fixed international days + Calendarific) then
+     replaces it, so this hint shows exactly what the Calendar page shows for
+     that date. Shows EVERY observance on that date, because one date can carry
+     three (e.g. Akshaya Tritiya + Ambedkar Jayanti + World Parkinson's Day). */
+  const bundledDayObservances = useMemo(() => (form.date ? observancesOnDate(form.date) : []), [form.date])
+  const [dayObservances, setDayObservances] = useState(bundledDayObservances)
+  useEffect(() => {
+    setDayObservances(bundledDayObservances)
+    const date = form.date
+    if (!date) return undefined
+    let cancelled = false
+    const nextDay = (() => {
+      const d = new Date(`${date}T00:00:00Z`)
+      d.setUTCDate(d.getUTCDate() + 1)
+      return d.toISOString().slice(0, 10)
+    })()
+    fetchCalendarObservances({ start: date, end: nextDay, scope: 'all' })
+      .then(res => {
+        if (cancelled) return
+        const rows = (Array.isArray(res?.observances) ? res.observances : []).filter(o => o?.date === date)
+        if (rows.length) setDayObservances(rows)
+      })
+      .catch(() => {})   // fetchCalendarObservances already degrades to the bundled rows
+    return () => { cancelled = true }
+  }, [bundledDayObservances, form.date])
 
   const runFestivalSuggestions = () => {
     if (!canSuggestForDate || festLoading) return

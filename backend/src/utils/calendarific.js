@@ -23,7 +23,12 @@ import { fileURLToPath } from 'node:url';
 
 const CALENDARIFIC_API_BASE = 'https://calendarific.com/api/v2/holidays';
 const CALENDARIFIC_COUNTRY = 'IN';
-const CALENDARIFIC_TYPES = ['national', 'local', 'religious', 'observance'];
+// No `type` filter is sent. Calendarific's "Optional holiday" bucket (20 Indian
+// days a year — Vaisakhi, Christmas Eve, Guru Ravidas Jayanti, Shivaji Jayanti,
+// Maha Saptami…) matches none of the API's accepted type values (type=optional
+// and type=local both return 0 rows), so any type filter silently drops them.
+// The full response is fetched once per year (same billing unit) and
+// classifyCalendarific keeps everything that is a real observance.
 const CALENDARIFIC_TTL_MS = 24 * 60 * 60 * 1000;
 const CALENDARIFIC_TIMEOUT_MS = 8000;
 const CALENDARIFIC_FAILURE_BUDGET = 3;
@@ -87,12 +92,16 @@ export function classifyCalendarific(raw) {
   const primary = String(raw?.primary_type || '').toLowerCase();
   // Equinoxes/solstices are astronomy, not observances.
   if (primary === 'season' || types.includes('season')) return null;
+  // Religion wins over the generic "Observance" bucket: Calendarific tags Indian
+  // religious observances as e.g. ["Observance","Hinduism"] (Sharad Navratri
+  // start, Durga Puja start, Janmashtami (Smarta)), and those belong in the
+  // India filter — only untagged Observance rows are worldwide/UN days.
+  if (types.some((t) => RELIGION_SIGNALS.includes(t)) || RELIGION_SIGNALS.some((r) => primary.includes(r))) {
+    return { scope: 'india', kind: 'religious' };
+  }
   // Calendarific's "Observance" bucket IS worldwide and UN observances.
   if (types.includes('observance') || primary.includes('observance')) {
     return { scope: 'worldwide', kind: 'observance' };
-  }
-  if (types.some((t) => RELIGION_SIGNALS.includes(t)) || RELIGION_SIGNALS.some((r) => primary.includes(r))) {
-    return { scope: 'india', kind: 'religious' };
   }
   if (types.includes('national holiday') || /national|gazetted|government|bank/.test(primary)) {
     return { scope: 'india', kind: 'national' };
@@ -174,7 +183,8 @@ async function fetchCalendarificYear(year) {
   url.searchParams.set('api_key', apiKey);
   url.searchParams.set('country', CALENDARIFIC_COUNTRY);
   url.searchParams.set('year', String(year));
-  url.searchParams.set('type', CALENDARIFIC_TYPES.join(','));
+  // Deliberately no `type` param — see the "Optional holiday" note at the top
+  // of this file.
   // Redact the api_key before logging the URL so secrets never reach the logs.
   console.log('[calendarific] request:', url.toString().replace(/api_key=[^&]*/, 'api_key=***'));
 
