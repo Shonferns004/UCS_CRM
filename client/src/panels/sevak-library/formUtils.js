@@ -57,7 +57,19 @@ export function computeEndDate(startDate, plan) {
 
 export function formatDate(iso) {
   if (!iso) return '—'
-  const [y, m, d] = iso.split('-')
+  const s = String(iso)
+  // Full ISO timestamps (created_at etc.) → render the local calendar date.
+  if (s.includes('T')) {
+    const d = new Date(s)
+    if (!Number.isNaN(d.getTime())) {
+      const dd = String(d.getDate()).padStart(2, '0')
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      return `${dd}/${mm}/${d.getFullYear()}`
+    }
+    return '—'
+  }
+  const [y, m, d] = s.slice(0, 10).split('-')
+  if (!y || !m || !d || d.length !== 2) return '—'
   return `${d}/${m}/${y}`
 }
 
