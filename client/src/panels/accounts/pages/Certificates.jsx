@@ -96,13 +96,6 @@ function TemplateMeta({ ngos, purposes, value, onChange, ngoPlaceholder = 'Selec
           {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
         </select>
       </div>
-      <div className="field" style={{ flex: 1, minWidth: 200 }}>
-        <label>Purpose{required ? ' *' : ''}</label>
-        <select value={sel.purpose || ''} onChange={(e) => set({ purpose: e.target.value })} style={META_STYLE}>
-          <option value="">{purposePlaceholder}</option>
-          {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
-        </select>
-      </div>
     </div>
   )
 }
@@ -116,13 +109,9 @@ export default function Certificates() {
   const [loading, setLoading] = useState(true)
   const [statusTab, setStatusTab] = useState('')
   const [ngoFilter, setNgoFilter] = useState('')
-  const [purposeFilter, setPurposeFilter] = useState('')
   const [ngos, setNgos] = useState([])
   const [purposes, setPurposes] = useState(DEFAULT_PURPOSES)
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [purposesOpen, setPurposesOpen] = useState(false)
-  const [purposeName, setPurposeName] = useState('')
-  const [purposeBusy, setPurposeBusy] = useState(false)
   const [menuOpenId, setMenuOpenId] = useState(null)
 
   // History
@@ -200,28 +189,6 @@ export default function Certificates() {
     return () => { cancelled = true }
   }, [])
 
-  const addPurpose = async () => {
-    const name = purposeName.trim()
-    if (!name) { toast('Enter a purpose name.', 'error'); return }
-    setPurposeBusy(true)
-    try {
-      const rows = await certificateApi.addPurpose(name)
-      setPurposes(rows.length ? rows : DEFAULT_PURPOSES)
-      setPurposeName('')
-      toast('Purpose added', 'success')
-    } catch (e) { toast(e.message, 'error') } finally { setPurposeBusy(false) }
-  }
-
-  const removePurpose = async (p) => {
-    if (!window.confirm(`Delete purpose "${p.name}"? Existing templates keep their label.`)) return
-    setPurposeBusy(true)
-    try {
-      const rows = await certificateApi.deletePurpose(p.id)
-      setPurposes(rows.length ? rows : DEFAULT_PURPOSES)
-      toast('Purpose removed', 'success')
-    } catch (e) { toast(e.message, 'error') } finally { setPurposeBusy(false) }
-  }
-
   useEffect(() => {
     if (!toolsOpen) return
     const close = () => setToolsOpen(false)
@@ -230,9 +197,8 @@ export default function Certificates() {
   }, [toolsOpen])
 
   const visibleTemplates = useMemo(() => templates.filter((t) =>
-    (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter)) &&
-    (!purposeFilter || (t.purpose || '') === purposeFilter)
-  ), [templates, ngoFilter, purposeFilter])
+    (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter))
+  ), [templates, ngoFilter])
 
   const openWizard = useCallback(() => {
     setEditingId(null)
@@ -423,6 +389,11 @@ export default function Certificates() {
     }
     return m
   }, [requiredFields, previewValues])
+
+  // Only flag errors once the user has started entering values — not on first open.
+  const showMissing = useMemo(
+    () => Object.values(previewValues).some((v) => String(v || '').trim() !== ''),
+    [previewValues])
 
   const runPreview = useCallback(async () => {
     if (!genTpl) return
@@ -738,9 +709,6 @@ export default function Certificates() {
                     </button>
                     {toolsOpen && (
                       <div className="tpl-menu" style={{ top: '100%', right: 0, left: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                        <button className="tpl-menu-item" onClick={() => { setToolsOpen(false); setPurposesOpen(true) }}>
-                          <Sparkles size={14} /> Manage purposes
-                        </button>
                         {templates.length > 0 && (
                           <button className="tpl-menu-item" onClick={() => { setToolsOpen(false); refreshSnapshots() }}>
                             <RefreshCw size={14} /> Regenerate thumbnails
@@ -787,12 +755,8 @@ export default function Certificates() {
                   <option value="">All NGOs</option>
                   {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
                 </select>
-                <select value={purposeFilter} onChange={(e) => setPurposeFilter(e.target.value)} style={{ ...META_STYLE, maxWidth: 260 }}>
-                  <option value="">All purposes</option>
-                  {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
-                </select>
-                {(ngoFilter || purposeFilter) && (
-                  <button className="btn btn-sm" onClick={() => { setNgoFilter(''); setPurposeFilter('') }}><X size={13} /> Clear filters</button>
+                {ngoFilter && (
+                  <button className="btn btn-sm" onClick={() => setNgoFilter('')}><X size={13} /> Clear filter</button>
                 )}
               </div>
             )}
@@ -805,7 +769,7 @@ export default function Certificates() {
               <div className="big">{templates.length === 0 ? 'No templates yet' : 'No templates match these filters'}</div>
               {templates.length === 0
                 ? <>Upload a .docx or .pptx certificate and start generating in minutes.</>
-                : <>Try clearing the NGO or purpose filter above.</>}
+                : <>Try clearing the NGO filter above.</>}
               {templates.length === 0 && (
                 <div style={{ marginTop: 16 }}>
                   <button className="btn btn-sm btn-primary" onClick={openWizard}><Plus size={14} /> New Template</button>
@@ -859,10 +823,9 @@ export default function Certificates() {
                       <button type="button" className="tpl-title" onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>{t.name}</button>
                       <span className={`pill ${st.cls}`} style={{ padding: '1px 8px', fontSize: 11 }}>{st.label}</span>
                     </div>
-                    {(t.ngo_name || t.purpose) && (
+                    {t.ngo_name && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, padding: '0 12px' }}>
-                        {t.ngo_name && <span className="pill pill-blue" style={{ padding: '1px 8px', fontSize: 11 }}>{t.ngo_name}</span>}
-                        {t.purpose && <span className="pill pill-yellow" style={{ padding: '1px 8px', fontSize: 11 }}>{t.purpose}</span>}
+                        <span className="pill pill-blue" style={{ padding: '1px 8px', fontSize: 11 }}>{t.ngo_name}</span>
                       </div>
                     )}
                   </div>
@@ -1167,21 +1130,6 @@ export default function Certificates() {
 
               {!bulkMode ? (
                 <>
-                  <div className="wiz-hint" style={{ fontSize: 12, margin: 0 }}>
-                    Fields marked <b style={{ color: '#dc2626' }}>*</b> are required. The preview updates as you type.
-                  </div>
-
-                  <div className="field-block">
-                    <label>Certificate number <span style={{ color: 'var(--ink-soft)' }}>(optional — auto-generated if empty)</span></label>
-                    <input
-                      className="fld"
-                      type="text"
-                      placeholder="e.g. CERT-2026-00001"
-                      value={certNumber}
-                      onChange={(e) => setCertNumber(e.target.value)}
-                    />
-                  </div>
-
                   {(genTpl.fields || []).map((f) => (
                     <div className="field-block" key={f.field_key}>
                       <label>
@@ -1191,7 +1139,7 @@ export default function Certificates() {
                         <textarea className="fld" rows={3} value={values[f.field_key] || ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
                       ) : f.field_type === 'select' ? (
                         <select
-                          className={`fld ${missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
+                          className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
                           value={values[f.field_key] ?? f.default_value ?? ''}
                           onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
                         >
@@ -1200,7 +1148,7 @@ export default function Certificates() {
                         </select>
                       ) : (
                         <input
-                          className={`fld ${missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
+                          className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
                           type={inputTypeFor(f.field_type)}
                           placeholder={humanKey(f.field_key)}
                           value={values[f.field_key] ?? f.default_value ?? ''}
@@ -1210,7 +1158,7 @@ export default function Certificates() {
                     </div>
                   ))}
 
-                  {missing.length > 0 && (
+                  {showMissing && missing.length > 0 && (
                     <div className="missing-box"><AlertTriangle size={13} style={{ verticalAlign: -2, marginRight: 6 }} />Missing: <b>{missing.join(', ')}</b></div>
                   )}
 
@@ -1437,51 +1385,6 @@ export default function Certificates() {
         </div>
       )}
 
-      {purposesOpen && (
-        <div className="cert-overlay" onClick={() => setPurposesOpen(false)}>
-          <div className="cert-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
-            <div className="cert-modal-head">
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>Manage purposes</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>These appear in the purpose dropdown of every template.</div>
-              </div>
-              <button className="btn btn-sm" onClick={() => setPurposesOpen(false)}><X size={14} /></button>
-            </div>
-            <div className="cert-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  className="fld"
-                  style={{ flex: 1, padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13.5, outline: 'none' }}
-                  placeholder="e.g. Participation certificate"
-                  value={purposeName}
-                  maxLength={120}
-                  onChange={(e) => setPurposeName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') addPurpose() }}
-                />
-                <button className="btn btn-sm btn-primary" onClick={addPurpose} disabled={purposeBusy}>
-                  <Plus size={14} /> Add
-                </button>
-              </div>
-              <div style={{ maxHeight: 320, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {purposes.map((p) => (
-                  <div key={String(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.name}</div>
-                      {p.template_count > 0 && (
-                        <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{p.template_count} template{p.template_count === 1 ? '' : 's'} use this</div>
-                      )}
-                    </div>
-                    <button className="btn btn-sm" onClick={() => removePurpose(p)} disabled={purposeBusy}><Trash2 size={13} /></button>
-                  </div>
-                ))}
-                {purposes.length === 0 && (
-                  <div className="cert-empty" style={{ padding: 18 }}>No purposes yet — add one above.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
