@@ -66,6 +66,7 @@ export async function ensureCertificateSchema() {
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS preview_key TEXT DEFAULT ''`,
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS ngo_id ${ngoIdType} REFERENCES ngos(id) ON DELETE SET NULL`,
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS purpose TEXT DEFAULT ''`,
+    `ALTER TABLE certificates ADD COLUMN IF NOT EXISTS generated_pdf TEXT DEFAULT ''`,
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS canvas_width INT`,
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS canvas_height INT`,
     `ALTER TABLE certificate_template_fields ADD COLUMN IF NOT EXISTS style JSONB NOT NULL DEFAULT '{}'::jsonb`,

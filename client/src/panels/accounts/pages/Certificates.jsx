@@ -473,7 +473,7 @@ export default function Certificates() {
     try {
       const res = await certificateApi.generate({ template_id: genTpl.id, field_values: values, certificate_number: certNumber || undefined })
       toast(`${res.certificate.certificate_number} generated`, 'success')
-      saveOrOpen(res.certificate.generated_file, `${res.certificate.certificate_number}.${genTpl.file_format === 'image' ? 'png' : genTpl.file_format}`)
+      saveOrOpen(res.certificate.generated_pdf || res.certificate.generated_file, `${res.certificate.certificate_number}.${res.certificate.generated_pdf ? 'pdf' : (genTpl.file_format === 'image' ? 'png' : genTpl.file_format)}`)
       if (showHistory) loadHistory(historyQ)
     } catch (e) { toast(e.message, 'error') } finally { setGenerating(false) }
   }
@@ -914,7 +914,7 @@ export default function Certificates() {
                     </div>
                     <div className="hist-recipient" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(c.generated_at)}</div>
                     <div className="hist-actions">
-                      <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(c.generated_file, `${c.certificate_number}.${(c.generated_file || '').split('.').pop()}`)}>
+                      <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(c.generated_pdf || c.generated_file, `${c.certificate_number}.${c.generated_pdf ? 'pdf' : (c.generated_file || '').split('.').pop()}`)}>
                         <ExternalLink size={14} />
                       </button>
                     </div>
@@ -1313,7 +1313,7 @@ export default function Certificates() {
                                 <span className="hist-num">{r.certificate_number}</span>
                                 <span className="hist-recipient">{r.certificate.recipient_name || '—'}</span>
                                 <span className="hist-actions">
-                                  <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(r.generated_file, `${r.certificate_number}.${genTpl.file_format === 'image' ? 'png' : genTpl.file_format}`)}>
+                                  <button className="btn btn-sm" title="Open generated file" onClick={() => saveOrOpen(r.certificate?.generated_pdf || r.generated_file, `${r.certificate_number}.${r.certificate?.generated_pdf ? 'pdf' : (genTpl.file_format === 'image' ? 'png' : genTpl.file_format)}`)}>
                                     <ExternalLink size={13} />
                                   </button>
                                 </span>
