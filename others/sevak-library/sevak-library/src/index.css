@@ -299,42 +299,9 @@ textarea {
   color: var(--danger);
 }
 
-.photo-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 20;
+.photo-act-gallery {
+  border-style: dashed;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
-  overflow: hidden;
-}
-
-.photo-menu-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 12px 14px;
-  border: none;
-  background: #fff;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-}
-
-.photo-menu-btn + .photo-menu-btn {
-  border-top: 1px solid var(--border);
-}
-
-.photo-menu-btn:hover {
-  background: var(--green-light);
-  color: var(--green-dark);
 }
 
 .photo-hidden {

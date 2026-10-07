@@ -39,9 +39,11 @@ import { isHeldState } from '../utils/froTimeState.js';
 // idempotent and never double counts: idle_since is set to the deadline, which
 // is exactly where idlePeriodStartMs already begins counting, so a later commit
 // banks the identical span.
-export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
+export async function stampLapsedIdle(workerId, nowMs = Date.now(), opts = {}) {
   const id = String(workerId);
   if (!id) return false;
+
+  const touchUpdatedAt = opts.touchUpdatedAt !== false;
 
   // A covered-away FRO must not accrue idle. Someone else is working their
   // stations, so the fact that their row stopped refreshing says nothing about
@@ -101,16 +103,28 @@ export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
   }
 
   try {
-    await db._pool.query(
-      `UPDATE fro_live_status
-          SET idle_since = disposition_due_at,
-              stats_date = $2::date,
-              status = 'idle',
-              updated_at = now()
-        WHERE worker_id = $1
-          AND idle_since IS NULL`,
-      [id, istDateStr(new Date(nowMs))]
-    );
+    if (touchUpdatedAt) {
+      await db._pool.query(
+        `UPDATE fro_live_status
+            SET idle_since = disposition_due_at,
+                stats_date = $2::date,
+                status = 'idle',
+                updated_at = now()
+          WHERE worker_id = $1
+            AND idle_since IS NULL`,
+        [id, istDateStr(new Date(nowMs))]
+      );
+    } else {
+      await db._pool.query(
+        `UPDATE fro_live_status
+            SET idle_since = disposition_due_at,
+                stats_date = $2::date,
+                status = 'idle'
+          WHERE worker_id = $1
+            AND idle_since IS NULL`,
+        [id, istDateStr(new Date(nowMs))]
+      );
+    }
     return true;
   } catch (e) {
     console.warn('[froIdleCommit] idle stamp failed:', e?.message || String(e));
