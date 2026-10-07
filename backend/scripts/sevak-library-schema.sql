@@ -33,6 +33,7 @@ create table if not exists public.applications (
   renewal_soon_sent   boolean not null default false,
   renewal_count       int not null default 0,
   renewal_fees        numeric not null default 0,
+  renewal_payments    jsonb not null default '[]',
   last_renewed_at     date,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
@@ -75,4 +76,5 @@ create table if not exists public.mail_log (
 alter table public.applications add column if not exists renewal_soon_sent boolean not null default false;
 alter table public.applications add column if not exists renewal_count      int not null default 0;
 alter table public.applications add column if not exists renewal_fees       numeric not null default 0;
+alter table public.applications add column if not exists renewal_payments   jsonb not null default '[]';
 alter table public.applications add column if not exists last_renewed_at    date;
