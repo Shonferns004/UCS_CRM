@@ -300,10 +300,20 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
                     </span>
                   </div>
                   {selected === i && (
-                    <div
-                      onPointerDown={(e) => { e.stopPropagation(); setDrag({ mode: 'resize', index: i, startX: e.clientX, startY: e.clientY, orig: { x: s.x || 0, y: s.y || 0, width: s.width || 100, height: s.height || 40 } }) }}
-                      style={{ position: 'absolute', right: 0, bottom: 0, width: 12, height: 12, background: 'var(--sage)', cursor: 'nwse-resize', borderRadius: 2 }}
-                    />
+                    <>
+                      <div
+                        onPointerDown={(e) => { e.stopPropagation(); setDrag({ mode: 'resize', index: i, startX: e.clientX, startY: e.clientY, orig: { x: s.x || 0, y: s.y || 0, width: s.width || 100, height: s.height || 40 } }) }}
+                        style={{ position: 'absolute', right: 0, bottom: 0, width: 12, height: 12, background: 'var(--sage)', cursor: 'nwse-resize', borderRadius: 2 }}
+                      />
+                      <button
+                        type="button"
+                        title="Hide field from canvas"
+                        onClick={(e) => { e.stopPropagation(); patchStyle(i, { hidden: true }) }}
+                        style={{ position: 'absolute', top: -9, left: -9, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#dc2626', color: '#fff', fontSize: 12, lineHeight: 1, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        ×
+                      </button>
+                    </>
                   )}
                 </div>
               )
