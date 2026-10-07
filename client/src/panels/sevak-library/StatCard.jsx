@@ -3,9 +3,13 @@ import { useEffect, useRef } from 'react'
 // Lightweight count-up so the embedded panel keeps the standalone look without
 // pulling in gsap. First render sets the final value when the tab is hidden
 // (IntersectionObserver never fires), so numbers appear immediately on mount.
-export default function StatCard({ icon, label, value, sub, color, delay = 0 }) {
+export default function StatCard({
+  icon, label, value, sub, color, delay = 0,
+  dot = false, pct = null, trend = null, onClick = null
+}) {
   const numRef = useRef(null)
   const started = useRef(false)
+  const clickable = typeof onClick === 'function'
 
   useEffect(() => {
     const el = numRef.current
@@ -36,16 +40,41 @@ export default function StatCard({ icon, label, value, sub, color, delay = 0 }) 
     return () => obs.disconnect()
   }, [value])
 
+  const Wrapper = clickable ? 'button' : 'div'
+
   return (
-    <div className="stat-card" style={{ '--stat-color': color }}>
+    <Wrapper
+      className={`stat-card${clickable ? ' clickable' : ''}`}
+      style={{ '--stat-color': color }}
+      onClick={clickable ? onClick : undefined}
+      type={clickable ? 'button' : undefined}
+    >
+      <span className="stat-accent" />
       <div className="stat-icon" style={{ background: color + '1a', color }}>
         {icon}
       </div>
       <div className="stat-body">
-        <span className="stat-label">{label}</span>
+        <span className="stat-label">
+          {dot && <i className="stat-dot" />}
+          {label}
+        </span>
         <strong className="stat-value" ref={numRef}>0</strong>
-        {sub && <span className="stat-sub">{sub}</span>}
+        <div className="stat-foot">
+          {pct !== null && (
+            <span className="stat-pct" title={`${pct}% of total applications`}>
+              <span className="stat-pctbar"><i style={{ width: `${Math.min(100, pct)}%` }} /></span>
+              <span className="stat-pct-text">{pct}% of total</span>
+            </span>
+          )}
+          {sub && <span className="stat-sub">{sub}</span>}
+          {trend && (
+            <span className="stat-trend" style={{ color: trend.color || 'var(--muted)' }}>
+              {trend.up !== undefined && (trend.up ? '▲' : '▼')} {trend.label}
+            </span>
+          )}
+        </div>
+        {clickable && <span className="stat-view">View list →</span>}
       </div>
-    </div>
+    </Wrapper>
   )
 }

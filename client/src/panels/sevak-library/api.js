@@ -67,6 +67,14 @@ export async function rejectApplication(id, reason) {
   return res.data
 }
 
+export async function renewApplication(id, fee) {
+  const res = await req(`${P}/applications/${id}/renew`, {
+    method: 'POST',
+    body: JSON.stringify(fee == null ? {} : { fee }),
+  })
+  return res.data
+}
+
 export async function removeApplication(id) {
   await req(`${P}/applications/${id}`, { method: 'DELETE' })
 }
@@ -77,6 +85,11 @@ export async function resendMembershipEmail(id) {
 
 export async function sendPaymentReminder(id) {
   return req(`${P}/applications/${id}/emails/payment-reminder`, { method: 'POST', body: JSON.stringify({}) })
+}
+
+export async function getMailLog(limit = 500) {
+  const res = await req(`${P}/applications/mail-log${queryString({ limit })}`)
+  return res.data || []
 }
 
 export async function importMembers(rows) {
@@ -114,7 +127,7 @@ export function exportApplicationsCsv(rows) {
   const headers = [
     'Reference', 'Status', 'Membership ID', 'Full Name', 'Email', 'Mobile',
     'Plan', 'Fee', 'Start Date', 'End Date', 'Identity Proof', 'Identity Number',
-    'Transaction ID', 'Created At'
+    'Transaction ID', 'Created At', 'Renewals', 'Renewal Fees', 'Last Renewed'
   ]
   const esc = (v) => {
     const s = v == null ? '' : String(v)
@@ -126,7 +139,8 @@ export function exportApplicationsCsv(rows) {
       [
         r.ref, r.status, r.membership_id, r.full_name, r.email, r.mobile,
         r.membership_type, r.membership_fee, r.start_date, r.end_date,
-        r.identity_proof_type, r.identity_number, r.transaction_id, r.created_at
+        r.identity_proof_type, r.identity_number, r.transaction_id, r.created_at,
+        r.renewal_count || 0, r.renewal_fees || 0, r.last_renewed_at || ''
       ].map(esc).join(',')
     )
   })
