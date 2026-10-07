@@ -335,6 +335,14 @@ export default function BeneficiaryProfile() {
             <Field label="Needed">{data.needed}</Field>
             <Field label="Address">{data.address_line_1}</Field>
             <Field label="Aadhaar Number">{data.aadhaar_number}</Field>
+            <Field label="Certificate Number">
+              {data.disabilities?.length > 0
+                ? data.disabilities
+                  .map((d) => d.certificate_number)
+                  .filter(Boolean)
+                  .join(', ') || '-'
+                : '-'}
+            </Field>
             <Field label="Fingerprint"><span style={styles.pill(
               data.fingerprint_status === 'REGISTERED' ? '#dcfce7' : '#fef3c7',
               data.fingerprint_status === 'REGISTERED' ? '#166534' : '#92400e'
@@ -710,16 +718,165 @@ export default function BeneficiaryProfile() {
           </div>
         );
       case 'Documents':
-        return (
-          <div>
-            {data.documents?.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>No documents uploaded</p> : (
-              <table style={styles.table}>
-                <thead><tr><th style={styles.th}>Type</th><th style={styles.th}>File</th><th style={styles.th}>Status</th><th style={styles.th}>Uploaded</th></tr></thead>
-                <tbody>{data.documents?.map((d, i) => <tr key={i}><td style={styles.td}>{d.document_type}</td><td style={styles.td}>{d.file_url ? <a href={d.file_url} target="_blank" rel="noreferrer" style={{ color: 'var(--sage)', textDecoration: 'none', fontWeight: 500 }}>{d.file_name || 'Open'}</a> : (d.file_name || '-')}</td><td style={styles.td}>{d.verification_status}</td><td style={styles.td}>{d.uploaded_at}</td></tr>)}</tbody>
-              </table>
-            )}
-          </div>
-        )
+  return (
+    <div>
+      {!data.documents || data.documents.length === 0 ? (
+        <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>
+          No documents uploaded
+        </p>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: '16px',
+          }}
+        >
+          {data.documents.map((d, i) => {
+            const url = d.file_url
+            const fileName = d.file_name || 'Document'
+
+            const isImage =
+              url &&
+              /\.(jpg|jpeg|png|webp|gif|bmp)(\?.*)?$/i.test(url)
+
+            const isPdf =
+              url &&
+              /\.pdf(\?.*)?$/i.test(url)
+
+            return (
+              <div
+                key={d.id || i}
+                style={{
+                  border: '1px solid var(--line)',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  background: '#fff',
+                }}
+              >
+                {/* IMAGE */}
+                {isImage ? (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <img
+                      src={url}
+                      alt={fileName}
+                      style={{
+                        width: '100%',
+                        height: '160px',
+                        objectFit: 'cover',
+                        borderRadius: '8px',
+                        border: '1px solid var(--line)',
+                        display: 'block',
+                      }}
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  </a>
+                ) : isPdf ? (
+                  /* PDF */
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      height: '160px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'var(--bg)',
+                      borderRadius: '8px',
+                      textDecoration: 'none',
+                      color: 'var(--sage)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    📄 Open PDF
+                  </a>
+                ) : (
+                  /* OTHER FILE */
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      height: '160px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'var(--bg)',
+                      borderRadius: '8px',
+                      textDecoration: 'none',
+                      color: 'var(--sage)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    📎 Open File
+                  </a>
+                )}
+
+                <div style={{ marginTop: '10px' }}>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: 'var(--ink)',
+                      marginBottom: '5px',
+                    }}
+                  >
+                    {d.document_type || 'Document'}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--ink-soft)',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {fileName}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--ink-soft)',
+                      marginTop: '5px',
+                    }}
+                  >
+                    Status: {d.verification_status || '-'}
+                  </div>
+
+                  {url && (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: 'inline-block',
+                        marginTop: '8px',
+                        fontSize: '12px',
+                        color: 'var(--sage)',
+                        textDecoration: 'none',
+                        fontWeight: 600,
+                      }}
+                    >
+                      View Document →
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
       case 'Programs':
         if (!data.programs || data.programs.length === 0) return <div><p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>Not enrolled in any events yet</p></div>
         return (
@@ -764,7 +921,24 @@ export default function BeneficiaryProfile() {
             <div>
               <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>Biometric</h4>
               <p>Status: {data.biometric?.status}</p>
-              <p>Enrolled fingers: {data.biometric?.enrolled_fingers?.length || 0}</p>
+              {data.biometric?.enrolled_fingers?.length ? (
+                <ul style={{ margin: '4px 0 0', paddingLeft: '18px', fontSize: '13px', listStyle: 'disc' }}>
+                  {data.biometric.enrolled_fingers.map((f, i) => (
+                    <li key={f.id || i}>
+                      {String(f.finger_position || 'UNKNOWN')
+                        .split('_')
+                        .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+                        .join(' ')}
+                      {f.quality_score !== null && f.quality_score !== undefined
+                        ? ` — quality ${f.quality_score}`
+                        : ''}
+                      {f.enrolled_at ? ` (${new Date(f.enrolled_at).toLocaleDateString('en-IN', { dateStyle: 'medium' })})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>No fingers enrolled</p>
+              )}
             </div>
           </div>
         )

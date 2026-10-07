@@ -158,10 +158,17 @@ export function isImpersonating() {
 // Switch to an impersonated FRO session, remembering the original session so we
 // can switch back.
 export function startImpersonation(token, user) {
-  const origToken = getToken('ucs')
-  const origUser = getUser('ucs')
-  if (origToken) localStorage.setItem('ucs_original_token', origToken)
-  if (origUser) localStorage.setItem('ucs_original_user', JSON.stringify(origUser))
+  // Save the original session only once. On a chained switch (already working as
+  // someone else) the current token is itself a cover, and overwriting the saved
+  // original would make "Exit Acting FRO" restore the previous proxy instead of
+  // the agent's / operator's own account. It also lets a second switch from a
+  // shared terminal keep the exit point the person started from.
+  if (!isImpersonating()) {
+    const origToken = getToken('ucs')
+    const origUser = getUser('ucs')
+    if (origToken) localStorage.setItem('ucs_original_token', origToken)
+    if (origUser) localStorage.setItem('ucs_original_user', JSON.stringify(origUser))
+  }
   setSession('ucs', token, user)
 }
 

@@ -221,4 +221,37 @@ export async function computeWorkerDayTotals(workerId, { shift = null, nowMs = D
   return sumIntervalsByState(sessions, { shift, nowMs });
 }
 
+/**
+ * Batch version of computeWorkerDayTotals for dashboards: one query for many
+ * workers. Returns Map(workerId -> totals) only for workers that have ledger
+ * rows today, so callers can fall back to the legacy live-row value otherwise.
+ */
+export async function dayTotalsForWorkers(workerIds, { shiftFor = () => null, nowFor = () => null, nowMs = Date.now(), pool = db._pool } = {}) {
+  const ids = [...new Set((workerIds || []).filter(Boolean).map(String))];
+  const out = new Map();
+  if (ids.length === 0) return out;
+  const day = istDayBoundsMs(nowMs);
+  const { rows } = await pool.query(
+    `SELECT worker_id, state, started_at, ended_at
+       FROM fro_time_sessions
+      WHERE worker_id::text = ANY($1::text[])
+        AND started_at < $3
+        AND COALESCE(ended_at, 'infinity'::timestamptz) > $2
+      ORDER BY started_at ASC`,
+    [ids, toIso(day.startMs), toIso(day.endMs)]
+  );
+  const byWorker = new Map();
+  for (const r of rows) {
+    const k = String(r.worker_id);
+    if (!byWorker.has(k)) byWorker.set(k, []);
+    byWorker.get(k).push(r);
+  }
+  for (const [k, sessions] of byWorker) {
+    const cut = nowFor(k);
+    const at = Number.isFinite(cut) ? Math.min(cut, nowMs) : nowMs;
+    out.set(k, sumIntervalsByState(sessions, { shift: shiftFor(k), nowMs: at, dayBounds: day }));
+  }
+  return out;
+}
+
 export const __internal = { durationSecondsBetween };
