@@ -1,25 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  X, ShieldCheck, BadgeCheck, Mail, MessageCircle, Ban, Trash2, ExternalLink, Loader2, CheckCircle2, XCircle, Hourglass, FileText, Pencil, Check, ImagePlus
+  X, ShieldCheck, BadgeCheck, Mail, MessageCircle, Ban, Trash2, ExternalLink, Loader2, XCircle, FileText, Pencil, Check, ImagePlus, Copy, UserRound, Contact, Eye, RefreshCw
 } from 'lucide-react'
 import {
-  getPhotoUrls, rejectApplication, removeApplication, resendMembershipEmail, sendPaymentReminder,
-  updateApplication, verifyApplication, approveApplication
+  getPhotoUrls, getMailLog, rejectApplication, removeApplication, resendMembershipEmail, sendPaymentReminder,
+  updateApplication, verifyApplication, approveApplication, renewApplication
 } from './api.js'
 import { pdfMemberDoc } from './MembershipFormDoc.jsx'
 import { statusLabel } from './meta.js'
-import { AppliedDate, RenewalDate } from './DateTags.jsx'
-import { formatINR, formatDate, computeEndDate } from './formUtils.js'
+import { RenewalDate } from './DateTags.jsx'
+import { formatINR, formatDate, formatTime, computeEndDate, renewalPreview } from './formUtils.js'
 import { MEMBERSHIP_PRICES, INDIA_STATES } from './formConfig.js'
 import { validateField, validateIdentityDocument } from './validate.js'
 import { useToast } from './toast.jsx'
 
 const steps = ['SUBMITTED', 'PAYMENT_SUBMITTED', 'VERIFIED', 'APPROVED']
-const stepIcon = {
-  SUBMITTED: <Hourglass size={14} />,
-  PAYMENT_SUBMITTED: <ShieldCheck size={14} />,
-  VERIFIED: <BadgeCheck size={14} />,
-  APPROVED: <CheckCircle2 size={14} />
+const stepLabel = {
+  SUBMITTED: 'Submitted',
+  PAYMENT_SUBMITTED: 'Payment Pending',
+  VERIFIED: 'Verification',
+  APPROVED: 'Approval'
+}
+
+function mailActivityLabel(subject) {
+  const s = String(subject || '').toLowerCase()
+  if (s.startsWith('complete your')) return 'Payment reminder sent'
+  if (s.includes('membership id')) return 'Membership ID email sent'
+  if (s.includes('expire')) return 'Expiry reminder sent'
+  if (s.includes('renew')) return 'Renewal email sent'
+  if (s.includes('coupon')) return 'Discount coupon email sent'
+  return 'Email sent'
 }
 
 const PLAN_OPTIONS = ['Daily', 'Half Monthly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual']
@@ -106,7 +116,25 @@ function clearDraft(appId) {
   writeDrafts(map)
 }
 
-export default function ApplicationDetail({ row, onClose, refresh }) {
+function Section({ title, children }) {
+  return (
+    <div className="d-section">
+      <h5 className="d-section-title">{title}</h5>
+      <div className="d-rows">{children}</div>
+    </div>
+  )
+}
+
+function FieldRow({ label, children }) {
+  return (
+    <div className="d-row">
+      <span className="d-row-label">{label}</span>
+      <span className="d-row-value">{children || '—'}</span>
+    </div>
+  )
+}
+
+export default function ApplicationDetail({ row, onClose, refresh, startEditOnOpen = false }) {
   const toast = useToast()
   const [files, setFiles] = useState({ passport: null, identity: null })
   const [busy, setBusy] = useState('')
@@ -118,6 +146,10 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
   const [newPhotos, setNewPhotos] = useState({ passport: null, identity: null })
   const [newPhotoPrev, setNewPhotoPrev] = useState({ passport: null, identity: null })
   const [newPhotoErr, setNewPhotoErr] = useState({ passport: '', identity: '' })
+  const [mailLog, setMailLog] = useState([])
+  const [logTick, setLogTick] = useState(0)
+  const [copiedRef, setCopiedRef] = useState(false)
+  const [preview, setPreview] = useState(null)
   const baseUpdatedAt = useRef(null)
   const previewUrls = useRef({ passport: null, identity: null })
 
@@ -136,6 +168,41 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
       .catch(() => {})
     return () => (on = false)
   }, [row.id])
+
+  // Activity feed: this application's rows from the global mail log.
+  useEffect(() => {
+    let on = true
+    getMailLog(500)
+      .then((entries) => {
+        if (on) setMailLog((entries || []).filter((e) => e.application_id === row.id))
+      })
+      .catch(() => {})
+    return () => (on = false)
+  }, [row.id, logTick])
+
+  // Open directly in edit mode (row menu → "Edit details").
+  useEffect(() => {
+    if (startEditOnOpen) startEdit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !busy && !confirm && !editing && !preview) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, confirm, editing, preview, onClose])
+
+  // Escape closes only the document preview while it is open.
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') setPreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview])
 
   useEffect(() => {
     return () => {
@@ -277,6 +344,7 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
     onClose()
     try {
       const res = await resendMembershipEmail(row.id)
+      setLogTick((t) => t + 1)
       if (res && res.sent) {
         toast('Membership email sent.')
       } else {
@@ -292,6 +360,7 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
     try {
       await sendPaymentReminder(row.id)
       toast('Payment reminder email sent.')
+      setLogTick((t) => t + 1)
     } catch (e) {
       toast(e.message, 'error')
     }
@@ -333,6 +402,19 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
     `Sevak Library Membership - ${row.membership_id || row.ref}`
   )}&body=${encoded}`
 
+  const doRenew = async () => {
+    setBusy('renew')
+    try {
+      const data = await renewApplication(row.id)
+      toast(data && data.end_date ? `Membership renewed until ${formatDate(data.end_date)}.` : 'Membership renewed.')
+      setConfirm(null)
+      refresh()
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+    setBusy('')
+  }
+
   const doReject = async () => {
     if (!reason.trim()) {
       toast('Please enter a reason for rejection.', 'error')
@@ -368,51 +450,51 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
       ? [d.paymentMode, d.amountReceived].filter(Boolean).join(' · ')
       : ''
 
-  const rows = [
-    ['Full name', row.full_name],
-    ['Email', row.email],
-    ['Mobile', row.mobile],
-    ['Guardian', d.guardianName],
-    ['Date of birth', d.dateOfBirth && formatDate(d.dateOfBirth)],
-    ['Gender', d.gender],
-    ['Category', d.category],
-    ['Degree', d.degree],
-    ['Occupation', d.occupation],
-    ['Qualification', d.educationalQualification],
-    ['Address', d.currentAddress && [d.currentAddress, d.city, d.state, d.pinCode].filter(Boolean).join(', ')],
-    ['Plan', row.membership_type],
-    ['Fee', formatINR(row.membership_fee)],
-    ['Applied', <AppliedDate key="applied" iso={row.created_at} />],
-    ['Membership period', row.start_date && row.end_date ? (
-      <span key="period" className="date-period">
-        <span className="dp-range">{formatDate(row.start_date)} →</span>
-        <RenewalDate row={row} />
-      </span>
-    ) : '—'],
-    ['Identity proof', row.identity_proof_type ? `${row.identity_proof_type}${row.identity_number ? ` · ${row.identity_number}` : ''}` : '—'],
-    ['Payment ref', row.payment_ref],
-    ...(paymentInfo ? [['Payment', paymentInfo]] : []),
-    ['Transaction / UTR', row.transaction_id || '—'],
-    ['Membership ID', row.membership_id || '—'],
-    ['Signature', d.applicantSignature],
-    ...(d.remarks ? [['Remarks', d.remarks]] : [])
-  ].filter(([, v]) => v)
+  const initial = (row.full_name || '?').trim().charAt(0).toUpperCase()
+  const heroMeta = [d.category, d.educationalQualification].filter(Boolean).join(' · ')
+  const phone = m.length === 10 ? `+91 ${m.slice(0, 5)} ${m.slice(5)}` : row.mobile || ''
+  const paid = !!row.transaction_id || row.status === 'VERIFIED' || row.status === 'APPROVED'
+  const renewP = row.status === 'APPROVED' ? renewalPreview(row) : null
+  const renewalCount = Number(row.renewal_count) || 0
+  const addrStreet = d.currentAddress || ''
+  const addrCity = [d.city, [d.state, d.pinCode].filter(Boolean).join(' - ')].filter(Boolean).join(', ')
+  const hasAddress = !!(addrStreet || addrCity)
+
+  const activity = [
+    { title: 'Application submitted', at: row.created_at },
+    ...mailLog.map((e) => ({
+      title: `${mailActivityLabel(e.subject)}${e.sent ? '' : ' (failed)'}`,
+      at: e.created_at,
+      failed: !e.sent,
+      err: e.error || ''
+    }))
+  ]
+    .filter((a) => a.at)
+    .sort((a, b) => new Date(a.at) - new Date(b.at))
 
   const stepIdx = steps.indexOf(row.status)
   const showTimeline = row.status !== 'REJECTED'
+  const canReject = row.status === 'SUBMITTED' || row.status === 'PAYMENT_SUBMITTED'
+
+  const copyPaymentRef = async () => {
+    if (!row.payment_ref) return
+    try {
+      await navigator.clipboard.writeText(String(row.payment_ref))
+      setCopiedRef(true)
+      setTimeout(() => setCopiedRef(false), 1500)
+    } catch {
+      // clipboard unavailable (insecure context) - ignore
+    }
+  }
 
   return (
     <div className="drawer-overlay" onClick={() => !busy && onClose()}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-head">
-          <div>
-            <h3>{row.full_name}</h3>
+          <div className="drawer-head-main">
+            <h3>Application</h3>
             <span className="mono">{row.ref}</span>
             <span className={`admin-badge ${row.status}`}>{statusLabel(row.status)}</span>
-            <span className="drawer-dates">
-              <AppliedDate iso={row.created_at} />
-              <RenewalDate row={row} />
-            </span>
           </div>
           <button className="drawer-close" onClick={onClose} aria-label="Close">
             <X size={18} />
@@ -420,16 +502,6 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
         </div>
 
         <div className="drawer-body">
-          {showTimeline && (
-            <div className="timeline">
-              {steps.map((s, i) => (
-                <div key={s} className={`tl-step ${i <= stepIdx ? 'done' : ''} ${i === stepIdx ? 'current' : ''}`}>
-                  <span className="tl-dot">{stepIcon[s]}</span>
-                  <span className="tl-label">{statusLabel(s)}</span>
-                </div>
-              ))}
-            </div>
-          )}
           {row.status === 'REJECTED' && row.reject_reason && (
             <div className="reject-box">
               <strong>Rejection reason:</strong> {row.reject_reason}
@@ -473,79 +545,233 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
               </div>
             </div>
           ) : (
-            <div className="detail-grid">
-              {rows.map(([k, v]) => (
-                <div key={k} className="detail-item">
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
+            <>
+              <div className="detail-hero">
+                <div className="detail-avatar">{initial}</div>
+                <h4 className="detail-name">{row.full_name}</h4>
+                {heroMeta && <p className="detail-meta">{heroMeta}</p>}
+                <p className="detail-contact">{row.email}</p>
+                {phone && <p className="detail-contact">{phone}</p>}
+              </div>
+
+              {showTimeline && (
+                <div className="d-section">
+                  <h5 className="d-section-title">Application Progress</h5>
+                  <div className="progress-list">
+                    {steps.map((s, i) => (
+                      <div key={s} className={`pr-item ${i <= stepIdx ? 'done' : ''} ${i === stepIdx ? 'current' : ''}`}>
+                        <span className="pr-rail">
+                          <span className="pr-dot">
+                            {i < stepIdx ? <Check size={12} /> : i === stepIdx ? <span className="pr-core" /> : null}
+                          </span>
+                          {i < steps.length - 1 && <span className="pr-line" />}
+                        </span>
+                        <span className="pr-label">{stepLabel[s]}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              )}
+
+              <Section title="Personal Information">
+                <FieldRow label="Date of birth">{d.dateOfBirth && formatDate(d.dateOfBirth)}</FieldRow>
+                <FieldRow label="Gender">{d.gender}</FieldRow>
+                <FieldRow label="Guardian">{d.guardianName}</FieldRow>
+                {d.alternateMobileNumber && <FieldRow label="Alternate mobile">{d.alternateMobileNumber}</FieldRow>}
+                {d.applicantSignature && <FieldRow label="Signature">{d.applicantSignature}</FieldRow>}
+                {d.remarks && <FieldRow label="Remarks">{d.remarks}</FieldRow>}
+              </Section>
+
+              <Section title="Profile">
+                <FieldRow label="Category">{d.category}</FieldRow>
+                <FieldRow label="Occupation">{d.occupation}</FieldRow>
+                <FieldRow label="Qualification">{d.educationalQualification}</FieldRow>
+                {d.degree && <FieldRow label="Degree">{d.degree}</FieldRow>}
+              </Section>
+
+              <div className="d-section">
+                <h5 className="d-section-title">Address</h5>
+                <div className="d-rows d-rows-pad">
+                  {hasAddress ? (
+                    <>
+                      {addrStreet && <p className="d-address-line">{addrStreet}</p>}
+                      {addrCity && <p className="d-address-line">{addrCity}</p>}
+                    </>
+                  ) : (
+                    <p className="d-address-line d-muted">No address on file</p>
+                  )}
+                </div>
+              </div>
+
+              <Section title="Membership & Payment">
+                <FieldRow label="Plan">{row.membership_type}</FieldRow>
+                <FieldRow label="Fee">{formatINR(row.membership_fee)}</FieldRow>
+                <FieldRow label="Payment">
+                  <span className={`pay-pill ${paid ? 'paid' : 'pending'}`}><i />{paid ? 'Paid' : 'Pending'}</span>
+                </FieldRow>
+                <FieldRow label="Payment ref">
+                  {row.payment_ref ? (
+                    <span className="ref-inline">
+                      <span className="mono">{row.payment_ref}</span>
+                      <button type="button" className="ref-copy-mini" onClick={copyPaymentRef} aria-label="Copy payment reference">
+                        {copiedRef ? <Check size={13} /> : <Copy size={13} />}
+                      </button>
+                    </span>
+                  ) : ''}
+                </FieldRow>
+                <FieldRow label="Transaction / UTR">{row.transaction_id}</FieldRow>
+                {paymentInfo && <FieldRow label="Payment mode">{paymentInfo}</FieldRow>}
+                {row.membership_id && (
+                  <FieldRow label="Membership ID"><span className="mono">{row.membership_id}</span></FieldRow>
+                )}
+                {renewalCount > 0 && (
+                  <FieldRow label="Renewals">
+                    {renewalCount}× · fee {formatINR(row.renewal_fees)}
+                    {row.last_renewed_at ? ` · last ${formatDate(row.last_renewed_at)}` : ''}
+                  </FieldRow>
+                )}
+                {row.start_date && row.end_date && (
+                  <FieldRow label={row.status === 'APPROVED' ? 'Membership period' : 'Planned period'}>
+                    <span className="date-period">
+                      {row.status === 'APPROVED' ? (
+                        <>
+                          <span className="dp-range">{formatDate(row.start_date)} →</span>
+                          <RenewalDate row={row} />
+                        </>
+                      ) : row.status === 'REJECTED' ? (
+                        <span className="dp-range">{formatDate(row.start_date)} → {formatDate(row.end_date)}</span>
+                      ) : (
+                        <>
+                          <RenewalDate row={row} />
+                          <span className="dp-range">→ {formatDate(row.end_date)}</span>
+                        </>
+                      )}
+                    </span>
+                  </FieldRow>
+                )}
+              </Section>
+            </>
           )}
 
-          <h4 className="doc-head">Documents</h4>
-          <div className="doc-grid">
-            {[
-              { key: 'passport', label: 'Passport photo', current: files.passport },
-              { key: 'identity', label: 'Identity proof', current: files.identity }
-            ].map(({ key, label, current }) => (
-              <div key={key} className="doc-card">
-                <span className="doc-label">{label}</span>
-                {newPhotoPrev[key] ? (
-                  <div className="doc-preview">
-                    <img src={newPhotoPrev[key]} alt={label} />
-                    <span className="doc-new-tag">New photo</span>
+          <div className="d-section">
+            <h5 className="d-section-title">Documents</h5>
+            {editing ? (
+              <div className="doc-grid">
+                {[
+                  { key: 'passport', label: 'Passport photo', current: files.passport },
+                  { key: 'identity', label: 'Identity proof', current: files.identity }
+                ].map(({ key, label, current }) => (
+                  <div key={key} className="doc-card">
+                    <span className="doc-label">{label}</span>
+                    {newPhotoPrev[key] ? (
+                      <div className="doc-preview">
+                        <img src={newPhotoPrev[key]} alt={label} />
+                        <span className="doc-new-tag">New photo</span>
+                      </div>
+                    ) : current ? (
+                      <a href={current} target="_blank" rel="noreferrer">
+                        <img src={current} alt={label} />
+                        <span className="doc-open"><ExternalLink size={13} /> Open</span>
+                      </a>
+                    ) : (
+                      <p className="admin-empty">No file</p>
+                    )}
+                    <div className="doc-replace">
+                      <label className="doc-replace-btn">
+                        <ImagePlus size={13} /> Replace
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          hidden
+                          onChange={(e) => onPhotoChange(key, e.target.files[0])}
+                        />
+                      </label>
+                      {newPhotos[key] && (
+                        <button type="button" className="doc-remove-btn" onClick={() => clearNewPhoto(key)}>
+                          <X size={13} /> Remove
+                        </button>
+                      )}
+                    </div>
+                    {newPhotoErr[key] && <p className="edit-error doc-err">{newPhotoErr[key]}</p>}
                   </div>
-                ) : current ? (
-                  <a href={current} target="_blank" rel="noreferrer">
-                    <img src={current} alt={label} />
-                    <span className="doc-open"><ExternalLink size={13} /> Open</span>
-                  </a>
-                ) : (
-                  <p className="admin-empty">No file</p>
-                )}
-                {editing && (
-                  <div className="doc-replace">
-                    <label className="doc-replace-btn">
-                      <ImagePlus size={13} /> Replace
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png"
-                        hidden
-                        onChange={(e) => onPhotoChange(key, e.target.files[0])}
-                      />
-                    </label>
-                    {newPhotos[key] && (
-                      <button type="button" className="doc-remove-btn" onClick={() => clearNewPhoto(key)}>
-                        <X size={13} /> Remove
+                ))}
+              </div>
+            ) : (
+              <div className="doc-list">
+                {[
+                  { key: 'passport', label: 'Passport photo', sub: '', current: files.passport },
+                  {
+                    key: 'identity',
+                    label: row.identity_proof_type || 'Identity proof',
+                    sub: row.identity_number || '',
+                    current: files.identity
+                  }
+                ].map(({ key, label, sub, current }) => (
+                  <div key={key} className="doc-item">
+                    <span className="doc-item-icon">
+                      {key === 'identity' ? <Contact size={17} /> : <UserRound size={17} />}
+                    </span>
+                    <span className="doc-item-main">
+                      <strong>{label}</strong>
+                      {sub && <small>{sub}</small>}
+                    </span>
+                    {current ? (
+                      <button
+                        type="button"
+                        className="doc-view-btn doc-view-icon"
+                        onClick={() => setPreview({ url: current, label })}
+                        title="Preview document"
+                        aria-label={`Preview ${label}`}
+                      >
+                        <Eye size={14} />
                       </button>
+                    ) : (
+                      <span className="doc-none">No file</span>
                     )}
                   </div>
-                )}
-                {newPhotoErr[key] && <p className="edit-error doc-err">{newPhotoErr[key]}</p>}
+                ))}
               </div>
-            ))}
+            )}
           </div>
+
+          {!editing && (
+            <div className="d-section">
+              <h5 className="d-section-title">Activity</h5>
+              <div className="activity-list">
+                {activity.length === 0 && <p className="d-address-line d-muted">No activity yet</p>}
+                {activity.map((a, i) => (
+                  <div key={`${a.at}-${i}`} className={`act-item ${a.failed ? 'failed' : ''}`}>
+                    <i className="act-dot" />
+                    <div className="act-body">
+                      <strong>{a.title}</strong>
+                      <small>{formatDate(a.at)} · {formatTime(a.at)}</small>
+                      {a.failed && a.err && <em>{a.err}</em>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="drawer-actions">
           {editing ? (
-            <>
+            <div className="d-actions">
               <button className="btn-act" onClick={cancelEdit} disabled={!!busy}>
                 <X size={15} /> Cancel
               </button>
-              <button className="btn-act approve" onClick={saveEdit} disabled={!!busy}>
+              <button className="btn-act approve d-actions-end" onClick={saveEdit} disabled={!!busy}>
                 {busy === 'save' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Save changes
               </button>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="d-actions">
               <button className="btn-act" onClick={startEdit} disabled={!!busy}>
-                <Pencil size={15} /> Edit details
+                <Pencil size={15} /> Edit
               </button>
               {row.status === 'PAYMENT_SUBMITTED' && (
                 <button className="btn-act verify" onClick={verify} disabled={!!busy}>
-                  {busy === 'verify' ? <Loader2 size={15} className="spin" /> : <ShieldCheck size={15} />} Verify txn
+                  {busy === 'verify' ? <Loader2 size={15} className="spin" /> : <ShieldCheck size={15} />} Verify transaction
                 </button>
               )}
               {(row.status === 'SUBMITTED' || row.status === 'VERIFIED' || row.status === 'PAYMENT_SUBMITTED') && (
@@ -553,8 +779,16 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
                   {busy === 'approve' ? <Loader2 size={15} className="spin" /> : <BadgeCheck size={15} />} Approve & send email
                 </button>
               )}
+              {row.status === 'SUBMITTED' && (
+                <button className="btn-act remind" onClick={sendReminder} disabled={!!busy}>
+                  {busy === 'reminder' ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Send payment reminder
+                </button>
+              )}
               {row.status === 'APPROVED' && (
                 <>
+                  <button className="btn-act approve" onClick={() => setConfirm('renew')} disabled={!!busy}>
+                    <RefreshCw size={15} /> Renew
+                  </button>
                   <button className="btn-act pdf" onClick={printPdf} disabled={!!busy}>
                     {busy === 'pdf' ? <Loader2 size={15} className="spin" /> : <FileText size={15} />} Registration PDF
                   </button>
@@ -566,26 +800,44 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
                   </a>
                 </>
               )}
-              {row.status === 'SUBMITTED' && (
-                <button className="btn-act remind" onClick={sendReminder} disabled={!!busy}>
-                  {busy === 'reminder' ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Send payment reminder
+              <div className={`d-actions-danger ${canReject ? '' : 'd-actions-end'}`}>
+                {canReject && (
+                  <button className="btn-act reject" onClick={() => setConfirm('reject')} disabled={!!busy}>
+                    <Ban size={15} /> Reject
+                  </button>
+                )}
+                <button className="btn-act danger" onClick={() => setConfirm('delete')} disabled={!!busy}>
+                  <Trash2 size={15} /> Delete
                 </button>
-              )}
-              {(row.status === 'SUBMITTED' || row.status === 'PAYMENT_SUBMITTED') && (
-                <button className="btn-act reject" onClick={() => setConfirm('reject')} disabled={!!busy}>
-                  <Ban size={15} /> Reject
-                </button>
-              )}
-              <button className="btn-act danger" onClick={() => setConfirm('delete')} disabled={!!busy}>
-                <Trash2 size={15} /> Delete
-              </button>
-            </>
+              </div>
+            </div>
           )}
         </div>
 
         {confirm && (
           <div className="confirm-bar">
-            {confirm === 'reject' ? (
+            {confirm === 'renew' ? (
+              <>
+                <p className="confirm-label">
+                  Renew {row.membership_type || 'membership'} for {row.full_name}?{' '}
+                  {renewP ? (
+                    <>
+                      New period <b>{formatDate(renewP.from)} → {formatDate(renewP.to)}</b>
+                      {renewP.keeps ? ' (remaining days kept).' : ' (starts from today).'}
+                    </>
+                  ) : (
+                    'Dates could not be computed for this plan.'
+                  )}{' '}
+                  Records {formatINR(row.membership_fee)} as renewal fee.
+                </p>
+                <div className="confirm-btns">
+                  <button className="btn-act" onClick={() => setConfirm(null)}>Cancel</button>
+                  <button className="btn-act approve" onClick={doRenew} disabled={busy === 'renew'}>
+                    {busy === 'renew' ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />} Renew membership
+                  </button>
+                </div>
+              </>
+            ) : confirm === 'reject' ? (
               <>
                 <label className="confirm-label">Rejection reason</label>
                 <textarea
@@ -615,6 +867,35 @@ export default function ApplicationDetail({ row, onClose, refresh }) {
           </div>
         )}
       </div>
+
+      {preview && (
+        <div
+          className="doc-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.label}
+          onClick={(e) => {
+            e.stopPropagation()
+            setPreview(null)
+          }}
+        >
+          <button
+            type="button"
+            className="doc-lightbox-close"
+            onClick={(e) => {
+              e.stopPropagation()
+              setPreview(null)
+            }}
+            aria-label="Close preview"
+          >
+            <X size={20} />
+          </button>
+          <figure className="doc-lightbox-fig" onClick={(e) => e.stopPropagation()}>
+            <img src={preview.url} alt={preview.label} />
+            <figcaption>{preview.label}</figcaption>
+          </figure>
+        </div>
+      )}
     </div>
   )
 }

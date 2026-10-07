@@ -117,6 +117,7 @@ import { ensureAudienceVotingSchema } from './bootstrap/ensureAudienceVotingSche
 import { ensureSignatureSchema } from './bootstrap/ensureSignatureSchema.js';
 import { ensureDocumentsSchema } from './bootstrap/ensureDocumentsSchema.js';
 import { ensureLeadsRecruiterFkSchema } from './bootstrap/ensureLeadsRecruiterFkSchema.js';
+import { ensureSevakRenewalSchema } from './bootstrap/ensureSevakRenewalSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config();
@@ -1190,6 +1191,7 @@ if (!process.env.VERCEL) {
     await ensureSignatureSchema().catch(e => console.error('ensureSignatureSchema failed:', e?.message || e));
     await ensureDocumentsSchema().catch(e => console.error('ensureDocumentsSchema failed:', e?.message || e));
     await ensureLeadsRecruiterFkSchema().catch(e => console.error('ensureLeadsRecruiterFkSchema failed:', e?.message || e));
+    await ensureSevakRenewalSchema().catch(e => console.error('ensureSevakRenewalSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

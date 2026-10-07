@@ -30,6 +30,10 @@ create table if not exists public.applications (
   membership_id       text,
   reject_reason       text,
   renewal_email_sent  boolean not null default false,
+  renewal_soon_sent   boolean not null default false,
+  renewal_count       int not null default 0,
+  renewal_fees        numeric not null default 0,
+  last_renewed_at     date,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
@@ -65,3 +69,10 @@ create table if not exists public.mail_log (
   error          text,
   created_at     timestamptz not null default now()
 );
+
+-- Renewal tracking (also applied on boot by bootstrap/ensureSevakRenewalSchema.js;
+-- renewApplication in sevakLibrary/services/application.service.js writes them).
+alter table public.applications add column if not exists renewal_soon_sent boolean not null default false;
+alter table public.applications add column if not exists renewal_count      int not null default 0;
+alter table public.applications add column if not exists renewal_fees       numeric not null default 0;
+alter table public.applications add column if not exists last_renewed_at    date;

@@ -24,6 +24,7 @@ function SevakLibraryView() {
   const [selected, setSelected] = useState(null)
   const [drill, setDrill] = useState({ id: 0, filters: {} })
   const [drillFilters, setDrillFilters] = useState(null)
+  const [editOnOpen, setEditOnOpen] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -43,7 +44,10 @@ function SevakLibraryView() {
     load()
   }, [load])
 
-  const openDetail = (row) => setSelected(row)
+  const openDetail = (row, opts = {}) => {
+    setEditOnOpen(!!opts.edit)
+    setSelected(row)
+  }
 
   // Dashboard drill-through: show the filtered list in a modal overlay.
   const openDrill = useCallback((filters = {}) => {
@@ -131,11 +135,20 @@ function SevakLibraryView() {
           </div>
         )}
 
-        {!rows && !error && <div className="admin-loading"><Loader2 size={24} className="spin" /><p>Loading applications...</p></div>}
+        {!rows && !error && tab !== 'applications' && <div className="admin-loading"><Loader2 size={24} className="spin" /><p>Loading applications...</p></div>}
 
         {rows && tab === 'dashboard' && <Dashboard rows={rows} onOpen={openDetail} onDrill={openDrill} />}
-        {rows && tab === 'applications' && (
-          <Applications key={drill.id} rows={rows} onOpen={openDetail} initialFilters={drill.filters} />
+        {tab === 'applications' && (
+          <Applications
+            key={drill.id}
+            rows={rows || []}
+            loading={!rows && !error}
+            onOpen={openDetail}
+            initialFilters={drill.filters}
+            onRefresh={refreshAll}
+            refreshing={refreshing}
+            refresh={refresh}
+          />
         )}
         {rows && tab === 'coupons' && <Coupons rows={rows} />}
         {rows && tab === 'import' && <ImportMembers onImported={load} />}
@@ -154,7 +167,11 @@ function SevakLibraryView() {
       {selected && (
         <ApplicationDetail
           row={selected}
-          onClose={() => setSelected(null)}
+          startEditOnOpen={editOnOpen}
+          onClose={() => {
+            setEditOnOpen(false)
+            setSelected(null)
+          }}
           refresh={refresh}
         />
       )}
