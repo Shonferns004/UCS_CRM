@@ -7,6 +7,7 @@ import {
   humanizeKey,
 } from '../services/certificateDocx.js';
 import { snapshotToPng } from '../services/slideSnapshot.js';
+import { renderImageCertificate, getImageDimensions } from '../services/certificateImageRenderer.js';
 
 const BUCKET = 'certificates';
 const VALID_STATUS = new Set(['active', 'draft', 'archived']);
@@ -59,8 +60,18 @@ async function savePreviewImage(id, template, buffer, ext = 'png', contentType =
 
 // Best-effort: renders the first page/slide of a DOCX/PPTX template via
 // LibreOffice and stores it as the template's preview image. Never throws.
+// Image templates never touch LibreOffice — their preview IS the uploaded image.
 export async function autosnapshotTemplate(template) {
   if (!template || !template.template_file) return null;
+  if (template.file_format === 'image') {
+    if (!template.preview_image) {
+      await db._pool.query(
+        `UPDATE certificate_templates SET preview_image = $1, updated_at = NOW() WHERE id = $2`,
+        [template.template_file, template.id]);
+      return template.template_file;
+    }
+    return template.preview_image;
+  }
   try {
     const raw = await fetchFile(template.template_file, template.template_key);
     const png = await snapshotToPng(raw, template.file_format);
@@ -74,13 +85,13 @@ export async function autosnapshotTemplate(template) {
 async function loadTemplateDetail(id) {
   const { rows: templates } = await db._pool.query(
     `SELECT t.id, t.name, t.description, t.file_format, t.status, t.template_file, t.template_key, t.preview_image, t.placeholders, t.version, t.created_by, t.created_at, t.updated_at,
-            t.ngo_id, n.name AS ngo_name, t.purpose
+            t.ngo_id, n.name AS ngo_name, t.purpose, t.canvas_width, t.canvas_height
        FROM certificate_templates t
        LEFT JOIN ngos n ON n.id = t.ngo_id
        WHERE t.id = $1`, [id]);
   if (!templates.length) return null;
   const { rows: fields } = await db._pool.query(
-    `SELECT id, field_key, display_name, field_type, required, default_value, in_template, sort_order
+    `SELECT id, field_key, display_name, field_type, required, default_value, in_template, sort_order, style
        FROM certificate_template_fields WHERE template_id = $1 ORDER BY sort_order ASC, id ASC`, [id]);
   const tpl = templates[0];
   const { rows: certCount } = await db._pool.query(
@@ -101,10 +112,10 @@ async function replaceFields(templateId, fields) {
     const type = VALID_TYPES.has(f.field_type) ? f.field_type : 'text';
     await db._pool.query(
       `INSERT INTO certificate_template_fields
-         (template_id, field_key, display_name, field_type, required, default_value, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (template_id, field_key, display_name, field_type, required, default_value, sort_order, style)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [templateId, key, String(f.display_name || humanizeKey(key)).slice(0, 80), type,
-       f.required !== false, String(f.default_value ?? ''), Number(f.sort_order ?? i)]);
+       f.required !== false, String(f.default_value ?? ''), Number(f.sort_order ?? i), JSON.stringify(f.style || {})]);
   }
 }
 
@@ -142,6 +153,10 @@ function buildMissing(requiredFields, values) {
 async function renderFromTemplate(template, values) {
   if (!template.template_file) throw new Error('Template file is missing');
   const storage = await fetchFile(template.template_file, template.template_key);
+  if (template.file_format === 'image') {
+    const { buffer, width, height } = await renderImageCertificate(storage, template.fields || [], values);
+    return { buffer, ext: 'png', mime: 'image/png', width, height };
+  }
   return renderCertificate(storage, values);
 }
 
@@ -161,10 +176,50 @@ async function nextCertificateNumber() {
 
 export const createTemplate = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'Template file is required (.docx or .pptx)' });
+    if (!req.file) return res.status(400).json({ message: 'Template file is required (.docx, .pptx or image)' });
     const raw = req.file.buffer;
+
+    // --- Image template branch -------------------------------------------------
+    const isImage = /image\/(png|jpe?g|webp)/i.test(req.file.mimetype || '') || /\.(png|jpe?g|webp)$/i.test(req.file.originalname || '');
+    if (isImage) {
+      if (req.file.size > 10 * 1024 * 1024) return res.status(400).json({ message: 'Image template too large (max 10 MB).' });
+      const dims = await getImageDimensions(raw);
+      if (!dims) return res.status(400).json({ message: 'Invalid or corrupt image file.' });
+
+      const me = identity(req);
+      const name = String(req.body?.name || req.file.originalname).trim().slice(0, 120) || 'Untitled template';
+      const description = String(req.body?.description || '').trim().slice(0, 500);
+      const purpose = String(req.body?.purpose || '').trim().slice(0, 120);
+      const rawNgoId = String(req.body?.ngo_id || '').trim();
+      const ngoId = rawNgoId && rawNgoId !== 'null' ? rawNgoId : null;
+
+      const ext = dims.format === 'jpeg' ? 'jpg' : (dims.format || 'png');
+      const { rows } = await db._pool.query(
+        `INSERT INTO certificate_templates (name, description, file_format, template_file, template_key, placeholders, status, version, created_by, ngo_id, purpose, canvas_width, canvas_height)
+         VALUES ($1, $2, 'image', '', '', '[]'::jsonb, 'active', 1, $3, $4, $5, $6, $7) RETURNING id`,
+        [name, description, me.name || me.id, ngoId, purpose, dims.width, dims.height]);
+      const id = rows[0].id;
+
+      const key = `templates/${id}-${slugify(name)}-v1.${ext}`;
+      try {
+        const url = await uploadFile(key, raw, req.file.mimetype);
+        await db._pool.query(
+          `UPDATE certificate_templates SET template_file = $1, template_key = $2, preview_image = $1, preview_key = '' WHERE id = $3`,
+          [url, key, id]);
+      } catch (e) {
+        await db._pool.query('DELETE FROM certificate_templates WHERE id = $1', [id]);
+        return res.status(500).json({ message: 'Template file upload failed', error: e.message });
+      }
+
+      // No auto-detected placeholders for image templates — fields are added
+      // visually in the certificate editor.
+      const template = await loadTemplateDetail(id);
+      return res.json({ message: 'Template created', template, detected: [] });
+    }
+
+    // --- DOCX/PPTX branch (unchanged) ------------------------------------------
     const fmt = getPkgFormat(raw);
-    if (!fmt) return res.status(400).json({ message: 'Invalid file. Upload a valid .docx or .pptx certificate template.' });
+    if (!fmt) return res.status(400).json({ message: 'Invalid file. Upload a valid .docx, .pptx or image template.' });
 
     const normalized = normalizePlaceholderWhitespace(raw);
     const { placeholders } = detectPlaceholders(normalized);
@@ -378,7 +433,23 @@ export const reuploadTemplateFile = async (req, res) => {
     if (!template) return res.status(404).json({ message: 'Template not found' });
 
     const fmt = getPkgFormat(req.file.buffer);
-    if (!fmt) return res.status(400).json({ message: 'Invalid file. Upload a valid .docx or .pptx template.' });
+    if (!fmt) {
+      const dims = await getImageDimensions(req.file.buffer);
+      if (dims && template.file_format === 'image') {
+        if (req.file.size > 10 * 1024 * 1024) return res.status(400).json({ message: 'Image too large (max 10 MB).' });
+        const version = (template.version || 1) + 1;
+        const ext = dims.format === 'jpeg' ? 'jpg' : (dims.format || 'png');
+        const key = `templates/${id}-${slugify(template.name)}-v${version}.${ext}`;
+        const url = await uploadFile(key, req.file.buffer, req.file.mimetype);
+        await db._pool.query(
+          `UPDATE certificate_templates
+              SET template_file = $1, template_key = $2, placeholders = '[]'::jsonb, version = $3, preview_image = $1, preview_key = '', canvas_width = $4, canvas_height = $5, updated_at = NOW()
+            WHERE id = $6`,
+          [url, key, version, dims.width, dims.height, id]);
+        return res.json({ message: 'Template file replaced', template: await loadTemplateDetail(id), detected: [] });
+      }
+      return res.status(400).json({ message: 'Invalid file. Upload a valid .docx or .pptx template.' });
+    }
     if (fmt !== template.file_format) {
       return res.status(400).json({ message: `File format mismatch — current template is ${template.file_format.toUpperCase()}` });
     }
@@ -463,13 +534,23 @@ export const duplicateTemplate = async (req, res) => {
       [name.slice(0, 120), template.description || '', template.file_format, JSON.stringify(template.placeholders), me.name || me.id, template.ngo_id || null, template.purpose || '']);
     const newId = rows[0].id;
     const fmt = template.file_format;
-    const key = `templates/${newId}-${slugify(name)}-v1.${fmt}`;
-    const url = await uploadFile(key, storage, `application/vnd.openxmlformats-officedocument.${fmt === 'pptx' ? 'presentationml.presentation' : 'wordprocessingml.document'}`);
-    await db._pool.query(`UPDATE certificate_templates SET template_file = $1, template_key = $2 WHERE id = $3`, [url, key, newId]);
+    const imgExt = (template.template_file.match(/\.(png|jpe?g|webp)$/i)?.[1] || 'png').toLowerCase();
+    const key = `templates/${newId}-${slugify(name)}-v1.${fmt === 'image' ? imgExt : fmt}`;
+    const mime = fmt === 'image'
+      ? `image/${imgExt === 'jpg' ? 'jpeg' : imgExt}`
+      : `application/vnd.openxmlformats-officedocument.${fmt === 'pptx' ? 'presentationml.presentation' : 'wordprocessingml.document'}`;
+    const url = await uploadFile(key, storage, mime);
+    if (template.file_format === 'image') {
+      await db._pool.query(
+        `UPDATE certificate_templates SET template_file = $1, template_key = $2, preview_image = $1, canvas_width = $3, canvas_height = $4 WHERE id = $5`,
+        [url, key, template.canvas_width, template.canvas_height, newId]);
+    } else {
+      await db._pool.query(`UPDATE certificate_templates SET template_file = $1, template_key = $2 WHERE id = $3`, [url, key, newId]);
+    }
 
     await replaceFields(newId, template.fields.map((f, i) => ({
       field_key: f.field_key, display_name: f.display_name, field_type: f.field_type,
-      required: f.required, default_value: f.default_value, sort_order: i,
+      required: f.required, default_value: f.default_value, sort_order: i, style: f.style,
     })));
 
     return res.json({ message: 'Template duplicated', template: await loadTemplateDetail(newId) });
@@ -534,6 +615,12 @@ export const previewCertificate = async (req, res) => {
     }
 
     const out = await renderFromTemplate(template, values);
+    // Image templates render straight to PNG — no LibreOffice needed.
+    if (out.ext === 'png' || template.file_format === 'image') {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Content-Disposition', 'inline; filename="preview.png"');
+      return res.send(Buffer.from(out.buffer));
+    }
     // Neither PowerPoint nor Word renders inline in a browser, so render the
     // filled first page/slide to PNG (LibreOffice headless) for a true
     // what-you-see-is-what-you-get live preview.
