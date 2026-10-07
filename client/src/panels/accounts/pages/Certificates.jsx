@@ -593,9 +593,11 @@ export default function Certificates() {
         .tabs { display:flex; gap:6px; flex-wrap:wrap; }
         .tab { padding:6px 12px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--ink-soft); font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; }
         .tab.active { background:var(--sage); border-color:var(--sage); color:#fff; }
-        .tpl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; padding:4px 18px 20px; }
-        .tpl-card { background:var(--card-bg); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:12px; display:flex; flex-direction:column; gap:10px; }
-        .tpl-thumb { display:block; width:100%; height:210px; padding:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--bg,#f3f4f6); cursor:pointer; text-align:left; }
+        .tpl-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; padding:4px 18px 20px; }
+        @media (max-width:1199px) { .tpl-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        .tpl-card { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:10px; display:flex; flex-direction:column; gap:8px; position:relative; box-shadow:0 2px 8px rgba(15,23,42,.04); transition:box-shadow .18s ease, transform .18s ease, border-color .18s ease; }
+        .tpl-card:hover { transform:translateY(-2px); border-color:#BFDBFE; box-shadow:0 10px 28px rgba(15,23,42,.08); }
+        .tpl-thumb { display:block; width:100%; aspect-ratio:1.414/1; padding:0; border:1px solid #E5E7EB; border-radius:10px; overflow:hidden; background:#F8FAFC; cursor:pointer; text-align:left; position:relative; }
         .tpl-thumb:hover { border-color:var(--sage); box-shadow:0 0 0 2px var(--sage-soft,#eef3ea); }
         .tpl-thumb-img { width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#fff; }
         .tpl-thumb-img img { max-width:100%; max-height:100%; object-fit:contain; }
@@ -609,7 +611,7 @@ export default function Certificates() {
         .tpl-desc { font-size:12px; color:var(--ink-soft); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:32px; }
         .tpl-meta { display:flex; gap:6px; flex-wrap:wrap; font-size:11px; color:var(--ink-soft); }
         .tpl-meta span { background:var(--bg,#f3f4f6); border-radius:6px; padding:2px 8px; }
-        .tpl-card-menu { position:absolute; top:18px; right:18px; z-index:3; }
+        .tpl-card-menu { position:absolute; top:14px; right:14px; z-index:3; }
         .tpl-card { position:relative; }
         .tpl-menu-btn { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border:none; border-radius:8px; background:rgba(255,255,255,.92); color:var(--ink); cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,.15); }
         .tpl-menu-btn:hover { background:#fff; color:var(--sage); }
