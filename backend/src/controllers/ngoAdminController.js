@@ -29,6 +29,7 @@ import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
+import { dayTotalsForWorkers } from '../services/froTimeSessions.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -5777,7 +5778,8 @@ export const getTLDashboard = async (req, res) => {
     // moment a meeting or admin pause began, and these two reads did not.
     //
     // Now shared, so the three surfaces cannot drift apart again.
-    const liveCols = FRO_IDLE_LIVE_COLS;
+    // idle_since drives the idle status pill and KPI count on this board.
+    const liveCols = `${FRO_IDLE_LIVE_COLS}, idle_since`;
     // One row per worker, and that row belongs to the worker themselves: a
     // covering operator writes their own row, so the extra "fetch rows whose
     // work_as_operator_id is in scope" query this used to run is no longer
@@ -6245,6 +6247,24 @@ export const getTLDashboard = async (req, res) => {
     // fallback, exactly as the old per-FRO try/catch produced.
     const shiftMap = await getShiftWindowsMs(froWorkers.map((w) => w.id), now.getTime());
 
+    // Day idle totals from the authoritative fro_time_sessions ledger. The live
+    // row no longer carries the banked idle columns, so deriving the total from
+    // it only ever showed the current stretch and dropped back to 0 after every
+    // disposition.
+    let ledgerTotals = new Map();
+    try {
+      ledgerTotals = await dayTotalsForWorkers(froWorkers.map((w) => w.id), {
+        nowMs: now.getTime(),
+        shiftFor: (id) => shiftMap[String(id)] || null,
+        nowFor: (id) => {
+          const row = liveStatusMap[id] || {};
+          return isCoveredAway(row) ? idleFreezeCutoffMs(row) : NaN;
+        },
+      });
+    } catch (ledgerErr) {
+      console.error('tl-dashboard ledger idle read failed:', ledgerErr.message);
+    }
+
     // Collection/target figures for the Telecaller Performance board, from the
     // SAME leaderboard that backs /ngo-admin/fro-performance and the High/Low
     // Performance cards. Resolved here rather than in the browser joining two
@@ -6324,7 +6344,10 @@ export const getTLDashboard = async (req, res) => {
       // super-admin list for the same FRO at the same moment. The shift is
       // passed so idle accrued outside this FRO's own working hours is not
       // displayed as working-time idle.
-      const rowIdleSeconds = effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
+      const ledgerDay = ledgerTotals.get(String(w.id));
+      const rowIdleSeconds = ledgerDay
+        ? ledgerDay.idle_seconds
+        : effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an

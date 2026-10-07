@@ -1161,7 +1161,13 @@ export const getMyPerformance = async (req, res) => {
         }
       }
     }
-    const idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
+    let idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
+    try {
+      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs });
+      if (ts.hasLedger) idleSeconds = ts.totals.idle_seconds;
+    } catch (ledgerErr) {
+      console.error('performance strip ledger idle read failed:', ledgerErr.message);
+    }
 
     return res.json({
       // Whose figures these are: the person at the keyboard. Identical to
