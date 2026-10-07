@@ -13,6 +13,7 @@ import {
   monthLabel,
   normalizeActivitySuggestion,
   parseActivityProgramSuggestions,
+  servedFestivalBeneficiary,
 } from './activityProgramPrompt.js';
 
 const ctx = {
@@ -95,6 +96,21 @@ test('prompt carries month observances as themes', () => {
   });
   assert.match(p, /Diwali \(india\/festival\)/);
   assert.match(p, /ONLY as themes/);
+});
+
+test('every occasion of a heavy month reaches the model, including the last', () => {
+  // March/April 2026 carry ~35 merged occasions. The old cap of 25 silently
+  // dropped everything past the 25th, so festivals at the end of the month
+  // were invisible to the AI. A 40-row worst case proves no month truncates.
+  const observances = Array.from({ length: 40 }, (_, i) => ({
+    name: `Occasion Number ${i + 1}`,
+    scope: 'india',
+    kind: 'festival',
+  }));
+  const p = buildActivityProgramPrompt({ ...ctx, observances });
+  assert.match(p, /Occasion Number 1[^0-9]/);
+  assert.match(p, /Occasion Number 25[^0-9]/);
+  assert.match(p, /Occasion Number 40\b/);
 });
 
 test('prompt tells the model not to invent an occasion when the month has none', () => {
@@ -289,9 +305,78 @@ test('a value outside the vocabulary is refused, so it cannot reach the prompt',
   assert.equal(canonicalActivityBeneficiary('Visually Impairedx'), '');
 });
 
-test('an absent group is empty, which is what makes the NGO fallback apply', () => {
+test('an absent group is empty, so an activity with no category matches no filter', () => {
   assert.equal(canonicalActivityBeneficiary(''), '');
   assert.equal(canonicalActivityBeneficiary(null), '');
   assert.equal(canonicalActivityBeneficiary(undefined), '');
   assert.equal(canonicalActivityBeneficiary('   '), '');
+});
+
+/* ── Festival-suggestion beneficiary masking ─────────────────────────────── */
+
+test('before migration 176 a value equal to the NGO default is withheld as auto-filled', () => {
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Visually Impaired' }, { pickedColumn: false, ngoCode: 'BSCT' }),
+    null,
+  );
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Women' }, { pickedColumn: false, ngoCode: 'MANN' }),
+    null,
+  );
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Underprivileged Families' }, { pickedColumn: false, ngoCode: 'aflf' }),
+    null,
+  );
+});
+
+test('before migration 176 any other value was hand-picked and is served as-is', () => {
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Children' }, { pickedColumn: false, ngoCode: 'BSCT' }),
+    'Children',
+  );
+  // An unknown NGO code maps to no default, so nothing can be judged auto-filled.
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Visually Impaired' }, { pickedColumn: false, ngoCode: 'NEWNGO' }),
+    'Visually Impaired',
+  );
+});
+
+test('with the picked flag, a real pick survives even when it equals the NGO default', () => {
+  assert.equal(
+    servedFestivalBeneficiary(
+      { beneficiary: 'Visually Impaired', beneficiary_picked: true },
+      { pickedColumn: true, ngoCode: 'BSCT' },
+    ),
+    'Visually Impaired',
+  );
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Children', beneficiary_picked: true }, { pickedColumn: true, ngoCode: 'BSCT' }),
+    'Children',
+  );
+});
+
+test('with the picked flag, a row nobody chose is withheld whatever it carries', () => {
+  assert.equal(
+    servedFestivalBeneficiary(
+      { beneficiary: 'Visually Impaired', beneficiary_picked: false },
+      { pickedColumn: true, ngoCode: 'BSCT' },
+    ),
+    null,
+  );
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Children', beneficiary_picked: false }, { pickedColumn: true, ngoCode: 'BSCT' }),
+    null,
+  );
+  // No flag at all (an unexpected row shape) is treated as "not picked".
+  assert.equal(
+    servedFestivalBeneficiary({ beneficiary: 'Children' }, { pickedColumn: true, ngoCode: 'BSCT' }),
+    null,
+  );
+});
+
+test('an empty beneficiary serves as null in either mode', () => {
+  assert.equal(servedFestivalBeneficiary({}, { pickedColumn: true }), null);
+  assert.equal(servedFestivalBeneficiary({ beneficiary: null }, { pickedColumn: false, ngoCode: 'BSCT' }), null);
+  assert.equal(servedFestivalBeneficiary({ beneficiary: '   ' }, { pickedColumn: false, ngoCode: 'BSCT' }), null);
+  assert.equal(servedFestivalBeneficiary(undefined, { pickedColumn: true }), null);
 });
