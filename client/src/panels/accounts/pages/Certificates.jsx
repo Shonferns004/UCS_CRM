@@ -318,6 +318,7 @@ export default function Certificates() {
       sort_order: i,
       in_template: f.in_template,
       style: f.style,
+      options: f.options,
     }))
     if (!fields.some((f) => f.field_key?.trim())) {
       toast('Add at least one field before saving.', 'error'); return
@@ -1144,7 +1145,7 @@ export default function Certificates() {
                           onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
                         >
                           <option value="">Select…</option>
-                          {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
+                                          {(f.options || '').split(/[\r\n,;]+/).map((s) => s.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}
                         </select>
                       ) : (
                         <input
@@ -1245,7 +1246,7 @@ export default function Certificates() {
                                           onChange={(e) => patchBulkCell(ri, f.field_key, e.target.value)}
                                         >
                                           <option value="">Select…</option>
-                                          {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
+                          {(f.options || '').split(/[\r\n,;]+/).map((s) => s.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}
                                         </select>
                                       ) : (
                                         <input
