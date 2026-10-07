@@ -2365,7 +2365,7 @@ export const getMyDonors = async (req, res) => {
       if (req.query.new_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
       } else if (req.query.old_only === 'true') {
-        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && (a.is_new === false || a.is_new == null)));
       }
     }
 
@@ -2808,17 +2808,21 @@ export const getMyDonors = async (req, res) => {
     }
 
     // ─── My Leads = pending work ONLY ────────────────────────────────────────
-    // The list is the FRO's queue of leads still to call. Any row already
-    // dispositioned this month (ring/busy retryables, scheduled callbacks,
+    // The list is the FRO's queue of leads still to call: pending rows plus
+    // retryable not-connected rows (ringing/busy/switched-off/…), which come
+    // back the day after they were dialled and sink to the tail. Any other row
+    // dispositioned this month (scheduled callbacks,
     // refusals, donation-done, …) belongs in History / Callbacks / Follow-ups /
     // Overdue, not here — this month's dispositions carry their own tabs. The
     // monthly rollover resets every worked status back to 'pending', so a lead
     // disposed last month returns here when the new cycle starts. The
     // verified_only view (Donors panel) is exempt because it is a money-
     // reconciliation list, not a calling queue.
+    const isQueueableStatus = (r) => r.status === 'pending' || r.status == null || r.status === ''
+      || RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
     if (req.query.verified_only !== 'true') {
       filtered = filtered.filter(r => {
-        const isPendingStatus = r.status === 'pending' || r.status == null || r.status === '';
+        const isPendingStatus = isQueueableStatus(r);
         // A lead dispositioned today must leave Leads even when its surfaced
         // assignment row still reads 'pending' — which happens when the donor
         // has a duplicate/twin assignment row and today's disposition log was
@@ -2839,7 +2843,7 @@ export const getMyDonors = async (req, res) => {
     // Follow-ups / Overdue until the monthly rollover resets it to pending.
     const workableFiltered = result.filter(r => {
       // NULL/empty status rows are never-worked assignments; treat as pending.
-      if (!(r.status === 'pending' || r.status == null || r.status === '')) return false;
+      if (!isQueueableStatus(r)) return false;
       if (disposedTodayIds.has(r.donor_id)) return false;
       if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
       if (MONEY_DONE_STATUSES.has(r.status)) return false;
@@ -2849,22 +2853,22 @@ export const getMyDonors = async (req, res) => {
       return true;
     });
 
-    const isNewAssignment = (r) => r.batch_type === 'new_data' || (r.batch_type == null && r.is_new !== false);
-    const groupOf = (r) => {
-      const isRetryable = RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
-      const isNew = isNewAssignment(r);
-      if (isRetryable) return isNew ? 2 : 3;
-      if (isNew) return 0;
-      return 1;
-    };
-
-    filtered.sort((a, b) => {
-      const groupA = groupOf(a);
-      const groupB = groupOf(b);
-      if (groupA !== groupB) return groupA - groupB;
+    // Called longest ago first, most recently called last, never-called at the bottom.
+    const contactedMs = (r) => (r.last_contacted_at ? new Date(r.last_contacted_at).getTime() : null);
+    const byContactedAsc = (a, b) => {
+      const ca = contactedMs(a);
+      const cb = contactedMs(b);
+      if (ca === null && cb !== null) return 1;
+      if (ca !== null && cb === null) return -1;
+      if (ca !== null && cb !== null && ca !== cb) return ca - cb;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
       return dateA - dateB;
+    };
+    workableFiltered.sort(byContactedAsc);
+    filtered.sort((a, b) => {
+      if (a.is_suppressed !== b.is_suppressed) return a.is_suppressed ? 1 : -1;
+      return byContactedAsc(a, b);
     });
 
     // ─── Backend-authoritative current donor (controlled queue) ──────────────
