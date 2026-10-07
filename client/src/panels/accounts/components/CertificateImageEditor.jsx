@@ -47,6 +47,8 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
   const [previewBusy, setPreviewBusy] = useState(false)
   const [sampleValues, setSampleValues] = useState({})
   const [guides, setGuides] = useState(null)
+  const [listDrag, setListDrag] = useState(null)
+  const [listDrop, setListDrop] = useState(null)
   const stageRef = useRef(null)
   const wrapRef = useRef(null)
 
@@ -210,13 +212,37 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
       <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 260px', gap: 12, alignItems: 'start' }}>
         {/* fields list */}
         <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Fields</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Fields <span style={{ fontWeight: 400 }}>(drag to reorder)</span></div>
           {fields.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No fields yet — click "Add field".</div>}
           {fields.map((f, i) => (
-            <button key={i} type="button" onClick={() => setSelected(i)} style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: selected === i ? '1px solid var(--sage)' : '1px solid var(--line)', background: selected === i ? 'var(--sage-soft,#eef3ea)' : 'transparent', fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <div
+              key={f.field_key || i}
+              draggable
+              role="button"
+              tabIndex={0}
+              onDragStart={() => setListDrag(i)}
+              onDragOver={(e) => { e.preventDefault(); setListDrop(i) }}
+              onDragEnd={() => { setListDrag(null); setListDrop(null) }}
+              onDrop={(e) => {
+                e.preventDefault()
+                const from = listDrag
+                if (from == null || from === i) return
+                setDraft((d) => {
+                  const next = [...(d.fields || [])]
+                  const [moved] = next.splice(from, 1)
+                  next.splice(i, 0, moved)
+                  return { ...d, fields: next }
+                })
+                setSelected(i)
+                setListDrag(null)
+                setListDrop(null)
+              }}
+              onClick={() => setSelected(i)}
+              style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: selected === i ? '1px solid var(--sage)' : '1px solid var(--line)', background: selected === i ? 'var(--sage-soft,#eef3ea)' : 'transparent', fontSize: 12.5, cursor: 'grab', fontFamily: 'inherit', outline: listDrop === i && listDrag != null && listDrag !== i ? '2px dashed var(--sage)' : 'none' }}
+            >
               <div style={{ fontWeight: 600 }}>{f.display_name || f.field_key}</div>
               <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{f.field_type}{f.required ? ' · required' : ''}</div>
-            </button>
+            </div>
           ))}
         </div>
 
