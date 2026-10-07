@@ -95,23 +95,44 @@ export const getTodayAssignment = async (operatorId, date) => {
 
 // Upsert the operator's own assignment for one day (no event required).
 export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url, kit_id, organizer_id }) => {
-  const { data, error } = await db
+  const payload = {
+    operator_id: operatorId,
+    state: state || null,
+    city: city || null,
+    event_id: event_id || null,
+    assignment_date,
+    selfie_url: selfie_url || null,
+    kit_id: kit_id || null,
+    organizer_id: organizer_id || null,
+  };
+
+  // One row per operator per day. The table's unique key includes event_id, so
+  // a plain ON CONFLICT upsert would INSERT a second row the moment the
+  // operator changes (or re-types) the event — and getTodayAssignment()'s
+  // maybeSingle then returns nothing, emptying the dashboard. Update the
+  // day's existing row instead.
+  const { data: existing, error: lookupError } = await db
     .from('operator_assignments')
-    .upsert(
-      {
-        operator_id: operatorId,
-        state: state || null,
-        city: city || null,
-        event_id: event_id || null,
-        assignment_date,
-        selfie_url: selfie_url || null,
-        kit_id: kit_id || null,
-        organizer_id: organizer_id || null,
-      },
-      { onConflict: 'operator_id,assignment_date,event_id' }
-    )
-    .select('*, operator_events(*)')
-    .single();
+    .select('id')
+    .eq('operator_id', operatorId)
+    .eq('assignment_date', assignment_date)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lookupError && lookupError.code !== 'PGRST116') throw lookupError;
+
+  const { data, error } = existing
+    ? await db
+        .from('operator_assignments')
+        .update(payload)
+        .eq('id', existing.id)
+        .select('*, operator_events(*)')
+        .single()
+    : await db
+        .from('operator_assignments')
+        .insert(payload)
+        .select('*, operator_events(*)')
+        .single();
   if (error) throw error;
   return data;
 };

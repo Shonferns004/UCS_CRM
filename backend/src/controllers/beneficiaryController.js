@@ -280,10 +280,11 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     }
 
     const givenBy = req.user?.name || req.user?.email || 'system';
-    const updated = await markKitGiven(beneficiary.id, givenBy);
 
     // Capture the operator's event for the day (if one is assigned) so the
-    // kit-given history on the app can show which event the kit was collected at.
+    // kit-given history on the app can show which event the kit was collected
+    // at — and so the beneficiary row (kit_event_*) carries it for the admin
+    // list's event column / filter. Resolved BEFORE the update for that reason.
     let eventName = null;
     let eventId = null;
     try {
@@ -308,6 +309,11 @@ export const markBeneficiaryKitGiven = async (req, res) => {
       eventName = null;
       eventId = null;
     }
+
+    const updated = await markKitGiven(beneficiary.id, givenBy, {
+      id: Number.isInteger(eventId) ? eventId : null,
+      name: eventName,
+    });
 
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
@@ -376,12 +382,12 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id } = req.query;
     const result = await listBeneficiaries({
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_given,
+      category_id, state, city, kit_given, event_id,
     });
     return res.json(result);
   } catch (error) {
