@@ -80,35 +80,47 @@ function wrapText(font, text, size, maxWidth, letterSpacing) {
   const paragraphs = String(text ?? '').split(/\r?\n/);
   const lines = [];
   for (const para of paragraphs) {
-    const words = para.split(/\s+/).filter(Boolean);
-    if (!words.length) { lines.push(''); continue; }
-    let line = words[0];
-    for (let i = 1; i < words.length; i += 1) {
-      const candidate = `${line} ${words[i]}`;
-      if (measure(font, candidate, size, letterSpacing) <= maxWidth) line = candidate;
-      else { lines.push(line); line = words[i]; }
-    }
-    lines.push(line);
+      const words = para.split(/\s+/).filter(Boolean);
+      if (!words.length) { lines.push(''); continue; }
+      // Hard-break words that alone exceed the box width, so long unbroken
+      // strings wrap to the next line instead of overflowing.
+      const broken = [];
+      for (let w of words) {
+        if (measure(font, w, size, letterSpacing) <= maxWidth) { broken.push(w); continue; }
+        let chunk = '';
+        for (const ch of w) {
+          if (measure(font, chunk + ch, size, letterSpacing) <= maxWidth || !chunk) chunk += ch;
+          else { broken.push(chunk); chunk = ch; }
+        }
+        if (chunk) broken.push(chunk);
+      }
+      let line = broken[0];
+      for (let i = 1; i < broken.length; i += 1) {
+        const candidate = `${line} ${broken[i]}`;
+        if (measure(font, candidate, size, letterSpacing) <= maxWidth) line = candidate;
+        else { lines.push(line); line = broken[i]; }
+      }
+      lines.push(line);
   }
   return lines;
 }
 
 function layoutField(font, value, style) {
-  const maxW = Math.max(10, Number(style.width) || 100);
+  const maxWidth = Math.max(10, Number(style.width) || 100);
   const maxH = Math.max(10, Number(style.height) || 40);
   const lineHeight = Number(style.lineHeight) > 0 ? Number(style.lineHeight) : 1.2;
   const letterSpacing = Number(style.letterSpacing) || 0;
   const autoFit = style.autoFit !== false;
   const minSize = Math.max(6, Number(style.minFontSize) || 12);
   let size = Math.max(minSize, Number(style.fontSize) || 32);
-  let lines = wrapText(font, value, size, maxW, letterSpacing);
+  let lines = wrapText(font, value, size, maxWidth, letterSpacing);
   if (autoFit) {
     // Shrink until everything fits the box.
     let guard = 0;
     while (guard < 200 && size > minSize &&
-      (lines.length * size * lineHeight > maxH || lines.some((l) => measure(font, l, size, letterSpacing) > maxW))) {
+      (lines.length * size * lineHeight > maxH || lines.some((l) => measure(font, l, size, letterSpacing) > maxWidth))) {
       size -= 1;
-      lines = wrapText(font, value, size, maxW, letterSpacing);
+      lines = wrapText(font, value, size, maxWidth, letterSpacing);
       guard += 1;
     }
   }
