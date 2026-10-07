@@ -3,7 +3,7 @@ import { certificateApi } from '../api/certificates'
 import { toast } from '../../../components/Toast'
 import {
   Plus, Trash2, Wand2, CheckCircle2, ChevronLeft, Type as TypeIcon,
-  AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, ZoomIn, ZoomOut, Maximize, Loader2, X, Copy,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, ZoomIn, ZoomOut, Maximize, Loader2, X, Copy, GripVertical, ArrowUp, ArrowDown,
 } from 'lucide-react'
 
 // Visaul certificate editor for image templates. The uploaded image is the
@@ -240,8 +240,29 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
               onClick={() => setSelected(i)}
               style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: selected === i ? '1px solid var(--sage)' : '1px solid var(--line)', background: selected === i ? 'var(--sage-soft,#eef3ea)' : 'transparent', fontSize: 12.5, cursor: 'grab', fontFamily: 'inherit', outline: listDrop === i && listDrag != null && listDrag !== i ? '2px dashed var(--sage)' : 'none' }}
             >
-              <div style={{ fontWeight: 600 }}>{f.display_name || f.field_key}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{f.field_type}{f.required ? ' · required' : ''}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <GripVertical size={13} style={{ color: 'var(--ink-soft)', flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{f.display_name || f.field_key}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{f.field_type}{f.required ? ' · required' : ''}</div>
+                </div>
+                <button
+                  type="button"
+                  title="Move up"
+                  onClick={(e) => { e.stopPropagation(); if (i === 0) return; setDraft((d) => { const next = [...(d.fields || [])]; const [moved] = next.splice(i, 1); next.splice(i - 1, 0, moved); return { ...d, fields: next } }); setSelected(i - 1) }}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-soft)' }}
+                >
+                  <ArrowUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  title="Move down"
+                  onClick={(e) => { e.stopPropagation(); if (i === fields.length - 1) return; setDraft((d) => { const next = [...(d.fields || [])]; const [moved] = next.splice(i, 1); next.splice(i + 1, 0, moved); return { ...d, fields: next } }); setSelected(i + 1) }}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-soft)' }}
+                >
+                  <ArrowDown size={13} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
