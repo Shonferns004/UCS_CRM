@@ -118,6 +118,7 @@ import { ensureSignatureSchema } from './bootstrap/ensureSignatureSchema.js';
 import { ensureDocumentsSchema } from './bootstrap/ensureDocumentsSchema.js';
 import { ensureLeadsRecruiterFkSchema } from './bootstrap/ensureLeadsRecruiterFkSchema.js';
 import { ensureSevakRenewalSchema } from './bootstrap/ensureSevakRenewalSchema.js';
+import { ensureStationAgentOfRecordSchema } from './bootstrap/ensureStationAgentOfRecordSchema.js';
 import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
@@ -1194,6 +1195,7 @@ if (!process.env.VERCEL) {
     await ensureLeadsRecruiterFkSchema().catch(e => console.error('ensureLeadsRecruiterFkSchema failed:', e?.message || e));
     await ensureSevakRenewalSchema().catch(e => console.error('ensureSevakRenewalSchema failed:', e?.message || e));
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
+    await ensureStationAgentOfRecordSchema().catch(e => console.error('ensureStationAgentOfRecordSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

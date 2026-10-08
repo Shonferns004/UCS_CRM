@@ -11,6 +11,7 @@ import {
   deleteAgent,
   DEFAULT_AGENT_PASSWORD,
 } from '../models/crmAgentModel.js';
+import { carryAgentStationsToWorker } from '../services/stationAgentOfRecord.js';
 
 // Management of CRM login agents ("Agent N").
 //
@@ -254,6 +255,25 @@ export const updateCrmAgentAssignment = async (req, res) => {
     const agent = await reassignAgentWorker(req.params.id, worker.id);
     if (!agent) return res.status(404).json({ message: 'Agent not found.' });
 
+    // The agent keeps its stations -- a station is a seat, not a person -- but
+    // the FRO of record and every donor sitting in those stations have to follow
+    // it, or the station would still be attributed to the outgoing FRO. Failing
+    // this would leave donor lists, dashboards and salary reading the old FRO,
+    // so it is reported rather than swallowed.
+    let stationsMoved = { stations: 0, donors: 0 };
+    try {
+      stationsMoved = await carryAgentStationsToWorker(
+        req.params.id,
+        worker.id,
+        previous?.[0]?.worker_id,
+      );
+    } catch (carryErr) {
+      console.error('[agent reassign] station carry-over failed:', carryErr?.message || carryErr);
+      return res.status(500).json({
+        message: `Agent reassigned, but their stations could not be moved: ${carryErr?.message || carryErr}`,
+      });
+    }
+
     // Close the new FRO's sessions, and the old one's too: they are no longer
     // covered by anybody, and a token that outlives its cover is exactly the leak
     // this feature exists to close. Both reopen on next login.
@@ -263,6 +283,7 @@ export const updateCrmAgentAssignment = async (req, res) => {
     return res.json({
       agent,
       swapped: !!agent?.swapped,
+      stations: stationsMoved,
       message: agent?.swapped
         ? `${agent.label} now covers ${worker.name}; its old FRO moved to the other agent`
         : `${agent.label} now covers ${worker.name}`,
