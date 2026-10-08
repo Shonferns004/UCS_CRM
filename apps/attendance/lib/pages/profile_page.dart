@@ -361,8 +361,8 @@ class _ProfilePageState extends State<ProfilePage> {
                           child: Image.network(
                             _worker!['photo_url'],
                             fit: BoxFit.cover,
-                  width: Responsive.pad(context, 100), height: Responsive.pad(context, 110),
-                            cacheWidth: 400, cacheHeight: 440,
+                            width: Responsive.pad(context, 80), height: Responsive.pad(context, 110),
+                            cacheWidth: 320, cacheHeight: 440,
                             errorBuilder: (_, __, ___) => Center(child: Text(initials,
                               style: GoogleFonts.hankenGrotesk(
                                 fontSize: Responsive.sp(context, 28), fontWeight: FontWeight.w800, color: sc.primary,
