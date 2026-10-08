@@ -286,7 +286,7 @@ export default function AllTicketsDashboard() {
               <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: '#1e293b' }}>All Tickets</h4>
               <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>Full list of technical tickets raised across all panels</div>
             </div>
-            <TechnicalTickets panel="event_head" viewOnly canRaise={false} category="technical" />
+            <TechnicalTickets panel="event_head" viewOnly canRaise={false} canResolve category="technical" />
           </Card>
         </div>
       )}

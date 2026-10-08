@@ -2324,22 +2324,6 @@ export const deleteQueueReceipt = async (req, res) => {
   }
 };
 
-// A closed/finished disposition is history, not an assignment: those rows stay
-// in fro_assignments for the rollover/audit trail but should never appear as an
-// "agent assignment" in Accounts — they are the source of the old station /
-// old agent chips the Donors page was showing.
-const CLOSED_ASSIGNMENT_STATUSES = new Set([
-  'reassigned', 'done', 'lead_done', 'donation_collected', 'visit_donate',
-  'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
-  'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
-  'wrong_number', 'invalid_number', 'invalid', 'rejected',
-  'temporary_network_issue', 'incoming_out', 'email_sent', 'whatsapp_sent',
-  'not_interested', 'not_interested_now', 'not_possible', 'dnd', 'wrong_person',
-  'not_interested_np', 'language_barrier', 'call_disconnected',
-  'transferred_senior', 'query_complaint', 'receipt_request', 'csr_inquiry',
-  'wants_80g_details', 'wants_trust_documents', 'others',
-]);
-
 export const getDonorHistory = async (req, res) => {
   try {
     const { donorId } = req.params;
@@ -4095,17 +4079,14 @@ export const getDonorsList = async (req, res) => {
       const donorAssignmentMap = {};
       const donorAssignmentList = {};
       for (const a of scopedAssignments) {
-        if (CLOSED_ASSIGNMENT_STATUSES.has(a.status)) continue;
         if (!donorNgoMap[a.donor_id]) donorNgoMap[a.donor_id] = new Set();
         const ngoName = ngoMap[a.ngo_id];
         if (ngoName) donorNgoMap[a.donor_id].add(ngoName);
 
-        if (CLOSED_ASSIGNMENT_STATUSES.has(a.status)) continue;
         if (!donorAssignmentMap[a.donor_id]) donorAssignmentMap[a.donor_id] = [];
         const name = workerMap[a.fro_worker_id];
         if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
 
-        if (CLOSED_ASSIGNMENT_STATUSES.has(a.status)) continue;
         if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
         donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, ngo: ngoMap[a.ngo_id] || '', worker_id: a.fro_worker_id, name, station: a.station || '' });
       }
@@ -4431,11 +4412,7 @@ export const getDonorDetail = async (req, res) => {
         .select('id, fro_worker_id, station, ngo_id, status')
         .eq('donor_id', id)
         .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .then((r) => {
-          if (r.data) r.data = (r.data || []).filter(a => !CLOSED_ASSIGNMENT_STATUSES.has(a.status));
-          return r;
-        });
+        .order('assigned_at', { ascending: false });
 
       const workerIds = [...new Set((assignmentRows || []).map(a => a.fro_worker_id).filter(Boolean))];
       const ngoIds = [...new Set((assignmentRows || []).map(a => a.ngo_id).filter(Boolean))];

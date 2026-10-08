@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle } from 'lucide-react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
+import { apiGet, apiPost, apiPut, apiDelete, listCrmAgents } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
@@ -967,7 +967,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
   }, [open]);
 
   const filtered = options.filter(w =>
-    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase())
+    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase()) || w.agent_label?.toLowerCase().includes(search.toLowerCase())
   );
 
   const selected = options.find(w => w.id === value);
@@ -977,7 +977,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
       <div onClick={() => setOpen(!open)}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
         <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {selected ? selected.name : (placeholder || '-- Select --')}
+          {selected ? `${selected.name}${selected.agent_label ? ` \u2014 ${selected.agent_label}` : ''}` : (placeholder || '-- Select --')}
         </span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
       </div>
@@ -1001,7 +1001,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
                 style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
                 onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
                 onMouseLeave={e => e.currentTarget.style.background = w.id === value ? '#f0fdf4' : 'transparent'}>
-                <span>{w.name}</span>
+                <span>{w.name}{w.agent_label ? ` \u2014 ${w.agent_label}` : ''}</span>
               </div>
             ))}
             {filtered.length === 0 && (
@@ -2027,6 +2027,7 @@ export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
   const [froWorkers, setFroWorkers] = useState([]);
+  const [agents, setAgents] = useState([]);
   const [targets, setTargets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newStation, setNewStation] = useState('');
@@ -2159,11 +2160,13 @@ export default function StationManagement() {
         apiGet('/ngo-admin/ngos/all'),
         apiGet('/ngo-admin/fro-workers'),
         apiGet('/ngo-admin/targets?month=' + m),
+        listCrmAgents().catch(() => ({ agents: [] })),
       ]);
-    }).then(([n, f, t]) => {
+    }).then(([n, f, t, a]) => {
       setAllNgos(Array.isArray(n) ? n : []);
       setFroWorkers(Array.isArray(f) ? f : []);
       if (Array.isArray(t)) setTargets(t);
+      setAgents(Array.isArray(a?.agents) ? a.agents : []);
       const ngoList = Array.isArray(n) ? n : [];
       if (ngoList.length > 0) {
         setSelectedNgoId(ngoList[0].id);
@@ -2529,7 +2532,7 @@ export default function StationManagement() {
                   <tr>
                     <th style={{ width: '13%' }}>Station</th>
                     <th style={{ width: '8%' }}>NGO</th>
-                    <th style={{ width: '20%' }}>FRO Worker</th>
+                    <th style={{ width: '20%' }}>FRO Name</th>
                     <th style={{ width: '13%' }}>Donors</th>
 
                     <th style={{ width: '10%', textAlign: 'right' }}>Actions</th>
@@ -2541,6 +2544,10 @@ export default function StationManagement() {
                     const ngoCol = ngoColor(ngoName);
                     const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
                     const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                    const agentLabel = (() => {
+                      const ag = agents.find(a => String(a.worker_id) === String(s.fro_worker_id));
+                      return ag ? (ag.label || ag.name || null) : null;
+                    })();
                     return (
                       <tr key={s.station}>
                         <td>
@@ -2567,11 +2574,14 @@ export default function StationManagement() {
                         </td>
                         <td>
                           <SearchableSelect
-                            options={froWorkers}
+                            options={froWorkers.map(fw => ({ ...fw, agent_label: (agents.find(a => String(a.worker_id) === String(fw.id)) || {}).label || null }))}
                             value={s.fro_worker_id || ''}
                             onChange={(val) => handleFroChange(s.station, val)}
                             placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
                           />
+                          {agentLabel && (
+                            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 3 }}>{agentLabel}</div>
+                          )}
                         </td>
                         <td>{renderDonorPills(s)}</td>
 
