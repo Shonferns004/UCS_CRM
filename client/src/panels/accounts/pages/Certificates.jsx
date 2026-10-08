@@ -257,7 +257,10 @@ export default function Certificates() {
       setValues((v) => ({ ...v, [key]: resp.text }))
       toast('AI draft added to this field.', 'success')
     } catch (e) {
-      toast(e.message || 'AI writing failed. Try again.', 'error')
+      const msg = e.routeMissing
+        ? 'The AI endpoint is not deployed on the backend server yet. Redeploy the backend to use AI Write.'
+        : (e.message || 'AI writing failed. Try again.')
+      toast(msg, 'error')
     } finally {
       setAiBusyKey(null)
     }
