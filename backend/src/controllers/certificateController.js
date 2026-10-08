@@ -624,10 +624,10 @@ export const previewCertificate = async (req, res) => {
     const values = {};
     for (const f of template.fields || []) {
       const v = raw[f.field_key];
-      // Defaults pre-fill required fields only — optional fields stay blank
-      // unless the user has actually typed something.
+      // Defaults pre-fill every empty field (required or optional) that has a
+      // default set; fields with no default stay blank until typed.
       values[f.field_key] = v == null || String(v).trim() === ''
-        ? (f.required === false ? '' : String(f.default_value ?? ''))
+        ? String(f.default_value ?? '')
         : String(v);
     }
     for (const [k, v] of Object.entries(raw)) {
@@ -669,12 +669,14 @@ async function generateOne(template, fieldValuesIn, certNumberIn, actorName) {
   const missing = buildMissing(required, values);
   if (missing.length) return { error: `Missing required fields: ${missing.join(', ')}` };
 
-  // Optional fields that were left empty must be explicitly blank — never
-  // silently replaced by their template default.
+  // Optional fields left empty fall back to their template default (if one is
+  // set); fields with no default are explicitly blank.
   for (const f of template.fields || []) {
     if (f.required !== false) continue;
     const key = f.field_key;
-    if (values[key] == null || String(values[key]).trim() === '') values[key] = '';
+    if (values[key] == null || String(values[key]).trim() === '') {
+      values[key] = f.default_value != null && String(f.default_value).trim() !== '' ? String(f.default_value) : '';
+    }
   }
 
   const number = String(certNumberIn || '').trim() || (await nextCertificateNumber());
