@@ -2427,9 +2427,9 @@ export default function Dashboard() {
                                       toast(err.message || 'Could not send warning', 'error');
                                     }
                                   }}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#dc2626', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+                                  style={{ background: '#dc2626', border: '1px solid #b91c1c', cursor: 'pointer', padding: '1px 6px', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 3, borderRadius: 999, fontSize: 9, fontWeight: 700, flexShrink: 0 }}
                                 >
-                                  <Bell size={14} fill="currentColor" />
+                                  <Bell size={9} fill="currentColor" /> Warn
                                 </button>
                               )}
                               {met && (
