@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import { useBnfBase } from '../bnfUi'
 import { apiGet, apiPost } from '../store'
 
@@ -35,6 +36,7 @@ export default function AllBeneficiaries() {
   const [eventFilter, setEventFilter] = useState('')
   const [events, setEvents] = useState([])
   const [page, setPage] = useState(1)
+  const [exporting, setExporting] = useState(false)
   const pageSize = 25
 
   // Event filter options — the same operator_events rows the app's Operator
@@ -98,6 +100,33 @@ export default function AllBeneficiaries() {
     }
   }
 
+  // Export every beneficiary matching the CURRENT filters (search/status/event)
+  // as an .xlsx — same pattern as the Donors export in the accounts panel.
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      if (statusFilter) params.set('status', statusFilter)
+      if (eventFilter) params.set('event_id', eventFilter)
+      const res = await apiGet(`/beneficiaries/export?${params}`)
+      const rows = res.data || []
+      if (rows.length === 0) {
+        alert('No beneficiaries to export.')
+        return
+      }
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Beneficiaries')
+      XLSX.writeFile(wb, `beneficiaries_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (e) {
+      console.error('Export error:', e)
+      alert('Export failed: ' + (e.message || 'unknown error'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handleSearch = (e) => {
     e.preventDefault()
     setPage(1)
@@ -110,12 +139,21 @@ export default function AllBeneficiaries() {
     <div>
       <div style={styles.header}>
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>All Beneficiaries</h2>
-        <button
-          onClick={() => navigate(base + '/import')}
-          style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}
-        >
-          Import Members
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            style={{ ...styles.btn, background: '#0f766e', color: '#fff', opacity: exporting ? 0.6 : 1 }}
+          >
+            {exporting ? 'Exporting...' : 'Export Excel'}
+          </button>
+          <button
+            onClick={() => navigate(base + '/import')}
+            style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}
+          >
+            Import Members
+          </button>
+        </div>
       </div>
 
       <div style={styles.filterBar}>
