@@ -588,10 +588,14 @@ export default function Certificates() {
 
   /* ---------------------------------- render ---------------------------------- */
 
+  const isEditorView = view === 'wizard' && draft?.file_format === 'image'
+
   return (
-    <div className="certificates-page">
+    <div className={`certificates-page${isEditorView ? ' cert-editor-mode' : ''}`}>
       <style>{`
         .certificates-page { font-family: inherit; background:#F8FAFF; padding:16px 18px; box-sizing:border-box; min-height:100vh; }
+        .content-body:has(> .certificates-page.cert-editor-mode) { padding:0 !important; }
+        .certificates-page.cert-editor-mode { padding:0; height:100%; min-height:0; overflow:hidden; }
         .cert-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:16px 18px; }
         .cert-topbar h3 { margin:0; font-size:15px; font-weight:600; }
         .cert-topbar .cert-sub { font-size:12px; color:var(--ink-soft); margin-top:2px; }
