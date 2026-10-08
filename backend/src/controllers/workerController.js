@@ -17,7 +17,7 @@ import {
   setAllocations,
 } from '../models/workerNgoAllocationModel.js';
 import { updateWorkerPersonalDetails, getFullWorkerProfile } from '../models/onboardingModel.js';
-import { presignSignatureUrl, presignSignatureUrls } from '../services/signatureMediaLink.js';
+import { presignSignatureUrl, presignSignatureUrls, presignPhotoUrl } from '../services/signatureMediaLink.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
   parseDocumentsValue,
@@ -319,6 +319,8 @@ export const getWorkers = async (req, res) => {
     // URL must never be persisted.
     const signedSignatures = await presignSignatureUrls(safeWorkers.map((w) => w.signature_url));
     safeWorkers.forEach((w, i) => { w.signature_url = signedSignatures[i]; });
+    const signedPhotos = await Promise.all(safeWorkers.map((w) => presignPhotoUrl(w.photo_url)));
+    safeWorkers.forEach((w, i) => { w.photo_url = signedPhotos[i]; });
     return res.json(safeWorkers);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -338,6 +340,7 @@ export const getMyProfile = async (req, res) => {
     return res.json({
       ...profile,
       signature_url: await presignSignatureUrl(profile.signature_url),
+      photo_url: await presignPhotoUrl(profile.photo_url),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -368,7 +371,7 @@ export const getWorker = async (req, res) => {
       state: p.state,
       pincode: p.pincode,
       permanent_address: p.permanent_address,
-      photo_url: p.photo_url,
+      photo_url: await presignPhotoUrl(p.photo_url),
       // Was absent entirely, so the EmployeeDetail signature card and the HR
       // forms declaration block could never show a signature even though the
       // column had a value. Signed on the way out, same reason as the list.
