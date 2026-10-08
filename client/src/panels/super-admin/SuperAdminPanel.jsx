@@ -29,9 +29,8 @@ import Notices from './pages/Notices'
 import LatePolicy from './pages/LatePolicy'
 import LiveFroStatus from './pages/LiveFroStatus'
 import FroIdleReport from './pages/FroIdleReport'
-import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock, Drop } from '@phosphor-icons/react'
+import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
-import MetropadPage from '../accounts/metropad/MetropadPage'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
@@ -45,7 +44,6 @@ const NAV = [
   { id: 'tickets', path: '/sa/tickets', label: 'Tickets', eyebrow: 'Support', icon: Ticket },
   { id: 'ngo-admin', path: '/sa/ngo-admin', label: 'Admin', eyebrow: 'Admin', icon: BuildingOffice },
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
-  { id: 'metropad', path: '/sa/metropad', label: 'Metropad', eyebrow: 'Operations', icon: Drop },
   { id: 'event-head', path: '/sa/event-head', label: 'Event Head', eyebrow: 'Events', icon: CalendarBlank },
   { id: 'hr', path: '/sa/hr', label: 'HR', eyebrow: 'People', icon: Users },
   { id: 'admin-attendance', path: '/sa/admin-attendance', label: 'Attendance', eyebrow: 'People', icon: Clock },
@@ -67,7 +65,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'metropad', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'fro-idle', 'assets', 'incentives', 'notices', 'late-policy', 'chat']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'fro-idle', 'assets', 'incentives', 'notices', 'late-policy', 'chat']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -357,7 +355,6 @@ export default function SuperAdminPanel() {
         <Route path="tickets" element={<Tickets />} />
         <Route path="events" element={<Events />} />
         <Route path="accounts" element={<PanelFrame src="/accounts" />} />
-        <Route path="metropad" element={<MetropadPage />} />
         <Route path="fro" element={<PanelFrame src="/fro" />} />
         <Route path="live-fro" element={<LiveFroStatus />} />
         <Route path="fro-idle" element={<FroIdleReport />} />
