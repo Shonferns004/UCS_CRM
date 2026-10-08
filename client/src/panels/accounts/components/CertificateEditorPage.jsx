@@ -4,7 +4,7 @@ import { toast } from '../../../components/Toast'
 import {
   ArrowLeft, AlignCenter, AlignJustify, AlignLeft, AlignRight, AlertTriangle, Bold,
   Building2, Calendar, ChevronDown, Copy, GripVertical, Italic, Loader2, Maximize2,
-  MessageSquare, Plus, Redo2, RotateCcw, Trash2, Trophy, Undo2, UploadCloud, User,
+  MessageSquare, MoreVertical, Plus, Redo2, RotateCcw, Trash2, Trophy, Undo2, UploadCloud, User,
   Wand2, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
 
@@ -142,6 +142,10 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
   const [cs, setCs] = useState(loadCanvasSettings)
   const [listDragIdx, setListDragIdx] = useState(null)
   const [listDropIdx, setListDropIdx] = useState(null)
+  const [infoOpen, setInfoOpen] = useState(false)
+  const [infoName, setInfoName] = useState('')
+  const [infoNgo, setInfoNgo] = useState('')
+  const [infoTouched, setInfoTouched] = useState(false)
 
   const stageRef = useRef(null)
   const wrapRef = useRef(null)
@@ -207,14 +211,16 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
   }, [draft?.id, draft?.version, retryTick])
 
   const fitZoom = () => {
-    const w = wrapRef.current?.clientWidth
-    if (!w) return 0.5
-    return Math.min(1, Math.max(0.05, (w - 32) / canvasW))
+    const el = wrapRef.current
+    const w = el?.clientWidth
+    const h = el?.clientHeight
+    if (!w || !h) return 0.5
+    return Math.min(1, Math.max(0.05, Math.min((w - 32) / canvasW, (h - 32) / canvasH)))
   }
 
   const applyFit = () => { setZoom(fitZoom()); setZoomFit(true) }
 
-  useEffect(() => { applyFit() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { applyFit() }, [canvasW, canvasH]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!zoomFit) return undefined
@@ -554,6 +560,27 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
     else onCancel()
   }
 
+  const openInfo = () => {
+    setInfoName(draft?.name || '')
+    setInfoNgo(draft?.ngo_id || '')
+    setInfoTouched(false)
+    setInfoOpen(true)
+  }
+
+  const saveInfo = () => {
+    setInfoTouched(true)
+    if (!String(infoName || '').trim() || !infoNgo) return
+    const name = infoName.trim()
+    const ngo = String(infoNgo)
+    if (name === String(draft?.name || '').trim() && ngo === String(draft?.ngo_id || '')) {
+      setInfoOpen(false)
+      return
+    }
+    mutate((d) => ({ ...d, name, ngo_id: ngo }), 'tpl-info')
+    setInfoOpen(false)
+    toast('Details updated', 'success')
+  }
+
   useEffect(() => {
     const onKey = (e) => {
       const t = e.target
@@ -562,7 +589,8 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); doSave(); return }
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return }
       if (e.key === 'Escape') {
-        if (previewOpen) setPreviewOpen(false)
+        if (infoOpen) setInfoOpen(false)
+        else if (previewOpen) setPreviewOpen(false)
         else if (deleteIdx != null) setDeleteIdx(null)
         else if (leaveOpen) setLeaveOpen(false)
         else if (sheet) setSheet(null)
@@ -647,14 +675,10 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-head-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .ced-only-narrow { display:none; }
 
-        .ced-meta { margin-top:10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 14px;
-          display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
-        .ced-meta-cell { min-width:0; }
-
         .ced-work { margin-top:10px; display:grid; grid-template-columns:230px minmax(0,1fr) 300px; gap:10px;
           min-width:0; }
         .ced-panel { position:relative; background:var(--surface); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column;
-          min-height:0; max-height:calc(100vh - 300px); overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+          min-height:0; max-height:calc(100vh - 190px); overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
         .ced-panel-body { flex:1; min-height:0; overflow-y:auto; padding:10px; }
         .ced-panel-head { padding:10px 12px 8px; border-bottom:1px solid var(--line); }
         .ced-panel-head h2 { font-size:15px; font-weight:700; }
@@ -694,7 +718,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
         .ced-zoom-val { min-width:52px; text-align:center; font-size:12px; font-weight:600; color:#334155; background:#F1F5F9;
           border:1px solid var(--line); border-radius:8px; height:32px; line-height:30px; cursor:pointer; user-select:none; }
-        .ced-stage { position:relative; height:calc(100vh - 364px); min-height:440px; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
+        .ced-stage { position:relative; height:calc(100vh - 246px); min-height:360px; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
         .ced-stage-pad { width:max-content; min-width:100%; margin:0 auto; padding:14px; display:flex; justify-content:center; }
         .ced-paper { position:relative; background:#fff; border-radius:3px; box-shadow:0 8px 30px rgba(15,23,42,.16); overflow:hidden; flex-shrink:0; }
         .ced-paper img.ced-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; display:block; user-select:none; pointer-events:none; }
@@ -776,7 +800,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           .ced-panel-close { display:inline-flex; position:absolute; top:10px; right:10px; z-index:2; }
           .ced-panel-head { padding-right:52px; }
           .ced-stage { height:58vh; min-height:340px; }
-          .ced-meta { grid-template-columns:repeat(2, minmax(0,1fr)); }
         }
         @media (min-width: 1025px) { .ced-backdrop.show { display:none; } }
         @media (max-width: 767px) {
@@ -784,7 +807,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           .ced-head h1 { font-size:17px; }
           .ced-head-actions { width:100%; justify-content:flex-end; }
           .ced-unsaved { order:3; }
-          .ced-meta { grid-template-columns:minmax(0,1fr); padding:12px; }
           .ced-panel { top:auto; left:0; right:0; width:auto; max-height:74vh; border-radius:18px 18px 0 0;
             transform:translateY(103%); transition:transform .2s ease; }
           .ced-left.open, .ced-right.open { transform:none; }
@@ -799,11 +821,15 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         <button type="button" className="ced-back" onClick={requestLeave} aria-label="Back to templates" title="Back">
           <ArrowLeft size={17} />
         </button>
-        <div className="ced-head-titles">
-          <h1>Edit Certificate Template</h1>
+        <div className="ced-head-titles" style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <h1 style={{ whiteSpace: 'nowrap' }}>Edit Certificate Template</h1>
+          {draft?.name && (
+            <span style={{ fontSize: 13, color: 'var(--ink2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={draft.name}>{draft.name}</span>
+          )}
         </div>
         {dirty && <span className="ced-unsaved">Unsaved changes</span>}
         <div className="ced-head-actions">
+          <button type="button" className="ced-ibtn" onClick={openInfo} title="Template details — name & NGO" aria-label="Edit template details"><MoreVertical size={15} /></button>
           <button type="button" className="ced-btn" onClick={runPreview} title="Preview the generated certificate">
             <Wand2 size={15} /> Preview
           </button>
@@ -817,35 +843,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       </header>
 
       <style>{`@keyframes cedspin { to { transform:rotate(360deg) } }`}</style>
-
-      <section className="ced-meta" aria-label="Template information">
-        <div className="ced-meta-cell">
-          <label className="ced-lbl" htmlFor="ced-tpl-name">Template Name *</label>
-          <input
-            id="ced-tpl-name"
-            className={`ced-inp ${errors.name ? 'err' : ''}`}
-            value={draft?.name || ''}
-            onChange={(e) => mutate((d) => ({ ...d, name: e.target.value }), 'tpl-name')}
-            placeholder="ASHRAY Certificate"
-            aria-invalid={!!errors.name}
-          />
-          {errors.name && <div className="ced-err">{errors.name}</div>}
-        </div>
-        <div className="ced-meta-cell">
-          <label className="ced-lbl" htmlFor="ced-tpl-ngo">NGO *</label>
-          <select
-            id="ced-tpl-ngo"
-            className={`ced-inp ${errors.ngo ? 'err' : ''}`}
-            value={draft?.ngo_id || ''}
-            onChange={(e) => mutate((d) => ({ ...d, ngo_id: e.target.value }), 'tpl-ngo')}
-            aria-invalid={!!errors.ngo}
-          >
-            <option value="">Select NGO</option>
-            {(ngos || []).map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
-          </select>
-            {errors.ngo && <div className="ced-err">{errors.ngo}</div>}
-          </div>
-      </section>
 
       <div className="ced-work">
         <aside className={`ced-panel ced-left ${sheet === 'fields' ? 'open' : ''}`} aria-label="Field library">
@@ -1344,6 +1341,48 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       </div>
 
       <div className={`ced-backdrop ${sheet ? 'show' : ''}`} onClick={() => setSheet(null)} aria-hidden />
+
+      {infoOpen && (
+        <div className="ced-modal-overlay" role="dialog" aria-modal="true" aria-label="Template details" onClick={(e) => { if (e.target === e.currentTarget) setInfoOpen(false) }}>
+          <div className="ced-modal" style={{ maxWidth: 440 }}>
+            <div className="ced-modal-head">
+              <h3>Template details</h3>
+              <button type="button" className="ced-ibtn" onClick={() => setInfoOpen(false)} aria-label="Close"><X size={15} /></button>
+            </div>
+            <div className="ced-modal-body">
+              <div className="ced-field">
+                <label className="ced-lbl" htmlFor="ced-info-name">Template Name *</label>
+                <input
+                  id="ced-info-name"
+                  className={`ced-inp ${infoTouched && !String(infoName || '').trim() ? 'err' : ''}`}
+                  value={infoName}
+                  onChange={(e) => setInfoName(e.target.value)}
+                  placeholder="ASHRAY Certificate"
+                  autoFocus
+                />
+                {infoTouched && !String(infoName || '').trim() && <div className="ced-err">Template name is required.</div>}
+              </div>
+              <div className="ced-field" style={{ marginBottom: 0 }}>
+                <label className="ced-lbl" htmlFor="ced-info-ngo">NGO *</label>
+                <select
+                  id="ced-info-ngo"
+                  className={`ced-inp ${infoTouched && !infoNgo ? 'err' : ''}`}
+                  value={infoNgo}
+                  onChange={(e) => setInfoNgo(e.target.value)}
+                >
+                  <option value="">Select NGO</option>
+                  {(ngos || []).map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
+                </select>
+                {infoTouched && !infoNgo && <div className="ced-err">Please select an NGO.</div>}
+              </div>
+            </div>
+            <div className="ced-modal-foot">
+              <button type="button" className="ced-btn" onClick={() => setInfoOpen(false)}>Cancel</button>
+              <button type="button" className="ced-btn primary" onClick={saveInfo}>Save changes</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteIdx != null && (
         <div className="ced-modal-overlay" role="dialog" aria-modal="true" aria-label="Delete field" onClick={(e) => { if (e.target === e.currentTarget) setDeleteIdx(null) }}>
