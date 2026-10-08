@@ -223,11 +223,11 @@ export async function renderImageCertificate(imageBuffer, fields, values) {
     const style = f.style || {};
     if (style.hidden) continue;
     const raw = values && values[f.field_key] != null ? String(values[f.field_key]) : null;
-    // Optional fields stay blank unless the user actually typed something —
-    // never silently substitute their template default.
+    // A field default always fills an empty/missing value, whether the field
+    // is required or optional — no value and no default stays blank.
     const value = raw != null && raw.trim() !== ''
       ? raw
-      : (f.required === false ? '' : String(f.default_value ?? ''));
+      : String(f.default_value ?? '');
     if (!value) continue;
     const font = getFont(style.fontFamily, isBoldWeight(style.fontWeight));
     overlays += svgForField({ ...style, x: style.x ?? f.position_x, y: style.y ?? f.position_y, width: style.width ?? f.width, height: style.height ?? f.height }, value, font);
