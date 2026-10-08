@@ -70,6 +70,7 @@ export default function AllBeneficiaries() {
 
   const toggleSelect = (id) => {
     setSelected((prev) => {
+      console.log(prev)
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
