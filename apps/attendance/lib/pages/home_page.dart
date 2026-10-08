@@ -1096,7 +1096,7 @@ class _HelpSheetState extends State<_HelpSheet> {
                 : _error != null
                     ? Center(child: Text(_error!, style: const TextStyle(color: Color(0xFFba1a1a))))
                     : term.isEmpty
-                        ? const Center(child: Text('Type a name to search employees'))
+                        ? const _HelpInstructions()
                         : filtered.isEmpty
                         ? const Center(child: Text('No employees found'))
                         : ListView.builder(
@@ -1533,6 +1533,54 @@ class _NotificationSheetState extends State<_NotificationSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _HelpInstructions extends StatelessWidget {
+  const _HelpInstructions();
+
+  Widget _step(IconData icon, String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 20, color: const Color(0xFF2563EB)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 8),
+        _step(Icons.search_rounded, 'Search an employee', 'Type a name, department, or phone above'),
+        _step(Icons.touch_app_rounded, 'Tap their name', 'Check if their punch in/out is pending'),
+        _step(Icons.camera_alt_rounded, 'Take a selfie', 'Capture a photo to record attendance'),
+        _step(Icons.location_on_rounded, 'Location is captured', 'GPS coordinates are sent with the punch'),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }
