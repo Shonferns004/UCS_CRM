@@ -18,6 +18,7 @@ dotenv.config();
 // CRMs / admin and salary portals get a rolling 24h session; the mobile
 // (Flutter) worker login override below emits tokens with no expiry.
 const TOKEN_EXPIRY = '24h';
+const REFRESH_TOKEN_EXPIRY = '60d';
 
 // Block a FRO's own login once an agent holds their account.
 //
@@ -373,6 +374,40 @@ async function recordCrmLogin(uid, nm, rl, routePath) {
 
 // Explicit logout: mark the open session logged out and append a logout event
 // (drives the per-user logout counts in Telecaller Performance).
+// Exchanges a refresh token for a fresh access token. The refresh token carries
+// no `exp` claim (see unifiedLogin), so this endpoint keeps working until the
+// worker logs out and the app drops the stored refresh token.
+export const refreshAccessToken = async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      return res.status(400).json({ message: 'refresh_token is required' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refresh_token, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    if (decoded.type !== 'refresh' || !decoded.id) {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    const { id, login_id, ngo_id, name, role, department } = decoded;
+    const token = jwt.sign(
+      { id, login_id, ngo_id, name, role, department },
+      process.env.JWT_SECRET,
+      { expiresIn: TOKEN_EXPIRY }
+    );
+
+    return res.json({ token, refresh_token: refresh_token });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const logout = async (req, res) => {
   try {
     const u = req.user || {};
@@ -558,18 +593,35 @@ export const unifiedLogin = async (req, res) => {
       else if (dept === 'digital' || dept.includes('develop')) role = 'digital';
       else if (dept.includes('event')) role = 'event_head';
       else role = 'worker';
+      const claims = { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department };
+
+      // Apps that declare themselves get the short-lived access token +
+      // long-lived refresh token pair. The refresh token is intentionally
+      // issued WITHOUT an expiry so a worker never gets logged out of the
+      // mobile app; access is still capped at 24h and silently renewed.
+      const isAppClient = String(req.body.client || '').trim() === 'attendance';
       const token = jwt.sign(
-        { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department },
+        claims,
         process.env.JWT_SECRET,
-        signOptions
+        isAppClient ? { expiresIn: TOKEN_EXPIRY } : signOptions
       );
-      await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
-      return res.json({
+      let refreshToken = null;
+      if (isAppClient) {
+        // No expiresIn => no `exp` claim => this token does not expire.
+        refreshToken = jwt.sign(
+          { ...claims, type: 'refresh' },
+          process.env.JWT_SECRET
+        );
+      }
+await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
+      const body = {
         token,
         role,
         user: { id: worker.id, name: worker.name, email: worker.email, login_id: worker.login_id, ngo_id: worker.ngo_id, gender: worker.gender, dob: worker.dob, department: worker.department },
         message: 'Login successful',
-      });
+      };
+      if (refreshToken) body.refresh_token = refreshToken;
+      return res.json(body);
     }
 
     if (isEmail) {

@@ -145,11 +145,18 @@ class ApiService {
   }
 
   static Future<http.Response> _send(
-    Future<http.Response> Function(http.Client client) run,
-  ) async {
+    Future<http.Response> Function(http.Client client) run, {
+    bool skipRefresh = false,
+  }) async {
     final client = await _createClient();
     // Shared client is reused across requests — do NOT close it here.
-    return await run(client).timeout(_defaultTimeout);
+    final res = await run(client).timeout(_defaultTimeout);
+    // Access tokens are short-lived. If one lapsed mid-flight, mint a new one
+    // now so the user's next action goes through without a visible logout.
+    if (!skipRefresh && res.statusCode == 401) {
+      await _refreshAccessToken();
+    }
+    return res;
   }
 
   static Future<http.Response> _get(
@@ -163,8 +170,12 @@ class ApiService {
     Uri uri, {
     Map<String, String>? headers,
     Object? body,
+    bool skipRefresh = false,
   }) async {
-    return _send((client) => client.post(uri, headers: headers, body: body));
+    return _send(
+      (client) => client.post(uri, headers: headers, body: body),
+      skipRefresh: skipRefresh,
+    );
   }
 
   static Future<http.Response> _put(
@@ -187,16 +198,95 @@ class ApiService {
       _prefs ??= await SharedPreferences.getInstance();
 
   static String? _cachedToken;
+  static String? _cachedRefreshToken;
+  static DateTime? _accessTokenExpiry;
+
+  static DateTime? _jwtExpiry(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      final exp = payload is Map ? payload['exp'] : null;
+      if (exp is num) return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
+    } catch (_) {}
+    return null;
+  }
+
+  /// Swaps the refresh token for a new short-lived access token.
+  static Future<bool> _refreshAccessToken() async {
+    if (_refreshing) return false;
+    final refresh = await getRefreshToken();
+    if (refresh == null || refresh.isEmpty) return false;
+    _refreshing = true;
+    try {
+      final res = await _post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refresh}),
+        skipRefresh: true,
+      );
+      if (res.statusCode != 200) return false;
+      final body = jsonDecode(res.body);
+      if (body is! Map) return false;
+      final token = body['token'];
+      if (token is! String || token.isEmpty) return false;
+      await saveToken(token);
+      final newRefresh = body['refresh_token'];
+      if (newRefresh is String && newRefresh.isNotEmpty) {
+        await saveRefreshToken(newRefresh);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  static bool _refreshing = false;
+
+  /// Refreshes the access token shortly before it expires, so normal requests
+  /// never hit a 401 in the first place.
+  static Future<void> _ensureFreshToken() async {
+    final expiry = _accessTokenExpiry;
+    if (expiry == null) return; // no exp claim — nothing to rotate
+    if (expiry.isAfter(DateTime.now().add(const Duration(minutes: 5)))) return;
+    await _refreshAccessToken();
+  }
+
+  static Future<String?> getRefreshToken() async {
+    if (_cachedRefreshToken != null) return _cachedRefreshToken;
+    final prefs = await _prefsInstance;
+    _cachedRefreshToken = prefs.getString('refresh_token');
+    return _cachedRefreshToken;
+  }
+
+  static Future<void> saveRefreshToken(String token) async {
+    _cachedRefreshToken = token;
+    final prefs = await _prefsInstance;
+    await prefs.setString('refresh_token', token);
+  }
+
+  /// Renews the access token at startup when it has lapsed but a refresh token
+  /// is still held, so an expired access token never forces a logout.
+  static Future<void> ensureSession() async {
+    final refresh = await getRefreshToken();
+    if (refresh == null || refresh.isEmpty) return;
+    await _ensureFreshToken();
+  }
 
   static Future<String?> getToken() async {
-    if (_cachedToken != null) return _cachedToken;
-    final prefs = await _prefsInstance;
-    _cachedToken = prefs.getString('worker_token');
+    if (_cachedToken == null) {
+      final prefs = await _prefsInstance;
+      _cachedToken = prefs.getString('worker_token');
+      _accessTokenExpiry = _cachedToken != null ? _jwtExpiry(_cachedToken!) : null;
+    }
     return _cachedToken;
   }
 
   static Future<void> saveToken(String token) async {
     _cachedToken = token;
+    _accessTokenExpiry = _jwtExpiry(token);
     final prefs = await _prefsInstance;
     await prefs.setString('worker_token', token);
   }
@@ -229,8 +319,11 @@ class ApiService {
 
   static Future<void> clearAuth() async {
     _cachedToken = null;
+    _cachedRefreshToken = null;
+    _accessTokenExpiry = null;
     _cachedIsAdmin = null;
     final prefs = await _prefsInstance;
+    await prefs.remove('refresh_token');
     await prefs.remove('worker_token');
     await prefs.remove('worker_data');
     final keys = prefs.getKeys().where((k) => k.startsWith('cache_')).toList();
@@ -248,6 +341,7 @@ class ApiService {
   }
 
   static Future<Map<String, String>> _headers() async {
+    await _ensureFreshToken();
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
@@ -259,7 +353,8 @@ class ApiService {
     final res = await _post(
       Uri.parse('$baseUrl/auth/worker/login'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'identifier': identifier, 'password': password}),
+      body: jsonEncode({'identifier': identifier, 'password': password, 'client': 'attendance'}),
+      skipRefresh: true,
     );
     try {
       final body = jsonDecode(res.body);
