@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Wallet, Database, Smartphone, BookOpen } from 'lucide-react'
+import { Users, Wallet, Database, Smartphone, BookOpen, Boxes } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -57,16 +57,6 @@ const NAV_TOP = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10"/></svg> },
   { id: 'receipt-generator', path: '/accounts/receipt-generator', label: 'Receipts',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
-  { id: 'bill-reminder', path: '/accounts/bill-reminder', label: 'Bill Reminder',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
-    match: (p) => p.startsWith('/accounts/bill-reminder') },
-  { id: 'library', path: '/accounts/library', label: 'Library',
-    icon: <BookOpen size={18} /> },
-  // Metropad was reachable only from the super-admin panel, which rendered it
-  // inline while every other panel there is reached through its own panel. It
-  // belongs with the accounts it tracks, so it moved here and joins the nav.
-  { id: 'metropad', path: '/accounts/metropad', label: 'Metropad',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg> },
 ]
 
 const NAV_GROUPS = [
@@ -89,9 +79,9 @@ const NAV_GROUPS = [
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg> },
       { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-      // FRO Targets left this group and is now a tab on the Teams page, where the
-      // target sits next to the team it is aimed at. /accounts/fro-targets still
-      // resolves -- it redirects to the Teams > FRO Targets tab.
+      // FRO Targets used to be its own entry here. It is now a tab on the Teams
+      // page, where the target sits next to the team it is aimed at;
+      // /accounts/fro-targets still resolves by redirect.
       { id: 'incentives', path: '/accounts/incentives', label: 'NGO wise Incentive',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
         match: (p) => p.startsWith('/accounts/incentives') },
@@ -122,19 +112,13 @@ const NAV_GROUPS = [
   },
 ]
 
-// Donor Management is no longer a group. Its two children are tabs on one page
-// (Donors, Address) and its third child moved to Ceremony, so what would be left
-// is a collapsible header wrapping a single link. `match` rather than the default
-// exact-path test so the entry stays highlighted on the Address tab too.
 const DONOR_NAV = {
   id: 'donors', path: '/accounts/donors', label: 'Donors',
   icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   match: (p) => p.startsWith('/accounts/donors'),
 }
 
-// Title lookup only: the Address tab is a tab, not a sidebar entry, but the
-// header should still name it. Placed before DONOR_NAV in ALL_NAV because that
-// lookup takes the FIRST match, and DONOR_NAV's prefix test would otherwise win.
+// Title lookup only: the Address tab is a tab, not a sidebar entry.
 const DONOR_SUB_NAV = {
   id: 'address', path: '/accounts/donors/address', label: 'Address',
   icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
@@ -145,7 +129,9 @@ const DONOR_SUB_NAV = {
 // All Beneficiaries, Collection OTPs, Import Members, Daily Events) are switched by
 // the tab strip inside BeneficiariesPanel rather than by five separate nav entries,
 // so reaching the second one no longer means going back out to the sidebar. Their
-// routes still exist, so any bookmarked deep link lands on the right tab.
+// routes still exist, so any bookmarked deep link lands on the right tab. The
+// sidebar renders its copy from MODULES_NAV below, which adds the `match` that
+// keeps the entry lit while a deeper tab is open.
 const BENEFICIARY_NAV = [
   { id: 'bnf-overview', path: '/accounts/beneficiaries', label: 'Beneficiaries',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><circle cx="17" cy="9" r="2.5"/><path d="M18 14a4 4 0 0 1 3 4v2"/></svg> },
@@ -160,17 +146,13 @@ const NAV_BOTTOM = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg> },
 ]
 
-/* Data is one sidebar link, not a group: New Data and Old Data are tabs on the
-   page itself, the same shape SIM Management and Library use. */
 const DATA_NAV_ITEM = {
   id: 'data', path: '/accounts/data', label: 'Data',
   icon: <Database size={18} />,
   match: (p) => p.startsWith('/accounts/data') || p === '/accounts/new-data' || p === '/accounts/old-data',
 }
 
-// Title lookup only, ahead of DATA_NAV_ITEM in ALL_NAV for the same reason
-// DONOR_SUB_NAV is: the lookup takes the FIRST match, so the more specific path
-// has to be tried first or the Old Data tab would be titled "Data".
+// Title lookup only. Ahead of DATA_NAV_ITEM so the Old Data tab is not titled "Data".
 const DATA_SUB_NAV = [
   {
     id: 'old-data', path: '/accounts/data/old', label: 'Old Data',
@@ -184,8 +166,7 @@ const DATA_SUB_NAV = [
   },
 ]
 
-// Title lookup only: FRO Targets is a tab on the Teams page now, but the header
-// should still name it, and /accounts/fro-targets still resolves via redirect.
+// Title lookup only: FRO Targets is a tab on the Teams page now.
 const FRO_TARGETS_NAV = {
   id: 'fro-targets', path: '/accounts/teams/targets', label: 'FRO Targets',
   icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
@@ -209,22 +190,25 @@ const SIM_NAV = [
     match: (p) => p === '/accounts/sim/owner' },
 ]
 
-/* SIM Management is one sidebar link, not a group: its sub-pages (Dashboard,
-   All SIM Cards, SIM Locker, All SIM Owner) are tabs on the page itself, the
-   same way Library works. SIM_NAV stays below purely for header title lookup. */
 const SIM_NAV_ITEM = {
   id: 'sim', path: '/accounts/sim', label: 'SIM Management', icon: SIM_GROUP_ICON,
   match: (p) => p.startsWith('/accounts/sim'),
 }
 
-// Flat list used for page-title meta lookup. Every nav item across top/groups/
-// bottom/sim lives here so the header can resolve the active page label.
-//
-// ORDER IS SIGNIFICANT: the lookup is `find`, so the first match wins. Tab entries
-// whose path is a PREFIX of another tab's path are listed before their own parent
-// leaf (Old Data before Data, Address before Donors, FRO Targets before Teams) --
-// otherwise the broad prefix test would swallow the specific one and the header
-// would name every tab after its parent.
+const MODULES_NAV = [
+  { id: 'bill-reminder', path: '/accounts/bill-reminder', label: 'Bill Reminder',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+    match: (p) => p.startsWith('/accounts/bill-reminder') },
+  { id: 'metropad', path: '/accounts/metropad', label: 'Metropad',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg> },
+  { id: 'library', path: '/accounts/library', label: 'Library',
+    icon: <BookOpen size={18} /> },
+  { ...BENEFICIARY_NAV[0], match: (p) => p.startsWith('/accounts/beneficiaries') },
+  SIM_NAV_ITEM,
+]
+
+// Title lookup: `find` returns the first match, so a tab whose path is a prefix
+// of another's must come first (Old Data before Data, SIM_NAV before MODULES_NAV).
 const ALL_NAV = [
   ...NAV_TOP,
   ...DATA_SUB_NAV,
@@ -233,9 +217,9 @@ const ALL_NAV = [
   ...NAV_GROUPS.flatMap(g => g.items),
   DATA_NAV_ITEM,
   DONOR_NAV,
-  ...BENEFICIARY_NAV,
-  ...NAV_BOTTOM,
   ...SIM_NAV,
+  ...MODULES_NAV,
+  ...NAV_BOTTOM,
 ]
 
 const navIsActive = (n, pathname) => {
@@ -245,11 +229,6 @@ const navIsActive = (n, pathname) => {
   return pathname === n.path
 }
 
-/* Sidebar layout, built from the same arrays the rest of the panel uses so the
-   nav has exactly one source of truth. A group is any item carrying `items`;
-   everything else is a leaf link. `isGroupActive` is available for groups whose
-   children have no catch-all match of their own, though Beneficiaries -- the one
-   item that used to need it -- is now a leaf using `match` instead. */
 const SIDEBAR_SECTIONS = [
   {
     id: 'main',
@@ -257,16 +236,11 @@ const SIDEBAR_SECTIONS = [
     items: [
       ...NAV_TOP,
       DONOR_NAV,
+      DATA_NAV_ITEM,
       { id: 'g-workforce', label: NAV_GROUPS[0].title, icon: NAV_GROUPS[0].icon, storageKey: 'workforce', items: NAV_GROUPS[0].items },
       { id: 'g-asset', label: NAV_GROUPS[1].title, icon: NAV_GROUPS[1].icon, storageKey: 'asset_finance', items: NAV_GROUPS[1].items },
       { id: 'g-ceremony', label: NAV_GROUPS[2].title, icon: NAV_GROUPS[2].icon, storageKey: 'ceremony', items: NAV_GROUPS[2].items },
-      // A plain leaf, not a group: the two sections are tabs inside one page, so
-      // there is nothing left to expand. `match` rather than the default
-      // exact-path test because the leaf must stay highlighted on /data/old too.
-      DATA_NAV_ITEM,
-      // A plain leaf for the same reason: its sections are tabs on one page.
-      { ...BENEFICIARY_NAV[0], match: (p) => p.startsWith('/accounts/beneficiaries') },
-      SIM_NAV_ITEM,
+      { id: 'g-modules', label: 'Modules', icon: <Boxes size={18} />, storageKey: 'modules', items: MODULES_NAV },
     ],
   },
   { id: 'settings', heading: 'Settings', items: NAV_BOTTOM },
