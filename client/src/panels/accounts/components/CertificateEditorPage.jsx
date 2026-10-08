@@ -114,6 +114,38 @@ const defaultStyle = (canvasW, canvasH, i) => ({
   showBorder: true,
 })
 
+function NumInput({ id, value, min = 0, max = Infinity, fallback = 0, step, className, placeholder, ariaInvalid, onCommit }) {
+  const [focus, setFocus] = useState(false)
+  const [text, setText] = useState((value ?? fallback).toString())
+  useEffect(() => {
+    if (!focus) setText((value ?? fallback).toString())
+  }, [value, focus])
+  const display = value ?? fallback
+  return (
+    <input
+      id={id}
+      type="number"
+      step={step}
+      min={Number.isFinite(min) ? min : undefined}
+      max={Number.isFinite(max) ? max : undefined}
+      className={className}
+      placeholder={placeholder}
+      aria-invalid={ariaInvalid}
+      value={focus ? text : display.toString()}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={() => { setFocus(true); setText(display.toString()) }}
+      onBlur={() => {
+        setFocus(false)
+        const n = Number(text)
+        const next = Number.isFinite(n) ? clamp(n, min, max) : fallback
+        setText(next.toString())
+        if (next !== value) onCommit(next)
+      }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+    />
+  )
+}
+
 export default function CertificateEditorPage({ draft, setDraft, canManage, ngos, onCancel, onSave, onReplaceFile }) {
   const [imgUrl, setImgUrl] = useState(null)
   const [imgFailed, setImgFailed] = useState(false)
@@ -1181,7 +1213,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fsize">Size</label>
-                      <input id="ced-fsize" type="number" min={6} max={400} className="ced-inp" value={selStyle.fontSize || 24} onChange={(e) => patchStyle(sel.field_key, { fontSize: clamp(Number(e.target.value) || 6, 6, 400) })} />
+                      <NumInput id="ced-fsize" min={6} max={400} fallback={6} className="ced-inp" value={selStyle.fontSize || 24} onCommit={(v) => patchStyle(sel.field_key, { fontSize: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fweight">Weight</label>
@@ -1216,11 +1248,11 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-flh">Line Height</label>
-                      <input id="ced-flh" type="number" step="0.1" min={0.8} max={3} className="ced-inp" value={selStyle.lineHeight ?? 1.2} onChange={(e) => patchStyle(sel.field_key, { lineHeight: clamp(Number(e.target.value) || 1.2, 0.8, 3) })} />
+                      <NumInput id="ced-flh" step="0.1" min={0.8} max={3} fallback={1.2} className="ced-inp" value={selStyle.lineHeight ?? 1.2} onCommit={(v) => patchStyle(sel.field_key, { lineHeight: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fls">Letter Spacing</label>
-                      <input id="ced-fls" type="number" step="0.5" className="ced-inp" value={selStyle.letterSpacing ?? 0} onChange={(e) => patchStyle(sel.field_key, { letterSpacing: Number(e.target.value) || 0 })} />
+                      <NumInput id="ced-fls" step="0.5" min={-500} max={500} fallback={0} className="ced-inp" value={selStyle.letterSpacing ?? 0} onCommit={(v) => patchStyle(sel.field_key, { letterSpacing: v })} />
                     </div>
                   </div>
                   <div className="ced-field">
@@ -1237,21 +1269,21 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fx">X</label>
-                      <input id="ced-fx" type="number" className="ced-inp" value={Math.round(selStyle.x || 0)} onChange={(e) => patchStyle(sel.field_key, { x: clamp(Number(e.target.value) || 0, 0, canvasW) })} />
+                      <NumInput id="ced-fx" min={0} max={canvasW} fallback={0} className="ced-inp" value={Math.round(selStyle.x || 0)} onCommit={(v) => patchStyle(sel.field_key, { x: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fy">Y</label>
-                      <input id="ced-fy" type="number" className="ced-inp" value={Math.round(selStyle.y || 0)} onChange={(e) => patchStyle(sel.field_key, { y: clamp(Number(e.target.value) || 0, 0, canvasH) })} />
+                      <NumInput id="ced-fy" min={0} max={canvasH} fallback={0} className="ced-inp" value={Math.round(selStyle.y || 0)} onCommit={(v) => patchStyle(sel.field_key, { y: v })} />
                     </div>
                   </div>
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fw">Width</label>
-                      <input id="ced-fw" type="number" min={40} className={`ced-inp ${errGeom ? 'err' : ''}`} value={Math.round(selStyle.width || 0)} onChange={(e) => patchStyle(sel.field_key, { width: clamp(Number(e.target.value) || 40, 40, canvasW) })} />
+                      <NumInput id="ced-fw" min={40} max={canvasW} fallback={40} className={`ced-inp ${errGeom ? 'err' : ''}`} ariaInvalid={!!errGeom} value={Math.round(selStyle.width || 0)} onCommit={(v) => patchStyle(sel.field_key, { width: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fh">Height</label>
-                      <input id="ced-fh" type="number" min={16} className={`ced-inp ${errGeom ? 'err' : ''}`} value={Math.round(selStyle.height || 0)} onChange={(e) => patchStyle(sel.field_key, { height: clamp(Number(e.target.value) || 16, 16, canvasH) })} />
+                      <NumInput id="ced-fh" min={16} max={canvasH} fallback={16} className={`ced-inp ${errGeom ? 'err' : ''}`} ariaInvalid={!!errGeom} value={Math.round(selStyle.height || 0)} onCommit={(v) => patchStyle(sel.field_key, { height: v })} />
                     </div>
                   </div>
                   <div className="ced-field">
