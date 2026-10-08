@@ -705,7 +705,7 @@ export default function Certificates() {
       `}</style>
 
       {/* ================================= HEADER ================================= */}
-      {view !== 'library' && (
+      {view === 'generate' && (
       <div className="card">
         <div className="cert-topbar">
           <div>
@@ -1026,6 +1026,18 @@ export default function Certificates() {
             ) : (
               /* ---------- step 2: fields config ---------- */
               <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <button className="btn btn-sm" onClick={() => { setView('library'); setGenTpl(null) }}>
+                    <ArrowLeft size={14} /> Back
+                  </button>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{editingId ? 'Edit Certificate Template' : 'New Certificate Template'}</h3>
+                    <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
+                      Design and customize your certificate template with dynamic fields, styling options, and live preview.
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div className={`tpl-type ${draft.file_format === 'pptx' ? 'pptx' : ''}`}>
                     {draft.file_format === 'pptx' ? <Presentation size={20} /> : draft.file_format === 'image' ? <ImageIcon size={20} /> : <FileText size={20} />}
