@@ -5,7 +5,29 @@ import {
 } from '../models/developerTicketModel.js';
 
 import db from '../config/db.js';
-import { getSenderPanel } from '../utils/panel.js';
+import { getSenderPanel, getSenderName } from '../utils/panel.js';
+
+// The resolve message goes to developer_ticket_replies as a normal
+// (non-internal) line. getTicket only ever returns replies to the person who
+// raised the ticket, so the message is private to the raiser automatically.
+// A failure here never fails the resolve itself.
+const postDevResolutionReply = async (ticketId, user, resolution) => {
+  try {
+    const senderId = String(user?.id ?? '');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(senderId);
+    await insertDeveloperTicketReply({
+      ticket_id: ticketId,
+      // sender_id is UUID — super admin auth uses id 0, which cannot be stored.
+      sender_id: isUuid ? senderId : null,
+      sender_name: getSenderName(user) || 'Support',
+      sender_panel: getSenderPanel(user),
+      message: (resolution && String(resolution).trim()) || 'Ticket marked as resolved after the issue was fixed.',
+      is_internal: false,
+    });
+  } catch (err) {
+    console.error('[developer-tickets] failed to post resolve reply:', err.message);
+  }
+};
 
 export const listTickets = async (req, res) => {
   try {
@@ -103,6 +125,12 @@ export const updateTicket = async (req, res) => {
     }
 
     const data = await updateDeveloperTicket(req.params.id, updates);
+
+    // Issue fixed → send the resolve message to the person who raised it
+    // (private: only the raiser can open conversations on dev tickets).
+    if (updates.status === 'resolved' && existing && existing.status !== 'resolved') {
+      await postDevResolutionReply(req.params.id, req.user, resolution);
+    }
     return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -231,6 +259,10 @@ export const resolveTicket = async (req, res) => {
     }
 
     const data = await updateDeveloperTicket(id, updates);
+
+    // Issue fixed → send the resolve message to the person who raised it
+    // (private: only the raiser can open conversations on dev tickets).
+    await postDevResolutionReply(id, req.user, resolution);
 
     // Trigger notification ONLY to the original ticket raiser
     // The raiser is identified by ticket.raised_by
