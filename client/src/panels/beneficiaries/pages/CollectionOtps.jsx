@@ -94,6 +94,7 @@ export default function CollectionOtps() {
                   <th style={styles.th}>City</th>
                   <th style={styles.th}>OTP</th>
                   <th style={styles.th}>Sent At</th>
+                  <th style={styles.th}>Status</th>
                   <th style={styles.th}>Kit</th>
                   <th style={styles.th}>Actions</th>
                 </tr>
@@ -110,6 +111,20 @@ export default function CollectionOtps() {
                       {b.collection_otp_at
                         ? new Date(b.collection_otp_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
                         : '-'}
+                    </td>
+                    <td style={styles.td}>
+                      {(() => {
+                        const sent = b.collection_otp_at ? new Date(b.collection_otp_at).getTime() : 0
+                        const expired = !sent || Date.now() - sent > 15 * 60 * 1000
+                        return (
+                          <span style={styles.pill(
+                            expired ? '#f1f5f9' : '#dcfce7',
+                            expired ? '#64748b' : '#166534'
+                          )}>
+                            {expired ? 'Expired' : 'Valid'}
+                          </span>
+                        )
+                      })()}
                     </td>
                     <td style={styles.td}>
                       <span style={styles.pill(
