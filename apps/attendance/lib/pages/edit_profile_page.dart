@@ -128,11 +128,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
     setState(() => _busy = true);
     try {
-      await ApiService.submitProfileUpdateRequest(changes);
+      await ApiService.updateMyProfile(changes);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Changes submitted for HR review'),
+            content: Text('Profile updated'),
             backgroundColor: Color(0xFF10b981),
           ),
         );
@@ -183,7 +183,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   onPressed: _busy ? null : _submitForReview,
                   child: _busy
                       ? const ButtonSkeleton()
-                      : Text('Submit for Review', style: GoogleFonts.hankenGrotesk(
+                      : Text('Save Changes', style: GoogleFonts.hankenGrotesk(
                           fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600,
                           color: hasChanges ? sc.primary : sc.onSurfaceVariant,
                         )),
