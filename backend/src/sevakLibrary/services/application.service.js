@@ -165,6 +165,75 @@ export async function rejectApplication(id, reason) {
   return ensureRow({ data, error })
 }
 
+// Renewal math mirrors the applicant form's computeEndDate (formUtils.js):
+// the plan is added to a base date with month-end clamping.
+const PLAN_ADD = {
+  Daily: { days: 1 },
+  'Half Monthly': { days: 15 },
+  Monthly: { months: 1 },
+  Quarterly: { months: 3 },
+  'Half-Yearly': { months: 6 },
+  Annual: { months: 12 },
+}
+
+const toISODate = (d) => {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+const addPlanDuration = (isoDate, plan) => {
+  const rule = PLAN_ADD[plan]
+  if (!rule) return null
+  const d = new Date(`${isoDate}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return null
+  if (rule.days) {
+    d.setDate(d.getDate() + rule.days)
+    return toISODate(d)
+  }
+  const day = d.getDate()
+  d.setDate(1)
+  d.setMonth(d.getMonth() + rule.months)
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(day, last))
+  return toISODate(d)
+}
+
+// True renewal: extends the SAME row (keeps membership_id) instead of issuing a
+// second membership for the same person. Base = whichever is later — the
+// current end date (early renewal keeps the remaining days; renewing 9 Sep on a
+// 7 Sep–7 Oct Monthly membership ends 7 Nov, not 9 Oct) or today (renewing
+// after expiry starts the new period from today). Also records the fee as
+// renewal revenue and re-arms both reminder emails (advance expiry + post-
+// expiry) for the new end date.
+export async function renewApplication(id, { fee } = {}) {
+  const row = await getApplicationById(id)
+  if (row.status !== 'APPROVED') throw new AppError('Only approved memberships can be renewed', 400)
+  if (!row.membership_type) throw new AppError('This application has no membership plan', 400)
+
+  const today = new Date().toISOString().slice(0, 10)
+  const base = row.end_date && row.end_date >= today ? row.end_date : today
+  const newEnd = addPlanDuration(base, row.membership_type)
+  if (!newEnd) throw new AppError(`Cannot compute renewal dates for plan "${row.membership_type}"`, 400)
+
+  const parsedFee = fee == null || fee === '' ? NaN : Number(fee)
+  const amount = Number.isFinite(parsedFee) && parsedFee >= 0 ? parsedFee : Number(row.membership_fee) || 0
+
+  const { data, error } = await db.from('applications')
+    .update({
+      end_date: newEnd,
+      renewal_count: (Number(row.renewal_count) || 0) + 1,
+      renewal_fees: (Number(row.renewal_fees) || 0) + amount,
+      last_renewed_at: today,
+      renewal_email_sent: false,
+      renewal_soon_sent: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single()
+  return ensureRow({ data, error })
+}
+
 // Matches update_application + replaceable photos (0007/0008).
 export async function updateApplication(id, { data, transactionId, passportFile, identityFile, removePassport, removeIdentity }) {
   const existing = await getApplicationById(id)
