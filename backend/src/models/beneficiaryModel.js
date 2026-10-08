@@ -210,10 +210,12 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by, has_otp }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
   if (created_by) query = query.eq('created_by', created_by);
+  // OTP tab: only beneficiaries with a generated collection OTP.
+  if (has_otp === true || has_otp === 'true') query = query.not('collection_otp', 'is', null);
 
   if (search) {
     // Commas and parens are PostgREST or= separators, so a typed event name
@@ -237,7 +239,13 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  if (kit_given !== undefined && kit_given !== null) {
+  if (has_otp === true || has_otp === 'true') {
+    // OTP tab: newest OTP first so fresh re-issues sit at the top.
+    query = query
+      .order('collection_otp_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+  } else if (kit_given !== undefined && kit_given !== null) {
     // Kit-given history: newest handout first (matches the app's "Given Today"
     // overview count so the freshly-given beneficiaries appear at the top).
     query = query

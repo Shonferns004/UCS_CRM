@@ -14,6 +14,10 @@ const styles = {
   td: { padding: '10px 12px', borderBottom: '1px solid var(--bg)', color: 'var(--ink)' },
   pill: (bg, fg) => ({ display: 'inline-block', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, background: bg, color: fg }),
   link: { color: 'var(--sage)', textDecoration: 'none', cursor: 'pointer', fontWeight: 500 },
+  tabs: { display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '2px solid var(--line)' },
+  tab: { padding: '8px 16px', fontSize: '13px', fontWeight: 600, color: 'var(--ink-soft)', background: 'transparent', border: 'none', borderBottom: '2px solid transparent', marginBottom: '-2px', cursor: 'pointer' },
+  tabActive: { color: 'var(--ink)', borderBottomColor: 'var(--sage)' },
+  otpChip: { fontSize: '13px', fontWeight: 700, letterSpacing: '3px', background: '#eef2ff', color: '#3730a3', padding: '3px 10px', borderRadius: 'var(--radius-sm)' },
 }
 
 const STATUS_COLORS = {
@@ -25,6 +29,11 @@ const STATUS_COLORS = {
   DUPLICATE: ['#f3e8ff', '#6b21a8'],
 }
 
+const TABS = [
+  { id: 'all', label: 'All Members' },
+  { id: 'otp', label: 'Collection OTPs' },
+]
+
 export default function AllBeneficiaries() {
   const navigate = useNavigate()
   const base = useBnfBase()
@@ -35,6 +44,7 @@ export default function AllBeneficiaries() {
   const [eventFilter, setEventFilter] = useState('')
   const [events, setEvents] = useState([])
   const [page, setPage] = useState(1)
+  const [tab, setTab] = useState('all')
   const pageSize = 25
 
   // Event filter options — the same operator_events rows the app's Operator
@@ -50,8 +60,12 @@ export default function AllBeneficiaries() {
     try {
       const params = new URLSearchParams({ page, pageSize })
       if (search) params.set('search', search)
-      if (statusFilter) params.set('status', statusFilter)
-      if (eventFilter) params.set('event_id', eventFilter)
+      if (tab === 'otp') {
+        params.set('has_otp', 'true')
+      } else {
+        if (statusFilter) params.set('status', statusFilter)
+        if (eventFilter) params.set('event_id', eventFilter)
+      }
       const result = await apiGet(`/beneficiaries?${params}`)
       setData(result)
     } catch (e) {
@@ -59,7 +73,7 @@ export default function AllBeneficiaries() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, statusFilter, eventFilter])
+  }, [page, search, statusFilter, eventFilter, tab])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -117,6 +131,18 @@ export default function AllBeneficiaries() {
         </button>
       </div>
 
+      <div style={styles.tabs}>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => { setTab(t.id); setPage(1); setSelected(new Set()) }}
+            style={{ ...styles.tab, ...(tab === t.id ? styles.tabActive : {}) }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div style={styles.filterBar}>
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px' }}>
           <input
@@ -128,68 +154,117 @@ export default function AllBeneficiaries() {
           />
           <button type="submit" style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>Search</button>
         </form>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} style={styles.input}>
-          <option value="">All Status</option>
-          <option value="ACTIVE">Active</option>
-          <option value="INACTIVE">Inactive</option>
-          <option value="SUSPENDED">Suspended</option>
-          <option value="TRANSFERRED">Transferred</option>
-          <option value="DECEASED">Deceased</option>
-          <option value="DUPLICATE">Duplicate</option>
-        </select>
-        <select value={eventFilter} onChange={(e) => { setEventFilter(e.target.value); setPage(1) }} style={styles.input}>
-          <option value="">All Events</option>
-          {events.map((ev) => (
-            <option key={ev.id} value={ev.id}>
-              {ev.title || ev.name || `Event #${ev.id}`}{ev.event_date ? ` — ${ev.event_date}` : ''}
-            </option>
-          ))}
-        </select>
-        {selected.size > 0 && (
+        {tab === 'all' && (
+          <>
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} style={styles.input}>
+              <option value="">All Status</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="TRANSFERRED">Transferred</option>
+              <option value="DECEASED">Deceased</option>
+              <option value="DUPLICATE">Duplicate</option>
+            </select>
+            <select value={eventFilter} onChange={(e) => { setEventFilter(e.target.value); setPage(1) }} style={styles.input}>
+              <option value="">All Events</option>
+              {events.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.title || ev.name || `Event #${ev.id}`}{ev.event_date ? ` — ${ev.event_date}` : ''}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        {tab === 'all' && selected.size > 0 && (
           <button onClick={handleDeleteSelected} style={{ ...styles.btn, background: '#dc2626', color: '#fff' }}>
             Delete Selected ({selected.size})
           </button>
         )}
-        <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>{data.total || 0} beneficiaries</span>
+        <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>
+          {data.total || 0} {tab === 'otp' ? 'OTP(s)' : 'beneficiaries'}
+        </span>
       </div>
 
       <div style={styles.card}>
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>Loading...</div>
         ) : data.data?.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No beneficiaries found</div>
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>
+            {tab === 'otp'
+              ? 'No OTPs yet — one is created when an operator accepts "Already collected".'
+              : 'No beneficiaries found'}
+          </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ ...styles.table, minWidth: 1700 }}>
+            <table style={{ ...styles.table, minWidth: tab === 'otp' ? 980 : 1600 }}>
               <thead>
-                <tr>
-                  <th style={{ ...styles.th, width: 36 }}>
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-                  </th>
-                  <th style={styles.th}>Code</th>
-                  <th style={styles.th}>Name</th>
-                  <th style={styles.th}>Mobile</th>
-                  <th style={styles.th}>NGO</th>
-                  <th style={styles.th}>Gender</th>
-                  <th style={styles.th}>DOB</th>
-                  <th style={styles.th}>Occupation</th>
-                  <th style={styles.th}>Address</th>
-                  <th style={styles.th}>Pincode</th>
-                  <th style={styles.th}>Aadhaar No.</th>
-                  <th style={styles.th}>Needed</th>
-                  <th style={styles.th}>City</th>
-                  <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Kit</th>
-                  <th style={styles.th}>OTP</th>
-                  <th style={styles.th}>Event</th>
-                  <th style={styles.th}>Fingerprint</th>
-                  <th style={styles.th}>Registered</th>
-                  <th style={styles.th}>Actions</th>
-                </tr>
+                {tab === 'otp' ? (
+                  <tr>
+                    <th style={styles.th}>Code</th>
+                    <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Mobile</th>
+                    <th style={styles.th}>City</th>
+                    <th style={styles.th}>OTP</th>
+                    <th style={styles.th}>Sent At</th>
+                    <th style={styles.th}>Kit</th>
+                    <th style={styles.th}>Actions</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th style={{ ...styles.th, width: 36 }}>
+                      <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                    </th>
+                    <th style={styles.th}>Code</th>
+                    <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Mobile</th>
+                    <th style={styles.th}>NGO</th>
+                    <th style={styles.th}>Gender</th>
+                    <th style={styles.th}>DOB</th>
+                    <th style={styles.th}>Occupation</th>
+                    <th style={styles.th}>Address</th>
+                    <th style={styles.th}>Pincode</th>
+                    <th style={styles.th}>Aadhaar No.</th>
+                    <th style={styles.th}>Needed</th>
+                    <th style={styles.th}>City</th>
+                    <th style={styles.th}>Status</th>
+                    <th style={styles.th}>Kit</th>
+                    <th style={styles.th}>Event</th>
+                    <th style={styles.th}>Fingerprint</th>
+                    <th style={styles.th}>Registered</th>
+                    <th style={styles.th}>Actions</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {data.data?.map((b) => {
                   const [bg, fg] = STATUS_COLORS[b.status] || ['var(--bg)', 'var(--ink-soft)']
+                  if (tab === 'otp') {
+                    return (
+                      <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => navigate(base + `/${b.id}`)}>
+                        <td style={styles.td}><code style={{ fontSize: '12px', background: 'var(--bg)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>{b.beneficiary_code}</code></td>
+                        <td style={styles.td}><span style={styles.link}>{b.full_name}</span></td>
+                        <td style={styles.td}>{b.mobile || '-'}</td>
+                        <td style={styles.td}>{b.city || '-'}</td>
+                        <td style={styles.td}><code style={styles.otpChip}>{b.collection_otp}</code></td>
+                        <td style={styles.td}>
+                          {b.collection_otp_at
+                            ? new Date(b.collection_otp_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                            : '-'}
+                        </td>
+                        <td style={styles.td}>
+                          <span style={styles.pill(
+                            b.kit_given ? '#dcfce7' : '#fef3c7',
+                            b.kit_given ? '#166534' : '#92400e'
+                          )}>
+                            {b.kit_given ? 'Yes' : 'No'}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <span onClick={(e) => { e.stopPropagation(); navigate(base + `/${b.id}`) }} style={styles.link}>View</span>
+                        </td>
+                      </tr>
+                    )
+                  }
                   return (
                     <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => navigate(base + `/${b.id}`)}>
                       <td style={styles.td} onClick={(e) => e.stopPropagation()}>
@@ -215,13 +290,6 @@ export default function AllBeneficiaries() {
                         )}>
                           {b.kit_given ? 'Yes' : 'No'}
                         </span>
-                      </td>
-                      <td style={styles.td}>
-                        {b.collection_otp ? (
-                          <code style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '3px', background: '#eef2ff', color: '#3730a3', padding: '3px 8px', borderRadius: 'var(--radius-sm)' }}>
-                            {b.collection_otp}
-                          </code>
-                        ) : '-'}
                       </td>
                       <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {b.kit_event_name || '-'}
