@@ -221,6 +221,7 @@ export async function renderImageCertificate(imageBuffer, fields, values) {
   let overlays = '';
   for (const f of fields || []) {
     const style = f.style || {};
+    if (style.hidden) continue;
     const raw = values && values[f.field_key] != null ? String(values[f.field_key]) : null;
     // Optional fields stay blank unless the user actually typed something —
     // never silently substitute their template default.
