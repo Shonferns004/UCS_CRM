@@ -2415,9 +2415,9 @@ export default function Dashboard() {
                               {idl && (
                                 <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
                               )}
-                              {idl && (p.idleMinutes || 0) > 60 && (
+                              {(p.today_idle_seconds || 0) > 3600 && (
                                 <button
-                                  title={`Idle for ${p.idleMinutes}m — click to warn this telecaller`}
+                                  title={`Idle for ${formatDuration(p.today_idle_seconds)} — click to warn this telecaller`}
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     try {
