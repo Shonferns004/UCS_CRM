@@ -17,6 +17,7 @@ export const submit = async (req, res, next) => {
       data: req.body || {},
       passportFile: files.passport && files.passport[0],
       identityFile: files.identity && files.identity[0],
+      signatureFile: files.signature && files.signature[0],
     })
     res.status(201).json({ success: true, data: row })
   } catch (err) {
@@ -79,8 +80,10 @@ export const update = async (req, res, next) => {
       transactionId: req.body.transactionId,
       passportFile: files.passport && files.passport[0],
       identityFile: files.identity && files.identity[0],
+      signatureFile: files.signature && files.signature[0],
       removePassport: req.body.removePassport === 'true' || req.body.removePassport === true,
       removeIdentity: req.body.removeIdentity === 'true' || req.body.removeIdentity === true,
+      removeSignature: req.body.removeSignature === 'true' || req.body.removeSignature === true,
     })
     res.json({ success: true, data: row })
   } catch (err) {
