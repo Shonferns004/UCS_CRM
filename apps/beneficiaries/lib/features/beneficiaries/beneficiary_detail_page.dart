@@ -50,6 +50,11 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   bool _acceptedFlash = false;
   bool _decisionPrompted = false;
   bool _historyExpanded = false;
+  // Re-issue swipe is unlocked only after the collection OTP is verified.
+  bool _otpVerified = false;
+  bool _verifyingOtp = false;
+  String? _otpError;
+  late final TextEditingController _otpCtrl;
   List<Map<String, dynamic>> _kitHistory = [];
   late final AudioPlayer _player;
 
@@ -57,6 +62,9 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   void initState() {
     super.initState();
     _b = widget.beneficiary;
+    _otpCtrl = TextEditingController();
+    final v = _b['collection_otp_verified_at'];
+    _otpVerified = v != null && v.toString().trim().isNotEmpty;
     _player = AudioPlayer();
     if (_b['id'] != null) _refresh();
     if (!widget.readOnly) _maybePromptDecision();
@@ -64,6 +72,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   @override
   void dispose() {
+    _otpCtrl.dispose();
     _player.dispose();
     super.dispose();
   }
@@ -73,7 +82,13 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     if (id == null) return;
     try {
       final result = await ApiService.get('/beneficiaries/$id');
-      if (mounted) setState(() => _b = result);
+      if (mounted) {
+        setState(() {
+          _b = result;
+          final v = _b['collection_otp_verified_at'];
+          _otpVerified = v != null && v.toString().trim().isNotEmpty;
+        });
+      }
     } catch (_) {}
     try {
       final audit = await ApiService.getList('/beneficiaries/$id/audit');
@@ -125,16 +140,60 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   }
 
   // Accept creates a fresh 6-digit re-issue OTP on the server (shown in the
-  // accounts panel). Failures never block the give flow — swipe still works.
+  // accounts panel) and puts the bottom area into the verify-OTP state — the
+  // give swipe stays locked until verify succeeds.
   Future<void> _sendCollectionOtp() async {
     final id = _b['id'];
     if (id == null) return;
+    setState(() {
+      _otpVerified = false;
+      _otpError = null;
+      _otpCtrl.clear();
+    });
     try {
-      await ApiService.post('/beneficiaries/$id/collection-otp');
+      final result = await ApiService.post('/beneficiaries/$id/collection-otp');
       if (!mounted) return;
-      showAppSnackbar(context, 'OTP sent for verification');
-    } catch (_) {
-      // Best effort — operator can still give the kit.
+      final sentAt = result['sent_at'];
+      if (sentAt != null) _b['collection_otp_at'] = sentAt;
+      showAppSnackbar(context, 'OTP sent — enter it to continue');
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackbar(context, 'Could not send OTP: $e', error: true);
+    }
+  }
+
+  Future<void> _resendOtp() => _sendCollectionOtp();
+
+  Future<void> _verifyOtp() async {
+    if (_verifyingOtp) return;
+    final code = _otpCtrl.text.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      setState(() => _otpError = 'Enter the 6-digit OTP');
+      return;
+    }
+    final id = _b['id'];
+    if (id == null) return;
+    setState(() {
+      _verifyingOtp = true;
+      _otpError = null;
+    });
+    try {
+      final result =
+          await ApiService.post('/beneficiaries/$id/verify-collection-otp', body: {'otp': code});
+      if (!mounted) return;
+      setState(() {
+        _verifyingOtp = false;
+        _otpVerified = true;
+        final at = result['verified_at'];
+        if (at != null) _b['collection_otp_verified_at'] = at;
+      });
+      showAppSnackbar(context, 'OTP verified — swipe to give the kit', success: true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _verifyingOtp = false;
+        _otpError = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -1027,9 +1086,114 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     }
     final blocked = _kitGiven && !_justGiven && !_decisionAccepted;
     if (blocked) return const SizedBox.shrink();
+    // Re-issue flow: the swipe only appears after the OTP is verified; until
+    // then the verify card owns the bottom (server also enforces this).
+    if (_kitGiven && !_justGiven && !_otpVerified) return _buildOtpGate();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
       child: _GiveSwipe(onConfirm: _markKitGiven, busy: _markingKit),
+    );
+  }
+
+  // Verify-OTP card shown between Accept and the give swipe: 6-digit input,
+  // 15-minute validity hint, and a resend action once it expires.
+  Widget _buildOtpGate() {
+    final sentAt = DateTime.tryParse(_b['collection_otp_at']?.toString() ?? '');
+    final expiresAt = sentAt?.add(const Duration(minutes: 15));
+    final expired = expiresAt != null && DateTime.now().isAfter(expiresAt);
+    final validity = expired
+        ? 'OTP expired — resend to get a new one'
+        : expiresAt != null
+            ? 'Valid until ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(expiresAt))}'
+            : 'OTP valid for 15 minutes';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: AppTheme.cardShadow,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.lock_outline, size: 18, color: AppColors.primaryBlue),
+                SizedBox(width: 8),
+                Text(
+                  'Verify OTP',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Enter the 6-digit OTP to unlock giving the kit again.',
+              style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _otpCtrl,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: 10),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '••••••',
+                hintStyle: TextStyle(letterSpacing: 8, color: Colors.grey.shade400),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                errorText: _otpError,
+              ),
+              onSubmitted: (_) => _verifyOtp(),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlue,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: _verifyingOtp ? null : _verifyOtp,
+                child: _verifyingOtp
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Verify & Continue'),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Text(
+                    validity,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: expired ? AppColors.error : AppColors.textSecondary,
+                      fontWeight: expired ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _verifyingOtp ? null : _resendOtp,
+                  child: const Text('Resend OTP', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 

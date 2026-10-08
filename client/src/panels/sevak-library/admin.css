@@ -4826,3 +4826,416 @@
   margin-left: auto;
 }
 
+
+/* ---------- Applications: hero stat cards + toolbar Plan/Time dropdowns ---------- */
+
+.panel-sevak .hero-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+.panel-sevak .hero-stats .stat-card {
+  align-items: flex-start;
+}
+.panel-sevak .hero-stats .stat-icon {
+  margin-top: 2px;
+}
+.panel-sevak .hero-stats .stat-value {
+  font-size: 26px;
+}
+
+.panel-sevak .app-toolbar .sel-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.panel-sevak .sel-wrap {
+  position: relative;
+}
+.panel-sevak .sel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.panel-sevak .sel-btn:hover {
+  background: #f6f8fa;
+}
+.panel-sevak .sel-btn.active {
+  border-color: #0B7FDB;
+  color: #0B7FDB;
+  background: #f0f7ff;
+}
+.panel-sevak .sel-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1080;
+  min-width: 220px;
+  max-height: 320px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+}
+.panel-sevak .sel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  border-radius: 7px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.panel-sevak .sel-item:hover {
+  background: #f1f5f9;
+}
+.panel-sevak .sel-item.active {
+  background: #eef6ff;
+  color: #0B7FDB;
+  font-weight: 600;
+}
+.panel-sevak .sel-item span {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.panel-sevak .sel-item.active span {
+  color: inherit;
+}
+.panel-sevak .sel-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@media (max-width: 700px) {
+  .panel-sevak .app-toolbar .sel-group {
+    width: 100%;
+  }
+  .panel-sevak .sel-wrap {
+    flex: 1 1 auto;
+  }
+  .panel-sevak .sel-btn {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* ---------- Applications: alerts bell + popover ---------- */
+
+.panel-sevak .alerts-wrap {
+  position: relative;
+}
+.panel-sevak .bell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  cursor: pointer;
+}
+.panel-sevak .bell-btn:hover {
+  background: #f6f8fa;
+}
+.panel-sevak .bell-btn.active {
+  border-color: #0b7fdb;
+  color: #0b7fdb;
+  background: #f0f7ff;
+}
+.panel-sevak .bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+}
+.panel-sevak .alerts-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1080;
+  width: 340px;
+  max-height: 420px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.14);
+  padding: 8px;
+}
+.panel-sevak .alerts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.panel-sevak .alerts-head strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.panel-sevak .alerts-head small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.panel-sevak .alerts-sec {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 8px 8px 4px;
+}
+.panel-sevak .alerts-sec em {
+  margin-left: auto;
+  font-style: normal;
+  background: #fdeaea;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+.panel-sevak .alert-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.panel-sevak .alert-row:hover {
+  background: #f6f8fa;
+}
+.panel-sevak .alert-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.panel-sevak .alert-dot.red {
+  background: #dc2626;
+}
+.panel-sevak .alert-dot.amber {
+  background: #f59e0b;
+}
+.panel-sevak .alert-dot.blue {
+  background: #3b82f6;
+}
+.panel-sevak .alert-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+.panel-sevak .alert-main strong {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-sevak .alert-main small {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.panel-sevak .alert-row svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.panel-sevak .alerts-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: #0b7fdb;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.panel-sevak .alerts-all:hover {
+  background: #f0f7ff;
+}
+.panel-sevak .alerts-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ── Signature pad (edit form) + signature previews ──────────────────── */
+.panel-sevak .sig-edit {
+  display: block;
+}
+.panel-sevak .sig-edit .edit-label {
+  display: block;
+  margin-bottom: 6px;
+}
+.panel-sevak .sig-pad {
+  position: relative;
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.panel-sevak .sig-canvas {
+  display: block;
+  width: 100%;
+  height: 130px;
+  touch-action: none;
+  cursor: crosshair;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 32px,
+    rgba(148, 163, 184, 0.25) 32px,
+    rgba(148, 163, 184, 0.25) 33px
+  );
+}
+.panel-sevak .sig-hint {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  transform: translate(-50%, -50%);
+  color: #94a3b8;
+  font-size: 14px;
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+}
+.panel-sevak .sig-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.panel-sevak .sig-clear {
+  padding: 4px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: #334155;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.panel-sevak .sig-clear:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+.panel-sevak .sig-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.panel-sevak .sig-status {
+  font-size: 12px;
+  color: #64748b;
+}
+.panel-sevak .sig-status.ok {
+  color: #15803d;
+  font-weight: 600;
+}
+.panel-sevak .sig-current {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.panel-sevak .sig-current img {
+  height: 48px;
+  width: auto;
+  max-width: 240px;
+  object-fit: contain;
+  object-position: left center;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.panel-sevak .sig-legacy {
+  font-style: italic;
+  color: #475569;
+  font-size: 14px;
+}
+.panel-sevak .sig-note {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: #b45309;
+}
+.panel-sevak .d-signature {
+  display: block;
+  max-width: 220px;
+  height: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.panel-sevak .doc-sign-img {
+  display: block;
+  max-height: 34px;
+  max-width: 70%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  margin: 0 0 2px;
+}

@@ -31,21 +31,27 @@ export async function getDashboard() {
 
 // format 'data' → base64 data URLs (for the PDF renderer, which cannot draw
 // cross-origin S3 photos onto a canvas); default → presigned URLs (display).
-// Returns the {passport, identity} object (or null) — the envelope is unwrapped
-// here, every caller reads .passport off the result directly.
+// Returns the {passport, identity, signature} object (or null) — the envelope
+// is unwrapped here, every caller reads .passport / .signature off it directly.
 export async function getPhotoUrls(applicationId, format) {
   const res = await req(`${P}/applications/${applicationId}/photo-url${format ? `?format=${format}` : ''}`)
   return res && res.data != null ? res.data : null
 }
 
 export async function updateApplication(id, data, transactionId, photos = {}) {
-  const hasFiles = photos.passport instanceof File || photos.identity instanceof File
+  const hasFiles =
+    photos.passport instanceof File ||
+    photos.identity instanceof File ||
+    photos.signature instanceof File ||
+    photos.removeSignature === true
   if (hasFiles) {
     const fd = new FormData()
     fd.append('data', JSON.stringify(data))
     if (transactionId) fd.append('transactionId', String(transactionId))
     if (photos.passport instanceof File) fd.append('passport', photos.passport)
     if (photos.identity instanceof File) fd.append('identity', photos.identity)
+    if (photos.signature instanceof File) fd.append('signature', photos.signature)
+    if (photos.removeSignature === true) fd.append('removeSignature', 'true')
     const res = await req(`${P}/applications/${id}`, { method: 'PUT', body: fd })
     return res.data
   }

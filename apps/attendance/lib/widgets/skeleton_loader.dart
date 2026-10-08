@@ -31,12 +31,22 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
+    return _SkeletonAnimationScope(
       animation: _anim,
-      builder: (_, child) => Opacity(opacity: _anim.value, child: child),
       child: widget.child,
     );
   }
+}
+
+class _SkeletonAnimationScope extends InheritedWidget {
+  final Animation<double> animation;
+  const _SkeletonAnimationScope({required this.animation, required super.child});
+
+  static Animation<double>? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SkeletonAnimationScope>()?.animation;
+
+  @override
+  bool updateShouldNotify(covariant _SkeletonAnimationScope oldWidget) => false;
 }
 
 class SkeletonBlock extends StatelessWidget {
@@ -51,6 +61,33 @@ class SkeletonBlock extends StatelessWidget {
     this.borderRadius = 8,
     this.color = const Color(0xFFe0e4ea),
   });
+
+  @override
+  Widget build(BuildContext context) {
+    final anim = _SkeletonAnimationScope.of(context);
+    if (anim == null) {
+      return _Block(width: width, height: height, borderRadius: borderRadius, color: color);
+    }
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, __) {
+        // Pulse the block color instead of wrapping the whole tree in an
+        // Opacity layer (which forces an expensive off-screen composite of
+        // the entire skeleton subtree every frame).
+        final t = anim.value;
+        final lerped = Color.lerp(color, Colors.white, (t - 0.3) / 0.4 * 0.6)!;
+        return _Block(width: width, height: height, borderRadius: borderRadius, color: lerped);
+      },
+    );
+  }
+}
+
+class _Block extends StatelessWidget {
+  final double width;
+  final double height;
+  final double borderRadius;
+  final Color color;
+  const _Block({required this.width, required this.height, required this.borderRadius, required this.color});
 
   @override
   Widget build(BuildContext context) {

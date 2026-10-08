@@ -14,7 +14,7 @@ import {
   saveSignatureRecord,
   commitSignature,
 } from '../models/onboardingModel.js';
-import { presignSignatureUrl } from '../services/signatureMediaLink.js';
+import { presignSignatureUrl, presignPhotoUrl } from '../services/signatureMediaLink.js';
 
 const BUCKET_NAME = 'worker-documents';
 
@@ -145,7 +145,7 @@ export const uploadPhoto = async (req, res) => {
 
     return res.json({
       message: 'Photo uploaded successfully',
-      photo_url: photoUrl,
+      photo_url: await presignPhotoUrl(photoUrl),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -260,7 +260,7 @@ export const adminUploadPhoto = async (req, res) => {
 
     return res.json({
       message: 'Photo uploaded successfully',
-      photo_url: photoUrl,
+      photo_url: await presignPhotoUrl(photoUrl),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

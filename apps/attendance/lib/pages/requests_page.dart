@@ -109,6 +109,7 @@ class _RequestsPageState extends State<RequestsPage> {
         ],
       ),
     );
+    ctrl.dispose();
     return result;
   }
 
@@ -147,6 +148,7 @@ class _RequestsPageState extends State<RequestsPage> {
         ],
       ),
     );
+    ctrl.dispose();
     return result;
   }
 
@@ -679,6 +681,8 @@ class _RequestsPageState extends State<RequestsPage> {
                           width: double.infinity,
                           height: 200,
                           fit: BoxFit.cover,
+                          cacheWidth: 800,
+                          cacheHeight: 500,
                           errorBuilder: (_, __, ___) => Container(
                             height: 100,
                             decoration: BoxDecoration(

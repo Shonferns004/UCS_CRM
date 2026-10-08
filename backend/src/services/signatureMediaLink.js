@@ -37,6 +37,11 @@ import { describeStoredObjectUrl, isSafeKey } from './receiptFileLink.js';
 // signed link to some other part of the bucket.
 const SIGNATURE_PREFIX = 'worker-documents/worker_signatures/';
 
+// Profile photos live in the same bucket under worker_photos/, so the same
+// public-access lockdown that broke signature URLs 403s photos too. They are
+// presigned on the way out for the identical reason.
+const PHOTO_PREFIX = 'worker-documents/worker_photos/';
+
 // Long enough to cover an HR session -- the ODAR letter is built in the browser
 // from a worker list fetched when the panel opens, and a volunteer leaving the
 // page open must not silently lose their own signature -- while still expiring
@@ -77,7 +82,7 @@ const isPresigned = (value) => SIGNED_MARKERS.some((m) => value.includes(m));
  * deployment does not manage, or is not a signature object. Callers treat null as
  * "return the stored value unchanged".
  */
-export function locateSignature(stored) {
+function locateWithPrefix(stored, prefix) {
   const value = String(stored ?? '').trim();
   if (!value) return null;
   if (isPresigned(value)) return null;
@@ -91,22 +96,22 @@ export function locateSignature(stored) {
     account = described.account;
     key = described.key;
   } else {
-    // A bare key carries no bucket, so it is resolved against the same account
-    // the single-argument storage calls use. If a future migration stores keys
-    // this is the only line that has to know it.
     const handle = db.storage.raw() || db.storage.raw('head');
     if (!handle) return null;
     account = handle.account;
     key = value;
   }
 
-  // isSafeKey is the reason a prefix check is not enough on its own: S3 resolves
-  // `..` within a key, so `worker_signatures/../../receipts/1.pdf` satisfies
-  // startsWith() and still addresses a different object. Checked for bare keys
-  // here because a URL input has already been through it inside
-  // describeStoredObjectUrl(); applying it to both keeps the invariant local.
-  if (!isSafeKey(key) || !key.startsWith(SIGNATURE_PREFIX)) return null;
+  if (!isSafeKey(key) || !key.startsWith(prefix)) return null;
   return { account, key };
+}
+
+export function locateSignature(stored) {
+  return locateWithPrefix(stored, SIGNATURE_PREFIX);
+}
+
+export function locatePhoto(stored) {
+  return locateWithPrefix(stored, PHOTO_PREFIX);
 }
 
 /**
@@ -133,6 +138,26 @@ export async function presignSignatureUrl(stored) {
     );
   } catch (e) {
     console.warn(`[signature] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
+    return original;
+  }
+}
+
+export async function presignPhotoUrl(stored) {
+  const original = String(stored ?? '');
+  const located = locatePhoto(original);
+  if (!located) return original;
+
+  const handle = db.storage.raw(located.account);
+  if (!handle) return original;
+
+  try {
+    return await getSignedUrl(
+      handle.client,
+      new GetObjectCommand({ Bucket: handle.bucket, Key: located.key }),
+      { expiresIn: ttlSeconds() }
+    );
+  } catch (e) {
+    console.warn(`[photo] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
     return original;
   }
 }
