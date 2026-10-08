@@ -165,6 +165,8 @@ export default function Agents() {
 
   const heldCount = agents.filter((a) => a.is_active).length;
 
+  const [searchTerm, setSearchTerm] = useState('');
+
   const run = async (fn, successMessage) => {
     setBusy(true);
     setError('');
@@ -395,6 +397,18 @@ export default function Agents() {
       )}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {!loading && agents.length > 0 && (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              className="input"
+              type="text"
+              placeholder="Search by agent or FRO name…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ maxWidth: 320 }}
+            />
+          </div>
+        )}
         {loading ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--muted)' }}>Loading agents&hellip;</div>
         ) : agents.length === 0 ? (
@@ -419,6 +433,13 @@ export default function Agents() {
             </thead>
             <tbody>
               {[...agents]
+                .filter((a) => {
+                  const q = searchTerm.trim().toLowerCase();
+                  if (!q) return true;
+                  return (a.label || '').toLowerCase().includes(q)
+                    || (a.worker_name || '').toLowerCase().includes(q)
+                    || (a.worker_login_id || a.login_id || '').toLowerCase().includes(q);
+                })
                 .sort((a, b) => {
                   const aOk = a.is_active && a.worker_is_active !== false && a.employment_status !== 'terminated' && a.station_count > 0;
                   const bOk = b.is_active && b.worker_is_active !== false && b.employment_status !== 'terminated' && b.station_count > 0;

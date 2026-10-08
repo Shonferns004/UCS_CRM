@@ -308,11 +308,13 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     }
     setSavingStatus(true);
     try {
+      const endpoint = showDetail._source === 'developer' ? '/developer-tickets' : '/tickets';
       const payload = { status: newStatus };
       if (newStatus === 'resolved') payload.resolution = resolutionNote.trim();
-      await apiPut(`/tickets/${showDetail.id}`, payload);
-      const refreshed = await apiGet(`/tickets/${showDetail.id}`).catch(() => null);
-      setShowDetail(refreshed ? { ...refreshed, _source: 'regular' } : null);
+      await apiPut(`${endpoint}/${showDetail.id}`, payload);
+      const refreshed = await apiGet(`${endpoint}/${showDetail.id}`).catch(() => null);
+      setShowDetail(refreshed ? { ...refreshed, _source: showDetail._source } : null);
+      if (refreshed) setReplies(refreshed.replies || []);
       setResolutionNote('');
       loadTickets();
     } catch (err) { alert(err.message); }
