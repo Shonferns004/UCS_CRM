@@ -209,7 +209,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
   const fitZoom = () => {
     const w = wrapRef.current?.clientWidth
     if (!w) return 0.5
-    return Math.min(1, Math.max(0.05, (w - 48) / canvasW))
+    return Math.min(1, Math.max(0.05, (w - 32) / canvasW))
   }
 
   const applyFit = () => { setZoom(fitZoom()); setZoomFit(true) }
@@ -637,35 +637,26 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           background:#fff; color:#334155; cursor:pointer; flex-shrink:0; }
         .ced-back:hover { background:var(--blue-l); border-color:#BFDBFE; color:var(--blue); }
 
-        .ced-head { display:flex; align-items:center; gap:14px; background:var(--surface); border:1px solid var(--line); border-radius:14px;
-          padding:14px 16px; box-shadow:0 1px 3px rgba(15,23,42,.05); flex-wrap:wrap; }
+        .ced-head { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:12px;
+          padding:10px 14px; box-shadow:0 1px 3px rgba(15,23,42,.05); flex-wrap:wrap; }
         .ced-head-titles { min-width:0; flex:1; }
-        .ced-head h1 { font-size:22px; line-height:1.25; font-weight:700; letter-spacing:-.01em; }
-        .ced-head .ced-sub { font-size:13px; color:var(--ink2); margin-top:3px; }
+        .ced-head h1 { font-size:18px; line-height:1.25; font-weight:700; letter-spacing:-.01em; }
         .ced-unsaved { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; color:#B45309; background:#FFFBEB;
           border:1px solid #FDE68A; border-radius:999px; padding:4px 10px; white-space:nowrap; }
         .ced-unsaved::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--amber); }
         .ced-head-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .ced-only-narrow { display:none; }
 
-        .ced-meta { margin-top:12px; background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px;
-          display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr) minmax(0,1.2fr); gap:14px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+        .ced-meta { margin-top:10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 14px;
+          display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
         .ced-meta-cell { min-width:0; }
-        .ced-meta-file { display:flex; align-items:center; gap:10px; border:1px dashed var(--line); border-radius:10px; padding:8px 10px; background:#F8FAFF; }
-        .ced-meta-file.over { border-color:var(--blue); background:var(--blue-l); }
-        .ced-meta-file .fico { width:34px; height:34px; border-radius:8px; background:var(--blue-l); color:var(--blue); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-        .ced-meta-file .fname { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .ced-meta-file .fmeta { font-size:11px; color:var(--ink3); text-transform:uppercase; letter-spacing:.04em; }
-        .ced-prog { height:5px; border-radius:999px; background:#E2E8F0; overflow:hidden; margin-top:8px; }
-        .ced-prog i { display:block; height:100%; width:40%; border-radius:999px; background:var(--blue); animation:cedProg 1.1s ease-in-out infinite; }
-        @keyframes cedProg { 0%{transform:translateX(-100%)} 100%{transform:translateX(250%)} }
 
-        .ced-work { margin-top:12px; display:grid; grid-template-columns:280px minmax(0,1fr) 360px; gap:12px;
-          height:max(430px, calc(100vh - 340px)); min-width:0; }
-        .ced-panel { position:relative; background:var(--surface); border:1px solid var(--line); border-radius:14px; display:flex; flex-direction:column;
-          min-height:0; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
-        .ced-panel-body { flex:1; min-height:0; overflow-y:auto; padding:12px; }
-        .ced-panel-head { padding:14px 14px 10px; border-bottom:1px solid var(--line); }
+        .ced-work { margin-top:10px; display:grid; grid-template-columns:230px minmax(0,1fr) 300px; gap:10px;
+          min-width:0; }
+        .ced-panel { position:relative; background:var(--surface); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column;
+          min-height:0; max-height:calc(100vh - 300px); overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+        .ced-panel-body { flex:1; min-height:0; overflow-y:auto; padding:10px; }
+        .ced-panel-head { padding:10px 12px 8px; border-bottom:1px solid var(--line); }
         .ced-panel-head h2 { font-size:15px; font-weight:700; }
         .ced-panel-head .ph-sub { font-size:12px; color:var(--blue); font-weight:600; margin-top:2px; }
         .ced-panel-head .ph-desc { font-size:12px; color:var(--ink2); margin-top:6px; line-height:1.45; }
@@ -695,16 +686,16 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-list-item .ltype { font-size:11px; color:var(--ink3); }
         .ced-empty { font-size:12.5px; color:var(--ink3); text-align:center; padding:18px 8px; border:1px dashed var(--line); border-radius:10px; line-height:1.5; }
 
-        .ced-canvas-col { display:flex; flex-direction:column; min-width:0; min-height:0; gap:8px; }
-        .ced-canvas-bar { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:10px 12px; display:flex;
+        .ced-canvas-col { display:flex; flex-direction:column; min-width:0; min-height:0; gap:10px; }
+        .ced-canvas-bar { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:8px 12px; display:flex;
           align-items:center; gap:12px; flex-wrap:wrap; box-shadow:0 1px 3px rgba(15,23,42,.05); position:relative; z-index:20; }
-        .ced-canvas-bar h2 { font-size:15px; font-weight:700; }
-        .ced-canvas-bar .csub { font-size:12px; color:var(--ink2); margin-top:1px; }
+        .ced-canvas-bar h2 { font-size:14px; font-weight:700; }
+        .ced-canvas-bar .csub { font-size:11.5px; color:var(--ink2); margin-top:1px; }
         .ced-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
         .ced-zoom-val { min-width:52px; text-align:center; font-size:12px; font-weight:600; color:#334155; background:#F1F5F9;
           border:1px solid var(--line); border-radius:8px; height:32px; line-height:30px; cursor:pointer; user-select:none; }
-        .ced-stage { position:relative; flex:1; min-height:0; background:#F1F5F9; border:1px solid var(--line); border-radius:14px; overflow:auto; }
-        .ced-stage-pad { width:max-content; min-width:100%; margin:0 auto; padding:22px; display:flex; justify-content:center; }
+        .ced-stage { position:relative; height:calc(100vh - 364px); min-height:440px; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
+        .ced-stage-pad { width:max-content; min-width:100%; margin:0 auto; padding:14px; display:flex; justify-content:center; }
         .ced-paper { position:relative; background:#fff; border-radius:3px; box-shadow:0 8px 30px rgba(15,23,42,.16); overflow:hidden; flex-shrink:0; }
         .ced-paper img.ced-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; display:block; user-select:none; pointer-events:none; }
         .ced-skel { position:absolute; inset:0; background:linear-gradient(100deg,#F1F5F9 30%,#E2E8F0 50%,#F1F5F9 70%); background-size:200% 100%;
@@ -772,11 +763,11 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-prev-wrap img { max-width:100%; max-height:60vh; border-radius:6px; box-shadow:0 6px 20px rgba(15,23,42,.14); background:#fff; }
 
         @media (max-width: 1199px) {
-          .ced-work { grid-template-columns:240px minmax(0,1fr) 320px; }
-          .ced-head h1 { font-size:20px; }
+          .ced-work { grid-template-columns:210px minmax(0,1fr) 280px; }
+          .ced-head h1 { font-size:17px; }
         }
         @media (max-width: 1024px) {
-          .ced-work { grid-template-columns:minmax(0,1fr); height:auto; }
+          .ced-work { grid-template-columns:minmax(0,1fr); }
           .ced-only-narrow { display:inline-flex; }
           .ced-panel { position:fixed; top:0; bottom:0; width:min(340px,88vw); border-radius:0; z-index:500; max-height:none; }
           .ced-left { left:0; transform:translateX(-103%); transition:transform .2s ease; }
@@ -791,7 +782,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         @media (max-width: 767px) {
           .ced-head { padding:12px; gap:10px; }
           .ced-head h1 { font-size:17px; }
-          .ced-head .ced-sub { display:none; }
           .ced-head-actions { width:100%; justify-content:flex-end; }
           .ced-unsaved { order:3; }
           .ced-meta { grid-template-columns:minmax(0,1fr); padding:12px; }
@@ -811,7 +801,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         </button>
         <div className="ced-head-titles">
           <h1>Edit Certificate Template</h1>
-          <div className="ced-sub">Design and customize your certificate template with dynamic fields, styling options, and live preview.</div>
         </div>
         {dirty && <span className="ced-unsaved">Unsaved changes</span>}
         <div className="ced-head-actions">
@@ -854,42 +843,8 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
             <option value="">Select NGO</option>
             {(ngos || []).map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
           </select>
-          {errors.ngo && <div className="ced-err">{errors.ngo}</div>}
-        </div>
-        <div className="ced-meta-cell">
-          <span className="ced-lbl">Background / Template File</span>
-          <div
-            className="ced-meta-file"
-            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('over') }}
-            onDragLeave={(e) => e.currentTarget.classList.remove('over')}
-            onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('over'); if (canManage) doReplace([...e.dataTransfer.files][0]) }}
-          >
-            <div className="fico"><span style={{ fontSize: 10, fontWeight: 700 }}>{(draft?.file_name || draft?.file_format || 'img').split('.').pop()}</span></div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="fname" title={draft?.file_name}>{draft?.file_name || '—'}</div>
-              <div className="fmeta">{(draft?.file_format || 'image').toUpperCase()}{draft?.version ? ` · v${draft.version}` : ''}</div>
-            </div>
-            {canManage && (
-              <button type="button" className="ced-ibtn" onClick={() => fileRef.current?.click()} disabled={replacing} title="Replace the certificate background">
-                {replacing ? <Loader2 size={14} style={{ animation: 'cedspin .8s linear infinite' }} /> : <UploadCloud size={14} />} Replace
-              </button>
-            )}
+            {errors.ngo && <div className="ced-err">{errors.ngo}</div>}
           </div>
-          {replacing && (
-            <div>
-              <div style={{ fontSize: 11.5, color: '#2563EB', marginTop: 6, fontWeight: 600 }}>Uploading…</div>
-              <div className="ced-prog"><i /></div>
-            </div>
-          )}
-          {replaceError && <div className="ced-err">{replaceError}</div>}
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".png,.jpg,.jpeg,.webp"
-            hidden
-            onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; doReplace(f) }}
-          />
-        </div>
       </section>
 
       <div className="ced-work">
@@ -969,6 +924,19 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
               <button type="button" className="ced-ibtn" onClick={() => stepZoom(1)} title="Zoom in" aria-label="Zoom in"><ZoomIn size={15} /></button>
               <button type="button" className="ced-ibtn" onClick={applyFit} title="Fit to screen" aria-label="Fit canvas"><Maximize2 size={15} /></button>
               <button type="button" className="ced-ibtn" onClick={() => { setZoom(1); setZoomFit(false) }} title="Reset to 100%" aria-label="Reset zoom"><RotateCcw size={15} /></button>
+              {canManage && (
+                <button type="button" className="ced-ibtn" onClick={() => fileRef.current?.click()} disabled={replacing} title={`Replace background${draft?.file_name ? ` — ${draft.file_name}` : ''}${draft?.version ? ` (v${draft.version})` : ''}`}>
+                  {replacing ? <Loader2 size={15} style={{ animation: 'cedspin .8s linear infinite' }} /> : <UploadCloud size={15} />} Replace
+                </button>
+              )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp"
+                hidden
+                onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; doReplace(f) }}
+              />
+              {replaceError && <span className="ced-err" style={{ margin: 0 }}>{replaceError}</span>}
               <button type="button" className={`ced-ibtn ced-only-narrow ${sheet === 'fields' ? 'on' : ''}`} onClick={() => setSheet(sheet === 'fields' ? null : 'fields')}>Fields</button>
               <button type="button" className={`ced-ibtn ced-only-narrow ${sheet === 'props' ? 'on' : ''}`} onClick={() => setSheet(sheet === 'props' ? null : 'props')}>Properties</button>
             </div>
