@@ -145,6 +145,11 @@ const issueAgentSession = async (agent, req, res) => {
     // Non-fatal: label only.
   }
 
+  // Freeze criterion for the FRO absent right now: close their stale open period
+  // and lapsed deadline before the agent's heartbeats start a new window on that
+  // row. A FRESH, active row means the FRO is actually at their desk — leave it.
+  await parkCoveredFRORow(workerId);
+
   // Presence is recorded against the FRO, which is the whole reason this shows up
   // on the performance board as the FRO being online.
   //
@@ -1038,6 +1043,7 @@ export const impersonateFRO = async (req, res) => {
     // working. Clearing it means they return to a clean row, and their idle
     // restarts from the first real action of the new session.
     await parkIdleForCoverStart(imposterId);
+    await parkCoveredFRORow(target.id);
 
     // Author the cover relationship once, on the COVERED FRO's row, so the
     // admin boards can label it without the flicker that came from writing it
@@ -1243,6 +1249,39 @@ async function parkIdleForCoverStart(operatorId) {
     // Non-fatal: the freeze in froCoverFreeze still prevents billing a
     // covered-away FRO, and withoutStaleIdle() clears a same-day lapse on
     // the next hydrate.
+  }
+}
+
+// Park a COVERED FRO's own row when they are not actually at their keyboard.
+//
+// While an agent covers them, the FRO's row stops receiving their own
+// heartbeats. If its open interval and disposition deadline were left behind
+// from a finished session, the deadline-derived fallback (and the idle sweep)
+// would bill the FRO idle for the whole cover. The covering relation itself
+// still sets the covered-away freeze, so with a closed interval the FRO reads
+// as frozen, not as billed idle.
+//
+// Guarded so a LIVE FRO — row fresh and active — keeps their running window:
+// they are at their desk on their own panel, and only their own heartbeats
+// should shape that row. If they prove otherwise by going stale later, the
+// ordinary covered-away freeze takes over.
+async function parkCoveredFRORow(workerId) {
+  const id = String(workerId ?? '');
+  if (!id) return;
+  try {
+    const { data: row } = await db
+      .from('fro_live_status')
+      .select('status, updated_at')
+      .eq('worker_id', id)
+      .maybeSingle();
+    if (!row) return;
+    const updatedMs = row.updated_at ? new Date(row.updated_at).getTime() : NaN;
+    const fresh = Number.isFinite(updatedMs) && (Date.now() - updatedMs) < 120000;
+    const active = row.status && row.status !== 'offline' && row.status !== 'idle';
+    if (fresh && active) return;
+    await parkIdleForCoverStart(id);
+  } catch (e) {
+    // Non-fatal: worst case the covered-away freeze keeps the row dormant.
   }
 }
 
