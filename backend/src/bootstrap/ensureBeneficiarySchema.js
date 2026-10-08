@@ -121,6 +121,10 @@ await db._pool.query(
   await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS collection_otp_at TIMESTAMPTZ"
   ).catch(() => {});
+  // Set when the OTP is verified; cleared when a fresh OTP is generated.
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS collection_otp_verified_at TIMESTAMPTZ"
+  ).catch(() => {});
 
   // ensureBeneficiarySchema creates any missing table as a bare "id SERIAL", so
   // on an installation where migration 120 never ran the beneficiary columns
