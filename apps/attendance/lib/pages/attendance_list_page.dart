@@ -31,14 +31,14 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
     _load();
     RealtimeService.instance.addListener(_onRealtimeChange);
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _load();
+      _load(silent: true);
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _load();
+      _load(silent: true);
     }
   }
 
@@ -53,7 +53,7 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
   void _onRealtimeChange() {
     final event = RealtimeService.instance.lastEvent;
     if (event == RealtimeEvent.attendance || event == RealtimeEvent.corrections) {
-      _load();
+      _load(silent: true);
     }
   }
 
@@ -65,21 +65,21 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
     }).toList();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
     try {
       final history = await ApiService.getHistory();
       setState(() {
         _allRecords = history;
         _loading = false;
-        _listKey++;
+        if (!silent) _listKey++;
       });
     } catch (_) {
       final cached = await ApiService.getCachedHistory();
       setState(() {
         _allRecords = cached ?? [];
         _loading = false;
-        _listKey++;
+        if (!silent) _listKey++;
       });
     }
   }
@@ -413,7 +413,9 @@ class _AnimatedListItemState extends State<_AnimatedListItem>
       begin: const Offset(0, 0.08),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    Future.delayed(Duration(milliseconds: widget.index * 40), _controller.forward);
+    Future.delayed(Duration(milliseconds: widget.index * 40), () {
+      if (mounted) _controller.forward();
+    });
   }
 
   @override

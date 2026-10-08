@@ -88,11 +88,9 @@ class RemoteConfigService {
     if (_initialized) return;
     _initialized = true;
     await _loadFromPrefs();
-    try {
-      await _fetch().timeout(_fetchTimeout);
-    } catch (_) {
-      // Server unreachable — cached config (or bootstrap defaults) is used.
-    }
+    // Refresh in the background — cached config (or bootstrap defaults) is
+    // already applied, so the first frame is not blocked by the network.
+    _fetch().timeout(_fetchTimeout).then((_) => null).catchError((_) => null);
   }
 
   Future<void> _loadFromPrefs() async {

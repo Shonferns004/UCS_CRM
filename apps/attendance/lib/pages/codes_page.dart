@@ -22,7 +22,6 @@ class _CodesPageState extends State<CodesPage> {
   List<dynamic> _codes = [];
   bool _loading = true;
   String? _error;
-  Timer? _ticker;
 
   void _onRealtimeChange() {
     if (RealtimeService.instance.lastEvent == RealtimeEvent.codes) {
@@ -35,14 +34,10 @@ class _CodesPageState extends State<CodesPage> {
     super.initState();
     _fetchCodes();
     RealtimeService.instance.addListener(_onRealtimeChange);
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
   }
 
   @override
   void dispose() {
-    _ticker?.cancel();
     RealtimeService.instance.removeListener(_onRealtimeChange);
     super.dispose();
   }
@@ -167,13 +162,6 @@ class _CodeCard extends StatelessWidget {
     return expires != null && expires.isBefore(DateTime.now());
   }
 
-  int _remainingSeconds() {
-    final expires = DateTime.tryParse(code['expires_at']?.toString() ?? '');
-    if (expires == null) return 0;
-    final rem = expires.difference(DateTime.now()).inSeconds;
-    return rem < 0 ? 0 : rem;
-  }
-
   String _formatDate(String? raw) {
     final dt = DateTime.tryParse(raw ?? '');
     if (dt == null) return '—';
@@ -191,7 +179,6 @@ class _CodeCard extends StatelessWidget {
     final used = _isUsed();
     final expired = !used && _isExpired();
     final active = !used && !expired;
-    final remaining = _remainingSeconds();
 
     final statusColor = used
         ? const Color(0xFF6b7280)
@@ -212,23 +199,9 @@ class _CodeCard extends StatelessWidget {
       child: Row(
         children: [
           if (active)
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                ProgressCircle(
-                  size: Responsive.sp(context, 56),
-                  thickness: 5,
-                  value: remaining / _codeTtlSeconds,
-                  color: remaining <= 60 ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
-                ),
-                Text(
-                  _mmss(remaining),
-                  style: tt.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: remaining <= 60 ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
-                  ),
-                ),
-              ],
+            _CodeCountdown(
+              expiresAt: DateTime.tryParse(code['expires_at']?.toString() ?? ''),
+              textTheme: tt,
             )
           else
             ProgressCircle(
@@ -282,9 +255,58 @@ class _CodeCard extends StatelessWidget {
     );
   }
 
-  String _mmss(int totalSeconds) {
-    final m = (totalSeconds ~/ 60).toString().padLeft(2, '0');
-    final s = (totalSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+}
+
+class _CodeCountdown extends StatefulWidget {
+  final DateTime? expiresAt;
+  final TextTheme textTheme;
+  const _CodeCountdown({required this.expiresAt, required this.textTheme});
+
+  @override
+  State<_CodeCountdown> createState() => _CodeCountdownState();
+}
+
+class _CodeCountdownState extends State<_CodeCountdown> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = widget.expiresAt == null
+        ? 0
+        : widget.expiresAt!.difference(DateTime.now()).inSeconds.clamp(0, 1 << 30);
+    final m = (remaining ~/ 60).toString().padLeft(2, '0');
+    final s = (remaining % 60).toString().padLeft(2, '0');
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        ProgressCircle(
+          size: Responsive.sp(context, 56),
+          thickness: 5,
+          value: remaining / _codeTtlSeconds,
+          color: remaining <= 60 ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
+        ),
+        Text(
+          '$m:$s',
+          style: widget.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: remaining <= 60 ? const Color(0xFFba1a1a) : const Color(0xFF1D7A4F),
+          ),
+        ),
+      ],
+    );
   }
 }

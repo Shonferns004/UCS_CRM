@@ -11,8 +11,7 @@ class ScanPage extends StatefulWidget {
   State<ScanPage> createState() => _ScanPageState();
 }
 
-class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
-  final MobileScannerController _scannerController = MobileScannerController();
+class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {  final MobileScannerController _scannerController = MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   final List<PunchLog> _todayLog = [];
   bool _punchedIn = false;
   DateTime? _punchInTime;
@@ -24,21 +23,18 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
   String _lastPunchInStr = '—';
   String _lastPunchOutStr = '—';
   String _lastWorkHoursStr = '0h 0m';
-  Timer? _clockTimer;
   Timer? _resultTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startClock();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scannerController.dispose();
-    _clockTimer?.cancel();
     _resultTimer?.cancel();
     super.dispose();
   }
@@ -50,10 +46,6 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
     } else {
       _stopScanner();
     }
-  }
-
-  void _startClock() {
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
   }
 
   void _startScanner() {
@@ -152,11 +144,6 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final timeStr = DateFormat('hh:mm').format(now);
-    final ampm = DateFormat('a').format(now);
-    final dayStr = DateFormat('EEE, dd MMM yyyy').format(now);
-
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(20),
@@ -170,9 +157,7 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
             child: Column(
               children: [
-                Text(timeStr, style: const TextStyle(fontSize: 48, fontWeight: FontWeight.w700, color: Color(0xFF2355D4), letterSpacing: -2)),
-                const SizedBox(height: 4),
-                Text('$ampm — $dayStr', style: const TextStyle(fontSize: 13, color: Color(0xFF72706B))),
+                const _ClockHeader(),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -298,3 +283,44 @@ class _ScanPageState extends State<ScanPage> with WidgetsBindingObserver {
     );
   }
 }
+
+class _ClockHeader extends StatefulWidget {
+  const _ClockHeader();
+
+  @override
+  State<_ClockHeader> createState() => _ClockHeaderState();
+}
+
+class _ClockHeaderState extends State<_ClockHeader> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final timeStr = DateFormat('hh:mm').format(now);
+    final ampm = DateFormat('a').format(now);
+    final dayStr = DateFormat('EEE, dd MMM yyyy').format(now);
+    return Column(
+      children: [
+        Text(timeStr, style: const TextStyle(fontSize: 48, fontWeight: FontWeight.w700, color: Color(0xFF2355D4), letterSpacing: -2)),
+        const SizedBox(height: 4),
+        Text('$ampm — $dayStr', style: const TextStyle(fontSize: 13, color: Color(0xFF72706B))),
+      ],
+    );
+  }
+}
+

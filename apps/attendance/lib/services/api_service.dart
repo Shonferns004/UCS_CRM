@@ -93,12 +93,29 @@ class ApiService {
   }
 
   static bool? _preferStandardClient;
+  static http.Client? _sharedStandardClient;
+  static IOClient? _sharedDohClient;
+  static String? _clientBaseUrl;
+
+  static void _resetClientsIfUrlChanged() {
+    if (_clientBaseUrl != null && _clientBaseUrl != baseUrl) {
+      _sharedStandardClient?.close();
+      _sharedDohClient?.close();
+      _sharedStandardClient = null;
+      _sharedDohClient = null;
+      _preferStandardClient = null;
+      _cachedIp = null;
+      _cacheExpiry = null;
+    }
+    _clientBaseUrl = baseUrl;
+  }
 
   static Future<http.Client> _createClient() async {
     // Prefer the standard client (uses platform DNS/TLS). Fall back to the
-    // DoH + direct-IP client only if normal networking fails, and always cap
-    // socket connection attempts with a timeout so a stalled network can never
-    // hang the UI forever. The decision is probed once and cached.
+    // DoH + direct-IP client only if normal networking fails. Clients are
+    // shared and reused across requests so keep-alive connections are
+    // preserved instead of paying a TCP+TLS handshake per request.
+    _resetClientsIfUrlChanged();
     if (_preferStandardClient == null) {
       try {
         final probe = http.Client();
@@ -112,8 +129,10 @@ class ApiService {
         _preferStandardClient = false;
       }
     }
-    if (_preferStandardClient == true) return http.Client();
-    return _createDohClient();
+    if (_preferStandardClient == true) {
+      return _sharedStandardClient ??= http.Client();
+    }
+    return _sharedDohClient ??= await _createDohClient();
   }
 
   static Future<bool> checkConnectivity() async {
@@ -129,11 +148,8 @@ class ApiService {
     Future<http.Response> Function(http.Client client) run,
   ) async {
     final client = await _createClient();
-    try {
-      return await run(client).timeout(_defaultTimeout);
-    } finally {
-      client.close();
-    }
+    // Shared client is reused across requests — do NOT close it here.
+    return await run(client).timeout(_defaultTimeout);
   }
 
   static Future<http.Response> _get(
@@ -166,23 +182,32 @@ class ApiService {
     return _send((client) => client.delete(uri, headers: headers));
   }
 
+  static SharedPreferences? _prefs;
+  static Future<SharedPreferences> get _prefsInstance async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
+  static String? _cachedToken;
+
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('worker_token');
+    if (_cachedToken != null) return _cachedToken;
+    final prefs = await _prefsInstance;
+    _cachedToken = prefs.getString('worker_token');
+    return _cachedToken;
   }
 
   static Future<void> saveToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = token;
+    final prefs = await _prefsInstance;
     await prefs.setString('worker_token', token);
   }
 
   static Future<void> saveWorkerData(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('worker_data', jsonEncode(data));
   }
 
   static Future<Map<String, dynamic>?> getWorkerData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('worker_data');
     if (data != null) return jsonDecode(data);
     return null;
@@ -203,7 +228,9 @@ class ApiService {
   static bool isCachedNgoAdmin() => _cachedIsAdmin ?? false;
 
   static Future<void> clearAuth() async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = null;
+    _cachedIsAdmin = null;
+    final prefs = await _prefsInstance;
     await prefs.remove('worker_token');
     await prefs.remove('worker_data');
     final keys = prefs.getKeys().where((k) => k.startsWith('cache_')).toList();
@@ -211,12 +238,12 @@ class ApiService {
   }
 
   static Future<void> saveLastLoginId(String loginId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('last_login_id', loginId);
   }
 
   static Future<String?> getLastLoginId() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     return prefs.getString('last_login_id');
   }
 
@@ -275,14 +302,14 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>?> getCachedTodayStatus() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString(_todayCacheKey());
     if (data != null) return jsonDecode(data);
     return null;
   }
 
   static Future<void> _cacheTodayStatus(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString(_todayCacheKey(), jsonEncode(data));
   }
 
@@ -302,14 +329,14 @@ class ApiService {
   }
 
   static Future<List<dynamic>?> getCachedHistory() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('cache_history');
     if (data != null) return jsonDecode(data);
     return null;
   }
 
   static Future<void> _cacheHistory(List<dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('cache_history', jsonEncode(data));
   }
 
@@ -391,6 +418,29 @@ class ApiService {
     if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
     if (body is List) return body;
     return body['workers'] ?? [];
+  }
+
+  // Worker-safe: workers list (scope=all) and today's attendance for everyone.
+  // Available to any authenticated worker — used by the Help sheet.
+  static Future<List<dynamic>> getWorkersScopedAll() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/workers?scope=all'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
+    if (body is List) return body;
+    return body['workers'] ?? [];
+  }
+
+  static Future<List<dynamic>> getTodayAllAttendance() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/attendance/today-all'),
+      headers: await _headers(),
+    );
+    final body = res.body.isEmpty ? null : jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to load today status') : 'Failed to load today status');
+    return body is List ? body : <dynamic>[];
   }
 
   // ---- Admin: worker monthly attendance ----
@@ -509,14 +559,14 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>?> getCachedProfile() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('cache_profile');
     if (data != null) return jsonDecode(data);
     return null;
   }
 
   static Future<void> _cacheProfile(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('cache_profile', jsonEncode(data));
   }
 
@@ -600,7 +650,7 @@ class ApiService {
   }
 
   static Future<List<dynamic>?> getCachedNotifications(String workerId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('cache_notifications_$workerId');
     if (data != null) return jsonDecode(data);
     return null;
@@ -614,7 +664,7 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception('Failed to get notifications');
     final list = body is List ? body : [];
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('cache_notifications_$workerId', jsonEncode(list));
     return list;
   }
@@ -642,7 +692,7 @@ class ApiService {
   }
 
   static Future<int> getCachedUnreadCount(String workerId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     return prefs.getInt('cache_unread_$workerId') ?? 0;
   }
 
@@ -654,7 +704,7 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception('Failed to get unread count');
     final count = (body['count'] ?? 0) as int;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setInt('cache_unread_$workerId', count);
     return count;
   }
