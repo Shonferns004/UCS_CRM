@@ -10,7 +10,7 @@ router.post('/punch-out', authenticate, punchOut);
 router.post('/selfie-punch', authenticate, selfiePunch);
 router.post('/hr-selfie-punch', authenticateRole('super_admin', 'admin', 'hr'), hrSelfiePunch);
 router.get('/today', authenticate, todayStatus);
-router.get('/today-all', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), todayAll);
+router.get('/today-all', authenticate, todayAll);
 router.get('/history', authenticate, myHistory);
 router.get('/all', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), listAll);
 router.post('/', authenticateRole('super_admin', 'admin', 'hr'), createAttendanceByHR);
