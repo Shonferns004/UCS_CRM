@@ -38,13 +38,14 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
   bool _loadingMore = false;
   String _query = '';
   String? _error;
-
+  Map<String, int> _programCounts = {};
   bool get _hasMore => _members.length < _total;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _loadProgramCounts();
     _load();
   }
 
@@ -79,6 +80,93 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     _searchController.clear();
     setState(() => _query = '');
     _load();
+  }
+
+  Future<void> _loadProgramCounts() async {
+    try {
+      final data = await ApiService.get('/operator/kits');
+      final list = (data['programs'] as List?) ?? const [];
+      final counts = <String, int>{};
+      for (final p in list) {
+        final code = (p['code']?.toString() ?? '').toUpperCase();
+        final v = p['registered'];
+        counts[code] = v is num ? v.toInt() : 0;
+      }
+      if (!mounted) return;
+      setState(() => _programCounts = counts);
+    } catch (_) {
+      // Cards 0 dikhayenge, list phir bhi kaam karegi.
+    }
+  }
+
+  Widget _programCards() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: _programCard(
+              'BSCT',
+              AppColors.statMembersBg,
+              AppColors.statMembersBorder,
+              AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _programCard(
+              'AFLF',
+              AppColors.statDonationsBg,
+              AppColors.statDonationsBorder,
+              AppColors.successGreen,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _programCard(
+              'MANN',
+              AppColors.statPinkBg,
+              AppColors.statPinkBorder,
+              AppColors.statPinkText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _programCard(String code, Color bg, Color border, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '${_programCounts[code] ?? 0}',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            code,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -153,9 +241,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     }
     if (!mounted) return;
     final updated = await Navigator.of(context).push<Map<String, dynamic>>(
-      MaterialPageRoute(
-        builder: (_) => EditBeneficiaryPage(beneficiary: full),
-      ),
+      MaterialPageRoute(builder: (_) => EditBeneficiaryPage(beneficiary: full)),
     );
     if (!mounted) return;
     if (updated != null) {
@@ -174,13 +260,11 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
       appBar: AppBar(title: Text(widget.title)),
       body: Column(
         children: [
+          _programCards(),
           _searchField(),
           _resultBar(),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _body(),
-            ),
+            child: RefreshIndicator(onRefresh: _load, child: _body()),
           ),
         ],
       ),
@@ -196,7 +280,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
         textInputAction: TextInputAction.search,
         keyboardType: TextInputType.text,
         decoration: InputDecoration(
-          hintText: 'Search by name or number',
+          hintText: 'Search by number',
           prefixIcon: const Icon(LucideIcons.search, size: 20),
           suffixIcon: _searchController.text.isEmpty
               ? null
@@ -206,8 +290,10 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
                   tooltip: 'Clear',
                 ),
           isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 14,
+          ),
         ),
       ),
     );
@@ -239,9 +325,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
       return ListView(
         padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SkeletonCardRows(rows: 8),
-        ],
+        children: const [SkeletonCardRows(rows: 8)],
       );
     }
 
@@ -249,10 +333,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
       return ListView(
         padding: const EdgeInsets.all(24),
         physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          const SizedBox(height: 40),
-          _errorTile(),
-        ],
+        children: [const SizedBox(height: 40), _errorTile()],
       );
     }
 
@@ -284,11 +365,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Center(
-              child: SkeletonBox(
-                width: 120,
-                height: 12,
-                borderRadius: 6,
-              ),
+              child: SkeletonBox(width: 120, height: 12, borderRadius: 6),
             ),
           );
         }
@@ -319,7 +396,9 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
 
   Widget _memberCard(Map<String, dynamic> m) {
     final name = m['full_name']?.toString().trim();
-    final displayName = (name == null || name.isEmpty) ? 'Name not filled' : name;
+    final displayName = (name == null || name.isEmpty)
+        ? 'Name not filled'
+        : name;
     final mobile = m['mobile']?.toString().trim();
     final code = m['beneficiary_code']?.toString().trim();
     final ngo = m['ngos'] is Map ? (m['ngos']['name']?.toString() ?? '') : '';
@@ -330,8 +409,8 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     final ImageProvider? avatar = isInlinePhoto(photo)
         ? MemoryImage(dataUrlBytes(photo!))
         : isRemotePhoto(photo)
-            ? NetworkImage(photo!)
-            : null;
+        ? NetworkImage(photo!)
+        : null;
 
     return Container(
       decoration: BoxDecoration(
