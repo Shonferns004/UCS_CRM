@@ -210,16 +210,23 @@ export const getKitsDashboard = async ({ operatorId, operatorName = null, operat
   // db._pool is raw node-postgres: results come back on `rows`, not `data`.
   // Reading `data` here left ngoRows undefined, so every NGO fell through to
   // the zero fallback and the Kits screen showed 0 regardless of real data.
+  const ngoParams = [];
+  let ngoCreatedByJoin = '';
+  if (operatorName) {
+    ngoParams.push(operatorName);
+    ngoCreatedByJoin = ` AND b.created_by = $1`;
+  }
   const { rows: ngoRows } = await db._pool
     .query(
       `SELECT n.id, n.name,
               COUNT(b.id) FILTER (WHERE b.ngo_id = n.id)                                        AS registered,
               COUNT(b.id) FILTER (WHERE b.ngo_id = n.id AND b.kit_given = true)                 AS kit_given
          FROM ngos n
-         LEFT JOIN beneficiaries b ON b.ngo_id = n.id
+         LEFT JOIN beneficiaries b ON b.ngo_id = n.id${ngoCreatedByJoin}
         WHERE UPPER(n.name) IN ('BSCT', 'AFLF', 'MANN')
         GROUP BY n.id, n.name
-        ORDER BY n.name`
+        ORDER BY n.name`,
+      ngoParams
     )
     .catch((e) => {
       console.error('getKitsDashboard NGO count query failed:', e);
