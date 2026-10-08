@@ -87,14 +87,15 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
     }))
   }, [setDraft])
 
-  const addField = () => {
+  const addField = (fieldType = 'text') => {
     setDraft((d) => {
       const key = `field_${(d.fields || []).length + 1}`
+      const label = fieldType === 'longtext' ? 'Multi-line' : fieldType === 'select' ? 'Dropdown' : fieldType.charAt(0).toUpperCase() + fieldType.slice(1)
       return {
         ...d,
         fields: [...(d.fields || []), {
-          field_key: key, display_name: `Field ${(d.fields || []).length + 1}`, field_type: 'text',
-          required: true, default_value: '', in_template: true,
+          field_key: key, display_name: label, field_type: fieldType,
+          required: true, default_value: '', in_template: true, options: fieldType === 'select' ? '' : '',
           style: defaultStyle(canvasW, canvasH, (d.fields || []).length),
         }],
       }
@@ -218,6 +219,14 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
         {/* fields list */}
         <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Fields <span style={{ fontWeight: 400 }}>(drag to reorder)</span></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', width: '100%' }}>Add field:</div>
+            {[['text','Text Field'],['longtext','Multi-line'],['select','Select'],['date','Date'],['number','Number']].map(([k,l]) => (
+              <button key={k} type="button" className="btn btn-sm" style={{ padding: '4px 8px', fontSize: 11.5 }} onClick={() => addField(k)}>
+                <Plus size={11} /> {l}
+              </button>
+            ))}
+          </div>
           {fields.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No fields yet — click "Add field".</div>}
           {fields.map((f, i) => (
             <div
