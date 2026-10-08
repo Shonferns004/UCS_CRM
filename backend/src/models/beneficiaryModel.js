@@ -174,6 +174,20 @@ export const getBeneficiaryById = async (id) => {
   return data;
 };
 
+// Stores the latest re-issue collection OTP on the beneficiary row so the
+// accounts panel can show it (beneficiaries app "Already collected" → Accept).
+export const setBeneficiaryCollectionOtp = async (id, otp) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('beneficiaries')
+    .update({ collection_otp: otp, collection_otp_at: now, updated_at: now })
+    .eq('id', id)
+    .select('id, collection_otp, collection_otp_at')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const getBeneficiaryByCode = async (code) => {
   const { data, error } = await db
     .from('beneficiaries')
@@ -196,8 +210,10 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
+
+  if (created_by) query = query.eq('created_by', created_by);
 
   if (search) {
     // Commas and parens are PostgREST or= separators, so a typed event name
