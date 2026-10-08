@@ -123,7 +123,7 @@ export const reject = async (req, res, next) => {
 
 export const renew = async (req, res, next) => {
   try {
-    res.json({ success: true, data: await applicationService.renewApplication(req.params.id, { fee: req.body.fee }) })
+    res.json({ success: true, data: await applicationService.renewApplication(req.params.id, { fee: req.body.fee, transactionId: req.body.transactionId ?? req.body.transaction_id }) })
   } catch (err) {
     next(err)
   }
@@ -147,7 +147,7 @@ export const mailLog = async (req, res, next) => {
 
 export const photoUrl = async (req, res, next) => {
   try {
-    const urls = await applicationService.getPhotoUrl(req.params.id)
+    const urls = await applicationService.getPhotoUrl(req.params.id, { format: req.query.format })
     if (!urls || (!urls.passport && !urls.identity)) return res.json({ success: true, data: null })
     res.json({ success: true, data: urls })
   } catch (err) {

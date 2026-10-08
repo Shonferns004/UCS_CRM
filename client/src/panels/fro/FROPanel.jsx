@@ -870,6 +870,9 @@ export default function FROPanel() {
 useEffect(() => onFroAction((action) => {
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
       playFroAction(action.type, action.title, action.audioUrl);
+    } else if (action?.type === 'idle_alert') {
+      toast(`${action.title}: ${action.body}`, 'info');
+      showDesktopNotification(action.title, action.body);
     }
   }), []);
 
@@ -1060,7 +1063,6 @@ useEffect(() => onFroAction((action) => {
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
-            <FroStatusPill />
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <BirthdayPopup />

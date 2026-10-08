@@ -9,7 +9,6 @@ import '../../../core/constants/indian_locations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../../../services/api_service.dart';
-import '../../operator/operator_event_page.dart';
 
 class OperatorDashboardCard extends StatefulWidget {
   const OperatorDashboardCard({super.key});
@@ -28,7 +27,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
 // Selected dropdown values.
   String? _selectedState;
   String? _selectedCity;
-  int? _selectedEventId;
+  final TextEditingController _eventController = TextEditingController();
   int? _selectedKitId;
   int? _selectedOrganizerId;
   String? _selfieBase64;
@@ -38,6 +37,12 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
   void initState() {
     super.initState();
     _loadDashboard();
+  }
+
+  @override
+  void dispose() {
+    _eventController.dispose();
+    super.dispose();
   }
 
   Future<Map<String, String>> _headers() async {
@@ -86,7 +91,8 @@ setState(() {
         _selectedState = body['state']?.toString();
         _selectedCity = body['city']?.toString();
         final event = body['event'] as Map<String, dynamic>?;
-        _selectedEventId = event?['id'] != null ? (event!['id'] as num).toInt() : null;
+        final savedEvent = event?['title']?.toString() ?? '';
+        if (savedEvent.isNotEmpty) _eventController.text = savedEvent;
         _selectedKitId = body['kit_id'] != null ? (body['kit_id'] as num).toInt() : null;
         _selectedOrganizerId = body['organizer_id'] != null ? (body['organizer_id'] as num).toInt() : null;
         _selfieUrl = body['selfie_url']?.toString() ?? body['selfie']?.toString();
@@ -141,7 +147,7 @@ setState(() {
 await _post('/operator/self-assign', {
         'state': _selectedState,
         'city': _selectedCity,
-        'event_id': _selectedEventId,
+        'event_name': _eventController.text.trim(),
         'kit_id': _selectedKitId,
         'organizer_id': _selectedOrganizerId,
         'selfie_url': selfieUrl,
@@ -162,7 +168,6 @@ await _post('/operator/self-assign', {
 final data = _data;
     final operator = (data?['operator'] as Map<String, dynamic>?);
     final operatorName = operator?['name'] ?? 'Operator';
-    final events = (data?['events'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
     final kits = (data?['kits'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
     final organizers = (data?['organizers'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
 
@@ -250,26 +255,13 @@ if (_loading)
             ),
             const SizedBox(height: 10),
 
-            _dropdown<int>(
-              label: 'Event',
-              value: _selectedEventId,
-              items: (events.isEmpty
-                      ? [
-                          {'id': null, 'title': 'No events yet'}
-                        ]
-                      : events)
-                  .map((e) => DropdownMenuItem<int>(
-                        value: e['id'] != null
-                            ? (e['id'] as num).toInt()
-                            : null,
-                        child: Text(
-                          e['title']?.toString() ?? 'Event',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ))
-                  .toList(),
-hint: 'Select event',
-              onChanged: (v) => setState(() => _selectedEventId = v),
+TextFormField(
+              controller: _eventController,
+              decoration: const InputDecoration(
+                labelText: 'Event',
+                hintText: 'Type the event name (e.g. Diwali Camp)',
+              ),
+              textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 10),
 
@@ -318,31 +310,6 @@ hint: 'Select event',
               onChanged: (v) => setState(() => _selectedOrganizerId = v),
             ),
             const SizedBox(height: 10),
-            if (_selectedEventId != null)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    final ev = events.firstWhere(
-                      (e) =>
-                          e['id'] != null &&
-                          (e['id'] as num).toInt() == _selectedEventId,
-                      orElse: () => {'id': _selectedEventId, 'title': 'Event'},
-                    );
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => OperatorEventPage(
-                          eventId: _selectedEventId!,
-                          eventTitle: ev['title']?.toString() ?? 'Event',
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(LucideIcons.calendar, size: 18),
-                  label: const Text('View Event'),
-                ),
-              ),
             const SizedBox(height: 14),
 
             // Selfie
