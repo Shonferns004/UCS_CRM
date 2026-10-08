@@ -1,6 +1,6 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
-  updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
+  updateBeneficiary, listBeneficiaries, exportBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
   searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries,
   setBeneficiaryCollectionOtp, setBeneficiaryOtpVerified,
 } from '../models/beneficiaryModel.js';
@@ -518,6 +518,63 @@ export const listAllBeneficiaries = async (req, res) => {
   }
 };
 
+// Export: returns every beneficiary matching the current list filters as
+// display-keyed rows so the client can write the .xlsx directly (same shape
+// as the Donors export in accountsController).
+export const exportBeneficiariesController = async (req, res) => {
+  try {
+    const { search, status, ngo_id, event_id } = req.query;
+
+    let created_by;
+    if (isBeneficiariesAppSession(req.user)) {
+      let operator = null;
+      try {
+        operator = await getBnfOperatorBySession(req.user);
+      } catch (_) {
+        operator = null;
+      }
+      created_by = operator?.name || req.user?.name || null;
+    }
+
+    const rows = await exportBeneficiaries({
+      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, created_by,
+    });
+
+    const data = rows.map((b) => ({
+      'Beneficiary Code': b.beneficiary_code || '',
+      'Full Name': b.full_name || '',
+      'Mobile': b.mobile || '',
+      'Alternate Mobile': b.alternate_mobile || '',
+      'Email': b.email || '',
+      'NGO': b.ngos?.name || '',
+      'Gender': b.gender || '',
+      'Date of Birth': b.date_of_birth || '',
+      'Occupation': b.occupation || '',
+      'Address': b.address_line_1 || '',
+      'Area': b.area || '',
+      'City': b.city || '',
+      'District': b.district || '',
+      'State': b.state || '',
+      'Pincode': b.pincode || '',
+      'Aadhaar Number': b.aadhaar_number || '',
+      'Needed': b.needed || '',
+      'Monthly Family Income': b.monthly_family_income ?? '',
+      'Income Category': b.income_category || '',
+      'Total Family Members': b.total_family_members ?? '',
+      'Status': b.status || '',
+      'Kit Given': b.kit_given ? 'Yes' : 'No',
+      'Kit Event': b.kit_event_name || '',
+      'Fingerprint Status': b.fingerprint_status || '',
+      'Registration Date': b.registration_date || '',
+      'Registered At': b.created_at || '',
+    }));
+
+    return res.json({ data, total: data.length });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const searchBeneficiariesController = async (req, res) => {
   try {
     const { q } = req.query;
@@ -530,7 +587,10 @@ export const searchBeneficiariesController = async (req, res) => {
 
 export const getOverview = async (req, res) => {
   try {
-    const overview = await getBeneficiaryOverview();
+    // Optional ?category_id= scopes every stat to one beneficiary type so the
+    // dashboard's type filter and the cards show the same numbers.
+    const categoryId = req.query.category_id ? parseInt(req.query.category_id, 10) : null;
+    const overview = await getBeneficiaryOverview({ categoryId: Number.isFinite(categoryId) ? categoryId : null });
     return res.json(overview);
   } catch (error) {
     return res.status(500).json({ message: error.message });
