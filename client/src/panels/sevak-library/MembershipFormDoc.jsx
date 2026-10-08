@@ -11,10 +11,17 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;')
 }
 
-function a4Html(row, photoUrl) {
+function a4Html(row, photos) {
   const d = row.data || {}
   const f = (k) => escapeHtml(d[k] ?? '—')
-  const photo = photoUrl ? `<img src="${escapeHtml(photoUrl)}" alt="Passport" />` : '<span class="doc-photo-placeholder">Photo</span>'
+  // photos: {passport, signature} data URLs (legacy callers may pass a plain
+  // passport string — still supported).
+  const passportUrl = typeof photos === 'string' ? photos : photos?.passport
+  const signUrl = typeof photos === 'string' ? null : photos?.signature
+  const photo = passportUrl ? `<img src="${escapeHtml(passportUrl)}" alt="Passport" />` : '<span class="doc-photo-placeholder">Photo</span>'
+  const sign = signUrl
+    ? `<img class="doc-sign-img" src="${escapeHtml(signUrl)}" alt="Applicant signature" /><span class="doc-sign-label">Applicant Signature</span>`
+    : `<span class="doc-sign-label">Applicant Signature</span><span class="doc-sign-value">${f('applicantSignature')}</span>`
   const date = (v) => (v ? formatDate(v) : '—')
 
   const block = (title, cols) => {
@@ -79,7 +86,7 @@ function a4Html(row, photoUrl) {
       <div class="doc-declaration">
         <p><strong>Declaration:</strong> I hereby declare that the information provided in this form is true and correct and I agree to follow all the rules and regulations of Sevak Library.</p>
         <div class="doc-sign-wrap">
-          <div class="doc-sign"><span class="doc-sign-label">Applicant Signature</span><span class="doc-sign-value">${f('applicantSignature')}</span></div>
+          <div class="doc-sign">${sign}</div>
           <div class="doc-sign"><span class="doc-sign-label">Date</span><span class="doc-sign-value">${d.submissionDate ? formatDate(d.submissionDate) : ''}</span></div>
         </div>
       </div>
@@ -139,9 +146,14 @@ export async function pdfMemberDoc(rows, photoUrls) {
 
   try {
     for (let i = 0; i < rows.length; i++) {
-      const photo = await inlinePhoto(photoUrls?.[i])
+      // Entries may be a plain passport URL string (legacy) or the full
+      // {passport, signature} object from getPhotoUrls(id, 'data').
+      const entry = photoUrls?.[i]
+      const photos = typeof entry === 'string' ? { passport: entry } : (entry || {})
+      const passportPhoto = await inlinePhoto(photos.passport)
+      const signPhoto = await inlinePhoto(photos.signature)
       const node = document.createElement('div')
-      node.innerHTML = a4Html(rows[i], photo.url)
+      node.innerHTML = a4Html(rows[i], { passport: passportPhoto.url, signature: signPhoto.url })
       holder.appendChild(node)
 
       await waitForImages(node)
@@ -156,7 +168,8 @@ export async function pdfMemberDoc(rows, photoUrls) {
       }
       doc.addImage(img, 'JPEG', (A4_W - w) / 2, 11, w, h)
 
-      if (photo.revoke) URL.revokeObjectURL(photo.url)
+      if (passportPhoto.revoke) URL.revokeObjectURL(passportPhoto.url)
+      if (signPhoto.revoke) URL.revokeObjectURL(signPhoto.url)
       if (i < rows.length - 1) doc.addPage()
       node.remove()
     }

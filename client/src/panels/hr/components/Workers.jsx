@@ -92,8 +92,9 @@ function WhoWithPhoto({ name, role, photo_url }) {
     <div style={{ display:'flex', alignItems:'center', gap:10 }}>
       {imgLoading ? (
         <div className="sk" style={{ width:36, height:36, borderRadius:'50%', flexShrink:0 }} />
-      ) : hasPhoto ? (
-        <img src={photo_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }}
+      ) : null}
+      {hasPhoto ? (
+        <img src={photo_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0, display: photoLoaded ? 'block' : 'none' }}
           onLoad={() => setPhotoLoaded(true)} onError={() => { setPhotoErr(true); setPhotoLoaded(true); }} />
       ) : null}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

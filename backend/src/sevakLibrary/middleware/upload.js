@@ -12,6 +12,6 @@ const fileFilter = (req, file, cb) => {
 
 export const applicationPhotos = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024, files: 2 },
+  limits: { fileSize: 15 * 1024 * 1024, files: 3 },
   fileFilter,
 })

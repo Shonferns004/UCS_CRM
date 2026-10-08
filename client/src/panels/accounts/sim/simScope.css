@@ -202,6 +202,7 @@
 .panel-accounts .sim-scope .sim-table thead th.sortable:hover { background: #dbeafe; }
 .panel-accounts .sim-scope .sim-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--sim-line); white-space: nowrap; color: var(--sim-ink); }
 .panel-accounts .sim-scope .sim-table tbody tr:hover { background: var(--sim-blue-soft); }
+.panel-accounts .sim-scope .sim-table tbody tr.clickable-row { cursor: pointer; }
 .panel-accounts .sim-scope .sim-table tbody tr.selected { background: #e0f2fe; }
 .panel-accounts .sim-scope .sim-table td.num, .panel-accounts .sim-scope .sim-table th.num { text-align: right; }
 
@@ -249,6 +250,27 @@
   font-size: 13px; font-weight: 600; color: var(--sim-ink); cursor: pointer; font-family: inherit;
 }
 .panel-accounts .sim-scope .sim-tab.active { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; font-weight: 700; box-shadow: 0 0 0 2px rgba(37,99,235,.25); }
+
+/* ---- Page tabs (Dashboard / All SIM Cards / SIM Locker / All SIM Owner) ---
+   The SIM section is a single page with tabs, the same shape as Library's tab
+   bar. Tabs are real routes, so this only paints the switch. */
+.panel-accounts .sim-scope .sim-page-tabs {
+  display: flex; gap: 4px; margin-bottom: 16px; padding: 5px;
+  background: #f1f5fb; border: 1px solid var(--sim-line); border-radius: 12px;
+  width: fit-content; max-width: 100%; flex-wrap: wrap;
+}
+.panel-accounts .sim-scope .sim-page-tab {
+  border: 1px solid transparent; background: transparent; border-radius: 9px;
+  padding: 8px 20px; font-size: 13px; font-weight: 600; font-family: inherit;
+  color: var(--sim-ink-soft); cursor: pointer; white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.panel-accounts .sim-scope .sim-page-tab:hover { color: var(--sim-ink); background: rgba(255,255,255,.7); }
+.panel-accounts .sim-scope .sim-page-tab.is-on {
+  background: #fff; color: var(--sim-blue); font-weight: 700;
+  border-color: var(--sim-line); box-shadow: 0 1px 3px rgba(15,23,42,.08);
+}
+
 .panel-accounts .sim-scope .mini-btn {
   border: 1px solid var(--sim-line); background: var(--sim-white); border-radius: 6px;
   padding: 4px 8px; font-size: 11px; cursor: pointer; color: var(--sim-ink-soft); font-family: inherit;
