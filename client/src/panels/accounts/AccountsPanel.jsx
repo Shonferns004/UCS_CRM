@@ -50,6 +50,7 @@ import LeadIncentive from '../../components/LeadIncentive'
 import IncentivesPage from '../super-admin/pages/IncentivesPage'
 import SpecialIncentives from '../super-admin/pages/SpecialIncentives'
 import SevakPanel from '../sevak-library/SevakPanel'
+import MetropadPage from './metropad/MetropadPage'
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
@@ -61,6 +62,11 @@ const NAV_TOP = [
     match: (p) => p.startsWith('/accounts/bill-reminder') },
   { id: 'library', path: '/accounts/library', label: 'Library',
     icon: <BookOpen size={18} /> },
+  // Metropad was reachable only from the super-admin panel, which rendered it
+  // inline while every other panel there is reached through its own panel. It
+  // belongs with the accounts it tracks, so it moved here and joins the nav.
+  { id: 'metropad', path: '/accounts/metropad', label: 'Metropad',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg> },
 ]
 
 const NAV_GROUPS = [
@@ -535,6 +541,10 @@ export default function AccountsPanel() {
             <Route path="beneficiaries/*" element={<BeneficiariesPanel base="/accounts/beneficiaries" />} />
             <Route path="bill-reminder/*" element={<BillReminderPage />} />
             <Route path="library" element={<SevakPanel />} />
+            {/* Metropad moved here from the super-admin panel. A plain path, not a splat:
+                MetropadPage renders its dashboard directly and has no routes of
+                its own (the standalone build in metropad/App.jsx owns those). */}
+            <Route path="metropad" element={<MetropadPage />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>
