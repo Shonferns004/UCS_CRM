@@ -22,6 +22,7 @@ import {
   bulkGenerateCertificates,
   listCertificates,
   getCertificate,
+  aiWriteField,
 } from '../controllers/certificateController.js';
 
 const router = Router();
@@ -90,6 +91,7 @@ router.patch('/templates/:id/status', MANAGE, setTemplateStatus);
 router.delete('/templates/:id', MANAGE, deleteTemplate);
 
 // Generator + history — available to Accounts too.
+router.post('/certificates/ai-write', USE, aiWriteField);
 router.post('/certificates/preview', USE, previewCertificate);
 router.post('/certificates/generate', USE, generateCertificate);
 router.post('/certificates/bulk', USE, bulkGenerateCertificates);
