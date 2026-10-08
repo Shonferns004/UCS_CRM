@@ -209,9 +209,14 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
         <button className="btn btn-sm" onClick={onCancel}><ChevronLeft size={14} /> Cancel</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 260px', gap: 12, alignItems: 'start' }}>
+      <div className="editor-grid" style={{ display: 'grid', gridTemplateColumns: '280px minmax(0,1fr) 360px', gap: 12, alignItems: 'start' }}>
+        <style>{`
+          .editor-grid { min-width: 0; }
+          @media (max-width: 1200px) { .editor-grid { grid-template-columns: 240px minmax(0,1fr) 320px !important; } }
+          @media (max-width: 992px) { .editor-grid { grid-template-columns: 1fr !important; } }
+        `}</style>
         {/* fields list */}
-        <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Fields <span style={{ fontWeight: 400 }}>(drag to reorder)</span></div>
           {fields.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No fields yet — click "Add field".</div>}
           {fields.map((f, i) => (
@@ -322,7 +327,7 @@ export default function CertificateImageEditor({ draft, setDraft, canManage, onS
         </div>
 
         {/* properties */}
-        <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
           {!sel && <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Select a field to edit its properties.</div>}
           {sel && (
             <>
