@@ -492,7 +492,19 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
     setSubmitted(true)
     const errs = validate(draftRef.current)
     if (Object.keys(errs).length) {
-      toast('Fix the highlighted errors before saving.', 'error')
+      const list = draftRef.current?.fields || []
+      const idx = list.findIndex((_, i) => errs[`key${i}`] || errs[`name${i}`] || errs[`opts${i}`] || errs[`geom${i}`])
+      if (idx >= 0) {
+        setSelKey(list[idx].field_key)
+        setRightTab('field')
+      }
+      if (errs.name || errs.ngo) {
+        setInfoTouched(true)
+        setInfoOpen(true)
+      }
+      toast(errs.name || errs.ngo || errs.fields
+        || (idx >= 0 ? (errs[`key${idx}`] || errs[`name${idx}`] || errs[`opts${idx}`] || errs[`geom${idx}`])
+          : 'Fix the highlighted errors before saving.'), 'error')
       return false
     }
     setSaving(true)
@@ -706,6 +718,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-list-item:hover { border-color:#BFDBFE; }
         .ced-list-item:focus-visible { outline:2px solid var(--blue); outline-offset:1px; }
         .ced-list-item.sel { border-color:var(--blue); background:var(--blue-l); }
+        .ced-list-item.err { border-color:var(--red); background:#FEF2F2; }
         .ced-list-item.drop { outline:2px dashed var(--blue); outline-offset:-2px; }
         .ced-list-item .lname { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .ced-list-item .ltype { font-size:11px; color:var(--ink3); }
@@ -877,7 +890,9 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
             {errors.fields && <div className="ced-err" style={{ marginTop: -4, marginBottom: 8 }}>{errors.fields}</div>}
             {fields.length === 0 ? (
               <div className="ced-empty">No fields yet.<br />Click a field type above or drag it onto the canvas.</div>
-            ) : fields.map((f, i) => (
+            ) : fields.map((f, i) => {
+              const itemErr = errors[`key${i}`] || errors[`name${i}`] || errors[`opts${i}`] || errors[`geom${i}`]
+              return (
               <div
                 key={f.field_key || i}
                 role="button"
@@ -893,16 +908,18 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   if (e.altKey && e.key === 'ArrowUp' && i > 0) { e.preventDefault(); reorder(i, i - 1) }
                   if (e.altKey && e.key === 'ArrowDown' && i < fields.length - 1) { e.preventDefault(); reorder(i, i + 1) }
                 }}
-                className={`ced-list-item ${selKey === f.field_key ? 'sel' : ''} ${listDropIdx === i && listDragIdx != null && listDragIdx !== i ? 'drop' : ''}`}
-                title="Click to edit · drag to reorder · Alt+↑/↓ to move"
+                className={`ced-list-item ${selKey === f.field_key ? 'sel' : ''} ${itemErr ? 'err' : ''} ${listDropIdx === i && listDragIdx != null && listDragIdx !== i ? 'drop' : ''}`}
+                title={itemErr || 'Click to edit · drag to reorder · Alt+↑/↓ to move'}
               >
                 <GripVertical size={14} style={{ color: '#CBD5E1', flexShrink: 0 }} />
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span className="lname" style={{ display: 'block' }}>{f.display_name || f.field_key || 'Untitled'}</span>
                   <span className="ltype" style={{ display: 'block' }}>{TYPE_LABEL[f.field_type] || f.field_type}{f.required ? ' · required' : ' · optional'}{f.style?.hidden ? ' · hidden' : ''}</span>
+                  {itemErr && <span className="ced-err" style={{ display: 'block', marginTop: 2 }}>{itemErr}</span>}
                 </span>
               </div>
-            ))}
+              )
+            })}
           </div>
         </aside>
 
