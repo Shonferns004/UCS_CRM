@@ -95,23 +95,44 @@ export const getTodayAssignment = async (operatorId, date) => {
 
 // Upsert the operator's own assignment for one day (no event required).
 export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url, kit_id, organizer_id }) => {
-  const { data, error } = await db
+  const payload = {
+    operator_id: operatorId,
+    state: state || null,
+    city: city || null,
+    event_id: event_id || null,
+    assignment_date,
+    selfie_url: selfie_url || null,
+    kit_id: kit_id || null,
+    organizer_id: organizer_id || null,
+  };
+
+  // One row per operator per day. The table's unique key includes event_id, so
+  // a plain ON CONFLICT upsert would INSERT a second row the moment the
+  // operator changes (or re-types) the event — and getTodayAssignment()'s
+  // maybeSingle then returns nothing, emptying the dashboard. Update the
+  // day's existing row instead.
+  const { data: existing, error: lookupError } = await db
     .from('operator_assignments')
-    .upsert(
-      {
-        operator_id: operatorId,
-        state: state || null,
-        city: city || null,
-        event_id: event_id || null,
-        assignment_date,
-        selfie_url: selfie_url || null,
-        kit_id: kit_id || null,
-        organizer_id: organizer_id || null,
-      },
-      { onConflict: 'operator_id,assignment_date,event_id' }
-    )
-    .select('*, operator_events(*)')
-    .single();
+    .select('id')
+    .eq('operator_id', operatorId)
+    .eq('assignment_date', assignment_date)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lookupError && lookupError.code !== 'PGRST116') throw lookupError;
+
+  const { data, error } = existing
+    ? await db
+        .from('operator_assignments')
+        .update(payload)
+        .eq('id', existing.id)
+        .select('*, operator_events(*)')
+        .single()
+    : await db
+        .from('operator_assignments')
+        .insert(payload)
+        .select('*, operator_events(*)')
+        .single();
   if (error) throw error;
   return data;
 };
@@ -185,20 +206,27 @@ export const listEventMarkedBeneficiaries = async (eventId) => {
 // Per-NGO (BSCT/AFLF/MANN) registration and kit-given counts, today's event
 // name, and the most recent kit handouts. Drives the Beneficiaries app's Kits
 // screen.
-export const getKitsDashboard = async ({ operatorId, date } = {}) => {
+export const getKitsDashboard = async ({ operatorId, operatorName = null, operatorLoginId = null, date } = {}) => {
   // db._pool is raw node-postgres: results come back on `rows`, not `data`.
   // Reading `data` here left ngoRows undefined, so every NGO fell through to
   // the zero fallback and the Kits screen showed 0 regardless of real data.
+  const ngoParams = [];
+  let ngoCreatedByJoin = '';
+  if (operatorName) {
+    ngoParams.push(operatorName);
+    ngoCreatedByJoin = ` AND b.created_by = $1`;
+  }
   const { rows: ngoRows } = await db._pool
     .query(
       `SELECT n.id, n.name,
               COUNT(b.id) FILTER (WHERE b.ngo_id = n.id)                                        AS registered,
               COUNT(b.id) FILTER (WHERE b.ngo_id = n.id AND b.kit_given = true)                 AS kit_given
          FROM ngos n
-         LEFT JOIN beneficiaries b ON b.ngo_id = n.id
+         LEFT JOIN beneficiaries b ON b.ngo_id = n.id${ngoCreatedByJoin}
         WHERE UPPER(n.name) IN ('BSCT', 'AFLF', 'MANN')
         GROUP BY n.id, n.name
-        ORDER BY n.name`
+        ORDER BY n.name`,
+      ngoParams
     )
     .catch((e) => {
       console.error('getKitsDashboard NGO count query failed:', e);
@@ -224,11 +252,15 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  const { count: kitGivenToday } = await db
+  let kitGivenQuery = db
     .from('beneficiaries')
     .select('id', { count: 'exact', head: true })
     .eq('kit_given', true)
     .gte('kit_given_at', todayStart.toISOString());
+  if (operatorName) {
+    kitGivenQuery = kitGivenQuery.eq('kit_given_by', operatorName);
+  }
+  const { count: kitGivenToday } = await kitGivenQuery;
 
   // Today's event: the operator's assignment first, then any event scheduled
   // for today, then the demo fallback (mirrors markBeneficiaryKitGiven).
@@ -258,7 +290,7 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
 
   // Most recent kit handouts with beneficiary identity + the event it was
   // collected at. Today-scoped to match the kit-given counter above.
-  const { data: logs, error } = await db
+  let logsQuery = db
     .from('beneficiary_audit_logs')
     .select(
       'beneficiary_id, performed_by, performed_at, details, beneficiaries(id, beneficiary_code, full_name, mobile, photo)'
@@ -267,6 +299,10 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
     .gte('performed_at', todayStart.toISOString())
     .order('performed_at', { ascending: false })
     .limit(200);
+  if (operatorName) {
+    logsQuery = logsQuery.eq('performed_by', operatorName);
+  }
+  const { data: logs, error } = await logsQuery;
   if (error) throw error;
 
   const collectors = (logs || []).map((r) => ({

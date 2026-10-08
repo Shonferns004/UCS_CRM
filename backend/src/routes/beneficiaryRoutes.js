@@ -7,6 +7,7 @@ import {
   markBeneficiaryKitGiven, lookupBeneficiaryByToken, deleteBeneficiariesController,
   parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
+  sendCollectionOtp,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -79,6 +80,10 @@ router.delete('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'
 // Kit given — records that the event kit was handed to the beneficiary
 // (operator swipe flow on the beneficiaries app).
 router.post('/:id/kit-given', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), markBeneficiaryKitGiven);
+
+// Re-issue collection OTP — generated when the operator accepts the
+// "Already collected" prompt; shown in the accounts panel Beneficiaries section.
+router.post('/:id/collection-otp', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), sendCollectionOtp);
 
 // Audit
 router.get('/:id/audit', authenticateRole('master', 'super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker', 'fro', 'hr', 'recruiter', 'digital'), getAuditTrail);
