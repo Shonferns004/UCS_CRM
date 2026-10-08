@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import mammoth from 'mammoth'
 import { useUcs } from '../../../store'
 import { certificateApi } from '../api/certificates'
-import CertificateImageEditor from '../components/CertificateImageEditor'
+import CertificateEditorPage, { applyDateFormats } from '../components/CertificateEditorPage'
 import { toast } from '../../../components/Toast'
 import {
   FileText, Presentation, Plus, Edit3, Copy, Archive, ArchiveRestore, Trash2, Download,
@@ -259,6 +259,7 @@ export default function Certificates() {
     if (draft?.ngo_id) formData.append('ngo_id', draft.ngo_id)
     try {
       const res = await certificateApi.createTemplate(formData)
+      setEditingId(res.template.id)
       setDraft(res.template)
       toast(`Template created — ${res.detected?.length || 0} placeholder${(res.detected?.length ?? 0) === 1 ? '' : 's'} found`, 'success')
       setView('wizard')
@@ -267,18 +268,21 @@ export default function Certificates() {
   }
 
   const handleReupload = async (file) => {
-    if (!file || !editingId) return
+    const tplId = editingId || draft?.id
+    if (!file || !tplId) return false
     if (draft?.file_format === 'image') {
-      if (!/\.(png|jpe?g|webp)$/i.test(file.name)) { toast('Only PNG, JPG or WEBP images.', 'error'); return }
-    } else if (!/\.(docx|pptx)$/i.test(file.name)) { toast('Only .docx or .pptx files.', 'error'); return }
+      if (!/\.(png|jpe?g|webp)$/i.test(file.name)) { toast('Only PNG, JPG or WEBP images.', 'error'); return false }
+    } else if (!/\.(docx|pptx)$/i.test(file.name)) { toast('Only .docx or .pptx files.', 'error'); return false }
     const formData = new FormData()
     formData.append('template', file)
     try {
-      const res = await certificateApi.reuploadTemplate(editingId, formData)
+      const res = await certificateApi.reuploadTemplate(tplId, formData)
+      if (!editingId) setEditingId(tplId)
       setDraft(res.template)
       toast(`File replaced — version v${res.template.version}`, 'success')
       loadTemplates()
-    } catch (e) { toast(e.message, 'error') }
+      return true
+    } catch (e) { toast(e.message, 'error'); return false }
   }
 
   const handlePreviewPick = (tplId) => {
@@ -308,8 +312,8 @@ export default function Certificates() {
     } catch (e) { toast(e.message, 'error') } finally { setPreviewUploadBusy(false) }
   }
 
-  const saveFields = async (thenGenerate = false) => {
-    if (!draft) return
+  const saveFields = async (thenGenerate = false, stay = false) => {
+    if (!draft) return false
     const fields = (draft.fields || []).map((f, i) => ({
       field_key: f.field_key,
       display_name: f.display_name || humanKey(f.field_key),
@@ -322,7 +326,7 @@ export default function Certificates() {
       options: f.options,
     }))
     if (!fields.some((f) => f.field_key?.trim())) {
-      toast('Add at least one field before saving.', 'error'); return
+      toast('Add at least one field before saving.', 'error'); return false
     }
     try {
       await certificateApi.updateTemplate(draft.id, {
@@ -333,10 +337,11 @@ export default function Certificates() {
       if (thenGenerate) {
         startGenerate({ ...draft, fields, status: draft.status })
       } else {
-        toast('Template saved', 'success')
-        setView('library')
+        toast('Template saved successfully.', 'success')
+        if (!stay) setView('library')
       }
-    } catch (e) { toast(e.message, 'error') }
+      return true
+    } catch (e) { toast(e.message, 'error'); return false }
   }
 
   const addCustomField = () => {
@@ -401,7 +406,7 @@ export default function Certificates() {
     if (!genTpl) return
     setPreviewBusy(true)
     try {
-      const resp = await certificateApi.preview({ template_id: genTpl.id, field_values: previewValues, certificate_number: certNumber || undefined })
+      const resp = await certificateApi.preview({ template_id: genTpl.id, field_values: applyDateFormats(genTpl, previewValues), certificate_number: certNumber || undefined })
       if (!resp.ok) {
         let msg = 'Preview failed'
         try { const j = await resp.json(); msg = j.message || msg } catch { /* keep default */ }
@@ -444,7 +449,7 @@ export default function Certificates() {
     if (missing.length) { toast(`Missing: ${missing.join(', ')}`, 'error'); return }
     setGenerating(true)
     try {
-      const res = await certificateApi.generate({ template_id: genTpl.id, field_values: values, certificate_number: certNumber || undefined })
+      const res = await certificateApi.generate({ template_id: genTpl.id, field_values: applyDateFormats(genTpl, values), certificate_number: certNumber || undefined })
       toast(`${res.certificate.certificate_number} generated`, 'success')
       saveOrOpen(res.certificate.generated_pdf || res.certificate.generated_file, `${res.certificate.certificate_number}.${res.certificate.generated_pdf ? 'pdf' : (genTpl.file_format === 'image' ? 'png' : genTpl.file_format)}`)
       if (showHistory) loadHistory(historyQ)
@@ -504,7 +509,7 @@ export default function Certificates() {
         const { __name, ...field_values } = r
         if (bulkDateKey && !field_values[bulkDateKey]) field_values[bulkDateKey] = bulkDate
         if (bulkEventKey && !field_values[bulkEventKey]) field_values[bulkEventKey] = bulkEvent
-        return { field_values }
+        return { field_values: applyDateFormats(genTpl, field_values) }
       })
       const res = await certificateApi.bulkGenerate({ template_id: genTpl.id, rows })
       setBulkResult(res)
@@ -945,7 +950,18 @@ export default function Certificates() {
       )}
 
       {/* ================================== WIZARD ================================== */}
-      {view === 'wizard' && (
+      {view === 'wizard' && draft?.file_format === 'image' && (
+        <CertificateEditorPage
+          draft={draft}
+          setDraft={setDraft}
+          canManage={canManage}
+          ngos={ngos}
+          onCancel={() => { setView('library'); setGenTpl(null) }}
+          onSave={() => saveFields(false, true)}
+          onReplaceFile={handleReupload}
+        />
+      )}
+      {view === 'wizard' && draft?.file_format !== 'image' && (
         <div className="card">
           <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(draft?.file_format == null) ? (
@@ -1063,19 +1079,6 @@ export default function Certificates() {
                   </div>
                 </div>
 
-                {draft.file_format === 'image' ? (
-                  <CertificateImageEditor
-                    draft={draft}
-                    setDraft={setDraft}
-                    canManage={canManage}
-                    onSave={() => saveFields()}
-                    onCancel={() => setView('library')}
-                    TemplateMeta={TemplateMeta}
-                    ngos={ngos}
-                    purposes={purposes}
-                  />
-                ) : (
-                  <>
                 <div className="wiz-hint" style={{ fontSize: 12 }}>
                   {draft.placeholders?.length > 0
                     ? <>Detected <b>{draft.placeholders.length}</b> placeholder{(draft.placeholders.length === 1) ? '' : 's'}:{' '}
@@ -1152,34 +1155,33 @@ export default function Certificates() {
                     </div>
                   </div>
                 </div>
-                  </>
-                )}
               </>
             )}
-            <input
-              ref={uploadInputRef}
-              type="file"
-            accept={draft?.template_type === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
-            hidden
-            onChange={(e) => { handleUploadFile(e.target.files[0]); e.target.value = '' }}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={draft?.file_format === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
-              hidden
-              onChange={(e) => { const f = e.target.files[0]; if (f) handleReupload(f); e.target.value = '' }}
-            />
-            <input
-              ref={previewInputRef}
-              type="file"
-              accept=".png,.jpg,.jpeg,.webp,.gif"
-              hidden
-              onChange={(e) => { handlePreviewUpload(e.target.files[0]); e.target.value = '' }}
-            />
           </div>
         </div>
       )}
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept={draft?.template_type === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
+        hidden
+        onChange={(e) => { handleUploadFile(e.target.files[0]); e.target.value = '' }}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={draft?.file_format === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
+        hidden
+        onChange={(e) => { const f = e.target.files[0]; if (f) handleReupload(f); e.target.value = '' }}
+      />
+      <input
+        ref={previewInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp,.gif"
+        hidden
+        onChange={(e) => { handlePreviewUpload(e.target.files[0]); e.target.value = '' }}
+      />
 
       {/* ================================== GENERATOR ================================== */}
       {view === 'generate' && genTpl && (
@@ -1217,7 +1219,7 @@ export default function Certificates() {
                         <input
                           className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
                           type={inputTypeFor(f.field_type)}
-                          placeholder={humanKey(f.field_key)}
+                          placeholder={f.style?.placeholder || humanKey(f.field_key)}
                           value={values[f.field_key] ?? f.default_value ?? ''}
                           onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
                         />
