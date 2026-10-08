@@ -29,6 +29,7 @@ export const listTickets = async (req, res) => {
       const rc = await db
         .from('ticket_replies')
         .select('ticket_id, count')
+        .neq('sender_type', 'resolution')
         .in('ticket_id', tickets.map(t => t.id));
       comments = rc.data || [];
     }
@@ -99,7 +100,16 @@ export const getTicket = async (req, res) => {
     // working its own queue — otherwise a responder sees "No replies yet" for
     // the thread it is replying in.
     const isResolverTeam = ['accounts', 'super_admin'].includes(req.user.role) || isEventTeam(req.user);
-    const visibleReplies = (isResolverTeam || req.user.id === ticket.raised_by) ? (replies || []) : [];
+    const isRaiser = req.user.id === ticket.raised_by;
+    // The resolve message (sender_type 'resolution') is private: only the person
+    // who raised the ticket and the resolver who wrote it may see it — other
+    // staff opening the same ticket must not see it.
+    const visibleReplies = (replies || []).filter(r => {
+      if (r.sender_type === 'resolution') {
+        return isRaiser || (!!r.sender_id && String(r.sender_id) === String(req.user.id));
+      }
+      return isResolverTeam || isRaiser;
+    });
 
     return res.json({ ...ticket, replies: visibleReplies });
   } catch (error) {
@@ -137,6 +147,28 @@ export const createTicket = async (req, res) => {
   }
 };
 
+// Post the resolve message as a conversation line marked sender_type
+// 'resolution'. getTicket filters those to the raiser and the resolver only —
+// every other staff member viewing the same ticket must not see it. A failure
+// here never fails the resolve itself.
+const postResolutionReply = async (ticketId, user, resolution) => {
+  try {
+    const senderId = String(user?.id ?? '');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(senderId);
+    await db.from('ticket_replies').insert({
+      ticket_id: ticketId,
+      // sender_id is a UUID FK — super admin auth uses id 0, which cannot be stored.
+      sender_id: isUuid ? senderId : null,
+      sender_type: 'resolution',
+      sender_name: getSenderName(user) || 'Support',
+      sender_panel: getSenderPanel(user),
+      message: (resolution && String(resolution).trim()) || 'Ticket marked as resolved after the issue was fixed.',
+    });
+  } catch (err) {
+    console.error('[tickets] failed to post resolve reply:', err.message);
+  }
+};
+
 export const updateTicket = async (req, res) => {
   try {
     const { id } = req.params;
@@ -158,6 +190,14 @@ export const updateTicket = async (req, res) => {
       if (owned.department !== 'event_head') {
         return res.status(403).json({ message: 'You can only update tickets routed to your team' });
       }
+    }
+
+    // Remember the previous status so re-saving an already-resolved ticket
+    // never posts a second resolve message.
+    let previousStatus;
+    if (status === 'resolved') {
+      const { data: prev } = await db.from('support_tickets').select('status').eq('id', id).maybeSingle();
+      previousStatus = prev?.status;
     }
 
     const updates = {};
@@ -185,6 +225,12 @@ export const updateTicket = async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    // Issue fixed → send the resolve message to the person who raised the
+    // ticket (private line, only they and the resolver can see it).
+    if (status === 'resolved' && previousStatus !== 'resolved') {
+      await postResolutionReply(id, req.user, resolution);
+    }
     return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
