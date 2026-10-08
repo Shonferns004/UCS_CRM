@@ -295,7 +295,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
         keyboardType: keyboardType,
         maxLines: maxLines,
         maxLength: maxLength,
-        onChanged: (_) => setState(() {}),
         style: TextStyle(fontSize: Responsive.sp(context, 14)),
         decoration: InputDecoration(
           labelText: label,
