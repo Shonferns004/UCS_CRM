@@ -954,6 +954,17 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
   );
 }
 
+// The FRO picker lists agents ("Agent 1"), and /ngo-admin/fro-workers sends
+// `name` already replaced by that agent label with the volunteer's real name in
+// `fro_name`. So the option reads "Agent 1 — Maya Jadhao": who is covering, and
+// whose account it actually is. Falls back to `name` for rows with no agent.
+const froOptionLabel = (w) => {
+  if (!w) return '';
+  const agent = w.agent_label;
+  const fro = w.fro_name || w.name;
+  return agent ? `${agent} — ${fro}` : fro;
+};
+
 function SearchableSelect({ options, value, onChange, placeholder }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -967,7 +978,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
   }, [open]);
 
   const filtered = options.filter(w =>
-    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase()) || w.agent_label?.toLowerCase().includes(search.toLowerCase())
+    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.fro_name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase()) || w.agent_label?.toLowerCase().includes(search.toLowerCase())
   );
 
   const selected = options.find(w => w.id === value);
@@ -977,7 +988,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
       <div onClick={() => setOpen(!open)}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
         <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {selected ? `${selected.name}${selected.agent_label ? ` \u2014 ${selected.agent_label}` : ''}` : (placeholder || '-- Select --')}
+          {selected ? froOptionLabel(selected) : (placeholder || '-- Select --')}
         </span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
       </div>
@@ -1001,7 +1012,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
                 style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
                 onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
                 onMouseLeave={e => e.currentTarget.style.background = w.id === value ? '#f0fdf4' : 'transparent'}>
-                <span>{w.name}{w.agent_label ? ` \u2014 ${w.agent_label}` : ''}</span>
+                <span>{froOptionLabel(w)}</span>
               </div>
             ))}
             {filtered.length === 0 && (
@@ -2574,13 +2585,13 @@ export default function StationManagement() {
                         </td>
                         <td>
                           <SearchableSelect
-                            options={froWorkers.map(fw => ({ ...fw, agent_label: (agents.find(a => String(a.worker_id) === String(fw.id)) || {}).label || null }))}
+                            options={froWorkers.map(fw => ({ ...fw, agent_label: (agents.find(a => String(a.worker_id) === String(fw.id)) || {}).label || fw.agent_label || null }))}
                             value={s.fro_worker_id || ''}
                             onChange={(val) => handleFroChange(s.station, val)}
-                            placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
+                            placeholder={s.fro_worker_id ? (w?.fro_name || w?.name || '--') : '+ Assign FRO'}
                           />
                           {agentLabel && (
-                            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 3 }}>{agentLabel}</div>
+                            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 3 }}>Covered by {agentLabel}</div>
                           )}
                         </td>
                         <td>{renderDonorPills(s)}</td>
