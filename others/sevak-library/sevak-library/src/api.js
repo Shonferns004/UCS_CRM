@@ -48,12 +48,21 @@ export function generateRef() {
 
 export async function submitApplication(values) {
   const fd = new FormData()
+  const signature = typeof values.applicantSignature === 'string' ? values.applicantSignature : ''
+  const hasSignature = signature.startsWith('data:image')
   for (const [key, value] of Object.entries(values || {})) {
     if (key === 'passportPhoto' || key === 'identityProofPhoto') continue
+    // The drawn signature travels as a file (`signature`), never as a giant
+    // base64 string inside the JSON `data` payload.
+    if (key === 'applicantSignature') continue
     fd.append(key, value == null ? '' : String(value))
   }
   if (values.passportPhoto instanceof File) fd.append('passport', values.passportPhoto)
   if (values.identityProofPhoto instanceof File) fd.append('identity', values.identityProofPhoto)
+  if (hasSignature) {
+    const blob = await (await fetch(signature)).blob()
+    fd.append('signature', blob, 'signature.png')
+  }
 
   const j = await request('/applications', { method: 'POST', body: fd })
   return j.data

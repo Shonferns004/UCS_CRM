@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LayoutDashboard, ClipboardList, Tag, UploadCloud, AlertTriangle, Loader2, BookOpen, RefreshCw } from 'lucide-react'
+import { ClipboardList, Tag, UploadCloud, AlertTriangle, Loader2, BookOpen, RefreshCw } from 'lucide-react'
 import './admin.css'
 import { ToastProvider } from './toast.jsx'
 import { listApplications } from './api.js'
@@ -11,14 +11,13 @@ import ApplicationDetail from './ApplicationDetail.jsx'
 import DrillListModal from './DrillListModal.jsx'
 
 const TABS = [
-  { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} /> },
   { key: 'applications', label: 'Applications', icon: <ClipboardList size={15} /> },
   { key: 'coupons', label: 'Coupons', icon: <Tag size={15} /> },
   { key: 'import', label: 'Import members', icon: <UploadCloud size={15} /> }
 ]
 
 function SevakLibraryView() {
-  const [tab, setTab] = useState('dashboard')
+  const [tab, setTab] = useState('applications')
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
