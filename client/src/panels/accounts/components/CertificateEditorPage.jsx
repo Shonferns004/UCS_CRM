@@ -633,7 +633,8 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       <style>{`
         .ced { --blue:#2563EB; --blue-l:#EFF6FF; --purple:#7C3AED; --green:#10B981; --amber:#F59E0B; --red:#EF4444;
           --bg:#F8FAFF; --surface:#FFFFFF; --line:#E5E7EB; --ink:#0F172A; --ink2:#64748B; --ink3:#94A3B8;
-          font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); box-sizing:border-box; }
+          font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); box-sizing:border-box;
+          height:100%; display:flex; flex-direction:column; overflow:hidden; }
         .ced *, .ced *::before, .ced *::after { box-sizing:border-box; }
         .ced h1,.ced h2,.ced h3 { margin:0; }
         .ced-inp { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:inherit;
@@ -666,7 +667,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-back:hover { background:var(--blue-l); border-color:#BFDBFE; color:var(--blue); }
 
         .ced-head { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:12px;
-          padding:10px 14px; box-shadow:0 1px 3px rgba(15,23,42,.05); flex-wrap:wrap; }
+          padding:10px 14px; box-shadow:0 1px 3px rgba(15,23,42,.05); flex-wrap:wrap; flex-shrink:0; }
         .ced-head-titles { min-width:0; flex:1; }
         .ced-head h1 { font-size:18px; line-height:1.25; font-weight:700; letter-spacing:-.01em; }
         .ced-unsaved { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; color:#B45309; background:#FFFBEB;
@@ -676,9 +677,9 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-only-narrow { display:none; }
 
         .ced-work { margin-top:10px; display:grid; grid-template-columns:230px minmax(0,1fr) 300px; gap:10px;
-          min-width:0; }
+          min-width:0; flex:1; min-height:0; }
         .ced-panel { position:relative; background:var(--surface); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column;
-          min-height:0; max-height:calc(100vh - 190px); overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+          min-height:0; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
         .ced-panel-body { flex:1; min-height:0; overflow-y:auto; padding:10px; }
         .ced-panel-head { padding:10px 12px 8px; border-bottom:1px solid var(--line); }
         .ced-panel-head h2 { font-size:15px; font-weight:700; }
@@ -718,7 +719,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
         .ced-zoom-val { min-width:52px; text-align:center; font-size:12px; font-weight:600; color:#334155; background:#F1F5F9;
           border:1px solid var(--line); border-radius:8px; height:32px; line-height:30px; cursor:pointer; user-select:none; }
-        .ced-stage { position:relative; height:calc(100vh - 246px); min-height:360px; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
+        .ced-stage { position:relative; flex:1; min-height:0; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
         .ced-stage-pad { width:max-content; min-width:100%; margin:0 auto; padding:14px; display:flex; justify-content:center; }
         .ced-paper { position:relative; background:#fff; border-radius:3px; box-shadow:0 8px 30px rgba(15,23,42,.16); overflow:hidden; flex-shrink:0; }
         .ced-paper img.ced-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; display:block; user-select:none; pointer-events:none; }
@@ -799,7 +800,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           .ced-left.open, .ced-right.open { transform:none; box-shadow:0 12px 44px rgba(15,23,42,.22); }
           .ced-panel-close { display:inline-flex; position:absolute; top:10px; right:10px; z-index:2; }
           .ced-panel-head { padding-right:52px; }
-          .ced-stage { height:58vh; min-height:340px; }
         }
         @media (min-width: 1025px) { .ced-backdrop.show { display:none; } }
         @media (max-width: 767px) {
@@ -810,7 +810,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           .ced-panel { top:auto; left:0; right:0; width:auto; max-height:74vh; border-radius:18px 18px 0 0;
             transform:translateY(103%); transition:transform .2s ease; }
           .ced-left.open, .ced-right.open { transform:none; }
-          .ced-stage { height:52vh; min-height:280px; }
           .ced-tools { margin-left:0; width:100%; }
           .ced-btn { height:40px; }
           .ced-ibtn { min-width:36px; height:36px; }
