@@ -70,6 +70,7 @@ export async function ensureCertificateSchema() {
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS canvas_width INT`,
     `ALTER TABLE certificate_templates ADD COLUMN IF NOT EXISTS canvas_height INT`,
     `ALTER TABLE certificate_template_fields ADD COLUMN IF NOT EXISTS style JSONB NOT NULL DEFAULT '{}'::jsonb`,
+    `ALTER TABLE certificate_template_fields ADD COLUMN IF NOT EXISTS options TEXT DEFAULT ''`,
     `CREATE INDEX IF NOT EXISTS idx_cer_tpl_ngo ON certificate_templates (ngo_id)`,
     `CREATE INDEX IF NOT EXISTS idx_cer_tpl_purpose ON certificate_templates (purpose)`,
     `CREATE INDEX IF NOT EXISTS idx_cer_tpl_status ON certificate_templates (status)`,

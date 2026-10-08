@@ -16,6 +16,7 @@ class _LoginPageState extends State<LoginPage> {
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -32,7 +33,8 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _login() async {
-    if (_identifierController.text.isEmpty || _passwordController.text.isEmpty) {
+    if (_identifierController.text.isEmpty ||
+        _passwordController.text.isEmpty) {
       setState(() => _error = 'Please enter credentials');
       return;
     }
@@ -41,11 +43,14 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     try {
-      final result = await ApiService.post('/auth/worker/login', body: {
-        'identifier': _identifierController.text.trim(),
-        'password': _passwordController.text,
-        'client': 'beneficiaries',
-      });
+      final result = await ApiService.post(
+        '/auth/worker/login',
+        body: {
+          'identifier': _identifierController.text.trim(),
+          'password': _passwordController.text,
+          'client': 'beneficiaries',
+        },
+      );
       await ApiService.saveToken(result['token']);
       await ApiService.saveVolunteerData({
         ...result['user'] ?? {},
@@ -95,16 +100,28 @@ class _LoginPageState extends State<LoginPage> {
                 ],
                 TextField(
                   controller: _identifierController,
-                  decoration: const InputDecoration(
-                    labelText: 'Mobile / Email / Login ID',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Login ID'),
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _passwordController,
-                  decoration: const InputDecoration(labelText: 'Password'),
-                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      tooltip: _obscurePassword
+                          ? 'Show password'
+                          : 'Hide password',
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                  obscureText: _obscurePassword,
                   onSubmitted: (_) => _login(),
                 ),
                 const SizedBox(height: 28),
@@ -118,9 +135,13 @@ class _LoginPageState extends State<LoginPage> {
                           baseColor: Colors.white24,
                           shineColor: Colors.white,
                         )
-                      : const Text('Login',
+                      : const Text(
+                          'Login',
                           style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w600)),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                 ),
               ],
             ),

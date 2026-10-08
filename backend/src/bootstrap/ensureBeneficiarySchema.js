@@ -50,6 +50,59 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_by TEXT"
   ).catch(() => {});
 
+  // Which event the beneficiary last collected their kit at — mirrors
+  // migration 176. Kept on the row so the admin list can show, filter and
+  // search it (All Beneficiaries → Event column + event search).
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_event_id INT"
+  ).catch(() => {});
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_event_name TEXT"
+  ).catch(() => {});
+  await db._pool.query(
+    `DO $$ BEGIN
+       IF NOT EXISTS (
+         SELECT 1 FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+         WHERE t.relname = 'beneficiaries'
+           AND c.conname = 'beneficiaries_kit_event_id_fkey'
+       ) THEN
+         ALTER TABLE beneficiaries ADD CONSTRAINT beneficiaries_kit_event_id_fkey
+           FOREIGN KEY (kit_event_id) REFERENCES operator_events(id) ON DELETE SET NULL;
+       END IF;
+     END $$`
+  ).catch(() => {});
+  // One-time backfill from the newest KIT_GIVEN audit entry per beneficiary.
+  await db._pool.query(
+    `UPDATE beneficiaries b
+        SET kit_event_id = x.event_id,
+            kit_event_name = x.event_name
+       FROM (
+         SELECT DISTINCT ON (beneficiary_id)
+                beneficiary_id,
+                CASE WHEN details->>'event_id' ~ '^[0-9]+$'
+                     THEN (details->>'event_id')::INT END AS event_id,
+                details->>'event_name' AS event_name
+           FROM (
+             -- Older audit rows left beneficiary_id NULL and only filled entity_id.
+             SELECT COALESCE(beneficiary_id, entity_id) AS beneficiary_id,
+                    details, performed_at
+               FROM beneficiary_audit_logs
+              WHERE action = 'KIT_GIVEN'
+                AND entity_type = 'beneficiary'
+           ) l
+          WHERE beneficiary_id IS NOT NULL
+          ORDER BY beneficiary_id, performed_at DESC
+       ) x
+      WHERE b.id = x.beneficiary_id
+        AND b.kit_event_id IS NULL
+        AND b.kit_event_name IS NULL
+        AND (x.event_id IS NOT NULL OR x.event_name IS NOT NULL)`
+  ).catch(() => {});
+  await db._pool.query(
+    'CREATE INDEX IF NOT EXISTS idx_beneficiaries_kit_event ON beneficiaries (kit_event_id)'
+  ).catch(() => {});
+
   await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS aadhaar_number TEXT"
   ).catch(() => {});
@@ -58,6 +111,15 @@ await db._pool.query(
   // Add Beneficiary screen).
   await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS needed TEXT"
+  ).catch(() => {});
+
+  // 6-digit OTP created when the operator accepts the "Already collected"
+  // re-issue prompt — displayed in the accounts panel Beneficiaries section.
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS collection_otp TEXT"
+  ).catch(() => {});
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS collection_otp_at TIMESTAMPTZ"
   ).catch(() => {});
 
   // ensureBeneficiarySchema creates any missing table as a bare "id SERIAL", so

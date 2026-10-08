@@ -1,7 +1,8 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries
+  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries,
+  setBeneficiaryCollectionOtp,
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
 import { getDisabilities, addDisability, removeDisability } from '../models/beneficiaryDisabilityModel.js';
@@ -19,6 +20,7 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
+import { randomInt } from 'crypto';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
@@ -280,10 +282,11 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     }
 
     const givenBy = req.user?.name || req.user?.email || 'system';
-    const updated = await markKitGiven(beneficiary.id, givenBy);
 
     // Capture the operator's event for the day (if one is assigned) so the
-    // kit-given history on the app can show which event the kit was collected at.
+    // kit-given history on the app can show which event the kit was collected
+    // at — and so the beneficiary row (kit_event_*) carries it for the admin
+    // list's event column / filter. Resolved BEFORE the update for that reason.
     let eventName = null;
     let eventId = null;
     try {
@@ -309,6 +312,11 @@ export const markBeneficiaryKitGiven = async (req, res) => {
       eventId = null;
     }
 
+    const updated = await markKitGiven(beneficiary.id, givenBy, {
+      id: Number.isInteger(eventId) ? eventId : null,
+      name: eventName,
+    });
+
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
       beneficiary_id: beneficiary.id, action: 'KIT_GIVEN',
@@ -321,6 +329,41 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     });
 
     return res.json({ message: 'Kit marked as given', beneficiary: updated });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Random 6-digit OTP for a re-issued kit ("Already collected" → Accept on the
+// beneficiaries app). Stored on the row; the accounts panel's Beneficiaries
+// section reads it back for verification.
+export const sendCollectionOtp = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ message: 'Invalid beneficiary id' });
+    }
+    const beneficiary = await getBeneficiaryById(id);
+    if (!beneficiary) {
+      return res.status(404).json({ message: 'Beneficiary not found' });
+    }
+
+    // randomInt is CSPRNG-backed — 100000..999999 gives all 6-digit values.
+    const otp = String(randomInt(100000, 1000000));
+    const saved = await setBeneficiaryCollectionOtp(id, otp);
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: id,
+      beneficiary_id: id, action: 'COLLECTION_OTP_SENT',
+      details: { beneficiary_code: beneficiary.beneficiary_code },
+      performed_by: req.user?.name || 'system',
+    });
+
+    return res.json({
+      message: 'OTP sent',
+      otp: saved.collection_otp,
+      sent_at: saved.collection_otp_at,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -376,12 +419,31 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, has_otp } = req.query;
+
+    // Beneficiaries app operators see only their own registrations. The app
+    // token carries department 'operator' and no ngo_id (CRM worker tokens
+    // always include ngo_id), so old app sessions are covered too.
+    let created_by;
+    const isAppSession =
+      req.user?.client === 'beneficiaries' ||
+      (req.user?.department === 'operator' && req.user?.ngo_id === undefined);
+    if (isAppSession) {
+      let operator = null;
+      try {
+        operator = await getBnfOperatorBySession(req.user);
+      } catch (_) {
+        operator = null;
+      }
+      created_by = operator?.name || req.user?.name || null;
+    }
+
     const result = await listBeneficiaries({
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_given,
+      category_id, state, city, kit_given, event_id, has_otp,
+      created_by,
     });
     return res.json(result);
   } catch (error) {

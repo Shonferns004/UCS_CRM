@@ -174,6 +174,20 @@ export const getBeneficiaryById = async (id) => {
   return data;
 };
 
+// Stores the latest re-issue collection OTP on the beneficiary row so the
+// accounts panel can show it (beneficiaries app "Already collected" → Accept).
+export const setBeneficiaryCollectionOtp = async (id, otp) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('beneficiaries')
+    .update({ collection_otp: otp, collection_otp_at: now, updated_at: now })
+    .eq('id', id)
+    .select('id, collection_otp, collection_otp_at')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const getBeneficiaryByCode = async (code) => {
   const { data, error } = await db
     .from('beneficiaries')
@@ -196,16 +210,28 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by, has_otp }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
+  if (created_by) query = query.eq('created_by', created_by);
+  // OTP tab: only beneficiaries with a generated collection OTP.
+  if (has_otp === true || has_otp === 'true') query = query.not('collection_otp', 'is', null);
+
   if (search) {
-    query = query.or(`beneficiary_code.ilike.%${search}%,full_name.ilike.%${search}%,mobile.ilike.%${search}%`);
+    // Commas and parens are PostgREST or= separators, so a typed event name
+    // like "Diwali, Camp" must not reach the expression raw.
+    const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (term) {
+      query = query.or(
+        `beneficiary_code.ilike.%${term}%,full_name.ilike.%${term}%,mobile.ilike.%${term}%,kit_event_name.ilike.%${term}%`
+      );
+    }
   }
   if (status) query = query.eq('status', status);
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
   if (state) query = query.eq('state', state);
   if (city) query = query.eq('city', city);
+  if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
   if (kit_given !== undefined && kit_given !== null) {
     query = query.eq('kit_given', kit_given === true || kit_given === 'true');
   }
@@ -213,7 +239,13 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  if (kit_given !== undefined && kit_given !== null) {
+  if (has_otp === true || has_otp === 'true') {
+    // OTP tab: newest OTP first so fresh re-issues sit at the top.
+    query = query
+      .order('collection_otp_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+  } else if (kit_given !== undefined && kit_given !== null) {
     // Kit-given history: newest handout first (matches the app's "Given Today"
     // overview count so the freshly-given beneficiaries appear at the top).
     query = query
@@ -330,16 +362,23 @@ export const searchByMobile = async (mobile) => {
   return data || [];
 };
 
-export const markKitGiven = async (id, givenBy) => {
+export const markKitGiven = async (id, givenBy, event = null) => {
   const now = new Date().toISOString();
+  const update = {
+    kit_given: true,
+    kit_given_at: now,
+    kit_given_by: givenBy || 'system',
+    updated_at: now,
+  };
+  // Only overwrite the recorded event when this handout actually had one —
+  // a kit given with no event assigned keeps the beneficiary's last known event.
+  if (event && event.id != null) {
+    update.kit_event_id = event.id;
+    update.kit_event_name = event.name || null;
+  }
   const { data, error } = await db
     .from('beneficiaries')
-    .update({
-      kit_given: true,
-      kit_given_at: now,
-      kit_given_by: givenBy || 'system',
-      updated_at: now,
-    })
+    .update(update)
     .eq('id', id)
     .select('*')
     .single();

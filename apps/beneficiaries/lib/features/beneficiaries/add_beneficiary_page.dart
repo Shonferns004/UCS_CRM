@@ -111,6 +111,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   // True while OCR is reading that side of the Aadhaar card.
   bool _ocrBusyFront = false;
   bool _ocrBusyBack = false;
+  bool? _isLetter;
 
   static const int requiredFingers = 3;
 
@@ -446,7 +447,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
         doc.base64 = base64Encode(bytes);
         doc.name = front ? 'aadhaar_front.jpg' : 'aadhaar_back.jpg';
-
+        if (front) _isLetter = null;
         if (front) {
           _ocrBusyFront = true;
         } else {
@@ -485,9 +486,16 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         final dobText = _extractDob(text);
         final gender = _extractGender(text);
         final name = _extractName(text);
-
+        final letter = _extractLetterAddress(text);
         setState(() {
           _ocrBusyFront = false;
+          _isLetter = letter != null;
+
+          if (letter != null) {
+            final back = _doc(_DocType.aadhaarBack);
+            back.base64 = null;
+            back.name = null;
+          }
           if (name != null && name.isNotEmpty) {
             _fullNameController.text = name;
           }
@@ -505,10 +513,23 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           if (aadhaar != null) {
             _aadhaarController.text = aadhaar;
           }
+          if (letter != null) {
+            if (letter.address.isNotEmpty)
+              _locationController.text = letter.address;
+            if (letter.city != null) _cityController.text = letter.city!;
+            if (letter.state != null) _stateController.text = letter.state!;
+            if (letter.pin != null) _pincodeController.text = letter.pin!;
+            if (letter.mobile != null &&
+                _mobileController.text.trim().isEmpty) {
+              _mobileController.text = letter.mobile!;
+            }
+          }
         });
         showAppSnackbar(
           context,
-          'Front side read. Please verify the details.',
+          letter != null
+              ? 'Aadhaar and address read. Back side not needed. Please verify.'
+              : 'Front side read. Now scan the back side for the address.',
           success: true,
         );
       } else {
@@ -535,6 +556,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       setState(() {
         _ocrBusyFront = false;
         _ocrBusyBack = false;
+        if (front) _isLetter = false;
       });
       showAppSnackbar(
         context,
@@ -547,66 +569,151 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   }
 
   // ---------------- OCR text parsing ----------------
+  bool _isValidAadhaarNumber(String number) {
+    if (number.length != 12) return false;
+
+    // VID generally starts with 1 and is also 16 digits,
+    // so 12 digit requirement itself removes most VID cases.
+
+    // Reject obviously invalid repeated numbers
+    if (RegExp(r'^(\d)\1{11}$').hasMatch(number)) {
+      return false;
+    }
+
+    // Aadhaar cannot start with 0 or 1
+    if (number.startsWith('0') || number.startsWith('1')) {
+      return false;
+    }
+
+    return true;
+  }
 
   List<String> _lines(String text) =>
       text.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
 
   /// 12-digit Aadhaar number, returned as digits only.
+  /// 12-digit Aadhaar number, returned as digits only.
   String? _extractAadhaar(String text) {
-    final formatted = RegExp(r'\b\d{4}[\s-]+\d{4}[\s-]+\d{4}\b');
-    for (final match in formatted.allMatches(text)) {
-      final number = match.group(0)!.replaceAll(RegExp(r'\D'), '');
-      if (number.length == 12) return number;
+    final lines = _lines(text);
+
+    // VID wali lines (aur uske aas-paas ke 16-digit numbers) hata do.
+    final vidLabel = RegExp(r'\bvid\b', caseSensitive: false);
+    final candidates = lines.where((l) => !vidLabel.hasMatch(l)).toList();
+
+    // 4-4-4 format, lekin uske aage/peeche aur 4-digit group nahi hona chahiye.
+    final grouped = RegExp(r'(?<![\d])(\d{4})\s(\d{4})\s(\d{4})(?!\s?\d)');
+
+    final found = <String, int>{};
+
+    for (final line in candidates) {
+      final normalized = line
+          .replaceAll(RegExp(r'[^0-9 ]'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+
+      for (final m in grouped.allMatches(normalized)) {
+        final number = '${m.group(1)}${m.group(2)}${m.group(3)}';
+        if (_isValidAadhaarNumber(number)) {
+          found[number] = (found[number] ?? 0) + 1;
+        }
+      }
     }
-    final continuous = RegExp(r'\b\d{12}\b').firstMatch(text);
-    return continuous?.group(0);
+
+    if (found.isNotEmpty) {
+      final sorted = found.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      return sorted.first.key;
+    }
+
+    for (final line in candidates) {
+      for (final m in RegExp(r'(?<!\d)\d{12}(?!\d)').allMatches(line)) {
+        final number = m.group(0)!;
+        if (_isValidAadhaarNumber(number)) return number;
+      }
+    }
+
+    return null;
   }
 
   String? _extractDob(String text) {
-    final lines = _lines(text);
+    // OCR ki aam galtiyan theek karo.
+    final fixed = text
+        .replaceAllMapped(
+          RegExp(r'(?<=\d)\s*([\/\-.])\s*(?=\d)'),
+          (m) => m.group(1)!,
+        )
+        .replaceAll(RegExp(r'(?<=\d)[Oo](?=\d)'), '0');
+
+    final lines = _lines(fixed);
 
     final dateRegex = RegExp(
-      r'\b(0?[1-9]|[12]\d|3[01])[\/\-.](0?[1-9]|1[0-2])[\/\-.](19|20)\d{2}\b',
+      r'(?<!\d)(0?[1-9]|[12]\d|3[01])[\/\-.](0?[1-9]|1[0-2])[\/\-.](19|20)\d{2}(?!\d)',
     );
+
+    // DOB label: OCR ki galtiyon ke saath (D0B, DO8, DOB, Birth).
     final dobLabel = RegExp(
-      r'\b(date\s*of\s*birth|dob|d\.o\.b|birth)\b',
+      r'(d[o0]b|d\.o\.b|birth|year\s*of)',
       caseSensitive: false,
     );
-    // Dates near these labels are NOT the date of birth.
+
+    // Sirf wo lines hatao jinme ye words hon aur DOB label na ho.
     final excludeLabel = RegExp(
-      r'(issue\s*date|date\s*of\s*issue|issued\s*on|'
-      r'enrolment\s*date|enrollment\s*date|'
-      r'update\s*date|updated\s*on|'
-      r'valid\s*from|date\s*of\s*enrolment)',
+      r'(issued|details\s*as\s*on|enrol|generated|printed|download)',
       caseSensitive: false,
     );
 
-    // 1. A line carrying the DOB label (same line or the next two lines).
-    for (int i = 0; i < lines.length; i++) {
+    bool valid(String s) {
+      final d = _parseOcrDob(s);
+      if (d == null) return false;
+      final now = DateTime.now();
+      return d.isBefore(now) && now.year - d.year <= 120;
+    }
+
+    // 1. DOB label wali line par date (excludeLabel ignore, label pakka hai).
+    for (final line in lines) {
+      if (!dobLabel.hasMatch(line)) continue;
+      for (final m in dateRegex.allMatches(line)) {
+        if (valid(m.group(0)!)) return m.group(0);
+      }
+    }
+
+    for (var i = 0; i < lines.length; i++) {
       if (!dobLabel.hasMatch(lines[i])) continue;
-
-      final sameLine = dateRegex.firstMatch(lines[i]);
-      if (sameLine != null) return sameLine.group(0);
-
-      for (int j = i + 1; j <= i + 2 && j < lines.length; j++) {
+      for (var j = i + 1; j <= i + 2 && j < lines.length; j++) {
         if (excludeLabel.hasMatch(lines[j])) continue;
-        final match = dateRegex.firstMatch(lines[j]);
-        if (match != null) return match.group(0);
+        final m = dateRegex.firstMatch(lines[j]);
+        if (m != null && valid(m.group(0)!)) return m.group(0);
       }
     }
 
-    // 2. No usable label: accept a date only if it is the single safe one.
-    final possible = <String>{};
-    for (int i = 0; i < lines.length; i++) {
-      for (final match in dateRegex.allMatches(lines[i])) {
-        final start = i - 1 < 0 ? 0 : i - 1;
-        final end = i + 1 >= lines.length ? lines.length - 1 : i + 1;
-        final nearby = lines.sublist(start, end + 1).join(' ');
-        if (excludeLabel.hasMatch(nearby)) continue;
-        possible.add(match.group(0)!);
+    // 3. Label nahi mila: Male/Female line ke aas-paas (upar 3 lines) ki date.
+    final genderIdx = lines.indexWhere(
+      (l) => RegExp(
+        r'\b(male|female|transgender)\b',
+        caseSensitive: false,
+      ).hasMatch(l),
+    );
+    if (genderIdx != -1) {
+      final from = genderIdx - 3 < 0 ? 0 : genderIdx - 3;
+      for (var i = genderIdx; i >= from; i--) {
+        if (excludeLabel.hasMatch(lines[i])) continue;
+        final m = dateRegex.firstMatch(lines[i]);
+        if (m != null && valid(m.group(0)!)) return m.group(0);
       }
     }
-    return possible.length == 1 ? possible.first : null;
+
+    final found = <DateTime, String>{};
+    for (final line in lines) {
+      if (excludeLabel.hasMatch(line)) continue;
+      for (final m in dateRegex.allMatches(line)) {
+        final s = m.group(0)!;
+        if (!valid(s)) continue;
+        found[_parseOcrDob(s)!] = s;
+      }
+    }
+    if (found.isEmpty) return null;
+    final oldest = found.keys.reduce((a, b) => a.isBefore(b) ? a : b);
+    return found[oldest];
   }
 
   String? _extractGender(String text) {
@@ -701,61 +808,197 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   }
 
   String? _extractAddress(String text) {
-    // Footer junk printed on the card back.
+    final allLines = _lines(text);
+
+    if (allLines.isEmpty) return null;
+
     final junk = RegExp(
-      r'uidai|www\.|help@|\bvid\b|\d{4}\s\d{4}\s\d{4}|toll\s*free|\b1947\b',
+      r'uidai|www\.|help@|\bvid\b|'
+      r'\d{4}\s*\d{4}\s*\d{4}|'
+      r'toll\s*free|\b1947\b|'
+      r'unique identification authority|'
+      r'government of india',
       caseSensitive: false,
     );
-    final lines = _lines(text).where((l) => !junk.hasMatch(l)).toList();
+
+    final lines = allLines.where((l) => !junk.hasMatch(l)).toList();
+
     if (lines.isEmpty) return null;
 
-    const keywords = [
-      's/o',
-      'd/o',
-      'w/o',
-      'c/o',
-      'house',
-      'road',
-      'street',
-      'village',
-      'taluka',
-      'district',
-      'state',
-      'pincode',
-      'maharashtra',
-      'gujarat',
-      'rajasthan',
-      'madhya pradesh',
-      'uttar pradesh',
-      'delhi',
-      'karnataka',
-    ];
+    // Only use "Address" as the starting point.
+    int start = -1;
 
-    // Start: the "Address" label, else the first address-looking line.
-    var start = lines.indexWhere((l) => l.toLowerCase().contains('address'));
-    if (start == -1) {
-      start = lines.indexWhere((l) {
-        final lw = l.toLowerCase();
-        return keywords.any((k) => lw.contains(k));
-      });
-    }
-    if (start == -1) start = 0;
+    for (var i = 0; i < lines.length; i++) {
+      final lower = lines[i].toLowerCase().trim();
 
-    // End: the first line with a 6-digit pincode, else 8 lines max.
-    var end = -1;
-    for (var i = start; i < lines.length; i++) {
-      if (RegExp(r'\b\d{6}\b').hasMatch(lines[i])) {
-        end = i;
+      if (lower == 'address' ||
+          lower.startsWith('address:') ||
+          lower.startsWith('address -') ||
+          lower.startsWith('address ')) {
+        start = i;
         break;
       }
     }
-    if (end == -1) {
-      end = (start + 7 < lines.length) ? start + 7 : lines.length - 1;
+
+    // Address label nahi mila to guess mat karo.
+    if (start == -1) return null;
+
+    final addressLines = <String>[];
+
+    for (var i = start + 1; i < lines.length; i++) {
+      var line = lines[i].trim();
+
+      if (line.isEmpty) continue;
+
+      final lower = line.toLowerCase();
+
+      // S/O, D/O, W/O, C/O ko completely ignore karo.
+      if (RegExp(
+        r'^\s*(s/o|d/o|w/o|c/o)\b',
+        caseSensitive: false,
+      ).hasMatch(line)) {
+        continue;
+      }
+
+      // Agar same line me S/O hai, usko remove karo.
+      line = line
+          .replaceFirst(
+            RegExp(
+              r'^\s*(s/o|d/o|w/o|c/o)\s+[^,]+[,]?\s*',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
+
+      if (line.isEmpty) continue;
+
+      // Footer text
+      if (lower.contains('uidai') ||
+          lower.contains('unique identification') ||
+          lower.contains('toll free') ||
+          lower.contains('help@') ||
+          lower.contains('www.')) {
+        break;
+      }
+
+      // Aadhaar / VID number ko address me mat lo.
+      if (RegExp(
+        r'\bvid\b|\b\d{4}\s*\d{4}\s*\d{4}\b',
+        caseSensitive: false,
+      ).hasMatch(line)) {
+        continue;
+      }
+
+      addressLines.add(line);
+
+      // Pincode mil gaya = address complete.
+      if (RegExp(r'\b\d{6}\b').hasMatch(line)) {
+        break;
+      }
+
+      // Maximum address lines
+      if (addressLines.length >= 6) {
+        break;
+      }
     }
 
-    final raw = lines.sublist(start, end + 1).join(' ');
+    if (addressLines.isEmpty) return null;
+
+    final raw = addressLines.join(' ');
     final cleaned = _cleanAddress(raw);
+
     return cleaned.isNotEmpty ? cleaned : raw.trim();
+  }
+
+  /// e-Aadhaar letter (bada wala) ke "To ... PIN Code ... Mobile" block se
+  /// address nikalta hai. Block na mile to null.
+  ({String address, String? city, String? state, String? pin, String? mobile})?
+  _extractLetterAddress(String text) {
+    final lines = _lines(text);
+
+    final toIdx = lines.indexWhere(
+      (l) => RegExp(r'^to\s*:?$', caseSensitive: false).hasMatch(l),
+    );
+    if (toIdx == -1) return null;
+
+    String? grab(String l, String label) => RegExp(
+      '$label\\s*:\\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(l)?.group(1)?.trim().replaceAll(RegExp(r'[,\s]+$'), '');
+
+    final parts = <String>[];
+    String? vtc, district, state, pin, mobile;
+
+    // toIdx + 1 = naam, isliye address toIdx + 2 se shuru hota hai.
+    for (var i = toIdx + 2; i < lines.length; i++) {
+      final l = lines[i];
+
+      final v = grab(l, 'vtc');
+      final d = grab(l, 'district');
+      final s = grab(l, 'state');
+      final p = RegExp(
+        r'pin\s*code\s*:?\s*(\d{6})',
+        caseSensitive: false,
+      ).firstMatch(l)?.group(1);
+      final m = RegExp(
+        r'mobile\s*:?\s*(\d{10})',
+        caseSensitive: false,
+      ).firstMatch(l)?.group(1);
+
+      if (v != null) {
+        vtc = v;
+        continue;
+      }
+      if (d != null) {
+        district = d;
+        continue;
+      }
+      if (s != null) {
+        state = s;
+        continue;
+      }
+      if (p != null) {
+        pin = p;
+        continue;
+      }
+      if (m != null) {
+        mobile = m;
+        break;
+      }
+
+      if (RegExp(
+        r'uidai|\bvid\b|\d{4}\s\d{4}\s\d{4}',
+        caseSensitive: false,
+      ).hasMatch(l)) {
+        break;
+      }
+
+      // S/O, D/O, W/O, C/O hata do
+      final cleaned = l
+          .replaceFirst(
+            RegExp(r'^\s*(s/o|d/o|w/o|c/o)\s+[^,]*,?\s*', caseSensitive: false),
+            '',
+          )
+          .trim();
+      if (cleaned.isNotEmpty) parts.add(cleaned);
+    }
+
+    // Address ya pincode, kuch bhi nahi mila to ye letter nahi hai.
+    if (parts.isEmpty && pin == null) return null;
+
+    final address = parts
+        .join(' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'^[,\s]+|[,\s]+$'), '');
+
+    return (
+      address: address,
+      city: vtc ?? district,
+      state: state,
+      pin: pin,
+      mobile: mobile,
+    );
   }
 
   /// Certificate / UDID number: by label first, then by the UDID pattern.
@@ -1198,11 +1441,13 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   Widget _aadhaarSideTile({required bool front, required bool locked}) {
     final doc = _doc(front ? _DocType.aadhaar : _DocType.aadhaarBack);
     final busy = front ? _ocrBusyFront : _ocrBusyBack;
-    final title = front ? 'Front side' : 'Back side';
+    final title = front
+        ? (_isLetter == true ? 'Aadhaar Letter' : 'Front side')
+        : 'Back side';
     final hint = front ? 'Name, DOB, number' : 'Address';
     final bytes = doc.bytes;
     final disabled = locked || busy;
-
+    final boxHeight = (front && _isLetter == true) ? 180.0 : 140.0;
     // Nothing attached yet: dotted "scan" tile.
     if (bytes == null) {
       return InkWell(
@@ -1341,6 +1586,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                     setState(() {
                       doc.base64 = null;
                       doc.name = null;
+                      if (front) _isLetter = null;
                     });
                   }),
                 ],
@@ -1382,10 +1628,16 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
   /// Document 1: Aadhaar card, front and back, captured right here.
   Widget _aadhaarSlot(bool locked) {
+    final frontTile = _aadhaarSideTile(front: true, locked: locked);
+
+    // Scan se pehle ya bada letter: sirf ek box.
+    if (_isLetter != false) return frontTile;
+
+    // Chhota card: front + back dono.
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: _aadhaarSideTile(front: true, locked: locked)),
+        Expanded(child: frontTile),
         const SizedBox(width: 12),
         Expanded(child: _aadhaarSideTile(front: false, locked: locked)),
       ],
@@ -1563,10 +1815,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       return;
     }
 
-    if (_neededController.text.trim().isEmpty) {
-      showAppSnackbar(context, 'Needed is required', error: true);
-      return;
-    }
     if (certNo.isEmpty) {
       showAppSnackbar(
         context,
@@ -1867,7 +2115,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             const SizedBox(height: 16),
 
             const Text(
-              '1. Aadhaar Card (Front & Back)',
+              '1. Aadhaar Card',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -1878,7 +2126,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             const SizedBox(height: 4),
 
             const Text(
-              'Capture both sides here. Details are filled in automatically.',
+              'Scan the Aadhaar card. Details are filled in automatically.',
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
 
@@ -1991,7 +2239,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                 padding: EdgeInsets.symmetric(horizontal: 12),
               ),
             ),
-
             const SizedBox(height: 16),
 
             // ------------------------------------------------------------
@@ -2211,16 +2458,17 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             const SizedBox(height: 16),
 
             // ------------------------------------------------------------
-            // OCCUPATION
+            // AADHAAR NUMBER
             // ------------------------------------------------------------
             TextFormField(
-              controller: _occupationController,
+              controller: _aadhaarController,
+              style: const TextStyle(fontSize: 13),
               decoration: InputDecoration(
                 label: Text.rich(
                   TextSpan(
                     children: [
                       const TextSpan(
-                        text: 'Occupation',
+                        text: 'Aadhaar Number',
                         style: TextStyle(
                           fontSize: 12.5,
                           color: AppColors.textSecondary,
@@ -2237,75 +2485,14 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                     ],
                   ),
                 ),
+                counterText: '',
               ),
-              textCapitalization: TextCapitalization.words,
-              validator: (v) {
-                final value = (v ?? '').trim();
-
-                if (value.isEmpty) {
-                  return 'Occupation is required';
-                }
-
-                if (value.length < 2) {
-                  return 'Enter a valid occupation';
-                }
-
-                return null;
-              },
+              keyboardType: TextInputType.number,
+              maxLength: 12,
+              validator: _validateAadhaar,
               enabled: !_loading && created == null,
             ),
-
             const SizedBox(height: 16),
-
-            // ------------------------------------------------------------
-            // NEEDED
-            // ------------------------------------------------------------
-            TextFormField(
-              controller: _neededController,
-              decoration: InputDecoration(
-                label: Text.rich(
-                  TextSpan(
-                    children: [
-                      const TextSpan(
-                        text: 'Needed',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const TextSpan(
-                        text: ' *',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.red,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                hintText: 'What does the beneficiary need?',
-              ),
-              textCapitalization: TextCapitalization.sentences,
-              maxLines: 2,
-              validator: (v) {
-                final value = (v ?? '').trim();
-
-                if (value.isEmpty) {
-                  return 'Needed is required';
-                }
-
-                if (value.length < 2) {
-                  return 'Enter valid requirement';
-                }
-
-                return null;
-              },
-              enabled: !_loading && created == null,
-            ),
-
-            const SizedBox(height: 16),
-
             // ------------------------------------------------------------
             // LOCATION
             // ------------------------------------------------------------
@@ -2452,19 +2639,17 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
 
             const SizedBox(height: 16),
-
             // ------------------------------------------------------------
-            // AADHAAR NUMBER
+            // OCCUPATION
             // ------------------------------------------------------------
             TextFormField(
-              controller: _aadhaarController,
-              style: const TextStyle(fontSize: 13),
+              controller: _occupationController,
               decoration: InputDecoration(
                 label: Text.rich(
                   TextSpan(
                     children: [
                       const TextSpan(
-                        text: 'Aadhaar Number',
+                        text: 'Occupation',
                         style: TextStyle(
                           fontSize: 12.5,
                           color: AppColors.textSecondary,
@@ -2481,11 +2666,50 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                     ],
                   ),
                 ),
-                counterText: '',
               ),
-              keyboardType: TextInputType.number,
-              maxLength: 12,
-              validator: _validateAadhaar,
+              textCapitalization: TextCapitalization.words,
+              validator: (v) {
+                final value = (v ?? '').trim();
+
+                if (value.isEmpty) {
+                  return 'Occupation is required';
+                }
+
+                if (value.length < 2) {
+                  return 'Enter a valid occupation';
+                }
+
+                return null;
+              },
+              enabled: !_loading && created == null,
+            ),
+
+            const SizedBox(height: 16),
+
+            // ------------------------------------------------------------
+            // NEEDED
+            // ------------------------------------------------------------
+            TextFormField(
+              controller: _neededController,
+              decoration: InputDecoration(
+                label: Text.rich(
+                  TextSpan(
+                    children: [
+                      const TextSpan(
+                        text: 'Needed',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                hintText: 'What does the beneficiary need?',
+              ),
+              textCapitalization: TextCapitalization.sentences,
+              maxLines: 1,
+              validator: (_) => null,
               enabled: !_loading && created == null,
             ),
 
@@ -2494,6 +2718,13 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             // ------------------------------------------------------------
             // CERTIFICATE / UDID NUMBER
             // ------------------------------------------------------------
+
+            // ============================================================
+            // DISABILITY DETAILS
+            // ============================================================
+            const SectionHeader(title: 'Disability Details'),
+            const SizedBox(height: 16),
+
             TextFormField(
               controller: _certNoController,
               style: const TextStyle(fontSize: 13),
@@ -2526,12 +2757,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
 
             const SizedBox(height: 24),
-            // ============================================================
-            // DISABILITY DETAILS
-            // ============================================================
-            const SectionHeader(title: 'Disability Details'),
-            const SizedBox(height: 16),
-
             // ------------------------------------------------------------
             // DISABILITY TYPE
             // ------------------------------------------------------------

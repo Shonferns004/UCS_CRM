@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import mammoth from 'mammoth'
 import { useUcs } from '../../../store'
 import { certificateApi } from '../api/certificates'
-import CertificateImageEditor from '../components/CertificateImageEditor'
+import CertificateEditorPage, { applyDateFormats } from '../components/CertificateEditorPage'
 import { toast } from '../../../components/Toast'
 import {
   FileText, Presentation, Plus, Edit3, Copy, Archive, ArchiveRestore, Trash2, Download,
@@ -17,7 +17,7 @@ const STATUS_META = {
   archived: { label: 'Archived', cls: 'pill-gray' },
 }
 const TYPE_LABEL = { docx: 'DOCX', pptx: 'PPTX' }
-const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext']
+const FIELD_TYPES = ['text', 'number', 'date', 'time', 'datetime', 'longtext', 'select']
 const DEFAULT_PURPOSES = [{ id: -1, name: 'Appreciation certificate' }, { id: -2, name: 'Achievement certificate' }, { id: -3, name: 'Other' }]
 const inputTypeFor = (t) => (t === 'datetime' ? 'datetime-local' : ['date', 'time', 'number'].includes(t) ? t : 'text')
 
@@ -96,13 +96,6 @@ function TemplateMeta({ ngos, purposes, value, onChange, ngoPlaceholder = 'Selec
           {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
         </select>
       </div>
-      <div className="field" style={{ flex: 1, minWidth: 200 }}>
-        <label>Purpose{required ? ' *' : ''}</label>
-        <select value={sel.purpose || ''} onChange={(e) => set({ purpose: e.target.value })} style={META_STYLE}>
-          <option value="">{purposePlaceholder}</option>
-          {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
-        </select>
-      </div>
     </div>
   )
 }
@@ -116,13 +109,10 @@ export default function Certificates() {
   const [loading, setLoading] = useState(true)
   const [statusTab, setStatusTab] = useState('')
   const [ngoFilter, setNgoFilter] = useState('')
-  const [purposeFilter, setPurposeFilter] = useState('')
+  const [sort, setSort] = useState('newest')
   const [ngos, setNgos] = useState([])
   const [purposes, setPurposes] = useState(DEFAULT_PURPOSES)
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [purposesOpen, setPurposesOpen] = useState(false)
-  const [purposeName, setPurposeName] = useState('')
-  const [purposeBusy, setPurposeBusy] = useState(false)
   const [menuOpenId, setMenuOpenId] = useState(null)
 
   // History
@@ -148,6 +138,8 @@ export default function Certificates() {
   const [previewImg, setPreviewImg] = useState(null)
   const [previewNote, setPreviewNote] = useState('')
   const [previewBusy, setPreviewBusy] = useState(false)
+  const [aiPrompts, setAiPrompts] = useState({})
+  const [aiBusyKey, setAiBusyKey] = useState(null)
 
   // Bulk certify
   const [bulkMode, setBulkMode] = useState(false)
@@ -200,28 +192,6 @@ export default function Certificates() {
     return () => { cancelled = true }
   }, [])
 
-  const addPurpose = async () => {
-    const name = purposeName.trim()
-    if (!name) { toast('Enter a purpose name.', 'error'); return }
-    setPurposeBusy(true)
-    try {
-      const rows = await certificateApi.addPurpose(name)
-      setPurposes(rows.length ? rows : DEFAULT_PURPOSES)
-      setPurposeName('')
-      toast('Purpose added', 'success')
-    } catch (e) { toast(e.message, 'error') } finally { setPurposeBusy(false) }
-  }
-
-  const removePurpose = async (p) => {
-    if (!window.confirm(`Delete purpose "${p.name}"? Existing templates keep their label.`)) return
-    setPurposeBusy(true)
-    try {
-      const rows = await certificateApi.deletePurpose(p.id)
-      setPurposes(rows.length ? rows : DEFAULT_PURPOSES)
-      toast('Purpose removed', 'success')
-    } catch (e) { toast(e.message, 'error') } finally { setPurposeBusy(false) }
-  }
-
   useEffect(() => {
     if (!toolsOpen) return
     const close = () => setToolsOpen(false)
@@ -230,9 +200,8 @@ export default function Certificates() {
   }, [toolsOpen])
 
   const visibleTemplates = useMemo(() => templates.filter((t) =>
-    (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter)) &&
-    (!purposeFilter || (t.purpose || '') === purposeFilter)
-  ), [templates, ngoFilter, purposeFilter])
+    (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter))
+  ), [templates, ngoFilter])
 
   const openWizard = useCallback(() => {
     setEditingId(null)
@@ -260,12 +229,40 @@ export default function Certificates() {
     setBulkRows([])
     setBulkPaste('')
     setBulkResult(null)
+    setAiPrompts({})
+    setAiBusyKey(null)
     try {
       const full = tpl.fields ? tpl : await certificateApi.getTemplate(tpl.id)
       setGenTpl(full.id ? full : tpl)
     } catch (e) {
       toast(e.message, 'error')
       setGenTpl(tpl)
+    }
+  }
+
+  const aiWriteFor = async (f) => {
+    if (aiBusyKey) return
+    const key = f.field_key
+    setAiBusyKey(key)
+    try {
+      const resp = await certificateApi.aiWrite({
+        field_type: f.field_type,
+        label: f.display_name || key,
+        current: values[key] || f.default_value || '',
+        prompt: aiPrompts[key] || '',
+        template_name: genTpl?.name || '',
+        ngo_name: ngos.find((n) => String(n.id) === String(genTpl?.ngo_id))?.name || '',
+        sibling_labels: (genTpl.fields || []).filter((x) => x.field_key !== key).map((x) => x.display_name || x.field_key),
+      })
+      setValues((v) => ({ ...v, [key]: resp.text }))
+      toast('AI draft added to this field.', 'success')
+    } catch (e) {
+      const msg = e.routeMissing
+        ? 'The AI endpoint is not deployed on the backend server yet. Redeploy the backend to use AI Write.'
+        : (e.message || 'AI writing failed. Try again.')
+      toast(msg, 'error')
+    } finally {
+      setAiBusyKey(null)
     }
   }
 
@@ -292,6 +289,7 @@ export default function Certificates() {
     if (draft?.ngo_id) formData.append('ngo_id', draft.ngo_id)
     try {
       const res = await certificateApi.createTemplate(formData)
+      setEditingId(res.template.id)
       setDraft(res.template)
       toast(`Template created — ${res.detected?.length || 0} placeholder${(res.detected?.length ?? 0) === 1 ? '' : 's'} found`, 'success')
       setView('wizard')
@@ -300,18 +298,21 @@ export default function Certificates() {
   }
 
   const handleReupload = async (file) => {
-    if (!file || !editingId) return
+    const tplId = editingId || draft?.id
+    if (!file || !tplId) return false
     if (draft?.file_format === 'image') {
-      if (!/\.(png|jpe?g|webp)$/i.test(file.name)) { toast('Only PNG, JPG or WEBP images.', 'error'); return }
-    } else if (!/\.(docx|pptx)$/i.test(file.name)) { toast('Only .docx or .pptx files.', 'error'); return }
+      if (!/\.(png|jpe?g|webp)$/i.test(file.name)) { toast('Only PNG, JPG or WEBP images.', 'error'); return false }
+    } else if (!/\.(docx|pptx)$/i.test(file.name)) { toast('Only .docx or .pptx files.', 'error'); return false }
     const formData = new FormData()
     formData.append('template', file)
     try {
-      const res = await certificateApi.reuploadTemplate(editingId, formData)
+      const res = await certificateApi.reuploadTemplate(tplId, formData)
+      if (!editingId) setEditingId(tplId)
       setDraft(res.template)
       toast(`File replaced — version v${res.template.version}`, 'success')
       loadTemplates()
-    } catch (e) { toast(e.message, 'error') }
+      return true
+    } catch (e) { toast(e.message, 'error'); return false }
   }
 
   const handlePreviewPick = (tplId) => {
@@ -341,20 +342,21 @@ export default function Certificates() {
     } catch (e) { toast(e.message, 'error') } finally { setPreviewUploadBusy(false) }
   }
 
-  const saveFields = async (thenGenerate = false) => {
-    if (!draft) return
+  const saveFields = async (thenGenerate = false, stay = false) => {
+    if (!draft) return false
     const fields = (draft.fields || []).map((f, i) => ({
       field_key: f.field_key,
       display_name: f.display_name || humanKey(f.field_key),
       field_type: f.field_type || 'text',
-      required: true,
+      required: f.required !== false,
       default_value: f.default_value || '',
       sort_order: i,
       in_template: f.in_template,
       style: f.style,
+      options: f.options,
     }))
     if (!fields.some((f) => f.field_key?.trim())) {
-      toast('Add at least one field before saving.', 'error'); return
+      toast('Add at least one field before saving.', 'error'); return false
     }
     try {
       await certificateApi.updateTemplate(draft.id, {
@@ -365,10 +367,11 @@ export default function Certificates() {
       if (thenGenerate) {
         startGenerate({ ...draft, fields, status: draft.status })
       } else {
-        toast('Template saved', 'success')
-        setView('library')
+        toast('Template saved successfully.', 'success')
+        if (!stay) setView('library')
       }
-    } catch (e) { toast(e.message, 'error') }
+      return true
+    } catch (e) { toast(e.message, 'error'); return false }
   }
 
   const addCustomField = () => {
@@ -424,11 +427,16 @@ export default function Certificates() {
     return m
   }, [requiredFields, previewValues])
 
+  // Only flag errors once the user has started entering values — not on first open.
+  const showMissing = useMemo(
+    () => Object.values(previewValues).some((v) => String(v || '').trim() !== ''),
+    [previewValues])
+
   const runPreview = useCallback(async () => {
     if (!genTpl) return
     setPreviewBusy(true)
     try {
-      const resp = await certificateApi.preview({ template_id: genTpl.id, field_values: previewValues, certificate_number: certNumber || undefined })
+      const resp = await certificateApi.preview({ template_id: genTpl.id, field_values: applyDateFormats(genTpl, previewValues), certificate_number: certNumber || undefined })
       if (!resp.ok) {
         let msg = 'Preview failed'
         try { const j = await resp.json(); msg = j.message || msg } catch { /* keep default */ }
@@ -471,7 +479,7 @@ export default function Certificates() {
     if (missing.length) { toast(`Missing: ${missing.join(', ')}`, 'error'); return }
     setGenerating(true)
     try {
-      const res = await certificateApi.generate({ template_id: genTpl.id, field_values: values, certificate_number: certNumber || undefined })
+      const res = await certificateApi.generate({ template_id: genTpl.id, field_values: applyDateFormats(genTpl, values), certificate_number: certNumber || undefined })
       toast(`${res.certificate.certificate_number} generated`, 'success')
       saveOrOpen(res.certificate.generated_pdf || res.certificate.generated_file, `${res.certificate.certificate_number}.${res.certificate.generated_pdf ? 'pdf' : (genTpl.file_format === 'image' ? 'png' : genTpl.file_format)}`)
       if (showHistory) loadHistory(historyQ)
@@ -531,7 +539,7 @@ export default function Certificates() {
         const { __name, ...field_values } = r
         if (bulkDateKey && !field_values[bulkDateKey]) field_values[bulkDateKey] = bulkDate
         if (bulkEventKey && !field_values[bulkEventKey]) field_values[bulkEventKey] = bulkEvent
-        return { field_values }
+        return { field_values: applyDateFormats(genTpl, field_values) }
       })
       const res = await certificateApi.bulkGenerate({ template_id: genTpl.id, rows })
       setBulkResult(res)
@@ -610,20 +618,46 @@ export default function Certificates() {
 
   /* ---------------------------------- render ---------------------------------- */
 
+  const isEditorView = view === 'wizard' && draft?.file_format === 'image'
+
   return (
-    <div className="certificates-page">
+    <div className={`certificates-page${isEditorView ? ' cert-editor-mode' : ''}`}>
       <style>{`
-        .certificates-page { font-family: inherit; }
+        .certificates-page { font-family: inherit; background:#F8FAFF; padding:16px 18px; box-sizing:border-box; min-height:100vh; }
+        .content-body:has(> .certificates-page.cert-editor-mode) { padding:0 !important; }
+        .certificates-page.cert-editor-mode { padding:0; height:100%; min-height:0; overflow:hidden; }
         .cert-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:16px 18px; }
         .cert-topbar h3 { margin:0; font-size:15px; font-weight:600; }
         .cert-topbar .cert-sub { font-size:12px; color:var(--ink-soft); margin-top:2px; }
         .cert-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .tabs { display:flex; gap:6px; flex-wrap:wrap; }
         .tab { padding:6px 12px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--ink-soft); font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; }
-        .tab.active { background:var(--sage); border-color:var(--sage); color:#fff; }
-        .tpl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; padding:4px 18px 20px; }
-        .tpl-card { background:var(--card-bg); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:12px; display:flex; flex-direction:column; gap:10px; }
-        .tpl-thumb { display:block; width:100%; height:210px; padding:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--bg,#f3f4f6); cursor:pointer; text-align:left; }
+        .tab.active { background:#3B82F6; border-color:#3B82F6; color:#fff; }
+        .hero { border-radius:20px; padding:32px 36px; margin-bottom:14px; background: radial-gradient(circle at 75% 20%, rgba(139,92,246,.10), transparent 30%), radial-gradient(circle at 95% 50%, rgba(59,130,246,.10), transparent 35%), #F8FAFF; display:flex; justify-content:space-between; align-items:center; gap:24px; }
+        .hero h2 { margin:0 0 8px 0; font-size:34px; line-height:40px; font-weight:700; color:#0F172A; }
+        .hero .eyebrow { text-transform:uppercase; letter-spacing:.12em; font-size:12px; font-weight:600; color:#3B82F6; margin-bottom:6px; }
+        .hero p { margin:0 0 16px 0; font-size:15px; line-height:24px; color:#64748B; }
+        .hero-pills { display:flex; gap:8px; flex-wrap:wrap; }
+        .hero-pills span { border:1px solid #E5E7EB; background:#fff; color:#334155; font-size:12px; border-radius:999px; padding:4px 10px; }
+        .toolbar { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+        .tpl-toolbar-left { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+        .tpl-toolbar-right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .view-toggle { display:flex; gap:4px; border:1px solid #E5E7EB; border-radius:8px; padding:2px; }
+        .view-toggle button { border:none; background:transparent; padding:4px 10px; border-radius:6px; font-size:12px; cursor:pointer; font-family:inherit; color:#64748B; }
+        .view-toggle button.active { background:#3B82F6; color:#fff; }
+        .tpl-list { display:flex; flex-direction:column; gap:10px; padding:4px 0 20px; }
+        .tpl-list-item { display:flex; align-items:center; gap:14px; border:1px solid #E5E7EB; border-radius:14px; padding:10px 12px; background:#fff; }
+        .tpl-list-thumb { width:130px; min-width:120px; aspect-ratio:1.414/1; border-radius:10px; overflow:hidden; border:1px solid #E5E7EB; flex-shrink:0; background:#F8FAFC; }
+        .tpl-list .tpl-card { flex-direction:row; align-items:center; padding:10px 12px; }
+        .tpl-list .tpl-thumb { width:130px; min-width:120px; flex-shrink:0; }
+        .tpl-list .tpl-title-row { flex:1; min-width:0; margin-bottom:0; }
+        .button-blue { background:#3B82F6; border:1px solid #3B82F6; color:#fff; border-radius:10px; padding:8px 14px; font-weight:600; cursor:pointer; font-size:13px; display:inline-flex; align-items:center; gap:6px; }
+        .button-blue:hover { background:#2563EB; border-color:#2563EB; }
+        .tpl-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; padding:4px 0 20px; }
+        @media (max-width:1199px) { .tpl-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        .tpl-card { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:10px; display:flex; flex-direction:column; gap:8px; position:relative; box-shadow:0 2px 8px rgba(15,23,42,.04); transition:box-shadow .18s ease, transform .18s ease, border-color .18s ease; }
+        .tpl-card:hover { transform:translateY(-2px); border-color:#BFDBFE; box-shadow:0 10px 28px rgba(15,23,42,.08); }
+        .tpl-thumb { display:block; width:100%; aspect-ratio:1.414/1; padding:0; border:1px solid #E5E7EB; border-radius:10px; overflow:hidden; background:#F8FAFC; cursor:pointer; text-align:left; position:relative; }
         .tpl-thumb:hover { border-color:var(--sage); box-shadow:0 0 0 2px var(--sage-soft,#eef3ea); }
         .tpl-thumb-img { width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#fff; }
         .tpl-thumb-img img { max-width:100%; max-height:100%; object-fit:contain; }
@@ -637,7 +671,7 @@ export default function Certificates() {
         .tpl-desc { font-size:12px; color:var(--ink-soft); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:32px; }
         .tpl-meta { display:flex; gap:6px; flex-wrap:wrap; font-size:11px; color:var(--ink-soft); }
         .tpl-meta span { background:var(--bg,#f3f4f6); border-radius:6px; padding:2px 8px; }
-        .tpl-card-menu { position:absolute; top:18px; right:18px; z-index:3; }
+        .tpl-card-menu { position:absolute; top:14px; right:14px; z-index:3; }
         .tpl-card { position:relative; }
         .tpl-menu-btn { width:30px; height:30px; display:flex; align-items:center; justify-content:center; border:none; border-radius:8px; background:rgba(255,255,255,.92); color:var(--ink); cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,.15); }
         .tpl-menu-btn:hover { background:#fff; color:var(--sage); }
@@ -710,6 +744,7 @@ export default function Certificates() {
       `}</style>
 
       {/* ================================= HEADER ================================= */}
+      {view === 'generate' && (
       <div className="card">
         <div className="cert-topbar">
           <div>
@@ -738,9 +773,6 @@ export default function Certificates() {
                     </button>
                     {toolsOpen && (
                       <div className="tpl-menu" style={{ top: '100%', right: 0, left: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                        <button className="tpl-menu-item" onClick={() => { setToolsOpen(false); setPurposesOpen(true) }}>
-                          <Sparkles size={14} /> Manage purposes
-                        </button>
                         {templates.length > 0 && (
                           <button className="tpl-menu-item" onClick={() => { setToolsOpen(false); refreshSnapshots() }}>
                             <RefreshCw size={14} /> Regenerate thumbnails
@@ -768,34 +800,59 @@ export default function Certificates() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ============================== LIBRARY HERO ============================== */}
+      {view === 'library' && !showHistory && (
+        <div className="hero">
+          <div style={{ minWidth: 0 }}>
+            <div className="eyebrow">CERTIFICATES</div>
+            <h2>Certificate Templates</h2>
+            <p>Create reusable templates with placeholders, organize them by NGO and category, and generate beautiful certificates in seconds.</p>
+            <div className="hero-pills">
+              <span>Reusable templates</span>
+              <span>Dynamic placeholders</span>
+              <span>Organize by NGO</span>
+              <span>Generate in seconds</span>
+            </div>
+          </div>
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <svg width="130" height="90" viewBox="0 0 130 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="10" width="120" height="70" rx="8" fill="#DBEAFE"/>
+              <rect x="15" y="20" width="100" height="6" rx="3" fill="#3B82F6"/>
+              <rect x="35" y="34" width="60" height="5" rx="2.5" fill="#93C5FD"/>
+              <rect x="25" y="46" width="80" height="5" rx="2.5" fill="#93C5FD"/>
+              <circle cx="65" cy="68" r="9" fill="#8B5CF6"/>
+            </svg>
+            {canManage && (
+              <button className="button-blue" onClick={openWizard}>
+                <Plus size={15} /> New Template
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ================================= LIBRARY ================================= */}
       {view === 'library' && !showHistory && (
-        <div className="card">
-          <div className="card-pad" style={{ paddingBottom: 0 }}>
-            <div className="tabs">
-              {[['', 'All'], ['active', 'Active'], ['draft', 'Draft'], ['archived', 'Archived']].map(([k, l]) => (
+        <div>
+          <div className="toolbar">
+            <div className="tpl-toolbar-left">
+              {[['', 'All Templates'], ['active', 'Active'], ['draft', 'Draft'], ['archived', 'Archived']].map(([k, l]) => (
                 <button key={l} className={`tab ${statusTab === k ? 'active' : ''}`} onClick={() => { setStatusTab(k); setLoading(true) }}>
                   {l}
                 </button>
               ))}
             </div>
-            {(templates.length > 0) && (
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, marginTop: 12, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600 }}>Filter:</span>
-                <select value={ngoFilter} onChange={(e) => setNgoFilter(e.target.value)} style={META_STYLE}>
-                  <option value="">All NGOs</option>
-                  {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
-                </select>
-                <select value={purposeFilter} onChange={(e) => setPurposeFilter(e.target.value)} style={{ ...META_STYLE, maxWidth: 260 }}>
-                  <option value="">All purposes</option>
-                  {purposes.map((p) => <option key={String(p.id)} value={p.name}>{p.name}</option>)}
-                </select>
-                {(ngoFilter || purposeFilter) && (
-                  <button className="btn btn-sm" onClick={() => { setNgoFilter(''); setPurposeFilter('') }}><X size={13} /> Clear filters</button>
-                )}
-              </div>
-            )}
+            <div className="tpl-toolbar-right">
+              <select value={ngoFilter} onChange={(e) => setNgoFilter(e.target.value)} style={META_STYLE}>
+                <option value="">All NGOs</option>
+                {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
+              </select>
+              <button className="btn btn-sm" onClick={toggleHistory}>
+                <History size={14} /> History
+              </button>
+            </div>
           </div>
           {loading ? (
             <div className="cert-empty"><Loader2 size={18} className="spin" /> <span style={{ marginLeft: 8 }}>Loading…</span></div>
@@ -805,7 +862,7 @@ export default function Certificates() {
               <div className="big">{templates.length === 0 ? 'No templates yet' : 'No templates match these filters'}</div>
               {templates.length === 0
                 ? <>Upload a .docx or .pptx certificate and start generating in minutes.</>
-                : <>Try clearing the NGO or purpose filter above.</>}
+                : <>Try clearing the NGO filter above.</>}
               {templates.length === 0 && (
                 <div style={{ marginTop: 16 }}>
                   <button className="btn btn-sm btn-primary" onClick={openWizard}><Plus size={14} /> New Template</button>
@@ -818,10 +875,11 @@ export default function Certificates() {
                 const st = STATUS_META[t.status] || STATUS_META.draft
                 const open = menuOpenId === t.id
                 return (
-                  <div className="tpl-card" key={t.id}>
-                    <button type="button" className="tpl-thumb" onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>
-                      <TemplateThumb t={t} />
-                    </button>
+                    <div className="tpl-card" key={t.id}>
+                      <button type="button" className="tpl-thumb" style={{ position: 'relative' }} onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>
+                        <TemplateThumb t={t} />
+                        <span className={`pill ${st.cls}`} style={{ position: 'absolute', top: 8, left: 8, padding: '1px 8px', fontSize: 11, zIndex: 2 }}>{st.label}</span>
+                      </button>
                     <div className="tpl-card-menu">
                       <button
                         type="button"
@@ -857,10 +915,9 @@ export default function Certificates() {
                     </div>
                     <div className="tpl-title-row">
                       <button type="button" className="tpl-title" onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>{t.name}</button>
-                      <span className={`pill ${st.cls}`} style={{ padding: '1px 8px', fontSize: 11 }}>{st.label}</span>
                     </div>
                     {(t.ngo_name || t.purpose) && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, padding: '0 12px' }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {t.ngo_name && <span className="pill pill-blue" style={{ padding: '1px 8px', fontSize: 11 }}>{t.ngo_name}</span>}
                         {t.purpose && <span className="pill pill-yellow" style={{ padding: '1px 8px', fontSize: 11 }}>{t.purpose}</span>}
                       </div>
@@ -927,7 +984,18 @@ export default function Certificates() {
       )}
 
       {/* ================================== WIZARD ================================== */}
-      {view === 'wizard' && (
+      {view === 'wizard' && draft?.file_format === 'image' && (
+        <CertificateEditorPage
+          draft={draft}
+          setDraft={setDraft}
+          canManage={canManage}
+          ngos={ngos}
+          onCancel={() => { setView('library'); setGenTpl(null) }}
+          onSave={() => saveFields(false, true)}
+          onReplaceFile={handleReupload}
+        />
+      )}
+      {view === 'wizard' && draft?.file_format !== 'image' && (
         <div className="card">
           <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(draft?.file_format == null) ? (
@@ -1008,12 +1076,30 @@ export default function Certificates() {
             ) : (
               /* ---------- step 2: fields config ---------- */
               <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <button className="btn btn-sm" onClick={() => { setView('library'); setGenTpl(null) }}>
+                    <ArrowLeft size={14} /> Back
+                  </button>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{editingId ? 'Edit Certificate Template' : 'New Certificate Template'}</h3>
+                    <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
+                      Design and customize your certificate template with dynamic fields, styling options, and live preview.
+                    </div>
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div className={`tpl-type ${draft.file_format === 'pptx' ? 'pptx' : ''}`}>
                     {draft.file_format === 'pptx' ? <Presentation size={20} /> : draft.file_format === 'image' ? <ImageIcon size={20} /> : <FileText size={20} />}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="tpl-title" style={{ whiteSpace: 'normal' }}>{draft.name}</div>
+                    <div className="tpl-title" style={{ whiteSpace: 'normal', fontWeight: 600, marginBottom: 4 }}>
+                      <input
+                        style={{ padding: '6px 9px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, fontWeight: 600, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+                        value={draft.name}
+                        onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                      />
+                    </div>
                     <div className="tpl-meta" style={{ gap: 6 }}>
                       <span>{draft.file_name}</span>
                       {editingId && <span>v{draft.version}</span>}
@@ -1027,19 +1113,6 @@ export default function Certificates() {
                   </div>
                 </div>
 
-                {draft.file_format === 'image' ? (
-                  <CertificateImageEditor
-                    draft={draft}
-                    setDraft={setDraft}
-                    canManage={canManage}
-                    onSave={() => saveFields()}
-                    onCancel={() => setView('library')}
-                    TemplateMeta={TemplateMeta}
-                    ngos={ngos}
-                    purposes={purposes}
-                  />
-                ) : (
-                  <>
                 <div className="wiz-hint" style={{ fontSize: 12 }}>
                   {draft.placeholders?.length > 0
                     ? <>Detected <b>{draft.placeholders.length}</b> placeholder{(draft.placeholders.length === 1) ? '' : 's'}:{' '}
@@ -1116,34 +1189,33 @@ export default function Certificates() {
                     </div>
                   </div>
                 </div>
-                  </>
-                )}
               </>
             )}
-            <input
-              ref={uploadInputRef}
-              type="file"
-            accept={draft?.template_type === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
-            hidden
-            onChange={(e) => { handleUploadFile(e.target.files[0]); e.target.value = '' }}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={draft?.file_format === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
-              hidden
-              onChange={(e) => { const f = e.target.files[0]; if (f) handleReupload(f); e.target.value = '' }}
-            />
-            <input
-              ref={previewInputRef}
-              type="file"
-              accept=".png,.jpg,.jpeg,.webp,.gif"
-              hidden
-              onChange={(e) => { handlePreviewUpload(e.target.files[0]); e.target.value = '' }}
-            />
           </div>
         </div>
       )}
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept={draft?.template_type === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
+        hidden
+        onChange={(e) => { handleUploadFile(e.target.files[0]); e.target.value = '' }}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={draft?.file_format === 'image' ? '.png,.jpg,.jpeg,.webp' : '.docx,.pptx'}
+        hidden
+        onChange={(e) => { const f = e.target.files[0]; if (f) handleReupload(f); e.target.value = '' }}
+      />
+      <input
+        ref={previewInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp,.gif"
+        hidden
+        onChange={(e) => { handlePreviewUpload(e.target.files[0]); e.target.value = '' }}
+      />
 
       {/* ================================== GENERATOR ================================== */}
       {view === 'generate' && genTpl && (
@@ -1161,44 +1233,56 @@ export default function Certificates() {
 
               {!bulkMode ? (
                 <>
-                  <div className="wiz-hint" style={{ fontSize: 12, margin: 0 }}>
-                    Fields marked <b style={{ color: '#dc2626' }}>*</b> are required. The preview updates as you type.
-                  </div>
-
-                  <div className="field-block">
-                    <label>Certificate number <span style={{ color: 'var(--ink-soft)' }}>(optional — auto-generated if empty)</span></label>
-                    <input
-                      className="fld"
-                      type="text"
-                      placeholder="e.g. CERT-2026-00001"
-                      value={certNumber}
-                      onChange={(e) => setCertNumber(e.target.value)}
-                    />
-                  </div>
-
                   {(genTpl.fields || []).map((f) => (
                     <div className="field-block" key={f.field_key}>
                       <label>
                         {f.display_name || humanKey(f.field_key)} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
-                        {!f.in_template && (
-                          <span className="badge cus" style={{ background: '#fef3c7', color: '#92400e', marginLeft: 8 }}>Not found in template</span>
-                        )}
                       </label>
                       {f.field_type === 'longtext' ? (
-                        <textarea className="fld" rows={3} value={values[f.field_key] || ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
+                        <textarea className="fld" rows={3} value={values[f.field_key] ?? f.default_value ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
+) : f.field_type === 'select' ? (
+                        <select
+                          className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
+                          value={values[f.field_key] ?? f.default_value ?? ''}
+                          onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
+                        >
+                          <option value="">Select…</option>
+                                          {(f.options || '').split(/[\r\n,;]+/).map((s) => s.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
                       ) : (
                         <input
-                          className={`fld ${missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
+                          className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
                           type={inputTypeFor(f.field_type)}
-                          placeholder={humanKey(f.field_key)}
+                          placeholder={f.style?.placeholder || humanKey(f.field_key)}
                           value={values[f.field_key] ?? f.default_value ?? ''}
                           onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
                         />
                       )}
+                      {(f.field_type === 'longtext' || f.field_type === 'text') && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            className="fld"
+                            style={{ flex: 1 }}
+                            value={aiPrompts[f.field_key] || ''}
+                            onChange={(e) => setAiPrompts((m) => ({ ...m, [f.field_key]: e.target.value }))}
+                            placeholder="Describe the message to write…"
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => aiWriteFor(f)}
+                            disabled={aiBusyKey === f.field_key}
+                            title="Write this field with AI"
+                          >
+                            {aiBusyKey === f.field_key ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+                            {aiBusyKey === f.field_key ? 'Writing…' : 'AI Write'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
 
-                  {missing.length > 0 && (
+                  {showMissing && missing.length > 0 && (
                     <div className="missing-box"><AlertTriangle size={13} style={{ verticalAlign: -2, marginRight: 6 }} />Missing: <b>{missing.join(', ')}</b></div>
                   )}
 
@@ -1279,6 +1363,14 @@ export default function Certificates() {
                                     <td key={f.field_key}>
                                       {sharedCell ? (
                                         <span className="bulk-shared" title="Same for all rows — set it in the shared fields above">{r[f.field_key] || '—'}</span>
+                                      ) : f.field_type === 'select' ? (
+                                        <select
+                                          value={r[f.field_key] ?? ''}
+                                          onChange={(e) => patchBulkCell(ri, f.field_key, e.target.value)}
+                                        >
+                                          <option value="">Select…</option>
+                          {(f.options || '').split(/[\r\n,;]+/).map((s) => s.trim()).filter(Boolean).map((o) => <option key={o} value={o}>{o}</option>)}
+                                        </select>
                                       ) : (
                                         <input
                                           type={inputTypeFor(f.field_type)}
@@ -1417,51 +1509,6 @@ export default function Certificates() {
         </div>
       )}
 
-      {purposesOpen && (
-        <div className="cert-overlay" onClick={() => setPurposesOpen(false)}>
-          <div className="cert-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
-            <div className="cert-modal-head">
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>Manage purposes</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>These appear in the purpose dropdown of every template.</div>
-              </div>
-              <button className="btn btn-sm" onClick={() => setPurposesOpen(false)}><X size={14} /></button>
-            </div>
-            <div className="cert-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  className="fld"
-                  style={{ flex: 1, padding: '9px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13.5, outline: 'none' }}
-                  placeholder="e.g. Participation certificate"
-                  value={purposeName}
-                  maxLength={120}
-                  onChange={(e) => setPurposeName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') addPurpose() }}
-                />
-                <button className="btn btn-sm btn-primary" onClick={addPurpose} disabled={purposeBusy}>
-                  <Plus size={14} /> Add
-                </button>
-              </div>
-              <div style={{ maxHeight: 320, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {purposes.map((p) => (
-                  <div key={String(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.name}</div>
-                      {p.template_count > 0 && (
-                        <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{p.template_count} template{p.template_count === 1 ? '' : 's'} use this</div>
-                      )}
-                    </div>
-                    <button className="btn btn-sm" onClick={() => removePurpose(p)} disabled={purposeBusy}><Trash2 size={13} /></button>
-                  </div>
-                ))}
-                {purposes.length === 0 && (
-                  <div className="cert-empty" style={{ padding: 18 }}>No purposes yet — add one above.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

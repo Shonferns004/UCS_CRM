@@ -2442,6 +2442,49 @@
   padding-top: 10px;
 
 }
+.panel-sevak .doc-meta {
+
+  gap: 14px;
+
+}
+.panel-sevak .doc-snap {
+
+  flex: 1;
+  min-width: 0;
+  align-self: flex-start;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+
+}
+.panel-sevak .doc-snap > .doc-field:nth-last-child(3),
+.panel-sevak .doc-snap > .doc-field:nth-last-child(2) {
+
+  border-bottom: none;
+
+}
+.panel-sevak .doc-snap-ref {
+
+  grid-column: span 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  background: #f8fafc;
+  border-top: 1px solid #d1d5db;
+  font-size: 12px;
+  color: #6b7280;
+
+}
+.panel-sevak .doc-snap-ref b {
+
+  color: #0369a1;
+  font-weight: 700;
+
+}
 .panel-sevak /* ---------- import members ---------- */
 
 .import-box {
@@ -3568,7 +3611,7 @@
 .panel-sevak .filter-pop {
   position: fixed;
   z-index: 1080;
-  width: 300px;
+  width: 330px;
   max-width: calc(100vw - 24px);
   background: #fff;
   border: 1px solid var(--border);
@@ -3624,6 +3667,24 @@
   gap: 8px;
   border-top: 1px solid var(--border);
   padding-top: 12px;
+}
+/* Date rows (Application date / Expiry date): the pop is a scroll container, so
+   fixed-width date inputs overflowed and got clipped on the right — make them
+   shrink to the available row instead. */
+.panel-sevak .filter-pop .date-fields {
+  gap: 6px;
+  min-width: 0;
+}
+.panel-sevak .filter-pop .date-fields input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 6px;
+  font-size: 12.5px;
+}
+.panel-sevak .filter-pop .date-fields > span {
+  flex: 0 0 auto;
 }
 
 /* small buttons (filter popover, row menu) */
@@ -4704,5 +4765,64 @@
 }
 .panel-sevak .expiry-alert .recent-row:hover {
   background: #fff1f1;
+}
+
+/* ---------- renew confirm: fee + UTR inputs (row menu + drawer) ---------- */
+
+.panel-sevak .menu-field input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink);
+  outline: none;
+}
+.panel-sevak .menu-field input:focus {
+  border-color: var(--green);
+}
+.panel-sevak .renew-fields {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.panel-sevak .renew-field {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.panel-sevak .renew-field input.confirm-input {
+  min-height: 0;
+  padding: 8px 10px;
+  font-size: 13.5px;
+}
+
+/* ---------- renewal payment history (drawer: Membership & Payment → Renewals) ---------- */
+
+.panel-sevak .renewal-hist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.panel-sevak .renewal-hist .rh-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.panel-sevak .renewal-hist .rh-row b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.panel-sevak .renewal-hist .rh-row .mono {
+  margin-left: auto;
 }
 

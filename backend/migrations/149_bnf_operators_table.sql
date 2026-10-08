@@ -26,7 +26,21 @@ WHERE bnf_operator = true
 ON CONFLICT (id) DO NOTHING;
 
 DO $$
+DECLARE
+  orphan UUID;
 BEGIN
+  -- ADD CONSTRAINT validates every existing row, and one bad row would abort
+  -- this whole block (rolling the DROP back with it) with only a bare FK
+  -- violation to go on. Name the blocking rows up front instead.
+  SELECT a.operator_id INTO orphan
+    FROM operator_assignments a
+    LEFT JOIN bnf_operators o ON o.id = a.operator_id
+   WHERE a.operator_id IS NOT NULL AND o.id IS NULL
+   LIMIT 1;
+  IF orphan IS NOT NULL THEN
+    RAISE EXCEPTION 'operator_assignments has rows whose operator_id (%) is missing from bnf_operators — copy those workers into bnf_operators keeping their ids, or delete those rows, then re-run 149', orphan;
+  END IF;
+
   IF EXISTS (
     SELECT 1 FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid

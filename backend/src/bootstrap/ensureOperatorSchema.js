@@ -91,21 +91,48 @@ export async function ensureOperatorSchema() {
 
   // Existing databases created operator_assignments with its FK pointing at
   // workers(id). Re-point it to bnf_operators(id) — a no-op once done.
-  await db._pool.query(`
-    DO $$ BEGIN
-      IF EXISTS (
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        WHERE t.relname = 'operator_assignments'
-          AND c.conname = 'operator_assignments_operator_id_fkey'
-          AND pg_get_constraintdef(c.oid) LIKE '%workers%'
-      ) THEN
-        ALTER TABLE operator_assignments DROP CONSTRAINT operator_assignments_operator_id_fkey;
-        ALTER TABLE operator_assignments ADD CONSTRAINT operator_assignments_operator_id_fkey
-          FOREIGN KEY (operator_id) REFERENCES bnf_operators(id) ON DELETE CASCADE;
-      END IF;
-    END $$;
-  `).catch(() => {});
+  //
+  // This used to end in a bare `.catch(() => {})`. ADD CONSTRAINT validates
+  // every existing row, so a single assignment whose operator_id only exists
+  // in workers rolled the whole DO block back: the FK stayed on workers and
+  // every Save & Continue from a bnf_operators-only operator failed with
+  // "violates foreign key constraint operator_assignments_operator_id_fkey".
+  // Failures are now reported with the exact rows blocking the move.
+  try {
+    const { rows: orphans } = await db._pool.query(`
+      SELECT DISTINCT a.operator_id::text AS id
+      FROM operator_assignments a
+      LEFT JOIN bnf_operators o ON o.id = a.operator_id
+      WHERE a.operator_id IS NOT NULL AND o.id IS NULL
+      ORDER BY 1`);
+    if (orphans.length > 0) {
+      throw new Error(
+        'operator_assignments rows point at operator_ids missing from bnf_operators: ' +
+        orphans.map((r) => r.id).join(', ') +
+        ' — copy those workers into bnf_operators (keeping their ids) or delete the rows'
+      );
+    }
+    await db._pool.query(`
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          WHERE t.relname = 'operator_assignments'
+            AND c.conname = 'operator_assignments_operator_id_fkey'
+            AND pg_get_constraintdef(c.oid) LIKE '%workers%'
+        ) THEN
+          ALTER TABLE operator_assignments DROP CONSTRAINT operator_assignments_operator_id_fkey;
+          ALTER TABLE operator_assignments ADD CONSTRAINT operator_assignments_operator_id_fkey
+            FOREIGN KEY (operator_id) REFERENCES bnf_operators(id) ON DELETE CASCADE;
+        END IF;
+      END $$;
+    `);
+  } catch (e) {
+    console.error(
+      'operator_assignments.operator_id FK is still on workers(id) — operator saves will fail:',
+      e?.message || e
+    );
+  }
 
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS city TEXT`);
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS selfie_url TEXT`);
