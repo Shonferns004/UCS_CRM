@@ -339,8 +339,8 @@ export const getMyProfile = async (req, res) => {
     // caller's to keep.
     return res.json({
       ...profile,
-      signature_url: await presignSignatureUrl(profile.signature_url),
       photo_url: await presignPhotoUrl(profile.photo_url),
+      signature_url: await presignSignatureUrl(profile.signature_url),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
