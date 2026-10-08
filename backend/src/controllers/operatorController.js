@@ -1,5 +1,6 @@
 import {
   createOperatorEvent, updateOperatorEvent, getOperatorEventById,
+  getOperatorEventByTitleDate,
   listOperatorEvents, deleteOperatorEvent, assignOperatorEvent,
   getOperatorAssignmentsByDate, getTodayAssignment, upsertSelfAssignment,
   attachProgramsToEvent, listEventPrograms, removeEventProgram,
@@ -175,13 +176,38 @@ export const saveSelfAssignment = async (req, res) => {
     const worker = await getBnfOperatorBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Operator not found' });
 
-    const { state, city, event_id, selfie_url, kit_id, organizer_id } = req.body;
+    const { state, city, event_id, event_name, selfie_url, kit_id, organizer_id } = req.body;
     const assignmentDate = req.body.assignment_date || NORMALIZED_DATE();
+
+    // The app's Operator Details screen has the operator TYPE the event name
+    // (no dropdown). Resolve it to an event row: reuse the same-titled event
+    // for the day, otherwise create it, so the id lands on the assignment.
+    let eventId = event_id ? parseInt(event_id) : null;
+    const typedEvent = String(event_name || '').trim();
+    if (!eventId && typedEvent) {
+      const existing = await getOperatorEventByTitleDate(typedEvent, assignmentDate);
+      if (existing) {
+        eventId = existing.id;
+      } else {
+        const created = await createOperatorEvent({
+          title: typedEvent,
+          description: null,
+          event_date: assignmentDate,
+          start_time: null,
+          end_time: null,
+          location: null,
+          state: state || null,
+          selfie_url: null,
+          created_by: worker.name || worker.login_id || 'operator',
+        });
+        eventId = created.id;
+      }
+    }
 
     const assignment = await upsertSelfAssignment(worker.id, {
       state,
       city,
-      event_id: event_id ? parseInt(event_id) : null,
+      event_id: eventId,
       assignment_date: assignmentDate,
       selfie_url,
       kit_id: kit_id ? parseInt(kit_id) : null,
@@ -311,6 +337,8 @@ export const getKitsController = async (req, res) => {
     const worker = await getBnfOperatorBySession(req.user);
     const data = await getKitsDashboard({
       operatorId: worker?.id || null,
+      operatorName: worker?.name || null,
+      operatorLoginId: worker?.login_id || null,
       date: NORMALIZED_DATE(),
     });
     return res.json(data);

@@ -6898,7 +6898,7 @@ export const updateFollowupDate = async (req, res) => {
 // phone too — the whole point is they are away from the desk.
 export const notifyFroHandler = async (req, res) => {
   try {
-    const { workerId } = req.body;
+    const { workerId, message } = req.body;
     if (!workerId) return res.status(400).json({ message: 'workerId is required' });
     const { data: worker } = await db
       .from('workers')
@@ -6914,12 +6914,15 @@ export const notifyFroHandler = async (req, res) => {
     }
 
     const name = worker.name || 'Telecaller';
+    const alertBody = (typeof message === 'string' && message.trim())
+      ? message.trim()
+      : `${name}, your disposition timer ran out. Please resume your work.`;
     try {
       const { notifyWorker } = await import('../services/fcmService.js');
       await notifyWorker(
         workerId,
         'You are idle',
-        `${name}, your disposition timer ran out. Please resume your work.`,
+        alertBody,
         'idle_alert',
         String(workerId)
       );
@@ -6927,12 +6930,12 @@ export const notifyFroHandler = async (req, res) => {
       // Push is best-effort — the socket notification below is the guaranteed path.
       console.warn('idle alert push failed:', pushErr.message);
     }
-    emitRealtime(`worker:${workerId}`, 'notification', {
+    emitRealtime('fro:action', {
       type: 'idle_alert',
       title: 'You are idle',
-      body: 'Your disposition timer ran out. Please resume your work.',
-      created_at: new Date().toISOString(),
-    });
+      body: alertBody,
+      sent_at: new Date().toISOString(),
+    }, `worker:${workerId}`);
     return res.json({ message: `Idle alert sent to ${name}` });
   } catch (error) {
     return res.status(500).json({ message: error.message });

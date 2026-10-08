@@ -317,6 +317,7 @@ export default function BeneficiaryProfile() {
             <Field label="Fingerprint"><span style={styles.pill(bg, fg)}>{data.fingerprint_status}</span></Field>
             <Field label="Categories">{data.categories?.map((c) => c.name).join(', ') || 'None'}</Field>
             <Field label="Created By">{data.created_by}</Field>
+            <Field label="Last Event">{data.kit_event_name || '-'}</Field>
           </div>
         ) : (
           <div style={styles.grid3}>
@@ -348,6 +349,14 @@ export default function BeneficiaryProfile() {
               data.fingerprint_status === 'REGISTERED' ? '#166534' : '#92400e'
             )}>{data.fingerprint_status}</span></Field>
             <Field label="Kit Status">{data.kit_given ? `Given${data.kit_given_at ? ' on ' + new Date(data.kit_given_at).toLocaleDateString('en-IN') + (data.kit_given_by ? ' by ' + data.kit_given_by : '') : ''}` : 'Not Given'}</Field>
+            <Field label="Collection OTP">
+              {data.collection_otp ? (
+                <code style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '3px', background: '#eef2ff', color: '#3730a3', padding: '2px 8px', borderRadius: 'var(--radius-sm)' }}>
+                  {data.collection_otp}
+                </code>
+              ) : '-'}
+            </Field>
+            <Field label="Last Event">{data.kit_event_name || '-'}</Field>
             <Field label="Categories">{data.categories?.map((c) => c.name).join(', ') || 'None'}</Field>
             <Field label="Created By">{data.created_by}</Field>
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  X, ShieldCheck, BadgeCheck, Mail, MessageCircle, Ban, Trash2, ExternalLink, Loader2, XCircle, FileText, Pencil, Check, ImagePlus, Copy, UserRound, Contact, Eye, RefreshCw
+  X, ShieldCheck, BadgeCheck, Mail, MessageCircle, Ban, Trash2, ExternalLink, Loader2, XCircle, Pencil, Check, ImagePlus, Copy, UserRound, Contact, Eye, RefreshCw, Download
 } from 'lucide-react'
 import {
   getPhotoUrls, getMailLog, rejectApplication, removeApplication, resendMembershipEmail, sendPaymentReminder,
@@ -140,6 +140,8 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
   const [busy, setBusy] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [reason, setReason] = useState('')
+  const [renewFee, setRenewFee] = useState('')
+  const [renewTxn, setRenewTxn] = useState('')
   const [editing, setEditing] = useState(false)
   const [editValues, setEditValues] = useState(() => buildEditValues(row))
   const [editErrors, setEditErrors] = useState({})
@@ -370,7 +372,7 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
   const printPdf = async () => {
     setBusy('pdf')
     try {
-      const urls = await getPhotoUrls(row.id)
+      const urls = await getPhotoUrls(row.id, 'data')
       await pdfMemberDoc([row], [urls && urls.passport])
       toast('Membership registration PDF downloaded.')
     } catch (e) {
@@ -403,9 +405,19 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
   )}&body=${encoded}`
 
   const doRenew = async () => {
+    const txn = String(renewTxn || '').trim()
+    if (!txn) {
+      toast('Enter the transaction / UTR id of the renewal payment.', 'error')
+      return
+    }
+    const feeNum = Number(renewFee)
+    if (!Number.isFinite(feeNum) || feeNum < 0) {
+      toast('Enter a valid renewal fee.', 'error')
+      return
+    }
     setBusy('renew')
     try {
-      const data = await renewApplication(row.id)
+      const data = await renewApplication(row.id, { fee: feeNum, transactionId: txn })
       toast(data && data.end_date ? `Membership renewed until ${formatDate(data.end_date)}.` : 'Membership renewed.')
       setConfirm(null)
       refresh()
@@ -456,6 +468,7 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
   const paid = !!row.transaction_id || row.status === 'VERIFIED' || row.status === 'APPROVED'
   const renewP = row.status === 'APPROVED' ? renewalPreview(row) : null
   const renewalCount = Number(row.renewal_count) || 0
+  const renewalHist = Array.isArray(row.renewal_payments) ? row.renewal_payments.slice().reverse() : []
   const addrStreet = d.currentAddress || ''
   const addrCity = [d.city, [d.state, d.pinCode].filter(Boolean).join(' - ')].filter(Boolean).join(', ')
   const hasAddress = !!(addrStreet || addrCity)
@@ -624,10 +637,23 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
                 {row.membership_id && (
                   <FieldRow label="Membership ID"><span className="mono">{row.membership_id}</span></FieldRow>
                 )}
-                {renewalCount > 0 && (
+                {(renewalCount > 0 || renewalHist.length > 0) && (
                   <FieldRow label="Renewals">
-                    {renewalCount}× · fee {formatINR(row.renewal_fees)}
-                    {row.last_renewed_at ? ` · last ${formatDate(row.last_renewed_at)}` : ''}
+                    <span>
+                      {renewalCount}× · fee {formatINR(row.renewal_fees)}
+                      {row.last_renewed_at ? ` · last ${formatDate(row.last_renewed_at)}` : ''}
+                      {renewalHist.length > 0 && (
+                        <span className="renewal-hist">
+                          {renewalHist.map((p, i) => (
+                            <span className="rh-row" key={i}>
+                              <span>{p && p.date ? formatDate(p.date) : '—'}</span>
+                              <b>{formatINR((p && Number(p.amount)) || 0)}</b>
+                              <span className="mono">{(p && p.txn) || '—'}</span>
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </span>
                   </FieldRow>
                 )}
                 {row.start_date && row.end_date && (
@@ -786,11 +812,11 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
               )}
               {row.status === 'APPROVED' && (
                 <>
-                  <button className="btn-act approve" onClick={() => setConfirm('renew')} disabled={!!busy}>
+                  <button className="btn-act approve" onClick={() => { setRenewFee(row.membership_fee != null ? String(row.membership_fee) : ''); setRenewTxn(''); setConfirm('renew') }} disabled={!!busy}>
                     <RefreshCw size={15} /> Renew
                   </button>
                   <button className="btn-act pdf" onClick={printPdf} disabled={!!busy}>
-                    {busy === 'pdf' ? <Loader2 size={15} className="spin" /> : <FileText size={15} />} Registration PDF
+                    {busy === 'pdf' ? <Loader2 size={15} className="spin" /> : <Download size={15} />} Download PDF
                   </button>
                   <a className="btn-act whatsapp" href={waUrl} target="_blank" rel="noreferrer">
                     <MessageCircle size={15} /> WhatsApp
@@ -817,26 +843,59 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
         {confirm && (
           <div className="confirm-bar">
             {confirm === 'renew' ? (
-              <>
-                <p className="confirm-label">
-                  Renew {row.membership_type || 'membership'} for {row.full_name}?{' '}
-                  {renewP ? (
-                    <>
-                      New period <b>{formatDate(renewP.from)} → {formatDate(renewP.to)}</b>
-                      {renewP.keeps ? ' (remaining days kept).' : ' (starts from today).'}
-                    </>
-                  ) : (
-                    'Dates could not be computed for this plan.'
-                  )}{' '}
-                  Records {formatINR(row.membership_fee)} as renewal fee.
-                </p>
-                <div className="confirm-btns">
-                  <button className="btn-act" onClick={() => setConfirm(null)}>Cancel</button>
-                  <button className="btn-act approve" onClick={doRenew} disabled={busy === 'renew'}>
-                    {busy === 'renew' ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />} Renew membership
-                  </button>
-                </div>
-              </>
+              (() => {
+                const txnOk = !!String(renewTxn || '').trim()
+                const feeNum = Number(renewFee)
+                const feeOk = Number.isFinite(feeNum) && feeNum >= 0
+                return (
+                  <>
+                    <p className="confirm-label">
+                      Renew {row.membership_type || 'membership'} for {row.full_name}?{' '}
+                      {renewP ? (
+                        <>
+                          New period <b>{formatDate(renewP.from)} → {formatDate(renewP.to)}</b>
+                          {renewP.keeps ? ' (remaining days kept).' : ' (starts from today).'}
+                        </>
+                      ) : (
+                        'Dates could not be computed for this plan.'
+                      )}{' '}
+                      Records {feeOk ? formatINR(feeNum) : '—'} as renewal fee.
+                    </p>
+                    <div className="renew-fields">
+                      <div className="renew-field">
+                        <span>Fee (₹)</span>
+                        <input
+                          className="confirm-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={renewFee}
+                          onChange={(e) => setRenewFee(e.target.value)}
+                          placeholder="Renewal fee"
+                        />
+                      </div>
+                      <div className="renew-field">
+                        <span>Transaction / UTR ID *</span>
+                        <input
+                          className="confirm-input"
+                          type="text"
+                          value={renewTxn}
+                          onChange={(e) => setRenewTxn(e.target.value)}
+                          placeholder="UTR of the renewal payment"
+                          maxLength={64}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="confirm-btns">
+                      <button className="btn-act" onClick={() => setConfirm(null)}>Cancel</button>
+                      <button className="btn-act approve" onClick={doRenew} disabled={busy === 'renew' || !txnOk || !feeOk}>
+                        {busy === 'renew' ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />} Renew membership
+                      </button>
+                    </div>
+                  </>
+                )
+              })()
             ) : confirm === 'reject' ? (
               <>
                 <label className="confirm-label">Rejection reason</label>

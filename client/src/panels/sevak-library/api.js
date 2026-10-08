@@ -29,9 +29,13 @@ export async function getDashboard() {
   return res.data
 }
 
-export async function getPhotoUrls(applicationId) {
-  const res = await req(`${P}/applications/${applicationId}/photo-url`)
-  return res.data
+// format 'data' → base64 data URLs (for the PDF renderer, which cannot draw
+// cross-origin S3 photos onto a canvas); default → presigned URLs (display).
+// Returns the {passport, identity} object (or null) — the envelope is unwrapped
+// here, every caller reads .passport off the result directly.
+export async function getPhotoUrls(applicationId, format) {
+  const res = await req(`${P}/applications/${applicationId}/photo-url${format ? `?format=${format}` : ''}`)
+  return res && res.data != null ? res.data : null
 }
 
 export async function updateApplication(id, data, transactionId, photos = {}) {
@@ -67,10 +71,12 @@ export async function rejectApplication(id, reason) {
   return res.data
 }
 
-export async function renewApplication(id, fee) {
+export async function renewApplication(id, { fee, transactionId } = {}) {
+  const body = { transactionId: transactionId || '' }
+  if (fee != null && fee !== '') body.fee = fee
   const res = await req(`${P}/applications/${id}/renew`, {
     method: 'POST',
-    body: JSON.stringify(fee == null ? {} : { fee }),
+    body: JSON.stringify(body),
   })
   return res.data
 }
@@ -127,7 +133,8 @@ export function exportApplicationsCsv(rows) {
   const headers = [
     'Reference', 'Status', 'Membership ID', 'Full Name', 'Email', 'Mobile',
     'Plan', 'Fee', 'Start Date', 'End Date', 'Identity Proof', 'Identity Number',
-    'Transaction ID', 'Created At', 'Renewals', 'Renewal Fees', 'Last Renewed'
+    'Transaction ID', 'Created At', 'Renewals', 'Renewal Fees', 'Last Renewed',
+    'Renewal UTRs'
   ]
   const esc = (v) => {
     const s = v == null ? '' : String(v)
@@ -135,12 +142,16 @@ export function exportApplicationsCsv(rows) {
   }
   const lines = [headers.join(',')]
   rows.forEach((r) => {
+    const utrs = Array.isArray(r.renewal_payments)
+      ? r.renewal_payments.map((p) => p && p.txn).filter(Boolean).join('; ')
+      : ''
     lines.push(
       [
         r.ref, r.status, r.membership_id, r.full_name, r.email, r.mobile,
         r.membership_type, r.membership_fee, r.start_date, r.end_date,
         r.identity_proof_type, r.identity_number, r.transaction_id, r.created_at,
-        r.renewal_count || 0, r.renewal_fees || 0, r.last_renewed_at || ''
+        r.renewal_count || 0, r.renewal_fees || 0, r.last_renewed_at || '',
+        utrs
       ].map(esc).join(',')
     )
   })

@@ -203,12 +203,19 @@ const addPlanDuration = (isoDate, plan) => {
 // current end date (early renewal keeps the remaining days; renewing 9 Sep on a
 // 7 Sep–7 Oct Monthly membership ends 7 Nov, not 9 Oct) or today (renewing
 // after expiry starts the new period from today). Also records the fee as
-// renewal revenue and re-arms both reminder emails (advance expiry + post-
-// expiry) for the new end date.
-export async function renewApplication(id, { fee } = {}) {
+// renewal revenue, appends the fee + UTR to renewal_payments history, and
+// re-arms both reminder emails (advance expiry + post-expiry) for the new end
+// date. The UTR of the original application payment is never touched.
+export async function renewApplication(id, { fee, transactionId } = {}) {
   const row = await getApplicationById(id)
   if (row.status !== 'APPROVED') throw new AppError('Only approved memberships can be renewed', 400)
   if (!row.membership_type) throw new AppError('This application has no membership plan', 400)
+
+  // Every renewal payment carries its own UTR — recorded in renewal_payments
+  // history, never overwriting the original application's transaction_id.
+  const txn = String(transactionId ?? '').trim()
+  if (!txn) throw new AppError('Transaction / UTR id is required', 400)
+  if (txn.length > 64) throw new AppError('Transaction / UTR id must be 64 characters or fewer', 400)
 
   const today = new Date().toISOString().slice(0, 10)
   const base = row.end_date && row.end_date >= today ? row.end_date : today
@@ -218,11 +225,13 @@ export async function renewApplication(id, { fee } = {}) {
   const parsedFee = fee == null || fee === '' ? NaN : Number(fee)
   const amount = Number.isFinite(parsedFee) && parsedFee >= 0 ? parsedFee : Number(row.membership_fee) || 0
 
+  const history = Array.isArray(row.renewal_payments) ? row.renewal_payments : []
   const { data, error } = await db.from('applications')
     .update({
       end_date: newEnd,
       renewal_count: (Number(row.renewal_count) || 0) + 1,
       renewal_fees: (Number(row.renewal_fees) || 0) + amount,
+      renewal_payments: [...history, { date: today, amount, txn, end_date: newEnd }],
       last_renewed_at: today,
       renewal_email_sent: false,
       renewal_soon_sent: false,
@@ -348,15 +357,35 @@ export async function getDashboardStats() {
   }
 }
 
-export async function getPhotoUrl(rowId) {
+// Content type for a stored photo key — upload() keeps the original extension,
+// so the suffix is enough for an img data URL.
+const photoMime = (path) => {
+  const ext = String(path).toLowerCase().split('.').pop()
+  if (ext === 'png') return 'image/png'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'gif') return 'image/gif'
+  return 'image/jpeg'
+}
+
+// format='data' returns base64 data URLs instead of presigned links. The PDF
+// renderer (html2canvas) draws the photo onto a canvas, and cross-origin S3
+// URLs without a bucket CORS policy taint/fail that draw — the on-screen <img>
+// works either way, so only the PDF path asks for data.
+export async function getPhotoUrl(rowId, { format } = {}) {
   const app = await getApplicationById(rowId)
   const result = { passport: null, identity: null }
   for (const key of ['passport', 'identity']) {
     const path = app[`${key}_photo`]
     if (!path) continue
-    const { data, error } = await S3_STORAGE().presignDownload(path, 3600)
-    if (error) throw new AppError(error.message, 500)
-    result[key] = data.url
+    if (format === 'data') {
+      const { data: buf, error } = await S3_STORAGE().download(path)
+      if (error) throw new AppError(error.message, 500)
+      if (buf) result[key] = `data:${photoMime(path)};base64,${Buffer.from(buf).toString('base64')}`
+    } else {
+      const { data, error } = await S3_STORAGE().presignDownload(path, 3600)
+      if (error) throw new AppError(error.message, 500)
+      result[key] = data.url
+    }
   }
   return result
 }

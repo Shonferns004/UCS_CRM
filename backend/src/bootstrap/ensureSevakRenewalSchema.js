@@ -11,6 +11,7 @@ const COLUMN_STEPS = [
   `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS renewal_count    INT NOT NULL DEFAULT 0`,
   `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS renewal_fees     NUMERIC NOT NULL DEFAULT 0`,
   `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS last_renewed_at  DATE`,
+  `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS renewal_payments JSONB NOT NULL DEFAULT '[]'`,
 ];
 
 async function tableExists(name) {

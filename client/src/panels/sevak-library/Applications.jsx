@@ -71,6 +71,8 @@ export default function Applications({
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
   const [menuConfirm, setMenuConfirm] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [renewFee, setRenewFee] = useState('')
+  const [renewTxn, setRenewTxn] = useState('')
   const [approveEmail, setApproveEmail] = useState(true)
   const [actionBusy, setActionBusy] = useState('')
   const [bulkConfirm, setBulkConfirm] = useState(false)
@@ -314,7 +316,7 @@ export default function Applications({
     setPdfBusy(true)
     try {
       const urls = await Promise.all(
-        approved.map((r) => getPhotoUrls(r.id).then((u) => (u && u.passport) || null).catch(() => null))
+        approved.map((r) => getPhotoUrls(r.id, 'data').then((u) => (u && u.passport) || null).catch(() => null))
       )
       await pdfMemberDoc(approved, urls)
       toast(`Downloaded ${approved.length} membership registration PDF(s).`)
@@ -418,9 +420,19 @@ export default function Applications({
   }
 
   const doRenew = async (r) => {
+    const txn = String(renewTxn || '').trim()
+    if (!txn) {
+      toast('Enter the transaction / UTR id of the renewal payment.', 'error')
+      return
+    }
+    const feeNum = Number(renewFee)
+    if (!Number.isFinite(feeNum) || feeNum < 0) {
+      toast('Enter a valid renewal fee.', 'error')
+      return
+    }
     setActionBusy('renew')
     try {
-      const data = await renewApplication(r.id)
+      const data = await renewApplication(r.id, { fee: feeNum, transactionId: txn })
       toast(data && data.end_date ? `Membership renewed until ${formatDate(data.end_date)}.` : 'Membership renewed.')
       closeMenu()
       if (refresh) refresh()
@@ -560,6 +572,9 @@ export default function Applications({
       }
       if (menuConfirm.type === 'renew') {
         const p = renewalPreview(r)
+        const txnOk = !!String(renewTxn || '').trim()
+        const feeNum = Number(renewFee)
+        const feeOk = Number.isFinite(feeNum) && feeNum >= 0
         return (
           <div className="row-menu row-menu-box" style={menuStyle}>
             <strong>Renew membership?</strong>
@@ -569,15 +584,37 @@ export default function Applications({
               <span>New period</span>
               <b>{p ? `${formatDate(p.from)} → ${formatDate(p.to)}` : '—'}</b>
             </div>
+            <label className="menu-field">
+              Fee (₹)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={renewFee}
+                onChange={(e) => setRenewFee(e.target.value)}
+                placeholder="Renewal fee"
+              />
+            </label>
+            <label className="menu-field">
+              Transaction / UTR ID *
+              <input
+                type="text"
+                value={renewTxn}
+                onChange={(e) => setRenewTxn(e.target.value)}
+                placeholder="UTR of the renewal payment"
+                maxLength={64}
+                required
+              />
+            </label>
             <p className="menu-hint">
               {p && p.keeps
                 ? 'Remaining days are kept — the plan is added to the current end date.'
                 : 'Membership already expired, so the new period starts from today.'}{' '}
-              Records {formatINR(r.membership_fee)} as renewal fee.
+              Records {feeOk ? formatINR(feeNum) : '—'} as renewal fee.
             </p>
             <div className="menu-btns">
               <button className="btn-mini" onClick={() => setMenuConfirm(null)} disabled={!!actionBusy}>Cancel</button>
-              <button className="btn-mini approve" onClick={() => doRenew(r)} disabled={!!actionBusy}>
+              <button className="btn-mini approve" onClick={() => doRenew(r)} disabled={!!actionBusy || !txnOk || !feeOk}>
                 {actionBusy === 'renew' ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} Renew
               </button>
             </div>
@@ -640,7 +677,7 @@ export default function Applications({
       })
     }
     if (r.status === 'APPROVED') {
-      items.push({ key: 'renew', label: 'Renew membership', icon: <RefreshCw size={14} />, onClick: () => setMenuConfirm({ type: 'renew', row: r }) })
+      items.push({ key: 'renew', label: 'Renew membership', icon: <RefreshCw size={14} />, onClick: () => { setRenewFee(r.membership_fee != null ? String(r.membership_fee) : ''); setRenewTxn(''); setMenuConfirm({ type: 'renew', row: r }) } })
       items.push({ key: 'resend', label: 'Resend approval email', icon: <Mail size={14} />, onClick: () => doResend(r) })
     }
     if (['SUBMITTED', 'PAYMENT_SUBMITTED', 'VERIFIED'].includes(r.status)) {
