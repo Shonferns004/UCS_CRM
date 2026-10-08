@@ -419,7 +419,7 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, has_otp } = req.query;
 
     // Beneficiaries app operators see only their own registrations. The app
     // token carries department 'operator' and no ngo_id (CRM worker tokens
@@ -442,7 +442,7 @@ export const listAllBeneficiaries = async (req, res) => {
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_given, event_id,
+      category_id, state, city, kit_given, event_id, has_otp,
       created_by,
     });
     return res.json(result);
