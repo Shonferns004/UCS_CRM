@@ -109,6 +109,9 @@ export default function Certificates() {
   const [loading, setLoading] = useState(true)
   const [statusTab, setStatusTab] = useState('')
   const [ngoFilter, setNgoFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [sort, setSort] = useState('newest')
+  const [viewMode, setViewMode] = useState('grid')
   const [ngos, setNgos] = useState([])
   const [purposes, setPurposes] = useState(DEFAULT_PURPOSES)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -196,9 +199,22 @@ export default function Certificates() {
     return () => window.removeEventListener('click', close)
   }, [toolsOpen])
 
-  const visibleTemplates = useMemo(() => templates.filter((t) =>
-    (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter))
-  ), [templates, ngoFilter])
+  const visibleTemplates = useMemo(() => {
+    let rows = templates.filter((t) =>
+      (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter)) &&
+      (!categoryFilter || (t.purpose || '') === categoryFilter)
+    );
+    if (sort === 'oldest') rows = [...rows].reverse();
+    else if (sort === 'name') rows = [...rows].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    else if (sort === 'updated') rows = [...rows].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    return rows;
+  }, [templates, ngoFilter, categoryFilter, sort])
+
+  const categories = useMemo(() => {
+    const set = new Set();
+    templates.forEach((t) => { if (t.purpose) set.add(t.purpose); });
+    return Array.from(set);
+  }, [templates])
 
   const openWizard = useCallback(() => {
     setEditingId(null)
@@ -585,15 +601,35 @@ export default function Certificates() {
   return (
     <div className="certificates-page">
       <style>{`
-        .certificates-page { font-family: inherit; }
+        .certificates-page { font-family: inherit; background:#F8FAFF; padding:16px 18px; box-sizing:border-box; min-height:100vh; }
         .cert-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:16px 18px; }
         .cert-topbar h3 { margin:0; font-size:15px; font-weight:600; }
         .cert-topbar .cert-sub { font-size:12px; color:var(--ink-soft); margin-top:2px; }
         .cert-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .tabs { display:flex; gap:6px; flex-wrap:wrap; }
         .tab { padding:6px 12px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--ink-soft); font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; }
-        .tab.active { background:var(--sage); border-color:var(--sage); color:#fff; }
-        .tpl-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; padding:4px 18px 20px; }
+        .tab.active { background:#3B82F6; border-color:#3B82F6; color:#fff; }
+        .hero { border-radius:20px; padding:32px 36px; margin-bottom:14px; background: radial-gradient(circle at 75% 20%, rgba(139,92,246,.10), transparent 30%), radial-gradient(circle at 95% 50%, rgba(59,130,246,.10), transparent 35%), #F8FAFF; display:flex; justify-content:space-between; align-items:center; gap:24px; }
+        .hero h2 { margin:0 0 8px 0; font-size:34px; line-height:40px; font-weight:700; color:#0F172A; }
+        .hero .eyebrow { text-transform:uppercase; letter-spacing:.12em; font-size:12px; font-weight:600; color:#3B82F6; margin-bottom:6px; }
+        .hero p { margin:0 0 16px 0; font-size:15px; line-height:24px; color:#64748B; }
+        .hero-pills { display:flex; gap:8px; flex-wrap:wrap; }
+        .hero-pills span { border:1px solid #E5E7EB; background:#fff; color:#334155; font-size:12px; border-radius:999px; padding:4px 10px; }
+        .toolbar { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+        .tpl-toolbar-left { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+        .tpl-toolbar-right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .view-toggle { display:flex; gap:4px; border:1px solid #E5E7EB; border-radius:8px; padding:2px; }
+        .view-toggle button { border:none; background:transparent; padding:4px 10px; border-radius:6px; font-size:12px; cursor:pointer; font-family:inherit; color:#64748B; }
+        .view-toggle button.active { background:#3B82F6; color:#fff; }
+        .tpl-list { display:flex; flex-direction:column; gap:10px; padding:4px 0 20px; }
+        .tpl-list-item { display:flex; align-items:center; gap:14px; border:1px solid #E5E7EB; border-radius:14px; padding:10px 12px; background:#fff; }
+        .tpl-list-thumb { width:130px; min-width:120px; aspect-ratio:1.414/1; border-radius:10px; overflow:hidden; border:1px solid #E5E7EB; flex-shrink:0; background:#F8FAFC; }
+        .tpl-list .tpl-card { flex-direction:row; align-items:center; padding:10px 12px; }
+        .tpl-list .tpl-thumb { width:130px; min-width:120px; flex-shrink:0; }
+        .tpl-list .tpl-title-row { flex:1; min-width:0; margin-bottom:0; }
+        .button-blue { background:#3B82F6; border:1px solid #3B82F6; color:#fff; border-radius:10px; padding:8px 14px; font-weight:600; cursor:pointer; font-size:13px; display:inline-flex; align-items:center; gap:6px; }
+        .button-blue:hover { background:#2563EB; border-color:#2563EB; }
+        .tpl-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; padding:4px 0 20px; }
         @media (max-width:1199px) { .tpl-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
         .tpl-card { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:10px; display:flex; flex-direction:column; gap:8px; position:relative; box-shadow:0 2px 8px rgba(15,23,42,.04); transition:box-shadow .18s ease, transform .18s ease, border-color .18s ease; }
         .tpl-card:hover { transform:translateY(-2px); border-color:#BFDBFE; box-shadow:0 10px 28px rgba(15,23,42,.08); }
@@ -684,6 +720,7 @@ export default function Certificates() {
       `}</style>
 
       {/* ================================= HEADER ================================= */}
+      {view !== 'library' && (
       <div className="card">
         <div className="cert-topbar">
           <div>
@@ -739,30 +776,89 @@ export default function Certificates() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ============================== LIBRARY HERO ============================== */}
+      {view === 'library' && !showHistory && (
+        <div className="hero">
+          <div style={{ minWidth: 0 }}>
+            <div className="eyebrow">CERTIFICATES</div>
+            <h2>Certificate Templates</h2>
+            <p>Create reusable templates with placeholders, organize them by NGO and category, and generate beautiful certificates in seconds.</p>
+            <div className="hero-pills">
+              <span>Reusable templates</span>
+              <span>Dynamic placeholders</span>
+              <span>Organize by NGO</span>
+              <span>Generate in seconds</span>
+            </div>
+          </div>
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <svg width="130" height="90" viewBox="0 0 130 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="5" y="10" width="120" height="70" rx="8" fill="#DBEAFE"/>
+              <rect x="15" y="20" width="100" height="6" rx="3" fill="#3B82F6"/>
+              <rect x="35" y="34" width="60" height="5" rx="2.5" fill="#93C5FD"/>
+              <rect x="25" y="46" width="80" height="5" rx="2.5" fill="#93C5FD"/>
+              <circle cx="65" cy="68" r="9" fill="#8B5CF6"/>
+            </svg>
+            {canManage && (
+              <button className="button-blue" onClick={openWizard}>
+                <Plus size={15} /> New Template
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ================================= LIBRARY ================================= */}
       {view === 'library' && !showHistory && (
-        <div className="card">
-          <div className="card-pad" style={{ paddingBottom: 0 }}>
-            <div className="tabs">
-              {[['', 'All'], ['active', 'Active'], ['draft', 'Draft'], ['archived', 'Archived']].map(([k, l]) => (
+        <div>
+          <div className="toolbar">
+            <div className="tpl-toolbar-left">
+              {[['', 'All Templates'], ['active', 'Active'], ['draft', 'Draft'], ['archived', 'Archived']].map(([k, l]) => (
                 <button key={l} className={`tab ${statusTab === k ? 'active' : ''}`} onClick={() => { setStatusTab(k); setLoading(true) }}>
                   {l}
                 </button>
               ))}
             </div>
-            {(templates.length > 0) && (
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, marginTop: 12, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600 }}>Filter:</span>
-                <select value={ngoFilter} onChange={(e) => setNgoFilter(e.target.value)} style={META_STYLE}>
-                  <option value="">All NGOs</option>
-                  {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
-                </select>
-                {ngoFilter && (
-                  <button className="btn btn-sm" onClick={() => setNgoFilter('')}><X size={13} /> Clear filter</button>
-                )}
+            <div className="tpl-toolbar-right">
+              <select value={ngoFilter} onChange={(e) => setNgoFilter(e.target.value)} style={META_STYLE}>
+                <option value="">All NGOs</option>
+                {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
+              </select>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={META_STYLE}>
+                <option value="">All Categories</option>
+                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={sort} onChange={(e) => setSort(e.target.value)} style={META_STYLE}>
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name">Name A–Z</option>
+                <option value="updated">Recently Updated</option>
+              </select>
+              <div className="view-toggle">
+                <button className={viewMode === 'grid' ? 'active' : ''} onClick={() => setViewMode('grid')}>Grid</button>
+                <button className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')}>List</button>
               </div>
-            )}
+              {canManage && !showHistory && (
+                <div className="tools-wrap" style={{ position: 'relative' }}>
+                  <button className="btn btn-sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setToolsOpen((v) => !v) }} title="Tools">
+                    <Wrench size={14} /> Tools
+                  </button>
+                  {toolsOpen && (
+                    <div className="tpl-menu" style={{ top: '100%', right: 0, left: 'auto' }} onClick={(e) => e.stopPropagation()}>
+                      {templates.length > 0 && (
+                        <button className="tpl-menu-item" onClick={() => { setToolsOpen(false); refreshSnapshots() }}>
+                          <RefreshCw size={14} /> Regenerate thumbnails
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <button className="btn btn-sm" onClick={toggleHistory}>
+                <History size={14} /> History
+              </button>
+            </div>
           </div>
           {loading ? (
             <div className="cert-empty"><Loader2 size={18} className="spin" /> <span style={{ marginLeft: 8 }}>Loading…</span></div>
@@ -780,15 +876,16 @@ export default function Certificates() {
               )}
             </div>
           ) : (
-            <div className="tpl-grid">
+            <div className={viewMode === 'list' ? 'tpl-list' : 'tpl-grid'}>
               {visibleTemplates.map((t) => {
                 const st = STATUS_META[t.status] || STATUS_META.draft
                 const open = menuOpenId === t.id
                 return (
-                  <div className="tpl-card" key={t.id}>
-                    <button type="button" className="tpl-thumb" onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>
-                      <TemplateThumb t={t} />
-                    </button>
+                    <div className="tpl-card" key={t.id}>
+                      <button type="button" className="tpl-thumb" style={{ position: 'relative' }} onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>
+                        <TemplateThumb t={t} />
+                        <span className={`pill ${st.cls}`} style={{ position: 'absolute', top: 8, left: 8, padding: '1px 8px', fontSize: 11, zIndex: 2 }}>{st.label}</span>
+                      </button>
                     <div className="tpl-card-menu">
                       <button
                         type="button"
@@ -824,11 +921,11 @@ export default function Certificates() {
                     </div>
                     <div className="tpl-title-row">
                       <button type="button" className="tpl-title" onClick={() => startGenerate(t)} title={`Certify — ${t.name}`}>{t.name}</button>
-                      <span className={`pill ${st.cls}`} style={{ padding: '1px 8px', fontSize: 11 }}>{st.label}</span>
                     </div>
-                    {t.ngo_name && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, padding: '0 12px' }}>
-                        <span className="pill pill-blue" style={{ padding: '1px 8px', fontSize: 11 }}>{t.ngo_name}</span>
+                    {(t.ngo_name || t.purpose) && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {t.ngo_name && <span className="pill pill-blue" style={{ padding: '1px 8px', fontSize: 11 }}>{t.ngo_name}</span>}
+                        {t.purpose && <span className="pill pill-yellow" style={{ padding: '1px 8px', fontSize: 11 }}>{t.purpose}</span>}
                       </div>
                     )}
                   </div>
