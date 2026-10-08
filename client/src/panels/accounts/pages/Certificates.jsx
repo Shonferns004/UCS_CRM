@@ -1209,7 +1209,7 @@ export default function Certificates() {
                         {f.display_name || humanKey(f.field_key)} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
                       </label>
                       {f.field_type === 'longtext' ? (
-                        <textarea className="fld" rows={3} value={values[f.field_key] || ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
+                        <textarea className="fld" rows={3} value={values[f.field_key] ?? f.default_value ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
                       ) : f.field_type === 'select' ? (
                         <select
                           className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}

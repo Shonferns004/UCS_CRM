@@ -34,6 +34,7 @@ export const certificateApi = {
 
   generate: (payload) => apiPost(`/certificates/certificates/generate`, payload, 90000),
   bulkGenerate: (payload) => apiPost(`/certificates/certificates/bulk`, payload, 180000),
+  aiWrite: (payload) => apiPost(`/certificates/ai-write`, payload, 60000),
   listCertificates: (q = '') => apiGet(`/certificates/certificates${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   getCertificate: (id) => apiGet(`/certificates/certificates/${id}`),
 }

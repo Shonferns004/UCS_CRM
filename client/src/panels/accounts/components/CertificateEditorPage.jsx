@@ -4,7 +4,7 @@ import { toast } from '../../../components/Toast'
 import {
   ArrowLeft, AlignCenter, AlignJustify, AlignLeft, AlignRight, AlertTriangle, Bold,
   Building2, Calendar, ChevronDown, Copy, GripVertical, Italic, Loader2, Maximize2,
-  MessageSquare, MoreVertical, Plus, Redo2, RotateCcw, Trash2, Trophy, Undo2, UploadCloud, User,
+  MessageSquare, MoreVertical, Plus, Redo2, RotateCcw, Sparkles, Trash2, Trophy, Undo2, UploadCloud, User,
   Wand2, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
 
@@ -178,6 +178,8 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
   const [infoName, setInfoName] = useState('')
   const [infoNgo, setInfoNgo] = useState('')
   const [infoTouched, setInfoTouched] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
 
   const stageRef = useRef(null)
   const wrapRef = useRef(null)
@@ -310,6 +312,29 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
     ...d,
     fields: (d.fields || []).map((f) => (f.field_key === key ? { ...f, style: { ...(f.style || {}), ...patch } } : f)),
   }), groupKey || `s:${key}:${Object.keys(patch)[0]}`)
+
+  const runAiWrite = async () => {
+    if (aiBusy || !sel) return
+    const fieldKey = sel.field_key
+    setAiBusy(true)
+    try {
+      const resp = await certificateApi.aiWrite({
+        field_type: sel.field_type,
+        label: sel.display_name || sel.field_key,
+        current: sel.default_value || '',
+        prompt: aiPrompt,
+        template_name: draft?.name || '',
+        ngo_name: ngos.find((n) => String(n.id) === String(draft?.ngo_id))?.name || '',
+        sibling_labels: fields.filter((f) => f.field_key !== fieldKey).map((f) => f.display_name || f.field_key),
+      })
+      updateField(fieldKey, { default_value: resp.text })
+      toast('AI draft added to Default Value.', 'success')
+    } catch (e) {
+      toast(e.message || 'AI writing failed. Try again.', 'error')
+    } finally {
+      setAiBusy(false)
+    }
+  }
 
   const addPreset = (preset, at) => {
     const list = draftRef.current?.fields || []
@@ -1166,6 +1191,28 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                     <label className="ced-lbl" htmlFor="ced-fdef">Default Value</label>
                     <input id="ced-fdef" className="ced-inp" value={sel.default_value || ''} onChange={(e) => updateField(sel.field_key, { default_value: e.target.value })} placeholder="Enter default value" />
                   </div>
+
+                  {sel.field_type === 'longtext' && (
+                    <div className="ced-field">
+                      <span className="ced-lbl">AI Write</span>
+                      <textarea
+                        id="ced-aiwrite"
+                        className="ced-inp"
+                        rows={2}
+                        style={{ resize: 'vertical', fontFamily: 'inherit' }}
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        placeholder="Describe the message — e.g. a warm congratulations for completing the training"
+                      />
+                      <div className="ced-btnrow" style={{ marginTop: 6 }}>
+                        <button type="button" className="ced-ibtn primary" onClick={runAiWrite} disabled={aiBusy} aria-label="Write with AI" title="Generate text with AI">
+                          {aiBusy ? <Loader2 size={15} style={{ animation: 'cedspin .8s linear infinite' }} /> : <Sparkles size={15} />}
+                          {aiBusy ? 'Writing…' : 'Write'}
+                        </button>
+                        <span style={{ fontSize: 11, color: '#94A3B8' }}>Draft fills the Default Value.</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="ced-field">
                     <label className="ced-lbl" htmlFor="ced-fph">Placeholder</label>
