@@ -26,7 +26,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? _worker;
   bool _loading = true;
   List<dynamic> _loans = [];
-  List<dynamic> _profileRequests = [];
   final Set<String> _expandedCards = {};
 
   int _present = 0, _absent = 0, _late = 0, _leave = 0, _lateUsed = 0;
@@ -93,20 +92,12 @@ class _ProfilePageState extends State<ProfilePage> {
     // Listen to realtime updates
     RealtimeService.instance.addListener(_onRealtimeChange);
     _fetchLoans();
-    _fetchProfileRequests();
   }
 
   Future<void> _fetchLoans() async {
     try {
       final loans = await ApiService.getMyLoans();
       if (mounted) setState(() => _loans = loans);
-    } catch (_) {}
-  }
-
-  Future<void> _fetchProfileRequests() async {
-    try {
-      final reqs = await ApiService.getMyProfileUpdateRequests();
-      if (mounted) setState(() => _profileRequests = reqs);
     } catch (_) {}
   }
 
@@ -294,8 +285,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: _dayDetailCard(colors, scheme, tt),
               ),
         _loanStatusCard(colors, scheme, tt),
-        SizedBox(height: Responsive.pad(context, 16)),
-        _profileRequestCard(colors, scheme, tt),
         SizedBox(height: Responsive.pad(context, 24)),
         SizedBox(
           width: double.infinity,
@@ -1072,126 +1061,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   if (status == 'approved')
                     Text('\u20B9$remaining remaining',
                       style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-                ],
-              ),
-            ),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 3)),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(statusLabel, style: TextStyle(fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w700, color: statusColor)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _profileRequestCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
-    final expanded = _expandedCards.contains('profile_req');
-    final pendingReqs = _profileRequests.where((r) => r['status'] == 'pending').toList();
-    return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () => setState(() {
-              if (expanded) { _expandedCards.remove('profile_req'); } else { _expandedCards.add('profile_req'); }
-            }),
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: [
-                Icon(LucideIcons.clipboardCheck, size: Responsive.sp(context, 18), color: scheme.primary),
-                SizedBox(width: Responsive.pad(context, 8)),
-                Expanded(
-                  child: Text('Profile Update Requests',
-                    style: GoogleFonts.hankenGrotesk(
-                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (pendingReqs.isNotEmpty)
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFc28228).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text('${pendingReqs.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
-                  ),
-                SizedBox(width: Responsive.pad(context, 8)),
-                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
-              ],
-            ),
-          ),
-          if (expanded) ...[
-            SizedBox(height: Responsive.pad(context, 16)),
-            if (_profileRequests.isEmpty)
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-                child: Center(
-                  child: Text('No requests yet', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
-                ),
-              )
-            else
-              ..._profileRequests.take(3).map((r) => _profileRequestItem(r, scheme, colors)),
-            if (_profileRequests.length > 3)
-              Padding(
-                padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
-                child: Center(
-                  child: Text('+${_profileRequests.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-                ),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _profileRequestItem(dynamic r, ColorScheme scheme, AppColors colors) {
-    final status = r['status']?.toString() ?? 'pending';
-    final changes = r['requested_changes'] as Map<String, dynamic>? ?? {};
-    final fieldCount = changes.length;
-    final Color statusColor;
-    final String statusLabel;
-    switch (status) {
-      case 'pending': statusColor = const Color(0xFFc28228); statusLabel = 'Pending'; break;
-      case 'approved': statusColor = const Color(0xFF1D7A4F); statusLabel = 'Approved'; break;
-      case 'rejected': statusColor = const Color(0xFFba1a1a); statusLabel = 'Rejected'; break;
-      default: statusColor = scheme.onSurfaceVariant; statusLabel = status;
-    }
-    final dateStr = r['created_at']?.toString() ?? '';
-    final dt = dateStr.isNotEmpty ? DateTime.tryParse(dateStr)?.toLocal() : null;
-    final dateLabel = dt != null ? '${dt.day}/${dt.month}/${dt.year}' : '';
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: Responsive.pad(context, 12)),
-      child: Container(
-        padding: EdgeInsets.all(Responsive.pad(context, 12)),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: colors.outline.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('$fieldCount field${fieldCount > 1 ? 's' : ''} changed',
-                    style: TextStyle(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600, color: scheme.onSurface)),
-                  SizedBox(height: Responsive.pad(context, 2)),
-                  Text(dateLabel,
-                    style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
                 ],
               ),
             ),
