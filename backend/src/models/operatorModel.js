@@ -206,7 +206,7 @@ export const listEventMarkedBeneficiaries = async (eventId) => {
 // Per-NGO (BSCT/AFLF/MANN) registration and kit-given counts, today's event
 // name, and the most recent kit handouts. Drives the Beneficiaries app's Kits
 // screen.
-export const getKitsDashboard = async ({ operatorId, date } = {}) => {
+export const getKitsDashboard = async ({ operatorId, operatorName = null, operatorLoginId = null, date } = {}) => {
   // db._pool is raw node-postgres: results come back on `rows`, not `data`.
   // Reading `data` here left ngoRows undefined, so every NGO fell through to
   // the zero fallback and the Kits screen showed 0 regardless of real data.
@@ -245,11 +245,15 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  const { count: kitGivenToday } = await db
+  let kitGivenQuery = db
     .from('beneficiaries')
     .select('id', { count: 'exact', head: true })
     .eq('kit_given', true)
     .gte('kit_given_at', todayStart.toISOString());
+  if (operatorName) {
+    kitGivenQuery = kitGivenQuery.eq('kit_given_by', operatorName);
+  }
+  const { count: kitGivenToday } = await kitGivenQuery;
 
   // Today's event: the operator's assignment first, then any event scheduled
   // for today, then the demo fallback (mirrors markBeneficiaryKitGiven).
@@ -279,7 +283,7 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
 
   // Most recent kit handouts with beneficiary identity + the event it was
   // collected at. Today-scoped to match the kit-given counter above.
-  const { data: logs, error } = await db
+  let logsQuery = db
     .from('beneficiary_audit_logs')
     .select(
       'beneficiary_id, performed_by, performed_at, details, beneficiaries(id, beneficiary_code, full_name, mobile, photo)'
@@ -288,6 +292,10 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
     .gte('performed_at', todayStart.toISOString())
     .order('performed_at', { ascending: false })
     .limit(200);
+  if (operatorName) {
+    logsQuery = logsQuery.eq('performed_by', operatorName);
+  }
+  const { data: logs, error } = await logsQuery;
   if (error) throw error;
 
   const collectors = (logs || []).map((r) => ({

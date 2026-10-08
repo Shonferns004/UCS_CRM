@@ -6,7 +6,6 @@ import 'core/widgets/app_skeleton.dart';
 import 'core/widgets/jod_splash_screen.dart';
 import 'services/api_service.dart';
 import 'features/auth/login_page.dart';
-import 'features/auth/operator_setup_page.dart';
 import 'features/home/home_page.dart';
 import 'features/beneficiaries/aadhaar_ocr_page.dart';
 
@@ -15,13 +14,15 @@ void main() {
   if (!kReleaseMode) {
     _installSemanticsAssertFilter();
   }
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    statusBarBrightness: Brightness.light,
-    systemNavigationBarColor: Color(0xFFF8F9FB),
-    systemNavigationBarIconBrightness: Brightness.dark,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+      systemNavigationBarColor: Color(0xFFF8F9FB),
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
   runApp(const BeneficiariesApp());
 }
 
@@ -72,7 +73,6 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   bool? _loggedIn;
-  bool? _setupNeeded;
   bool _splashDone = false;
 
   @override
@@ -83,68 +83,38 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _checkAuth() async {
     final loggedIn = await ApiService.isLoggedIn();
-    if (!loggedIn) {
-      if (mounted) {
-        setState(() {
-          _loggedIn = false;
-          _setupNeeded = null;
-        });
-      }
-      return;
-    }
-    final setupNeeded = await _checkOperatorSetup();
-    if (mounted) {
-      setState(() {
-        _loggedIn = true;
-        _setupNeeded = setupNeeded;
-      });
-    }
+    if (mounted) setState(() => _loggedIn = loggedIn);
   }
 
-  Future<bool> _checkOperatorSetup() async {
-    // Ask for Operator Details only once after login: if the backend already
-    // has today's assignment saved (state/city), skip the screen on refresh.
-    try {
-      final body = await ApiService.get('/operator/dashboard');
-      final hasState = (body['state']?.toString() ?? '').isNotEmpty;
-      final hasCity = (body['city']?.toString() ?? '').isNotEmpty;
-      return !(hasState && hasCity);
-    } catch (_) {
-      return true;
-    }
-  }
+  void _onLogin() => setState(() => _loggedIn = true);
 
-  void _onLogin() {
-    setState(() {
-      _loggedIn = true;
-      _setupNeeded = null;
-    });
-    _resolveSetup();
-  }
-
-  Future<void> _resolveSetup() async {
-    final setupNeeded = await _checkOperatorSetup();
-    if (mounted) setState(() => _setupNeeded = setupNeeded);
-  }
-
-  void _onLogout() {
-    setState(() {
-      _loggedIn = false;
-      _setupNeeded = null;
-    });
-  }
+  void _onLogout() => setState(() => _loggedIn = false);
 
   Widget _buildContent() {
-    final busy = _loggedIn == null || (_loggedIn == true && _setupNeeded == null);
-    if (busy) {
+    if (_loggedIn == null) {
       return const Scaffold(
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('BEING SEVAK', style: TextStyle(fontSize: 13, letterSpacing: 3, fontWeight: FontWeight.w500, color: Color(0xFF7B8494))),
+              Text(
+                'BEING SEVAK',
+                style: TextStyle(
+                  fontSize: 13,
+                  letterSpacing: 3,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF7B8494),
+                ),
+              ),
               SizedBox(height: 12),
-              Text('Together for a better tomorrow.', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Color(0xFF111827))),
+              Text(
+                'Together for a better tomorrow.',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF111827),
+                ),
+              ),
               SizedBox(height: 28),
               SkeletonBox(
                 width: 140,
@@ -158,15 +128,9 @@ class _AuthGateState extends State<AuthGate> {
         ),
       );
     }
-    if (_loggedIn!) {
-      if (_setupNeeded!) {
-        return OperatorSetupPage(
-          onComplete: () => setState(() => _setupNeeded = false),
-        );
-      }
-      return HomePage(onLogout: _onLogout);
-    }
-    return LoginPage(onLogin: _onLogin);
+    return _loggedIn!
+        ? HomePage(onLogout: _onLogout)
+        : LoginPage(onLogin: _onLogin);
   }
 
   @override
@@ -176,10 +140,7 @@ class _AuthGateState extends State<AuthGate> {
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
       child: _splashDone
-          ? KeyedSubtree(
-              key: const ValueKey('app'),
-              child: _buildContent(),
-            )
+          ? KeyedSubtree(key: const ValueKey('app'), child: _buildContent())
           : KeyedSubtree(
               key: const ValueKey('splash'),
               child: JodSplashScreen(
