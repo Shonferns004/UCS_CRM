@@ -38,16 +38,40 @@ export default function Overview() {
   const [reports, setReports] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
+  // '': all types. Otherwise the category_id the dashboard is scoped to.
+  const [typeFilter, setTypeFilter] = useState('')
 
   useEffect(() => {
-    loadData()
+    loadReports()
   }, [])
 
-  const loadData = async () => {
+  // Stats (including the NGO breakdown) re-fetch whenever the type filter
+  // changes so every card below shows numbers for the SAME scope.
+  useEffect(() => {
+    loadStats()
+  }, [typeFilter])
+
+  const loadStats = async () => {
     setErr(null)
     try {
-      const data = await apiGet('/beneficiaries/overview')
+      const params = new URLSearchParams()
+      if (typeFilter) params.set('category_id', typeFilter)
+      const qs = params.toString()
+      const data = await apiGet(`/beneficiaries/overview${qs ? `?${qs}` : ''}`)
       setStats(data)
+    } catch (e) {
+      // Without this the cards below render "0" for every stat, which is
+      // indistinguishable from a genuinely empty database. Say which it is.
+      console.error('Failed to load overview:', e)
+      setStats(null)
+      setErr(e?.message || 'Could not load the overview.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadReports = async () => {
+    try {
       const [b, p, d, v] = await Promise.allSettled([
         apiGet('/reports/beneficiaries'),
         apiGet('/reports/programs'),
@@ -61,14 +85,14 @@ export default function Overview() {
         volunteers: v.status === 'fulfilled' ? v.value : null,
       })
     } catch (e) {
-      // Without this the cards below render "0" for every stat, which is
-      // indistinguishable from a genuinely empty database. Say which it is.
-      console.error('Failed to load overview:', e)
-      setStats(null)
-      setErr(e?.message || 'Could not load the overview.')
-    } finally {
-      setLoading(false)
+      console.error('Failed to load reports:', e)
     }
+  }
+
+  const retry = () => {
+    setLoading(true)
+    loadStats()
+    loadReports()
   }
 
   if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>Loading...</div>
@@ -89,7 +113,7 @@ export default function Overview() {
       {err && (
         <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: '#fee2e2', color: '#991b1b', fontSize: '13px', marginBottom: '12px' }}>
           Could not load the overview: {err}. The counts below are empty because the request failed, not because the database is empty.{' '}
-          <button type="button" onClick={() => { setLoading(true); loadData() }} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)', marginLeft: '8px' }}>Retry</button>
+          <button type="button" onClick={retry} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)', marginLeft: '8px' }}>Retry</button>
         </div>
       )}
 
@@ -129,6 +153,87 @@ export default function Overview() {
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Benefits Distributed</div>
           <div style={{ ...styles.statValue, color: '#be185d' }}>{stats?.benefits_distributed || 0}</div>
+        </div>
+      </div>
+
+      {/* Type filter + NGO-wise totals */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+        <div style={styles.card}>
+          <div style={{ ...styles.cardTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+            <span>Types of Beneficiaries</span>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              aria-label="Filter dashboard by beneficiary type"
+              style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)', fontWeight: 500, maxWidth: '220px' }}
+            >
+              <option value="">All Types</option>
+              {(stats?.categories || []).map((c) => (
+                <option key={c.id ?? 'none'} value={c.id ?? 0}>
+                  {c.name} ({c.count})
+                </option>
+              ))}
+            </select>
+          </div>
+          {stats?.categories?.length ? (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Type</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>Count</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.categories.map((c) => {
+                  // The filter state is a string (select value); id 0 is the
+                  // backend's sentinel for "Uncategorized".
+                  const value = String(c.id ?? 0)
+                  const pct = stats.total_beneficiaries > 0 ? Math.round((c.count / stats.total_beneficiaries) * 100) : 0
+                  const active = value === typeFilter
+                  return (
+                    <tr
+                      key={c.id ?? 'none'}
+                      onClick={() => setTypeFilter(active ? '' : value)}
+                      style={{ cursor: 'pointer', background: active ? 'color-mix(in srgb, var(--sage) 12%, transparent)' : undefined }}
+                      title={active ? 'Clear this type filter' : `Show only ${c.name}`}
+                    >
+                      <td style={styles.td}>{c.name}</td>
+                      <td style={{ ...styles.td, textAlign: 'right', fontWeight: 600 }}>{c.count}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{pct}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : noData}
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Total Members — NGO wise</div>
+          {stats?.ngos?.length ? (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>NGO</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>Members</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.ngos.map((n) => {
+                  const pct = stats.total_beneficiaries > 0 ? Math.round((n.count / stats.total_beneficiaries) * 100) : 0
+                  return (
+                    <tr key={n.id ?? 'unassigned'}>
+                      <td style={styles.td}>{n.name}{n.code ? <span style={{ color: 'var(--ink-soft)', fontSize: '11px' }}> · {n.code}</span> : null}</td>
+                      <td style={{ ...styles.td, textAlign: 'right', fontWeight: 600 }}>{n.count}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{pct}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : noData}
         </div>
       </div>
 
