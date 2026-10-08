@@ -24,6 +24,82 @@ const STATUS_OPTIONS = [
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000
 
+// Analog-style clock picker for punch in/out. Chrome/Windows renders
+// <input type="time"> as spin steppers, which read as a slider; this gives an
+// actual clock face: click the hour hand, then the minute hand, AM/PM toggle.
+function ClockPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [step, setStep] = useState('hour')
+  const parse = () => {
+    const [h, m] = (value || '').split(':').map(Number)
+    const hh = Number.isFinite(h) && value ? h : null
+    return { hh24: hh, mm: Number.isFinite(m) && value ? m : 0 }
+  }
+  const { hh24, mm } = parse()
+  const ampm = hh24 != null && hh24 >= 12 ? 'PM' : 'AM'
+  const hh12 = hh24 != null ? (hh24 % 12 || 12) : null
+
+  const commit = (h24, minutes) => {
+    onChange(`${String(h24).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`)
+  }
+  const pickHour = (n12) => {
+    let h24 = n12 % 12
+    if (ampm === 'PM') h24 += 12
+    commit(h24, mm)
+    setStep('minute')
+  }
+  const pickMinute = (m5) => {
+    const h24 = hh24 != null ? hh24 : 0
+    commit(h24, m5)
+    setOpen(false)
+    setStep('hour')
+  }
+  const toggleAmPm = () => {
+    if (hh24 == null) return
+    commit(hh24 < 12 ? hh24 + 12 : hh24 - 12, mm)
+  }
+  const marks = step === 'hour'
+    ? [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    : [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
+  const selectedMark = step === 'hour' ? hh12 : mm
+  return (
+    <div style={{ position: 'relative' }}>
+      <button type="button" onClick={() => { setOpen(!open); setStep('hour') }}
+        style={{ width: '100%', textAlign: 'left', padding: '6px 8px', border: '1px solid #d7dce5', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer' }}>
+        {value || '--:--'}
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', zIndex: 30, top: '100%', marginTop: 6, background: '#fff', border: '1px solid #e3e8f0', borderRadius: 12, boxShadow: '0 12px 32px rgba(15,23,42,.16)', padding: 12, width: 220 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button type="button" onClick={() => setStep('hour')} style={{ border: 'none', background: step === 'hour' ? '#eaf1ff' : 'transparent', color: step === 'hour' ? '#2B5FB3' : '#555', fontWeight: 700, borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>{hh12 != null ? String(hh12).padStart(2, '0') : '--'}</button>
+              <span>:</span>
+              <button type="button" onClick={() => setStep('minute')} style={{ border: 'none', background: step === 'minute' ? '#eaf1ff' : 'transparent', color: step === 'minute' ? '#2B5FB3' : '#555', fontWeight: 700, borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>{String(mm).padStart(2, '0')}</button>
+            </div>
+            <button type="button" onClick={toggleAmPm} style={{ border: '1px solid #d7dce5', background: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{ampm}</button>
+          </div>
+          <div style={{ position: 'relative', width: 196, height: 196, borderRadius: '50%', background: '#f6f8fc', margin: '0 auto' }}>
+            {marks.map((n, i) => {
+              const angle = (i / 12) * 2 * Math.PI - Math.PI / 2
+              const x = 98 + 78 * Math.cos(angle)
+              const y = 98 + 78 * Math.sin(angle)
+              const active = selectedMark === n
+              return (
+                <button key={n} type="button" onClick={() => (step === 'hour' ? pickHour(n) : pickMinute(n))}
+                  style={{ position: 'absolute', left: x - 15, top: y - 15, width: 30, height: 30, borderRadius: '50%', border: 'none', background: active ? '#2F80D9' : 'transparent', color: active ? '#fff' : '#334', fontWeight: 600, cursor: 'pointer' }}>
+                  {step === 'minute' ? String(n).padStart(2, '0') : n}
+                </button>
+              )
+            })}
+            <div style={{ position: 'absolute', left: 92, top: 92, width: 12, height: 12, borderRadius: '50%', background: '#2F80D9' }} />
+          </div>
+          <button type="button" onClick={() => { onChange(''); setOpen(false) }} style={{ marginTop: 8, border: 'none', background: 'none', color: '#B3392B', fontSize: 12, cursor: 'pointer' }}>Clear</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ISO timestamp -> HH:mm in IST (backend stores IST wall-clock time in UTC fields)
 const toTimeInput = (iso) => {
   if (!iso) return ''
@@ -276,11 +352,11 @@ export default function AttendanceCalendar({ workerId, worker }) {
             </label>
             <label className="att-field">
               <span>Punch In</span>
-              <input type="time" value={draft.punchIn} onChange={e => setDraft({ ...draft, punchIn: e.target.value, lateMinutes: String(calcLateMin(e.target.value)) })} />
+              <ClockPicker value={draft.punchIn} onChange={(v) => setDraft({ ...draft, punchIn: v, lateMinutes: String(calcLateMin(v)) })} />
             </label>
             <label className="att-field">
               <span>Punch Out</span>
-              <input type="time" value={draft.punchOut} onChange={e => setDraft({ ...draft, punchOut: e.target.value })} />
+              <ClockPicker value={draft.punchOut} onChange={(v) => setDraft({ ...draft, punchOut: v })} />
             </label>
             <label className="att-field">
               <span>Late Minutes</span>
