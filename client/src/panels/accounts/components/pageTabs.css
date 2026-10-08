@@ -1,0 +1,59 @@
+/* Tab strip shared by every Accounts page that merged several nav entries into
+   one page (Beneficiaries, Donors, Data).
+
+   The visual language is the SIM section's tab bar -- a pale container with a
+   white active pill -- but keyed to the Accounts theme variables rather than
+   SIM's own blue, so it reads as part of the panel it sits in. Extracted as its
+   own rule rather than reusing .sim-page-tab, which is scoped to .sim-scope and
+   cannot be shared without dragging SIM's palette along. */
+.panel-accounts .page-tabs,
+.panel-beneficiaries .page-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 5px;
+  background: var(--bg, #f1f5fb);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  width: fit-content;
+  max-width: 100%;
+  /* Wraps rather than scrolls: on a narrow screen a tab that needs horizontal
+     scrolling is a tab nobody finds, and these strips are only ever 2-5 long. */
+  flex-wrap: wrap;
+}
+
+.panel-accounts .page-tab,
+.panel-beneficiaries .page-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 9px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ink-soft, #64748b);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+
+.panel-accounts .page-tab:hover,
+.panel-beneficiaries .page-tab:hover {
+  color: var(--ink, #1a1a2e);
+  background: rgba(255, 255, 255, .7);
+}
+
+.panel-accounts .page-tab.is-on,
+.panel-beneficiaries .page-tab.is-on {
+  background: var(--card-bg, #fff);
+  color: var(--sage, #5B6B4E);
+  font-weight: 700;
+  border-color: var(--line, #e5e7eb);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+
+.panel-accounts .page-tab:focus-visible,
+.panel-beneficiaries .page-tab:focus-visible {
+  outline: 2px solid var(--sage, #5B6B4E);
+  outline-offset: 1px;
+}
