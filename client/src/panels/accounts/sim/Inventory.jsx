@@ -460,7 +460,17 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
               </thead>
               <tbody>
                 {pageRows.map((c) => (
-                  <tr key={c.id} className={selected[c.id] ? 'selected' : ''}>
+                  <tr
+                    key={c.id}
+                    className={`clickable-row${selected[c.id] ? ' selected' : ''}`}
+                    /* The whole row opens the detail drawer, so the mobile no
+                       longer has to be hunted down through the kebab. Checkbox,
+                       action buttons and the open kebab menu stay inert. */
+                    onClick={(e) => {
+                      if (e.target.closest('.check-cell, .actions-cell, .kebab-menu')) return
+                      onView(c)
+                    }}
+                  >
                     <td className="check-cell"><input type="checkbox" checked={!!selected[c.id]} onChange={() => toggleSelect(c.id)} /></td>
                     {activeColumns.map((col) => {
                       const v = c[col.key];

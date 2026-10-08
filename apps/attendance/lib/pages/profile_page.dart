@@ -348,10 +348,10 @@ class _ProfilePageState extends State<ProfilePage> {
             Stack(
               children: [
                 Container(
-                  width: Responsive.pad(context, 80), height: Responsive.pad(context, 80),
+                  width: Responsive.pad(context, 80), height: Responsive.pad(context, 110),
                   decoration: BoxDecoration(
                     color: colors.primaryFixed,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: sc.primary, width: 4),
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -361,8 +361,8 @@ class _ProfilePageState extends State<ProfilePage> {
                           child: Image.network(
                             _worker!['photo_url'],
                             fit: BoxFit.cover,
-                            width: Responsive.pad(context, 80), height: Responsive.pad(context, 80),
-                            cacheWidth: 320, cacheHeight: 320,
+                            width: Responsive.pad(context, 80), height: Responsive.pad(context, 110),
+                            cacheWidth: 320, cacheHeight: 440,
                             errorBuilder: (_, __, ___) => Center(child: Text(initials,
                               style: GoogleFonts.hankenGrotesk(
                                 fontSize: Responsive.sp(context, 28), fontWeight: FontWeight.w800, color: sc.primary,
@@ -915,9 +915,6 @@ class _ProfilePageState extends State<ProfilePage> {
               _legendDot('Leave', const Color(0xFFd1e4ff)),
               _legendDot('Late', const Color(0xFFffddb8)),
               _legendDot('Half-day', const Color(0xFFe8d5f5)),
-              _legendDot('Holiday', const Color(0xFFe8d5f5)),
-              _smLegendDot(LucideIcons.circle, 'Event', const Color(0xFF2563eb)),
-              _smLegendDot(LucideIcons.cake, 'Birthday', const Color(0xFFf43f5e)),
             ],
           ),
         ],
@@ -1213,14 +1210,4 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _smLegendDot(IconData icon, String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: Responsive.sp(context, 10), color: color),
-        SizedBox(width: Responsive.pad(context, 4)),
-        Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      ],
-    );
-  }
 }
