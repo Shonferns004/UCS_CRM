@@ -1060,7 +1060,6 @@ useEffect(() => onFroAction((action) => {
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
-            <FroStatusPill />
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <BirthdayPopup />
