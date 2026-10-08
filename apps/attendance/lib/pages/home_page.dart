@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
@@ -1014,12 +1017,14 @@ class _HelpSheetState extends State<_HelpSheet> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final term = _searchCtrl.text.trim().toLowerCase();
-    final filtered = _workers.where((w) {
-      final name = (w['name'] ?? '').toString().toLowerCase();
-      final dept = (w['department'] ?? '').toString().toLowerCase();
-      final phone = (w['phone'] ?? '').toString().toLowerCase();
-      return term.isEmpty || name.contains(term) || dept.contains(term) || phone.contains(term);
-    }).toList();
+    final filtered = term.isEmpty
+        ? const <dynamic>[]
+        : _workers.where((w) {
+            final name = (w['name'] ?? '').toString().toLowerCase();
+            final dept = (w['department'] ?? '').toString().toLowerCase();
+            final phone = (w['phone'] ?? '').toString().toLowerCase();
+            return name.contains(term) || dept.contains(term) || phone.contains(term);
+          }).toList();
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
@@ -1059,7 +1064,9 @@ class _HelpSheetState extends State<_HelpSheet> {
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
                     ? Center(child: Text(_error!, style: const TextStyle(color: Color(0xFFba1a1a))))
-                    : filtered.isEmpty
+                    : term.isEmpty
+                        ? const Center(child: Text('Type a name to search employees'))
+                        : filtered.isEmpty
                         ? const Center(child: Text('No employees found'))
                         : ListView.builder(
                             padding: const EdgeInsets.all(16),
@@ -1078,7 +1085,26 @@ class _HelpSheetState extends State<_HelpSheet> {
                                   : status == 'punch_out_pending'
                                       ? const Color(0xFFd97706)
                                       : const Color(0xFF1D7A4F);
-                              return Container(
+                              return InkWell(
+                                onTap: () {
+                                  if (status == 'completed') {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Attendance already completed for today')),
+                                    );
+                                    return;
+                                  }
+                                  Navigator.pop(context);
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    backgroundColor: Colors.transparent,
+                                    builder: (_) => _SelfiePunchSheet(
+                                      worker: w,
+                                      action: status == 'punch_in_pending' ? 'punch_in' : 'punch_out',
+                                    ),
+                                  );
+                                },
+                                child: Container(
                                 margin: const EdgeInsets.only(bottom: 10),
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
@@ -1106,6 +1132,7 @@ class _HelpSheetState extends State<_HelpSheet> {
                                       child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
                                     ),
                                   ],
+                                ),
                                 ),
                               );
                             },
@@ -1470,6 +1497,172 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                   fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w700,
                 )),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SelfiePunchSheet extends StatefulWidget {
+  final Map<String, dynamic> worker;
+  final String action;
+  const _SelfiePunchSheet({required this.worker, required this.action});
+
+  @override
+  State<_SelfiePunchSheet> createState() => _SelfiePunchSheetState();
+}
+
+class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
+  File? _selfie;
+  double? _lat;
+  double? _lng;
+  bool _locating = true;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveLocation();
+  }
+
+  Future<void> _resolveLocation() async {
+    setState(() => _locating = true);
+    try {
+      if (await Geolocator.isLocationServiceEnabled()) {
+        var perm = await Geolocator.checkPermission();
+        if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+        if (perm != LocationPermission.denied && perm != LocationPermission.deniedForever) {
+          final pos = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+          ).timeout(const Duration(seconds: 15));
+          if (mounted) {
+            setState(() { _lat = pos.latitude; _lng = pos.longitude; _locating = false; });
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _locating = false);
+  }
+
+  Future<void> _capture() async {
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 70);
+      if (picked != null && mounted) setState(() => _selfie = File(picked.path));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open camera')));
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_selfie == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Capture a selfie first')));
+      return;
+    }
+    if (_lat == null || _lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location not available. Enable GPS and retry.')));
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final bytes = await _selfie!.readAsBytes();
+      await ApiService.hrSelfiePunch(
+        workerId: (widget.worker['id'] ?? '').toString(),
+        type: widget.action,
+        selfieBase64: base64Encode(bytes),
+        mimeType: 'image/jpeg',
+        latitude: _lat!,
+        longitude: _lng!,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(widget.action == 'punch_in' ? 'Punch-in recorded' : 'Punch-out recorded'),
+        backgroundColor: const Color(0xFF16A34A),
+      ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: const Color(0xFFDC2626),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPunchIn = widget.action == 'punch_in';
+    final name = (widget.worker['name'] ?? 'Employee').toString();
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(isPunchIn ? 'Punch In' : 'Punch Out',
+                style: GoogleFonts.hankenGrotesk(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(name, style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+            const SizedBox(height: 16),
+            if (_selfie != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(aspectRatio: 4 / 3, child: Image.file(_selfie!, fit: BoxFit.cover)),
+              )
+            else
+              Container(
+                height: 200,
+                decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(12)),
+                child: const Center(child: Icon(Icons.camera_alt_outlined, size: 40, color: Color(0xFF9CA3AF))),
+              ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _capture,
+              icon: const Icon(Icons.camera_alt_rounded),
+              label: Text(_selfie == null ? 'Capture Selfie' : 'Retake Selfie'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(_lat != null ? Icons.location_on_rounded : Icons.location_off_rounded,
+                    size: 18, color: _lat != null ? const Color(0xFF16A34A) : const Color(0xFFDC2626)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _locating
+                        ? 'Resolving location...'
+                        : _lat != null
+                            ? '${_lat!.toStringAsFixed(5)}, ${_lng!.toStringAsFixed(5)}'
+                            : 'Location unavailable',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                  ),
+                ),
+                IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _resolveLocation),
+              ],
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _submitting ? null : _submit,
+              style: FilledButton.styleFrom(
+                backgroundColor: isPunchIn ? const Color(0xFF2563EB) : const Color(0xFF16A34A),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _submitting
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(isPunchIn ? 'Submit Punch In' : 'Submit Punch Out'),
             ),
           ],
         ),

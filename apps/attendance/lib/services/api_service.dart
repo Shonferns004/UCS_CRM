@@ -420,6 +420,34 @@ class ApiService {
     return body['workers'] ?? [];
   }
 
+  // Selfie + geo-tagged punch for another employee (used from Help sheet).
+  static Future<Map<String, dynamic>> hrSelfiePunch({
+    required String workerId,
+    required String type,
+    required String selfieBase64,
+    required String mimeType,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final res = await _post(
+      Uri.parse('$baseUrl/attendance/hr-selfie-punch'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'worker_id': workerId,
+        'type': type,
+        'selfie_base64': selfieBase64,
+        'mime_type': mimeType,
+        'latitude': latitude,
+        'longitude': longitude,
+      }),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(body is Map ? (body['message'] ?? 'Punch failed') : 'Punch failed');
+    }
+    return body;
+  }
+
   // Worker-safe: workers list (scope=all) and today's attendance for everyone.
   // Available to any authenticated worker — used by the Help sheet.
   static Future<List<dynamic>> getWorkersScopedAll() async {
