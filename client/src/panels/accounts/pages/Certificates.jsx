@@ -109,9 +109,7 @@ export default function Certificates() {
   const [loading, setLoading] = useState(true)
   const [statusTab, setStatusTab] = useState('')
   const [ngoFilter, setNgoFilter] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
   const [sort, setSort] = useState('newest')
-  const [viewMode, setViewMode] = useState('grid')
   const [ngos, setNgos] = useState([])
   const [purposes, setPurposes] = useState(DEFAULT_PURPOSES)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -199,22 +197,9 @@ export default function Certificates() {
     return () => window.removeEventListener('click', close)
   }, [toolsOpen])
 
-  const visibleTemplates = useMemo(() => {
-    let rows = templates.filter((t) =>
-      (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter)) &&
-      (!categoryFilter || (t.purpose || '') === categoryFilter)
-    );
-    if (sort === 'oldest') rows = [...rows].reverse();
-    else if (sort === 'name') rows = [...rows].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    else if (sort === 'updated') rows = [...rows].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
-    return rows;
-  }, [templates, ngoFilter, categoryFilter, sort])
-
-  const categories = useMemo(() => {
-    const set = new Set();
-    templates.forEach((t) => { if (t.purpose) set.add(t.purpose); });
-    return Array.from(set);
-  }, [templates])
+  const visibleTemplates = useMemo(() => templates.filter((t) =>
+    (!ngoFilter || String(t.ngo_id || '') === String(ngoFilter))
+  ), [templates, ngoFilter])
 
   const openWizard = useCallback(() => {
     setEditingId(null)
@@ -825,36 +810,6 @@ export default function Certificates() {
                 <option value="">All NGOs</option>
                 {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
               </select>
-              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={META_STYLE}>
-                <option value="">All Categories</option>
-                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={sort} onChange={(e) => setSort(e.target.value)} style={META_STYLE}>
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="name">Name A–Z</option>
-                <option value="updated">Recently Updated</option>
-              </select>
-              <div className="view-toggle">
-                <button className={viewMode === 'grid' ? 'active' : ''} onClick={() => setViewMode('grid')}>Grid</button>
-                <button className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')}>List</button>
-              </div>
-              {canManage && !showHistory && (
-                <div className="tools-wrap" style={{ position: 'relative' }}>
-                  <button className="btn btn-sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setToolsOpen((v) => !v) }} title="Tools">
-                    <Wrench size={14} /> Tools
-                  </button>
-                  {toolsOpen && (
-                    <div className="tpl-menu" style={{ top: '100%', right: 0, left: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                      {templates.length > 0 && (
-                        <button className="tpl-menu-item" onClick={() => { setToolsOpen(false); refreshSnapshots() }}>
-                          <RefreshCw size={14} /> Regenerate thumbnails
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
               <button className="btn btn-sm" onClick={toggleHistory}>
                 <History size={14} /> History
               </button>
@@ -876,7 +831,7 @@ export default function Certificates() {
               )}
             </div>
           ) : (
-            <div className={viewMode === 'list' ? 'tpl-list' : 'tpl-grid'}>
+            <div className="tpl-grid">
               {visibleTemplates.map((t) => {
                 const st = STATUS_META[t.status] || STATUS_META.draft
                 const open = menuOpenId === t.id
