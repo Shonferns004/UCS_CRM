@@ -176,13 +176,32 @@ export const getBeneficiaryById = async (id) => {
 
 // Stores the latest re-issue collection OTP on the beneficiary row so the
 // accounts panel can show it (beneficiaries app "Already collected" → Accept).
+// A fresh OTP invalidates any earlier verification.
 export const setBeneficiaryCollectionOtp = async (id, otp) => {
   const now = new Date().toISOString();
   const { data, error } = await db
     .from('beneficiaries')
-    .update({ collection_otp: otp, collection_otp_at: now, updated_at: now })
+    .update({
+      collection_otp: otp,
+      collection_otp_at: now,
+      collection_otp_verified_at: null,
+      updated_at: now,
+    })
     .eq('id', id)
-    .select('id, collection_otp, collection_otp_at')
+    .select('id, collection_otp, collection_otp_at, collection_otp_verified_at')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+// Records a successful OTP verification (must happen within the OTP TTL).
+export const setBeneficiaryOtpVerified = async (id) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('beneficiaries')
+    .update({ collection_otp_verified_at: now, updated_at: now })
+    .eq('id', id)
+    .select('id, collection_otp_verified_at')
     .single();
   if (error) throw error;
   return data;

@@ -7,7 +7,7 @@ import {
   markBeneficiaryKitGiven, lookupBeneficiaryByToken, deleteBeneficiariesController,
   parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
-  sendCollectionOtp,
+  sendCollectionOtp, verifyCollectionOtp,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -84,6 +84,10 @@ router.post('/:id/kit-given', authenticateRole('super_admin', 'admin', 'ngo', 'a
 // Re-issue collection OTP — generated when the operator accepts the
 // "Already collected" prompt; shown in the accounts panel Beneficiaries section.
 router.post('/:id/collection-otp', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), sendCollectionOtp);
+
+// Verify the collection OTP - must pass within 15 minutes of generation
+// before the app allows the kit re-issue swipe.
+router.post('/:id/verify-collection-otp', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), verifyCollectionOtp);
 
 // Audit
 router.get('/:id/audit', authenticateRole('master', 'super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker', 'fro', 'hr', 'recruiter', 'digital'), getAuditTrail);
