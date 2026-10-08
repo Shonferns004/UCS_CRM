@@ -113,6 +113,15 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS needed TEXT"
   ).catch(() => {});
 
+  // 6-digit OTP created when the operator accepts the "Already collected"
+  // re-issue prompt — displayed in the accounts panel Beneficiaries section.
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS collection_otp TEXT"
+  ).catch(() => {});
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS collection_otp_at TIMESTAMPTZ"
+  ).catch(() => {});
+
   // ensureBeneficiarySchema creates any missing table as a bare "id SERIAL", so
   // on an installation where migration 120 never ran the beneficiary columns
   // only exist if they are added here. Everything the member import and the

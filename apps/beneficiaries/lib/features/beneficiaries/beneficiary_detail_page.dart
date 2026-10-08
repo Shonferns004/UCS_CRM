@@ -121,6 +121,21 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   void _accept() {
     if (_markingKit) return;
     setState(() => _decisionAccepted = true);
+    _sendCollectionOtp();
+  }
+
+  // Accept creates a fresh 6-digit re-issue OTP on the server (shown in the
+  // accounts panel). Failures never block the give flow — swipe still works.
+  Future<void> _sendCollectionOtp() async {
+    final id = _b['id'];
+    if (id == null) return;
+    try {
+      await ApiService.post('/beneficiaries/$id/collection-otp');
+      if (!mounted) return;
+      showAppSnackbar(context, 'OTP sent for verification');
+    } catch (_) {
+      // Best effort — operator can still give the kit.
+    }
   }
 
   // When the kit was already collected, pop the accept/reject sheet once.

@@ -160,7 +160,7 @@ export default function AllBeneficiaries() {
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No beneficiaries found</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ ...styles.table, minWidth: 1600 }}>
+            <table style={{ ...styles.table, minWidth: 1700 }}>
               <thead>
                 <tr>
                   <th style={{ ...styles.th, width: 36 }}>
@@ -180,6 +180,7 @@ export default function AllBeneficiaries() {
                   <th style={styles.th}>City</th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Kit</th>
+                  <th style={styles.th}>OTP</th>
                   <th style={styles.th}>Event</th>
                   <th style={styles.th}>Fingerprint</th>
                   <th style={styles.th}>Registered</th>
@@ -214,6 +215,13 @@ export default function AllBeneficiaries() {
                         )}>
                           {b.kit_given ? 'Yes' : 'No'}
                         </span>
+                      </td>
+                      <td style={styles.td}>
+                        {b.collection_otp ? (
+                          <code style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '3px', background: '#eef2ff', color: '#3730a3', padding: '3px 8px', borderRadius: 'var(--radius-sm)' }}>
+                            {b.collection_otp}
+                          </code>
+                        ) : '-'}
                       </td>
                       <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {b.kit_event_name || '-'}
