@@ -174,6 +174,39 @@ export const getBeneficiaryById = async (id) => {
   return data;
 };
 
+// Stores the latest re-issue collection OTP on the beneficiary row so the
+// accounts panel can show it (beneficiaries app "Already collected" → Accept).
+// A fresh OTP invalidates any earlier verification.
+export const setBeneficiaryCollectionOtp = async (id, otp) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('beneficiaries')
+    .update({
+      collection_otp: otp,
+      collection_otp_at: now,
+      collection_otp_verified_at: null,
+      updated_at: now,
+    })
+    .eq('id', id)
+    .select('id, collection_otp, collection_otp_at, collection_otp_verified_at')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+// Records a successful OTP verification (must happen within the OTP TTL).
+export const setBeneficiaryOtpVerified = async (id) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('beneficiaries')
+    .update({ collection_otp_verified_at: now, updated_at: now })
+    .eq('id', id)
+    .select('id, collection_otp_verified_at')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const getBeneficiaryByCode = async (code) => {
   const { data, error } = await db
     .from('beneficiaries')
@@ -196,8 +229,12 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by, has_otp }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
+
+  if (created_by) query = query.eq('created_by', created_by);
+  // OTP tab: only beneficiaries with a generated collection OTP.
+  if (has_otp === true || has_otp === 'true') query = query.not('collection_otp', 'is', null);
 
   if (search) {
     // Commas and parens are PostgREST or= separators, so a typed event name
@@ -221,7 +258,13 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  if (kit_given !== undefined && kit_given !== null) {
+  if (has_otp === true || has_otp === 'true') {
+    // OTP tab: newest OTP first so fresh re-issues sit at the top.
+    query = query
+      .order('collection_otp_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+  } else if (kit_given !== undefined && kit_given !== null) {
     // Kit-given history: newest handout first (matches the app's "Given Today"
     // overview count so the freshly-given beneficiaries appear at the top).
     query = query

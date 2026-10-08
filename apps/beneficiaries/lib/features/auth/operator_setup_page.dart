@@ -1,7 +1,5 @@
 ﻿import '../../core/lucide_icons.dart';
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../core/constants/indian_locations.dart';
 import '../../core/theme/app_theme.dart';
@@ -10,10 +8,17 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
+import 'package:image_picker/image_picker.dart';
 
 class OperatorSetupPage extends StatefulWidget {
   final VoidCallback onComplete;
-  const OperatorSetupPage({super.key, required this.onComplete});
+
+  final bool canGoBack;
+  const OperatorSetupPage({
+    super.key,
+    required this.onComplete,
+    this.canGoBack = false,
+  });
 
   @override
   State<OperatorSetupPage> createState() => _OperatorSetupPageState();
@@ -86,15 +91,42 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
     }
   }
 
-  Future<void> _pickSelfie() async {
+  // Camera / Gallery chunne ka menu
+  Future<void> _showSelfieOptions() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.camera),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (source != null) await _pickSelfie(source);
+  }
+
+  Future<void> _pickSelfie(ImageSource source) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        withData: true,
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        preferredCameraDevice: CameraDevice.front, // selfie camera
+        imageQuality: 75,
+        maxWidth: 1080,
       );
-      if (result == null || result.files.isEmpty) return;
-      final file = result.files.first;
-      final Uint8List bytes = file.bytes ?? await file.xFile.readAsBytes();
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
       if (!mounted) return;
       setState(() {
         _selfieBase64 = base64Encode(bytes);
@@ -102,7 +134,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = 'Could not pick the selfie image. Try again.');
+      setState(() => _error = 'Could not get the photo. Try again.');
     }
   }
 
@@ -122,20 +154,23 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
     try {
       String? selfieUrl = _selfieUrl;
       if (_selfieBase64 != null) {
-        final up = await ApiService.post('/operator/selfie', body: {
-          'selfie_base64': _selfieBase64,
-          'mime_type': 'image/jpeg',
-        });
+        final up = await ApiService.post(
+          '/operator/selfie',
+          body: {'selfie_base64': _selfieBase64, 'mime_type': 'image/jpeg'},
+        );
         selfieUrl = up['selfie_url']?.toString();
       }
-      await ApiService.post('/operator/self-assign', body: {
-        'state': _selectedState,
-        'city': _selectedCity,
-        'event_name': _eventController.text.trim(),
-        'kit_id': _selectedKitId,
-        'organizer_id': _selectedOrganizerId,
-        'selfie_url': selfieUrl,
-      });
+      await ApiService.post(
+        '/operator/self-assign',
+        body: {
+          'state': _selectedState,
+          'city': _selectedCity,
+          'event_name': _eventController.text.trim(),
+          'kit_id': _selectedKitId,
+          'organizer_id': _selectedOrganizerId,
+          'selfie_url': selfieUrl,
+        },
+      );
       if (!mounted) return;
       widget.onComplete();
     } catch (e) {
@@ -149,8 +184,16 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false,
+      canPop: widget.canGoBack,
       child: Scaffold(
+        appBar: widget.canGoBack
+            ? AppBar(
+                leading: IconButton(
+                  icon: const Icon(LucideIcons.arrowLeft),
+                  onPressed: () => Navigator.maybePop(context),
+                ),
+              )
+            : null,
         body: SafeArea(
           child: _loading
               ? const SkeletonList()
@@ -159,20 +202,23 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('BEING SEVAK',
-                          style: AppTextStyles.pageLabel),
+                      const Text('BEING SEVAK', style: AppTextStyles.pageLabel),
                       const SizedBox(height: 8),
-                      const Text('Operator Details',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary,
-                          )),
+                      const Text(
+                        'Operator Details',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       const Text(
                         'Please tell us about your location for today before you continue.',
                         style: TextStyle(
-                            fontSize: 14, color: AppTheme.textSecondary),
+                          fontSize: 14,
+                          color: AppTheme.textSecondary,
+                        ),
                       ),
                       const SizedBox(height: 28),
 
@@ -189,8 +235,9 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                         decoration: const InputDecoration(labelText: 'State *'),
                         hint: const Text('Select state'),
                         items: indianStates
-                            .map((s) =>
-                                DropdownMenuItem(value: s, child: Text(s)))
+                            .map(
+                              (s) => DropdownMenuItem(value: s, child: Text(s)),
+                            )
                             .toList(),
                         isExpanded: true,
                         onChanged: (v) => setState(() => _selectedState = v),
@@ -202,8 +249,9 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                         decoration: const InputDecoration(labelText: 'City *'),
                         hint: const Text('Select city'),
                         items: indianCities
-                            .map((c) =>
-                                DropdownMenuItem(value: c, child: Text(c)))
+                            .map(
+                              (c) => DropdownMenuItem(value: c, child: Text(c)),
+                            )
                             .toList(),
                         isExpanded: true,
                         onChanged: (v) => setState(() => _selectedCity = v),
@@ -222,18 +270,20 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
 
                       DropdownButtonFormField<int>(
                         initialValue: _selectedKitId,
-                        decoration:
-                            const InputDecoration(labelText: 'Kit'),
+                        decoration: const InputDecoration(labelText: 'Kit'),
                         hint: const Text('Select kit'),
                         items: _kits
-                            .map((k) => DropdownMenuItem<int>(
+                            .map(
+                              (k) => DropdownMenuItem<int>(
                                 value: k['id'] != null
                                     ? (k['id'] as num).toInt()
                                     : null,
                                 child: Text(
                                   k['name']?.toString() ?? 'Kit',
                                   overflow: TextOverflow.ellipsis,
-                                )))
+                                ),
+                              ),
+                            )
                             .toList(),
                         isExpanded: true,
                         onChanged: (v) => setState(() => _selectedKitId = v),
@@ -243,17 +293,21 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                       DropdownButtonFormField<int>(
                         initialValue: _selectedOrganizerId,
                         decoration: const InputDecoration(
-                            labelText: 'Organizer'),
+                          labelText: 'Organizer',
+                        ),
                         hint: const Text('Select organizer'),
                         items: _organizers
-                            .map((o) => DropdownMenuItem<int>(
+                            .map(
+                              (o) => DropdownMenuItem<int>(
                                 value: o['id'] != null
                                     ? (o['id'] as num).toInt()
                                     : null,
                                 child: Text(
                                   o['name']?.toString() ?? 'Organizer',
                                   overflow: TextOverflow.ellipsis,
-                                )))
+                                ),
+                              ),
+                            )
                             .toList(),
                         isExpanded: true,
                         onChanged: (v) =>
@@ -305,27 +359,31 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Selfie',
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600)),
+                                  Text(
+                                    'Selfie',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   SizedBox(height: 2),
                                   Text(
                                     'Your photo for today\'s assignment '
                                     '(optional)',
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppTheme.textSecondary),
+                                      fontSize: 12,
+                                      color: AppTheme.textSecondary,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
                             TextButton.icon(
-                              onPressed: _saving ? null : _pickSelfie,
+                              onPressed: _saving ? null : _showSelfieOptions,
                               icon: const Icon(LucideIcons.camera, size: 18),
-                              label: Text(_selfieBase64 != null
-                                  ? 'Change'
-                                  : 'Add Selfie'),
+                              label: Text(
+                                _selfieBase64 != null ? 'Change' : 'Add Selfie',
+                              ),
                             ),
                           ],
                         ),
@@ -345,7 +403,9 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                                   shineColor: Colors.white,
                                 )
                               : const Icon(LucideIcons.arrowRight, size: 18),
-                          label: Text(_saving ? 'Saving...' : 'Save & Continue'),
+                          label: Text(
+                            _saving ? 'Saving...' : 'Save & Continue',
+                          ),
                         ),
                       ),
                     ],
@@ -364,8 +424,11 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
         color: AppTheme.surfaceSoft,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Icon(LucideIcons.user,
-          color: AppTheme.textSecondary, size: 26),
+      child: const Icon(
+        LucideIcons.user,
+        color: AppTheme.textSecondary,
+        size: 26,
+      ),
     );
   }
 }

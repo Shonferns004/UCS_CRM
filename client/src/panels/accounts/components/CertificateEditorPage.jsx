@@ -4,7 +4,7 @@ import { toast } from '../../../components/Toast'
 import {
   ArrowLeft, AlignCenter, AlignJustify, AlignLeft, AlignRight, AlertTriangle, Bold,
   Building2, Calendar, ChevronDown, Copy, GripVertical, Italic, Loader2, Maximize2,
-  MessageSquare, Plus, Redo2, RotateCcw, Trash2, Trophy, Undo2, UploadCloud, User,
+  MessageSquare, MoreVertical, Plus, Redo2, RotateCcw, Trash2, Trophy, Undo2, UploadCloud, User,
   Wand2, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
 
@@ -114,6 +114,38 @@ const defaultStyle = (canvasW, canvasH, i) => ({
   showBorder: true,
 })
 
+function NumInput({ id, value, min = 0, max = Infinity, fallback = 0, step, className, placeholder, ariaInvalid, onCommit }) {
+  const [focus, setFocus] = useState(false)
+  const [text, setText] = useState((value ?? fallback).toString())
+  useEffect(() => {
+    if (!focus) setText((value ?? fallback).toString())
+  }, [value, focus])
+  const display = value ?? fallback
+  return (
+    <input
+      id={id}
+      type="number"
+      step={step}
+      min={Number.isFinite(min) ? min : undefined}
+      max={Number.isFinite(max) ? max : undefined}
+      className={className}
+      placeholder={placeholder}
+      aria-invalid={ariaInvalid}
+      value={focus ? text : display.toString()}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={() => { setFocus(true); setText(display.toString()) }}
+      onBlur={() => {
+        setFocus(false)
+        const n = Number(text)
+        const next = Number.isFinite(n) ? clamp(n, min, max) : fallback
+        setText(next.toString())
+        if (next !== value) onCommit(next)
+      }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+    />
+  )
+}
+
 export default function CertificateEditorPage({ draft, setDraft, canManage, ngos, onCancel, onSave, onReplaceFile }) {
   const [imgUrl, setImgUrl] = useState(null)
   const [imgFailed, setImgFailed] = useState(false)
@@ -142,6 +174,10 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
   const [cs, setCs] = useState(loadCanvasSettings)
   const [listDragIdx, setListDragIdx] = useState(null)
   const [listDropIdx, setListDropIdx] = useState(null)
+  const [infoOpen, setInfoOpen] = useState(false)
+  const [infoName, setInfoName] = useState('')
+  const [infoNgo, setInfoNgo] = useState('')
+  const [infoTouched, setInfoTouched] = useState(false)
 
   const stageRef = useRef(null)
   const wrapRef = useRef(null)
@@ -207,14 +243,16 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
   }, [draft?.id, draft?.version, retryTick])
 
   const fitZoom = () => {
-    const w = wrapRef.current?.clientWidth
-    if (!w) return 0.5
-    return Math.min(1, Math.max(0.05, (w - 32) / canvasW))
+    const el = wrapRef.current
+    const w = el?.clientWidth
+    const h = el?.clientHeight
+    if (!w || !h) return 0.5
+    return Math.min(1, Math.max(0.05, Math.min((w - 32) / canvasW, (h - 32) / canvasH)))
   }
 
   const applyFit = () => { setZoom(fitZoom()); setZoomFit(true) }
 
-  useEffect(() => { applyFit() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { applyFit() }, [canvasW, canvasH]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!zoomFit) return undefined
@@ -486,7 +524,19 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
     setSubmitted(true)
     const errs = validate(draftRef.current)
     if (Object.keys(errs).length) {
-      toast('Fix the highlighted errors before saving.', 'error')
+      const list = draftRef.current?.fields || []
+      const idx = list.findIndex((_, i) => errs[`key${i}`] || errs[`name${i}`] || errs[`opts${i}`] || errs[`geom${i}`])
+      if (idx >= 0) {
+        setSelKey(list[idx].field_key)
+        setRightTab('field')
+      }
+      if (errs.name || errs.ngo) {
+        setInfoTouched(true)
+        setInfoOpen(true)
+      }
+      toast(errs.name || errs.ngo || errs.fields
+        || (idx >= 0 ? (errs[`key${idx}`] || errs[`name${idx}`] || errs[`opts${idx}`] || errs[`geom${idx}`])
+          : 'Fix the highlighted errors before saving.'), 'error')
       return false
     }
     setSaving(true)
@@ -554,6 +604,27 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
     else onCancel()
   }
 
+  const openInfo = () => {
+    setInfoName(draft?.name || '')
+    setInfoNgo(draft?.ngo_id || '')
+    setInfoTouched(false)
+    setInfoOpen(true)
+  }
+
+  const saveInfo = () => {
+    setInfoTouched(true)
+    if (!String(infoName || '').trim() || !infoNgo) return
+    const name = infoName.trim()
+    const ngo = String(infoNgo)
+    if (name === String(draft?.name || '').trim() && ngo === String(draft?.ngo_id || '')) {
+      setInfoOpen(false)
+      return
+    }
+    mutate((d) => ({ ...d, name, ngo_id: ngo }), 'tpl-info')
+    setInfoOpen(false)
+    toast('Details updated', 'success')
+  }
+
   useEffect(() => {
     const onKey = (e) => {
       const t = e.target
@@ -562,7 +633,8 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); doSave(); return }
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return }
       if (e.key === 'Escape') {
-        if (previewOpen) setPreviewOpen(false)
+        if (infoOpen) setInfoOpen(false)
+        else if (previewOpen) setPreviewOpen(false)
         else if (deleteIdx != null) setDeleteIdx(null)
         else if (leaveOpen) setLeaveOpen(false)
         else if (sheet) setSheet(null)
@@ -605,7 +677,8 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       <style>{`
         .ced { --blue:#2563EB; --blue-l:#EFF6FF; --purple:#7C3AED; --green:#10B981; --amber:#F59E0B; --red:#EF4444;
           --bg:#F8FAFF; --surface:#FFFFFF; --line:#E5E7EB; --ink:#0F172A; --ink2:#64748B; --ink3:#94A3B8;
-          font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); box-sizing:border-box; }
+          font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); box-sizing:border-box;
+          height:100%; display:flex; flex-direction:column; overflow:hidden; }
         .ced *, .ced *::before, .ced *::after { box-sizing:border-box; }
         .ced h1,.ced h2,.ced h3 { margin:0; }
         .ced-inp { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:inherit;
@@ -638,7 +711,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-back:hover { background:var(--blue-l); border-color:#BFDBFE; color:var(--blue); }
 
         .ced-head { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:12px;
-          padding:10px 14px; box-shadow:0 1px 3px rgba(15,23,42,.05); flex-wrap:wrap; }
+          padding:10px 14px; box-shadow:0 1px 3px rgba(15,23,42,.05); flex-wrap:wrap; flex-shrink:0; }
         .ced-head-titles { min-width:0; flex:1; }
         .ced-head h1 { font-size:18px; line-height:1.25; font-weight:700; letter-spacing:-.01em; }
         .ced-unsaved { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; color:#B45309; background:#FFFBEB;
@@ -647,14 +720,10 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-head-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .ced-only-narrow { display:none; }
 
-        .ced-meta { margin-top:10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 14px;
-          display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
-        .ced-meta-cell { min-width:0; }
-
         .ced-work { margin-top:10px; display:grid; grid-template-columns:230px minmax(0,1fr) 300px; gap:10px;
-          min-width:0; }
+          min-width:0; flex:1; min-height:0; }
         .ced-panel { position:relative; background:var(--surface); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column;
-          min-height:0; max-height:calc(100vh - 300px); overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+          min-height:0; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.05); }
         .ced-panel-body { flex:1; min-height:0; overflow-y:auto; padding:10px; }
         .ced-panel-head { padding:10px 12px 8px; border-bottom:1px solid var(--line); }
         .ced-panel-head h2 { font-size:15px; font-weight:700; }
@@ -681,6 +750,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-list-item:hover { border-color:#BFDBFE; }
         .ced-list-item:focus-visible { outline:2px solid var(--blue); outline-offset:1px; }
         .ced-list-item.sel { border-color:var(--blue); background:var(--blue-l); }
+        .ced-list-item.err { border-color:var(--red); background:#FEF2F2; }
         .ced-list-item.drop { outline:2px dashed var(--blue); outline-offset:-2px; }
         .ced-list-item .lname { font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .ced-list-item .ltype { font-size:11px; color:var(--ink3); }
@@ -694,7 +764,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         .ced-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
         .ced-zoom-val { min-width:52px; text-align:center; font-size:12px; font-weight:600; color:#334155; background:#F1F5F9;
           border:1px solid var(--line); border-radius:8px; height:32px; line-height:30px; cursor:pointer; user-select:none; }
-        .ced-stage { position:relative; height:calc(100vh - 364px); min-height:440px; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
+        .ced-stage { position:relative; flex:1; min-height:0; background:#F1F5F9; border:1px solid var(--line); border-radius:12px; overflow:auto; }
         .ced-stage-pad { width:max-content; min-width:100%; margin:0 auto; padding:14px; display:flex; justify-content:center; }
         .ced-paper { position:relative; background:#fff; border-radius:3px; box-shadow:0 8px 30px rgba(15,23,42,.16); overflow:hidden; flex-shrink:0; }
         .ced-paper img.ced-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; display:block; user-select:none; pointer-events:none; }
@@ -775,8 +845,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           .ced-left.open, .ced-right.open { transform:none; box-shadow:0 12px 44px rgba(15,23,42,.22); }
           .ced-panel-close { display:inline-flex; position:absolute; top:10px; right:10px; z-index:2; }
           .ced-panel-head { padding-right:52px; }
-          .ced-stage { height:58vh; min-height:340px; }
-          .ced-meta { grid-template-columns:repeat(2, minmax(0,1fr)); }
         }
         @media (min-width: 1025px) { .ced-backdrop.show { display:none; } }
         @media (max-width: 767px) {
@@ -784,11 +852,9 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
           .ced-head h1 { font-size:17px; }
           .ced-head-actions { width:100%; justify-content:flex-end; }
           .ced-unsaved { order:3; }
-          .ced-meta { grid-template-columns:minmax(0,1fr); padding:12px; }
           .ced-panel { top:auto; left:0; right:0; width:auto; max-height:74vh; border-radius:18px 18px 0 0;
             transform:translateY(103%); transition:transform .2s ease; }
           .ced-left.open, .ced-right.open { transform:none; }
-          .ced-stage { height:52vh; min-height:280px; }
           .ced-tools { margin-left:0; width:100%; }
           .ced-btn { height:40px; }
           .ced-ibtn { min-width:36px; height:36px; }
@@ -799,11 +865,15 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
         <button type="button" className="ced-back" onClick={requestLeave} aria-label="Back to templates" title="Back">
           <ArrowLeft size={17} />
         </button>
-        <div className="ced-head-titles">
-          <h1>Edit Certificate Template</h1>
+        <div className="ced-head-titles" style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <h1 style={{ whiteSpace: 'nowrap' }}>Edit Certificate Template</h1>
+          {draft?.name && (
+            <span style={{ fontSize: 13, color: 'var(--ink2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={draft.name}>{draft.name}</span>
+          )}
         </div>
         {dirty && <span className="ced-unsaved">Unsaved changes</span>}
         <div className="ced-head-actions">
+          <button type="button" className="ced-ibtn" onClick={openInfo} title="Template details — name & NGO" aria-label="Edit template details"><MoreVertical size={15} /></button>
           <button type="button" className="ced-btn" onClick={runPreview} title="Preview the generated certificate">
             <Wand2 size={15} /> Preview
           </button>
@@ -817,35 +887,6 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       </header>
 
       <style>{`@keyframes cedspin { to { transform:rotate(360deg) } }`}</style>
-
-      <section className="ced-meta" aria-label="Template information">
-        <div className="ced-meta-cell">
-          <label className="ced-lbl" htmlFor="ced-tpl-name">Template Name *</label>
-          <input
-            id="ced-tpl-name"
-            className={`ced-inp ${errors.name ? 'err' : ''}`}
-            value={draft?.name || ''}
-            onChange={(e) => mutate((d) => ({ ...d, name: e.target.value }), 'tpl-name')}
-            placeholder="ASHRAY Certificate"
-            aria-invalid={!!errors.name}
-          />
-          {errors.name && <div className="ced-err">{errors.name}</div>}
-        </div>
-        <div className="ced-meta-cell">
-          <label className="ced-lbl" htmlFor="ced-tpl-ngo">NGO *</label>
-          <select
-            id="ced-tpl-ngo"
-            className={`ced-inp ${errors.ngo ? 'err' : ''}`}
-            value={draft?.ngo_id || ''}
-            onChange={(e) => mutate((d) => ({ ...d, ngo_id: e.target.value }), 'tpl-ngo')}
-            aria-invalid={!!errors.ngo}
-          >
-            <option value="">Select NGO</option>
-            {(ngos || []).map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
-          </select>
-            {errors.ngo && <div className="ced-err">{errors.ngo}</div>}
-          </div>
-      </section>
 
       <div className="ced-work">
         <aside className={`ced-panel ced-left ${sheet === 'fields' ? 'open' : ''}`} aria-label="Field library">
@@ -881,7 +922,9 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
             {errors.fields && <div className="ced-err" style={{ marginTop: -4, marginBottom: 8 }}>{errors.fields}</div>}
             {fields.length === 0 ? (
               <div className="ced-empty">No fields yet.<br />Click a field type above or drag it onto the canvas.</div>
-            ) : fields.map((f, i) => (
+            ) : fields.map((f, i) => {
+              const itemErr = errors[`key${i}`] || errors[`name${i}`] || errors[`opts${i}`] || errors[`geom${i}`]
+              return (
               <div
                 key={f.field_key || i}
                 role="button"
@@ -897,16 +940,18 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   if (e.altKey && e.key === 'ArrowUp' && i > 0) { e.preventDefault(); reorder(i, i - 1) }
                   if (e.altKey && e.key === 'ArrowDown' && i < fields.length - 1) { e.preventDefault(); reorder(i, i + 1) }
                 }}
-                className={`ced-list-item ${selKey === f.field_key ? 'sel' : ''} ${listDropIdx === i && listDragIdx != null && listDragIdx !== i ? 'drop' : ''}`}
-                title="Click to edit · drag to reorder · Alt+↑/↓ to move"
+                className={`ced-list-item ${selKey === f.field_key ? 'sel' : ''} ${itemErr ? 'err' : ''} ${listDropIdx === i && listDragIdx != null && listDragIdx !== i ? 'drop' : ''}`}
+                title={itemErr || 'Click to edit · drag to reorder · Alt+↑/↓ to move'}
               >
                 <GripVertical size={14} style={{ color: '#CBD5E1', flexShrink: 0 }} />
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span className="lname" style={{ display: 'block' }}>{f.display_name || f.field_key || 'Untitled'}</span>
                   <span className="ltype" style={{ display: 'block' }}>{TYPE_LABEL[f.field_type] || f.field_type}{f.required ? ' · required' : ' · optional'}{f.style?.hidden ? ' · hidden' : ''}</span>
+                  {itemErr && <span className="ced-err" style={{ display: 'block', marginTop: 2 }}>{itemErr}</span>}
                 </span>
               </div>
-            ))}
+              )
+            })}
           </div>
         </aside>
 
@@ -1168,7 +1213,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fsize">Size</label>
-                      <input id="ced-fsize" type="number" min={6} max={400} className="ced-inp" value={selStyle.fontSize || 24} onChange={(e) => patchStyle(sel.field_key, { fontSize: clamp(Number(e.target.value) || 6, 6, 400) })} />
+                      <NumInput id="ced-fsize" min={6} max={400} fallback={6} className="ced-inp" value={selStyle.fontSize || 24} onCommit={(v) => patchStyle(sel.field_key, { fontSize: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fweight">Weight</label>
@@ -1203,11 +1248,11 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-flh">Line Height</label>
-                      <input id="ced-flh" type="number" step="0.1" min={0.8} max={3} className="ced-inp" value={selStyle.lineHeight ?? 1.2} onChange={(e) => patchStyle(sel.field_key, { lineHeight: clamp(Number(e.target.value) || 1.2, 0.8, 3) })} />
+                      <NumInput id="ced-flh" step="0.1" min={0.8} max={3} fallback={1.2} className="ced-inp" value={selStyle.lineHeight ?? 1.2} onCommit={(v) => patchStyle(sel.field_key, { lineHeight: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fls">Letter Spacing</label>
-                      <input id="ced-fls" type="number" step="0.5" className="ced-inp" value={selStyle.letterSpacing ?? 0} onChange={(e) => patchStyle(sel.field_key, { letterSpacing: Number(e.target.value) || 0 })} />
+                      <NumInput id="ced-fls" step="0.5" min={-500} max={500} fallback={0} className="ced-inp" value={selStyle.letterSpacing ?? 0} onCommit={(v) => patchStyle(sel.field_key, { letterSpacing: v })} />
                     </div>
                   </div>
                   <div className="ced-field">
@@ -1224,21 +1269,21 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fx">X</label>
-                      <input id="ced-fx" type="number" className="ced-inp" value={Math.round(selStyle.x || 0)} onChange={(e) => patchStyle(sel.field_key, { x: clamp(Number(e.target.value) || 0, 0, canvasW) })} />
+                      <NumInput id="ced-fx" min={0} max={canvasW} fallback={0} className="ced-inp" value={Math.round(selStyle.x || 0)} onCommit={(v) => patchStyle(sel.field_key, { x: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fy">Y</label>
-                      <input id="ced-fy" type="number" className="ced-inp" value={Math.round(selStyle.y || 0)} onChange={(e) => patchStyle(sel.field_key, { y: clamp(Number(e.target.value) || 0, 0, canvasH) })} />
+                      <NumInput id="ced-fy" min={0} max={canvasH} fallback={0} className="ced-inp" value={Math.round(selStyle.y || 0)} onCommit={(v) => patchStyle(sel.field_key, { y: v })} />
                     </div>
                   </div>
                   <div className="ced-row">
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fw">Width</label>
-                      <input id="ced-fw" type="number" min={40} className={`ced-inp ${errGeom ? 'err' : ''}`} value={Math.round(selStyle.width || 0)} onChange={(e) => patchStyle(sel.field_key, { width: clamp(Number(e.target.value) || 40, 40, canvasW) })} />
+                      <NumInput id="ced-fw" min={40} max={canvasW} fallback={40} className={`ced-inp ${errGeom ? 'err' : ''}`} ariaInvalid={!!errGeom} value={Math.round(selStyle.width || 0)} onCommit={(v) => patchStyle(sel.field_key, { width: v })} />
                     </div>
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fh">Height</label>
-                      <input id="ced-fh" type="number" min={16} className={`ced-inp ${errGeom ? 'err' : ''}`} value={Math.round(selStyle.height || 0)} onChange={(e) => patchStyle(sel.field_key, { height: clamp(Number(e.target.value) || 16, 16, canvasH) })} />
+                      <NumInput id="ced-fh" min={16} max={canvasH} fallback={16} className={`ced-inp ${errGeom ? 'err' : ''}`} ariaInvalid={!!errGeom} value={Math.round(selStyle.height || 0)} onCommit={(v) => patchStyle(sel.field_key, { height: v })} />
                     </div>
                   </div>
                   <div className="ced-field">
@@ -1344,6 +1389,48 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
       </div>
 
       <div className={`ced-backdrop ${sheet ? 'show' : ''}`} onClick={() => setSheet(null)} aria-hidden />
+
+      {infoOpen && (
+        <div className="ced-modal-overlay" role="dialog" aria-modal="true" aria-label="Template details" onClick={(e) => { if (e.target === e.currentTarget) setInfoOpen(false) }}>
+          <div className="ced-modal" style={{ maxWidth: 440 }}>
+            <div className="ced-modal-head">
+              <h3>Template details</h3>
+              <button type="button" className="ced-ibtn" onClick={() => setInfoOpen(false)} aria-label="Close"><X size={15} /></button>
+            </div>
+            <div className="ced-modal-body">
+              <div className="ced-field">
+                <label className="ced-lbl" htmlFor="ced-info-name">Template Name *</label>
+                <input
+                  id="ced-info-name"
+                  className={`ced-inp ${infoTouched && !String(infoName || '').trim() ? 'err' : ''}`}
+                  value={infoName}
+                  onChange={(e) => setInfoName(e.target.value)}
+                  placeholder="ASHRAY Certificate"
+                  autoFocus
+                />
+                {infoTouched && !String(infoName || '').trim() && <div className="ced-err">Template name is required.</div>}
+              </div>
+              <div className="ced-field" style={{ marginBottom: 0 }}>
+                <label className="ced-lbl" htmlFor="ced-info-ngo">NGO *</label>
+                <select
+                  id="ced-info-ngo"
+                  className={`ced-inp ${infoTouched && !infoNgo ? 'err' : ''}`}
+                  value={infoNgo}
+                  onChange={(e) => setInfoNgo(e.target.value)}
+                >
+                  <option value="">Select NGO</option>
+                  {(ngos || []).map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
+                </select>
+                {infoTouched && !infoNgo && <div className="ced-err">Please select an NGO.</div>}
+              </div>
+            </div>
+            <div className="ced-modal-foot">
+              <button type="button" className="ced-btn" onClick={() => setInfoOpen(false)}>Cancel</button>
+              <button type="button" className="ced-btn primary" onClick={saveInfo}>Save changes</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteIdx != null && (
         <div className="ced-modal-overlay" role="dialog" aria-modal="true" aria-label="Delete field" onClick={(e) => { if (e.target === e.currentTarget) setDeleteIdx(null) }}>

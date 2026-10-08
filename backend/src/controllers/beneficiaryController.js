@@ -1,7 +1,8 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries
+  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries,
+  setBeneficiaryCollectionOtp, setBeneficiaryOtpVerified,
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
 import { getDisabilities, addDisability, removeDisability } from '../models/beneficiaryDisabilityModel.js';
@@ -19,9 +20,19 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
+import { randomInt, timingSafeEqual } from 'crypto';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
+
+// Collection OTPs are valid for 15 minutes after they are generated.
+export const COLLECTION_OTP_TTL_MS = 15 * 60 * 1000;
+
+// Beneficiaries-app sessions: JWT has department 'operator' and no ngo_id
+// (CRM worker tokens always include ngo_id).
+export const isBeneficiariesAppSession = (user) =>
+  user?.client === 'beneficiaries' ||
+  (user?.department === 'operator' && user?.ngo_id === undefined);
 
 const ensureDocBucket = async () => {
   const { data: buckets } = await db.storage.listBuckets();
@@ -279,6 +290,16 @@ export const markBeneficiaryKitGiven = async (req, res) => {
       });
     }
 
+    // Re-issue (override) from the beneficiaries app requires the collection
+    // OTP to have been verified first — the app blocks the swipe until then.
+    if (
+      req.body?.override === true &&
+      isBeneficiariesAppSession(req.user) &&
+      !beneficiary.collection_otp_verified_at
+    ) {
+      return res.status(403).json({ message: 'Verify the collection OTP first' });
+    }
+
     const givenBy = req.user?.name || req.user?.email || 'system';
 
     // Capture the operator's event for the day (if one is assigned) so the
@@ -327,6 +348,92 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     });
 
     return res.json({ message: 'Kit marked as given', beneficiary: updated });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Random 6-digit OTP for a re-issued kit ("Already collected" → Accept on the
+// beneficiaries app). Stored on the row; the accounts panel's Beneficiaries
+// section reads it back for verification.
+export const sendCollectionOtp = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ message: 'Invalid beneficiary id' });
+    }
+    const beneficiary = await getBeneficiaryById(id);
+    if (!beneficiary) {
+      return res.status(404).json({ message: 'Beneficiary not found' });
+    }
+
+    // randomInt is CSPRNG-backed — 100000..999999 gives all 6-digit values.
+    const otp = String(randomInt(100000, 1000000));
+    const saved = await setBeneficiaryCollectionOtp(id, otp);
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: id,
+      beneficiary_id: id, action: 'COLLECTION_OTP_SENT',
+      details: { beneficiary_code: beneficiary.beneficiary_code },
+      performed_by: req.user?.name || 'system',
+    });
+
+    const sentAt = saved.collection_otp_at ? new Date(saved.collection_otp_at) : new Date();
+    return res.json({
+      message: 'OTP sent',
+      otp: saved.collection_otp,
+      sent_at: saved.collection_otp_at,
+      expires_at: new Date(sentAt.getTime() + COLLECTION_OTP_TTL_MS).toISOString(),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Verifies the collection OTP entered on the app. Success records
+// collection_otp_verified_at, which the kit-given override path requires for
+// app sessions; the OTP itself expires 15 minutes after it was sent.
+export const verifyCollectionOtp = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ message: 'Invalid beneficiary id' });
+    }
+    const beneficiary = await getBeneficiaryById(id);
+    if (!beneficiary) {
+      return res.status(404).json({ message: 'Beneficiary not found' });
+    }
+
+    const otp = String(req.body?.otp ?? '').trim();
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: 'Enter the 6-digit OTP' });
+    }
+    if (!beneficiary.collection_otp || !beneficiary.collection_otp_at) {
+      return res.status(400).json({ message: 'No OTP generated for this member' });
+    }
+
+    const sentAt = new Date(beneficiary.collection_otp_at).getTime();
+    if (!Number.isFinite(sentAt) || Date.now() - sentAt > COLLECTION_OTP_TTL_MS) {
+      return res.status(400).json({ message: 'OTP expired. Generate a new one.' });
+    }
+
+    const expected = Buffer.from(String(beneficiary.collection_otp));
+    const given = Buffer.from(otp);
+    const matches = expected.length === given.length && timingSafeEqual(expected, given);
+    if (!matches) {
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    const saved = await setBeneficiaryOtpVerified(id);
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: id,
+      beneficiary_id: id, action: 'COLLECTION_OTP_VERIFIED',
+      details: { beneficiary_code: beneficiary.beneficiary_code },
+      performed_by: req.user?.name || 'system',
+    });
+
+    return res.json({ verified: true, verified_at: saved.collection_otp_verified_at });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -382,12 +489,28 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, has_otp } = req.query;
+
+    // Beneficiaries app operators see only their own registrations. The app
+    // token carries department 'operator' and no ngo_id (CRM worker tokens
+    // always include ngo_id), so old app sessions are covered too.
+    let created_by;
+    if (isBeneficiariesAppSession(req.user)) {
+      let operator = null;
+      try {
+        operator = await getBnfOperatorBySession(req.user);
+      } catch (_) {
+        operator = null;
+      }
+      created_by = operator?.name || req.user?.name || null;
+    }
+
     const result = await listBeneficiaries({
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_given, event_id,
+      category_id, state, city, kit_given, event_id, has_otp,
+      created_by,
     });
     return res.json(result);
   } catch (error) {

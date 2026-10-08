@@ -138,6 +138,8 @@ export default function Certificates() {
   const [previewImg, setPreviewImg] = useState(null)
   const [previewNote, setPreviewNote] = useState('')
   const [previewBusy, setPreviewBusy] = useState(false)
+  const [aiPrompts, setAiPrompts] = useState({})
+  const [aiBusyKey, setAiBusyKey] = useState(null)
 
   // Bulk certify
   const [bulkMode, setBulkMode] = useState(false)
@@ -227,12 +229,40 @@ export default function Certificates() {
     setBulkRows([])
     setBulkPaste('')
     setBulkResult(null)
+    setAiPrompts({})
+    setAiBusyKey(null)
     try {
       const full = tpl.fields ? tpl : await certificateApi.getTemplate(tpl.id)
       setGenTpl(full.id ? full : tpl)
     } catch (e) {
       toast(e.message, 'error')
       setGenTpl(tpl)
+    }
+  }
+
+  const aiWriteFor = async (f) => {
+    if (aiBusyKey) return
+    const key = f.field_key
+    setAiBusyKey(key)
+    try {
+      const resp = await certificateApi.aiWrite({
+        field_type: f.field_type,
+        label: f.display_name || key,
+        current: values[key] || f.default_value || '',
+        prompt: aiPrompts[key] || '',
+        template_name: genTpl?.name || '',
+        ngo_name: ngos.find((n) => String(n.id) === String(genTpl?.ngo_id))?.name || '',
+        sibling_labels: (genTpl.fields || []).filter((x) => x.field_key !== key).map((x) => x.display_name || x.field_key),
+      })
+      setValues((v) => ({ ...v, [key]: resp.text }))
+      toast('AI draft added to this field.', 'success')
+    } catch (e) {
+      const msg = e.routeMissing
+        ? 'The AI endpoint is not deployed on the backend server yet. Redeploy the backend to use AI Write.'
+        : (e.message || 'AI writing failed. Try again.')
+      toast(msg, 'error')
+    } finally {
+      setAiBusyKey(null)
     }
   }
 
@@ -588,10 +618,14 @@ export default function Certificates() {
 
   /* ---------------------------------- render ---------------------------------- */
 
+  const isEditorView = view === 'wizard' && draft?.file_format === 'image'
+
   return (
-    <div className="certificates-page">
+    <div className={`certificates-page${isEditorView ? ' cert-editor-mode' : ''}`}>
       <style>{`
         .certificates-page { font-family: inherit; background:#F8FAFF; padding:16px 18px; box-sizing:border-box; min-height:100vh; }
+        .content-body:has(> .certificates-page.cert-editor-mode) { padding:0 !important; }
+        .certificates-page.cert-editor-mode { padding:0; height:100%; min-height:0; overflow:hidden; }
         .cert-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:16px 18px; }
         .cert-topbar h3 { margin:0; font-size:15px; font-weight:600; }
         .cert-topbar .cert-sub { font-size:12px; color:var(--ink-soft); margin-top:2px; }
@@ -1205,8 +1239,8 @@ export default function Certificates() {
                         {f.display_name || humanKey(f.field_key)} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
                       </label>
                       {f.field_type === 'longtext' ? (
-                        <textarea className="fld" rows={3} value={values[f.field_key] || ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
-                      ) : f.field_type === 'select' ? (
+                        <textarea className="fld" rows={3} value={values[f.field_key] ?? f.default_value ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))} />
+) : f.field_type === 'select' ? (
                         <select
                           className={`fld ${showMissing && missing.includes(f.display_name || f.field_key) ? 'err' : ''}`}
                           value={values[f.field_key] ?? f.default_value ?? ''}
@@ -1223,6 +1257,27 @@ export default function Certificates() {
                           value={values[f.field_key] ?? f.default_value ?? ''}
                           onChange={(e) => setValues((v) => ({ ...v, [f.field_key]: e.target.value }))}
                         />
+                      )}
+                      {(f.field_type === 'longtext' || f.field_type === 'text') && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            className="fld"
+                            style={{ flex: 1 }}
+                            value={aiPrompts[f.field_key] || ''}
+                            onChange={(e) => setAiPrompts((m) => ({ ...m, [f.field_key]: e.target.value }))}
+                            placeholder="Describe the message to write…"
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => aiWriteFor(f)}
+                            disabled={aiBusyKey === f.field_key}
+                            title="Write this field with AI"
+                          >
+                            {aiBusyKey === f.field_key ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+                            {aiBusyKey === f.field_key ? 'Writing…' : 'AI Write'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}

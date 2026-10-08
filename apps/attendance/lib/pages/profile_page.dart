@@ -26,7 +26,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? _worker;
   bool _loading = true;
   List<dynamic> _loans = [];
-  List<dynamic> _profileRequests = [];
   final Set<String> _expandedCards = {};
 
   int _present = 0, _absent = 0, _late = 0, _leave = 0, _lateUsed = 0;
@@ -36,6 +35,9 @@ class _ProfilePageState extends State<ProfilePage> {
   final Map<int, Map<String, int>> _monthlyStats = {};
   Map<String, List<String>> _calendarDates = {};
   Map<String, dynamic>? _salaryBreakdown;
+  int _calYear = DateTime.now().year;
+  int _calMonth = DateTime.now().month;
+  Map<String, dynamic>? _printProfile;
 
   @override
   void initState() {
@@ -85,11 +87,11 @@ class _ProfilePageState extends State<ProfilePage> {
     await _refreshHistoryFromNetwork();
     _fetchCalendar();
     _fetchSalaryBreakdown();
+    _fetchPrintProfile();
 
     // Listen to realtime updates
     RealtimeService.instance.addListener(_onRealtimeChange);
     _fetchLoans();
-    _fetchProfileRequests();
   }
 
   Future<void> _fetchLoans() async {
@@ -99,10 +101,10 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {}
   }
 
-  Future<void> _fetchProfileRequests() async {
+  Future<void> _fetchPrintProfile() async {
     try {
-      final reqs = await ApiService.getMyProfileUpdateRequests();
-      if (mounted) setState(() => _profileRequests = reqs);
+      final data = await ApiService.getPrintProfile();
+      if (mounted) setState(() => _printProfile = data);
     } catch (_) {}
   }
 
@@ -215,10 +217,12 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {}
   }
 
-  Future<void> _fetchCalendar() async {
+  Future<void> _fetchCalendar({int? year, int? month}) async {
     try {
       final n = DateTime.now();
-      final data = await ApiService.getCalendar(year: n.year, month: n.month);
+      final y = year ?? n.year;
+      final m = month ?? n.month;
+      final data = await ApiService.getCalendar(year: y, month: m);
       final Map<String, List<String>> calMap = {};
       for (final e in (data['events'] as List? ?? [])) {
         final d = e['date']?.toString();
@@ -281,8 +285,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: _dayDetailCard(colors, scheme, tt),
               ),
         _loanStatusCard(colors, scheme, tt),
-        SizedBox(height: Responsive.pad(context, 16)),
-        _profileRequestCard(colors, scheme, tt),
         SizedBox(height: Responsive.pad(context, 24)),
         SizedBox(
           width: double.infinity,
@@ -360,6 +362,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             _worker!['photo_url'],
                             fit: BoxFit.cover,
                             width: Responsive.pad(context, 80), height: Responsive.pad(context, 80),
+                            cacheWidth: 320, cacheHeight: 320,
                             errorBuilder: (_, __, ___) => Center(child: Text(initials,
                               style: GoogleFonts.hankenGrotesk(
                                 fontSize: Responsive.sp(context, 28), fontWeight: FontWeight.w800, color: sc.primary,
@@ -408,11 +411,46 @@ class _ProfilePageState extends State<ProfilePage> {
                     fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w400, color: sc.outline,
                   ),
                 ),
+                SizedBox(height: Responsive.pad(context, 8)),
+                _documentsTag(sc),
               ],
             ),
           ),
         ],
       ),
+      ),
+    );
+  }
+
+  Widget _documentsTag(ColorScheme sc) {
+    final profile = _printProfile?['profile'] as Map<String, dynamic>?;
+    const docKeys = ['aadhar_front_url', 'aadhar_back_url', 'pan_card_url', 'bank_proof_url', 'light_bill_url'];
+    final uploaded = profile == null
+        ? 0
+        : docKeys.where((k) {
+            final v = profile[k];
+            return v is String && v.isNotEmpty;
+          }).length;
+    // Source of truth is the worker's documents_submitted flag (set by HR);
+    // fall back to any document URL present in the print-profile payload.
+    final complete = _worker?['documents_submitted'] == true || uploaded > 0;
+    final color = complete ? const Color(0xFF1D7A4F) : const Color(0xFFba1a1a);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(complete ? LucideIcons.badgeCheck : LucideIcons.fileWarning, size: Responsive.sp(context, 14), color: color),
+          const SizedBox(width: 6),
+          Text(
+            complete ? 'HR Documents: Submitted' : 'HR Documents: Missing',
+            style: TextStyle(fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w700, color: color),
+          ),
+        ],
       ),
     );
   }
@@ -702,14 +740,23 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
         SizedBox(height: Responsive.pad(context, 8)),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: Responsive.pad(context, 8),
-          crossAxisSpacing: Responsive.pad(context, 8),
-          childAspectRatio: 2.2,
-          children: tiles,
+        Column(
+          children: [
+            for (var i = 0; i < tiles.length; i += 2)
+              Padding(
+                padding: EdgeInsets.only(bottom: i + 2 < tiles.length ? Responsive.pad(context, 8) : 0),
+                child: Row(
+                  children: [
+                    Expanded(child: tiles[i]),
+                    SizedBox(width: Responsive.pad(context, 8)),
+                    if (i + 1 < tiles.length)
+                      Expanded(child: tiles[i + 1])
+                    else
+                      const Spacer(),
+                  ],
+                ),
+              ),
+          ],
         ),
       ],
     );
@@ -804,9 +851,54 @@ class _ProfilePageState extends State<ProfilePage> {
             height: 8,
           ),
           SizedBox(height: Responsive.pad(context, 20)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(LucideIcons.chevronLeft),
+                tooltip: 'Previous month',
+                onPressed: () {
+                  setState(() {
+                    if (_calMonth == 1) {
+                      _calMonth = 12;
+                      _calYear--;
+                    } else {
+                      _calMonth--;
+                    }
+                    _selectedDateKey = null;
+                  });
+                  _fetchCalendar(year: _calYear, month: _calMonth);
+                },
+              ),
+              Text(
+                DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: Responsive.sp(context, 15), fontWeight: FontWeight.w700, color: scheme.onSurface,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(LucideIcons.chevronRight),
+                tooltip: 'Next month',
+                onPressed: (_calYear == DateTime.now().year && _calMonth == DateTime.now().month)
+                    ? null
+                    : () {
+                        setState(() {
+                          if (_calMonth == 12) {
+                            _calMonth = 1;
+                            _calYear++;
+                          } else {
+                            _calMonth++;
+                          }
+                          _selectedDateKey = null;
+                        });
+                        _fetchCalendar(year: _calYear, month: _calMonth);
+                      },
+              ),
+            ],
+          ),
           MiniCalendar(
-            year: DateTime.now().year,
-            month: DateTime.now().month,
+            year: _calYear,
+            month: _calMonth,
             statusByDate: _statusByDate,
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
@@ -986,126 +1078,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _profileRequestCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
-    final expanded = _expandedCards.contains('profile_req');
-    final pendingReqs = _profileRequests.where((r) => r['status'] == 'pending').toList();
-    return Container(
-      padding: EdgeInsets.all(Responsive.pad(context, 16)),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () => setState(() {
-              if (expanded) { _expandedCards.remove('profile_req'); } else { _expandedCards.add('profile_req'); }
-            }),
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: [
-                Icon(LucideIcons.clipboardCheck, size: Responsive.sp(context, 18), color: scheme.primary),
-                SizedBox(width: Responsive.pad(context, 8)),
-                Expanded(
-                  child: Text('Profile Update Requests',
-                    style: GoogleFonts.hankenGrotesk(
-                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (pendingReqs.isNotEmpty)
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFc28228).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text('${pendingReqs.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
-                  ),
-                SizedBox(width: Responsive.pad(context, 8)),
-                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
-              ],
-            ),
-          ),
-          if (expanded) ...[
-            SizedBox(height: Responsive.pad(context, 16)),
-            if (_profileRequests.isEmpty)
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-                child: Center(
-                  child: Text('No requests yet', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
-                ),
-              )
-            else
-              ..._profileRequests.take(3).map((r) => _profileRequestItem(r, scheme, colors)),
-            if (_profileRequests.length > 3)
-              Padding(
-                padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
-                child: Center(
-                  child: Text('+${_profileRequests.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-                ),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _profileRequestItem(dynamic r, ColorScheme scheme, AppColors colors) {
-    final status = r['status']?.toString() ?? 'pending';
-    final changes = r['requested_changes'] as Map<String, dynamic>? ?? {};
-    final fieldCount = changes.length;
-    final Color statusColor;
-    final String statusLabel;
-    switch (status) {
-      case 'pending': statusColor = const Color(0xFFc28228); statusLabel = 'Pending'; break;
-      case 'approved': statusColor = const Color(0xFF1D7A4F); statusLabel = 'Approved'; break;
-      case 'rejected': statusColor = const Color(0xFFba1a1a); statusLabel = 'Rejected'; break;
-      default: statusColor = scheme.onSurfaceVariant; statusLabel = status;
-    }
-    final dateStr = r['created_at']?.toString() ?? '';
-    final dt = dateStr.isNotEmpty ? DateTime.tryParse(dateStr)?.toLocal() : null;
-    final dateLabel = dt != null ? '${dt.day}/${dt.month}/${dt.year}' : '';
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: Responsive.pad(context, 12)),
-      child: Container(
-        padding: EdgeInsets.all(Responsive.pad(context, 12)),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: colors.outline.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('$fieldCount field${fieldCount > 1 ? 's' : ''} changed',
-                    style: TextStyle(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600, color: scheme.onSurface)),
-                  SizedBox(height: Responsive.pad(context, 2)),
-                  Text(dateLabel,
-                    style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-                ],
-              ),
-            ),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 3)),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(statusLabel, style: TextStyle(fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w700, color: statusColor)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   String _fmtTime(dynamic ts) {
     if (ts == null) return '—';
     if (ts is DateTime) return DateFormat('hh:mm a').format(ts.toLocal());
@@ -1138,7 +1110,6 @@ class _ProfilePageState extends State<ProfilePage> {
     final status = detail['status']?.toString() ?? '';
     final punchIn = detail['punch_in_time'];
     final punchOut = detail['punch_out_time'];
-    final hoursWorked = detail['hours_worked'];
     final lateMinutes = detail['late_minutes'];
 
     Color statusColor;
@@ -1191,8 +1162,6 @@ class _ProfilePageState extends State<ProfilePage> {
               Expanded(child: _detailBox(LucideIcons.scanLine, 'Punch In', _fmtTime(punchIn))),
               SizedBox(width: Responsive.pad(context, 8)),
               Expanded(child: _detailBox(LucideIcons.power, 'Punch Out', _fmtTime(punchOut))),
-              SizedBox(width: Responsive.pad(context, 8)),
-              Expanded(child: _detailBox(LucideIcons.timer, 'Worked', hoursWorked?.toString() ?? '—')),
             ],
           ),
           if (lateMinutes != null && (lateMinutes as num) > 0) ...[

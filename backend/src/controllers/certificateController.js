@@ -9,6 +9,7 @@ import {
 import { snapshotToPng } from '../services/slideSnapshot.js';
 import { renderImageCertificate, getImageDimensions } from '../services/certificateImageRenderer.js';
 import { toPdfBuffer } from '../services/certificatePdf.js';
+import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
 
 const BUCKET = 'certificates';
 const VALID_STATUS = new Set(['active', 'draft', 'archived']);
@@ -624,10 +625,10 @@ export const previewCertificate = async (req, res) => {
     const values = {};
     for (const f of template.fields || []) {
       const v = raw[f.field_key];
-      // Defaults pre-fill required fields only — optional fields stay blank
-      // unless the user has actually typed something.
+      // Defaults pre-fill every empty field (required or optional) that has a
+      // default set; fields with no default stay blank until typed.
       values[f.field_key] = v == null || String(v).trim() === ''
-        ? (f.required === false ? '' : String(f.default_value ?? ''))
+        ? String(f.default_value ?? '')
         : String(v);
     }
     for (const [k, v] of Object.entries(raw)) {
@@ -665,17 +666,22 @@ export const previewCertificate = async (req, res) => {
 
 async function generateOne(template, fieldValuesIn, certNumberIn, actorName) {
   const values = { ...(fieldValuesIn || {}) };
+
+  // A field's Default Value fills it whenever the supplied value is empty or
+  // missing — required or optional — so a configured default is used without
+  // the user retyping it. Required fields with neither a value nor a default
+  // are left unset and reported by buildMissing below.
+  for (const f of template.fields || []) {
+    const key = f.field_key;
+    if (values[key] != null && String(values[key]).trim() !== '') continue;
+    const def = f.default_value != null ? String(f.default_value).trim() : '';
+    if (def !== '') values[key] = def;
+    else if (f.required === false) values[key] = ''; // docxtemplater needs every tag present
+  }
+
   const required = (template.fields || []).filter((f) => f.required);
   const missing = buildMissing(required, values);
   if (missing.length) return { error: `Missing required fields: ${missing.join(', ')}` };
-
-  // Optional fields that were left empty must be explicitly blank — never
-  // silently replaced by their template default.
-  for (const f of template.fields || []) {
-    if (f.required !== false) continue;
-    const key = f.field_key;
-    if (values[key] == null || String(values[key]).trim() === '') values[key] = '';
-  }
 
   const number = String(certNumberIn || '').trim() || (await nextCertificateNumber());
   values.certificate_number = number;
@@ -705,6 +711,60 @@ async function generateOne(template, fieldValuesIn, certNumberIn, actorName) {
      JSON.stringify(fieldValuesIn || {}), url, pdfUrl, actorName]);
   return { certificate: rows[0] };
 }
+
+export const aiWriteField = async (req, res) => {
+  // Drafts, never persists. Writes a certificate-appropriate message for a
+  // single field, returns it as raw text the client drops straight into the
+  // field's Default Value box. The key never leaves the server.
+  try {
+    if (!aiSuggestionsConfigured()) {
+      return res.status(503).json({ message: 'AI writing is not enabled on this server.' });
+    }
+
+    const body = req.body || {};
+    const fieldType = String(body.field_type || '').trim();
+    const label = String(body.label || '').trim();
+    const current = String(body.current || '').trim();
+    const instructions = String(body.prompt || '').trim().slice(0, 800);
+    const templateName = String(body.template_name || '').trim().slice(0, 120);
+    const ngoName = String(body.ngo_name || '').trim().slice(0, 120);
+    const siblings = Array.isArray(body.sibling_labels)
+      ? body.sibling_labels.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 20).join(', ')
+      : '';
+
+    if (!label && !instructions) {
+      return res.status(400).json({ message: 'Describe what you want the AI to write.' });
+    }
+    if (![...VALID_TYPES].includes(fieldType)) {
+      return res.status(400).json({ message: 'Unsupported field type.' });
+    }
+
+    const lines = [
+      `You write content for a single field on a certificate.`,
+      `Field type: ${fieldType === 'longtext' ? 'multi-line text' : fieldType}.`,
+      label ? `Field label: "${label}".` : '',
+      templateName ? `Certificate template: "${templateName}".` : '',
+      ngoName ? `Issuing NGO: "${ngoName}".` : '',
+      siblings ? `Other fields on the certificate: ${siblings}.` : '',
+      current ? `Currently set value (use it as context only): "${current.slice(0, 400)}".` : '',
+    ];
+    if (instructions) lines.push(`The user wants: "${instructions}".`);
+    lines.push(
+      'Write a short, warm, certificate-appropriate text. Match the field label: if it asks for a name or short single-line value, keep it to a few words; otherwise 2–5 complete sentences of plain text with no markdown, no headings, no "Dear ..." salutation and no signature.',
+      'Respond with ONLY JSON: {"text": "..."}'
+    );
+    const prompt = lines.filter(Boolean).join('\n');
+
+    const { value, model, provider } = await generateSuggestionJson(prompt, { temperature: 0.7, maxOutputTokens: 2048 });
+    const text = String(value?.text ?? '').replace(/\s+/g, ' ').trim();
+    if (!text) return res.status(502).json({ message: 'The AI returned an empty draft. Try again.' });
+
+    return res.json({ text: text.slice(0, 1200), model, provider });
+  } catch (e) {
+    // Key-free on purpose — aiSuggestions/gemini errors never contain the key.
+    return res.status(500).json({ message: e.message || 'AI writing failed' });
+  }
+};
 
 export const generateCertificate = async (req, res) => {
   try {
