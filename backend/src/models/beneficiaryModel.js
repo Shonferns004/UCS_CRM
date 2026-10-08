@@ -280,6 +280,40 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   return { data: data || [], total: count || 0, page, pageSize };
 };
 
+// Export: same filters as listBeneficiaries but WITHOUT pagination so the
+// web panel can download every matching beneficiary in one request. Rows are
+// pulled in 1000-row pages so a PostgREST row cap can never silently truncate
+// the file.
+export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, created_by } = {}) => {
+  const build = () => {
+    let query = db.from('beneficiaries').select('*, ngos(name, code)');
+
+    if (created_by) query = query.eq('created_by', created_by);
+    if (search) {
+      const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (term) {
+        query = query.or(
+          `beneficiary_code.ilike.%${term}%,full_name.ilike.%${term}%,mobile.ilike.%${term}%,kit_event_name.ilike.%${term}%`
+        );
+      }
+    }
+    if (status) query = query.eq('status', status);
+    if (ngo_id) query = query.eq('ngo_id', ngo_id);
+    if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
+    return query.order('created_at', { ascending: false });
+  };
+
+  const BATCH = 1000;
+  const rows = [];
+  for (let from = 0; ; from += BATCH) {
+    const { data, error } = await build().range(from, from + BATCH - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < BATCH) break;
+  }
+  return rows;
+};
+
 export const searchBeneficiaries = async (q) => {
   if (!q || q.length < 2) return [];
   const { data, error } = await db
@@ -291,20 +325,42 @@ export const searchBeneficiaries = async (q) => {
   return data || [];
 };
 
-export const getBeneficiaryOverview = async () => {
-  const { count: total } = await db.from('beneficiaries').select('id', { count: 'exact', head: true });
-  const { count: active } = await db.from('beneficiaries').select('id', { count: 'exact', head: true }).eq('status', 'ACTIVE');
-  const { count: inactive } = await db.from('beneficiaries').select('id', { count: 'exact', head: true }).eq('status', 'INACTIVE');
-  const { count: pendingFingerprint } = await db.from('beneficiaries').select('id', { count: 'exact', head: true }).eq('fingerprint_status', 'NOT_REGISTERED');
+// Overview stats for the web dashboard. `categoryId` scopes EVERY beneficiary
+// stat (totals, status counts, NGO breakdown) to one beneficiary category
+// ("type"), so the dashboard filter and the cards always agree.
+export const getBeneficiaryOverview = async ({ categoryId = null } = {}) => {
+  // Membership ids for the requested type — an empty list must yield zero
+  // counts, not fall back to unfiltered. category_id 0 is the sentinel for
+  // "Uncategorized" (no real category has id 0).
+  let scopeIds = null;
+  if (categoryId != null) {
+    const { data: assignments } = await db
+      .from('beneficiary_category_assignments')
+      .select('beneficiary_id')
+      .eq('category_id', categoryId);
+    scopeIds = (assignments || []).map((r) => r.beneficiary_id);
+  }
+  const scope = (q) => {
+    if (scopeIds === null) return q;
+    // `.in('id', [])` is not reliable across query-builder versions, so an
+    // empty membership is expressed as an id that can never exist.
+    if (scopeIds.length === 0) return q.eq('id', -1);
+    return q.in('id', scopeIds);
+  };
+
+  const { count: total } = await scope(db.from('beneficiaries').select('id', { count: 'exact', head: true }));
+  const { count: active } = await scope(db.from('beneficiaries').select('id', { count: 'exact', head: true })).eq('status', 'ACTIVE');
+  const { count: inactive } = await scope(db.from('beneficiaries').select('id', { count: 'exact', head: true })).eq('status', 'INACTIVE');
+  const { count: pendingFingerprint } = await scope(db.from('beneficiaries').select('id', { count: 'exact', head: true })).eq('fingerprint_status', 'NOT_REGISTERED');
 
   const thisMonth = new Date();
   thisMonth.setDate(1);
-  const { count: newThisMonth } = await db.from('beneficiaries').select('id', { count: 'exact', head: true })
+  const { count: newThisMonth } = await scope(db.from('beneficiaries').select('id', { count: 'exact', head: true }))
     .gte('created_at', thisMonth.toISOString());
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const { count: kitGivenToday } = await db.from('beneficiaries').select('id', { count: 'exact', head: true })
+  const { count: kitGivenToday } = await scope(db.from('beneficiaries').select('id', { count: 'exact', head: true }))
     .eq('kit_given', true)
     .gte('kit_given_at', todayStart.toISOString());
 
@@ -317,10 +373,13 @@ export const getBeneficiaryOverview = async () => {
     .query(`SELECT COALESCE(SUM(amount), 0)::float8 AS total FROM receipts WHERE receipt_no IS NOT NULL`)
     .catch(() => ({ rows: [{ total: 0 }] }));
 
-  // Members per NGO (drives the Beneficiaries app "NGO Members" breakdown).
-  const [{ data: ngoIdRows }, { data: ngos }] = await Promise.all([
-    db.from('beneficiaries').select('ngo_id'),
+  // Members per NGO (drives the Beneficiaries app "NGO Members" breakdown)
+  // and per type ("Types of Beneficiaries" filter card). Both survive a
+  // missing/empty table so the dashboard still renders.
+  const [{ data: ngoIdRows }, { data: ngos }, typeBreakdown] = await Promise.all([
+    Promise.resolve(scope(db.from('beneficiaries').select('ngo_id'))),
     db.from('ngos').select('id, name, code'),
+    getTypeBreakdown().catch(() => []),
   ]);
   const countByNgo = {};
   for (const r of ngoIdRows || []) {
@@ -349,7 +408,32 @@ export const getBeneficiaryOverview = async () => {
     programs: programsCount || 0,
     benefits_distributed: distributionsCount || 0,
     ngos: ngoBreakdown,
+    categories: typeBreakdown,
+    active_category_id: categoryId || null,
   };
+};
+
+// Every beneficiary type with its member count, plus the members that have no
+// type assigned ("Uncategorized") so the numbers always add up to the total.
+const getTypeBreakdown = async () => {
+  const { rows: cats } = await db._pool.query(`
+    SELECT bc.id, bc.name, COUNT(bca.beneficiary_id)::int AS count
+    FROM beneficiary_categories bc
+    LEFT JOIN beneficiary_category_assignments bca ON bc.id = bca.category_id
+    GROUP BY bc.id, bc.name
+    ORDER BY count DESC, bc.name ASC
+  `).catch(() => ({ rows: [] }));
+  const { rows: uncategorized } = await db._pool.query(`
+    SELECT COUNT(*)::int AS count
+    FROM beneficiaries b
+    WHERE NOT EXISTS (
+      SELECT 1 FROM beneficiary_category_assignments bca WHERE bca.beneficiary_id = b.id
+    )
+  `).catch(() => ({ rows: [{ count: 0 }] }));
+
+  const result = [...(cats || [])];
+  result.push({ id: null, name: 'Uncategorized', count: uncategorized[0]?.count || 0 });
+  return result;
 };
 
 export const searchByQRToken = async (qrToken) => {
