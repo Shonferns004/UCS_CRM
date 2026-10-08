@@ -648,12 +648,12 @@ export function groupEntriesByMonth(entries) {
 }
 
 // The period filter, in one place: the label the chip shows and how far back it
-// reaches. Adding an option (12m, 2y, ...) is a single line here - the cutoff
-// math and the row filter both read from this.
+// reaches. Adding an option (2y, ...) is a single line here - the cutoff math
+// and the row filter both read from this.
 export const HISTORY_PERIODS = [
-  { value: 'all', label: 'All Time', months: null },
   { value: '6m', label: '6 Month', months: 6 },
-  { value: '3m', label: '3 Month', months: 3 },
+  { value: '12m', label: '1 Year', months: 12 },
+  { value: 'all', label: 'All Time', months: null },
 ];
 
 export function historyPeriod(range) {
@@ -712,4 +712,149 @@ export function groupEntriesByBrand(entries, selectedBrand = 'All') {
       total: list.length,
       months: groupEntriesByMonth(list),
     }));
+}
+
+// ---------------------------------------------------------------------------
+// Which SIM numbers this mobile has carried, and when - the "this Nokia used
+// six SIMs in the last seven months" view.
+//
+// Built from three sources, merged into one list of intervals per number:
+//   1. the card's own edit history (changed_cols.sim_N old/new) - the primary
+//      trail: a slot changing value closes the old interval and opens a new one;
+//   2. the replacement log (old_sim -> new_sim with a replacement_date), which
+//      covers replacements whose history write failed;
+//   3. the card's current sim_1..sim_20 slots, so a phone with no history at
+//      all still shows what it is carrying today.
+//
+// Each row: { number, slot, from, to, current }. `to === null` means the end
+// date is unknown (shown as a dash), `current` marks a number sitting in the
+// phone right now (shown as "Current").
+export function mobileSimUsage({ history = [], replacements = [], card = null } = {}) {
+  const ms = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : null;
+  };
+  const val = (v) => (isPlaceholder(v) ? '' : String(v ?? '').trim());
+
+  // One flat event stream, oldest first, so intervals can be replayed in order.
+  const events = [];
+  for (const h of history || []) {
+    const cols = h && h.changed_cols && typeof h.changed_cols === 'object' ? h.changed_cols : {};
+    for (const [key, ch] of Object.entries(cols)) {
+      if (!/^sim_\d+$/.test(key)) continue;
+      const oldV = val(ch && typeof ch === 'object' ? ch.old : ch);
+      const newV = val(ch && typeof ch === 'object' ? ch.new : ch);
+      if (!oldV && !newV) continue;
+      events.push({ slot: Number(key.slice(4)), oldV, newV, at: h.changed_at });
+    }
+  }
+  for (const r of replacements || []) {
+    const oldV = val(r.old_sim);
+    const newV = val(r.new_sim);
+    if (!oldV && !newV) continue;
+    events.push({ slot: null, oldV, newV, at: r.replacement_date || r.created_at || null });
+  }
+  events.sort((a, b) => (ms(a.at) || 0) - (ms(b.at) || 0));
+
+  const intervals = [];
+  const openSlot = new Map(); // slot -> interval index
+  const openNum = new Map(); // lowercased number -> interval index
+
+  const open = (slot, number, at) => {
+    const iv = { number, slot, from: at || null, to: null, current: false, closed: false };
+    intervals.push(iv);
+    const i = intervals.length - 1;
+    if (slot !== null && slot !== undefined) openSlot.set(slot, i);
+    openNum.set(number.toLowerCase(), i);
+    return i;
+  };
+  const end = (i, at) => {
+    if (i === null || i === undefined) return;
+    const iv = intervals[i];
+    if (!iv || iv.closed) return;
+    iv.closed = true;
+    iv.to = at || null;
+    openNum.delete(iv.number.toLowerCase());
+  };
+
+  for (const ev of events) {
+    if (ev.oldV) {
+      if (ev.slot !== null && ev.slot !== undefined) {
+        end(openSlot.get(ev.slot), ev.at);
+        openSlot.delete(ev.slot);
+      } else {
+        end(openNum.get(ev.oldV.toLowerCase()), ev.at);
+      }
+    }
+    if (!ev.newV) continue;
+    const key = ev.newV.toLowerCase();
+    if (ev.slot !== null && ev.slot !== undefined) {
+      const cur = openSlot.get(ev.slot);
+      if (cur !== null && cur !== undefined && intervals[cur].number.toLowerCase() === key) continue;
+      /* The same number can already be open without a slot (the replacement
+         log opened it before history caught up) - attach it to this slot
+         instead of recording the SIM twice. */
+      const linked = openNum.get(key);
+      if (linked !== null && linked !== undefined && !intervals[linked].closed) {
+        intervals[linked].slot = ev.slot;
+        openSlot.set(ev.slot, linked);
+        continue;
+      }
+    } else if (openNum.has(key)) {
+      continue;
+    }
+    open(ev.slot, ev.newV, ev.at);
+  }
+
+  // Reconcile with what the card carries right now: history is an audit trail
+  // and can be incomplete (imports, failed writes), so the live slots win.
+  for (const s of simNumbersOf(card)) {
+    const key = s.number.toLowerCase();
+    const openIdx = openSlot.get(s.n);
+    if (openIdx !== null && openIdx !== undefined && intervals[openIdx].number.toLowerCase() === key) {
+      intervals[openIdx].current = true;
+      continue;
+    }
+    if (openIdx !== null && openIdx !== undefined) {
+      end(openIdx, null); // that number left the slot at an unknown moment
+      openSlot.delete(s.n);
+    }
+    const already = openNum.get(key);
+    if (already !== null && already !== undefined) {
+      intervals[already].current = true;
+      intervals[already].slot = s.n;
+      openSlot.set(s.n, already);
+    } else {
+      const i = open(s.n, s.number, card?.issue_date || card?.created_at || null);
+      intervals[i].current = true;
+    }
+  }
+
+  const nowT = Date.now();
+  const endT = (iv) => (iv.to !== null ? (ms(iv.to) || 0) : iv.current ? nowT : 0);
+  return intervals
+    .map(({ closed, ...iv }) => iv)
+    .sort((a, b) => {
+      if (a.current !== b.current) return a.current ? -1 : 1;
+      const d = endT(b) - endT(a);
+      if (d) return d;
+      return (ms(b.from) || 0) - (ms(a.from) || 0);
+    });
+}
+
+// Applies a period option to SIM-usage rows: anything still current or with an
+// unknown end stays (it cannot be proved to sit outside the window); a number
+// whose last day is older than the cutoff drops out.
+export function filterUsageByRange(rows, range) {
+  const from = historyRangeFrom(range);
+  if (!from) return rows || [];
+  const cutoff = new Date(`${from}T00:00:00`).getTime();
+  if (!Number.isFinite(cutoff)) return rows || [];
+  return (rows || []).filter((r) => {
+    if (r.current) return true;
+    if (r.to === null || r.to === undefined) return true;
+    const t = new Date(r.to).getTime();
+    return !Number.isFinite(t) || t >= cutoff;
+  });
 }

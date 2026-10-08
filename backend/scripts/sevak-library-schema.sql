@@ -16,6 +16,7 @@ create table if not exists public.applications (
   data                jsonb not null default '{}'::jsonb,
   passport_photo      text,
   identity_photo      text,
+  signature_photo     text,
   full_name           text,
   email               text,
   mobile              text,
@@ -78,3 +79,7 @@ alter table public.applications add column if not exists renewal_count      int 
 alter table public.applications add column if not exists renewal_fees       numeric not null default 0;
 alter table public.applications add column if not exists renewal_payments   jsonb not null default '[]';
 alter table public.applications add column if not exists last_renewed_at    date;
+
+-- Drawn signature image (also applied on boot by bootstrap/ensureSevakSignatureSchema.js;
+-- submitApplication / updateApplication in sevakLibrary/services/application.service.js write it).
+alter table public.applications add column if not exists signature_photo     text;
