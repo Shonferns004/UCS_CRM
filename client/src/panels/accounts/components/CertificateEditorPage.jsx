@@ -1192,7 +1192,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                     <input id="ced-fdef" className="ced-inp" value={sel.default_value || ''} onChange={(e) => updateField(sel.field_key, { default_value: e.target.value })} placeholder="Enter default value" />
                   </div>
 
-                  {sel.field_type === 'longtext' && (
+                  {(sel.field_type === 'longtext' || sel.field_type === 'text') && (
                     <div className="ced-field">
                       <span className="ced-lbl">AI Write</span>
                       <textarea
