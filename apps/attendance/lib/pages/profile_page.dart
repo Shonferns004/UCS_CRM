@@ -442,8 +442,9 @@ class _ProfilePageState extends State<ProfilePage> {
             final v = profile[k];
             return v is String && v.isNotEmpty;
           }).length;
-    // Any one document uploaded counts as submitted.
-    final complete = uploaded > 0;
+    // Source of truth is the worker's documents_submitted flag (set by HR);
+    // fall back to any document URL present in the print-profile payload.
+    final complete = _worker?['documents_submitted'] == true || uploaded > 0;
     final color = complete ? const Color(0xFF1D7A4F) : const Color(0xFFba1a1a);
     return Container(
       padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),

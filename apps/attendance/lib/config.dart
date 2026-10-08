@@ -9,4 +9,7 @@ class Config {
   static String socketUrl = bootstrapBaseUrl.endsWith('/api')
       ? bootstrapBaseUrl.substring(0, bootstrapBaseUrl.length - 4)
       : bootstrapBaseUrl;
+
+  // Geoapify reverse-geocoding key (same service hr-attend uses).
+  static const String geoapifyKey = 'cb50c21d6668448a8918d07d0b19ed62';
 }

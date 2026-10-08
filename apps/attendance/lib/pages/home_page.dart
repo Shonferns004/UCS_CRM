@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/location_service.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
 import '../services/remote_config_service.dart';
@@ -541,22 +542,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ],
                       ),
                     ),
-                    SizedBox(width: Responsive.pad(context, 12)),
-                    Container(
-                      width: Responsive.sp(context, 48),
-                      height: Responsive.sp(context, 48),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceContainerLow,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: colors.outline),
-                      ),
-                      child: IconButton(
-                        icon: Icon(LucideIcons.circleHelp),
-                        iconSize: Responsive.sp(context, 22),
-                        color: sc.onSurfaceVariant,
-                        onPressed: _openHelpSheet,
-                      ),
-                    ),
                     SizedBox(width: Responsive.pad(context, 8)),
                     Stack(
                       children: [
@@ -872,7 +857,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             if (RemoteConfigService.instance.featureFlag('show_requests'))
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 12)),
                   child: Container(
                     padding: EdgeInsets.all(Responsive.pad(context, 16)),
                     decoration: BoxDecoration(
@@ -913,7 +898,52 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     ),
                   ),
                 ),
-            ),
+              ),
+            if (RemoteConfigService.instance.featureFlag('show_requests'))
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), 0, Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                  child: Container(
+                    padding: EdgeInsets.all(Responsive.pad(context, 16)),
+                    decoration: BoxDecoration(
+                      color: sc.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: colors.outline),
+                    ),
+                    child: InkWell(
+                      onTap: _openHelpSheet,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFffe4d6),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Icon(LucideIcons.circleHelp, size: Responsive.sp(context, 22), color: Color(0xFF00152a)),
+                          ),
+                          SizedBox(width: Responsive.pad(context, 16)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Help an Employee', style: GoogleFonts.hankenGrotesk(
+                                  fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                                )),
+                                Text('Search & punch in/out for others', style: TextStyle(
+                                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                                  color: sc.onSurfaceVariant,
+                                )),
+                              ],
+                            ),
+                          ),
+                          Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -1518,6 +1548,7 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
   File? _selfie;
   double? _lat;
   double? _lng;
+  String? _placeName;
   bool _locating = true;
   bool _submitting = false;
 
@@ -1529,22 +1560,19 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
 
   Future<void> _resolveLocation() async {
     setState(() => _locating = true);
-    try {
-      if (await Geolocator.isLocationServiceEnabled()) {
-        var perm = await Geolocator.checkPermission();
-        if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-        if (perm != LocationPermission.denied && perm != LocationPermission.deniedForever) {
-          final pos = await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-          ).timeout(const Duration(seconds: 15));
-          if (mounted) {
-            setState(() { _lat = pos.latitude; _lng = pos.longitude; _locating = false; });
-            return;
-          }
-        }
-      }
-    } catch (_) {}
-    if (mounted) setState(() => _locating = false);
+    final pos = await LocationService.getCurrentLocation();
+    String? place;
+    if (pos != null) {
+      place = await LocationService.getPlaceName(pos.latitude, pos.longitude);
+    }
+    if (mounted) {
+      setState(() {
+        _lat = pos?.latitude;
+        _lng = pos?.longitude;
+        _placeName = place;
+        _locating = false;
+      });
+    }
   }
 
   Future<void> _capture() async {
@@ -1644,7 +1672,7 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
                     _locating
                         ? 'Resolving location...'
                         : _lat != null
-                            ? '${_lat!.toStringAsFixed(5)}, ${_lng!.toStringAsFixed(5)}'
+                            ? '${_placeName ?? ''}${_placeName != null && _placeName!.isNotEmpty ? '\n' : ''}${_lat!.toStringAsFixed(5)}, ${_lng!.toStringAsFixed(5)}'
                             : 'Location unavailable',
                     style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                   ),
