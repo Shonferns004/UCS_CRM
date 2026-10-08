@@ -5011,8 +5011,13 @@ export const updateLiveStatus = async (req, res) => {
     // switch/exit in authController (against the covered FRO's row) and read from
     // work_as_sessions; the column is kept only so an old row written before this
     // change cannot leave a stale "being worked by" label behind forever.
-    payload.work_as_operator_id = null;
-    payload.work_as_operator_name = null;
+    // Agent sessions file their row on the COVERED FRO, which is precisely the row
+    // the cover label was authored on at login — keep it so the admin board's
+    // "being worked by Agent X" marker does not flicker off on the next heartbeat.
+    if (!req.user?.agent_user_id) {
+      payload.work_as_operator_id = null;
+      payload.work_as_operator_name = null;
+    }
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
     // force_counters is a deliberate rollover/clear push from the panel.
