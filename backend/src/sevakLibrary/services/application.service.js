@@ -59,7 +59,7 @@ async function removePhotos(paths) {
   if (error) throw new AppError(`Could not remove files: ${error.message}`, 500)
 }
 
-export async function submitApplication({ data = {}, passportFile, identityFile }) {
+export async function submitApplication({ data = {}, passportFile, identityFile, signatureFile }) {
   const missing = ['fullName', 'emailAddress', 'mobileNumber', 'membershipType', 'membershipFee'].filter((k) => !data[k])
   if (missing.length) throw new AppError(`Required fields are missing: ${missing.join(', ')}`, 400)
 
@@ -67,12 +67,14 @@ export async function submitApplication({ data = {}, passportFile, identityFile 
   const paymentRef = makePaymentRef()
   const passportPath = await uploadPhoto(ref, 'passport', passportFile)
   const identityPath = await uploadPhoto(ref, 'identity', identityFile)
+  const signaturePath = await uploadPhoto(ref, 'signature', signatureFile)
 
   const { data: row, error } = await db.from('applications').insert({
     ref,
     payment_ref: paymentRef,
     passport_photo: passportPath,
     identity_photo: identityPath,
+    signature_photo: signaturePath,
     ...toRow(data),
   }).select().single()
 
@@ -244,11 +246,12 @@ export async function renewApplication(id, { fee, transactionId } = {}) {
 }
 
 // Matches update_application + replaceable photos (0007/0008).
-export async function updateApplication(id, { data, transactionId, passportFile, identityFile, removePassport, removeIdentity }) {
+export async function updateApplication(id, { data, transactionId, passportFile, identityFile, removePassport, removeIdentity, signatureFile, removeSignature }) {
   const existing = await getApplicationById(id)
 
   let passportPath = existing.passport_photo
   let identityPath = existing.identity_photo
+  let signaturePath = existing.signature_photo
 
   if (passportFile) {
     const uploaded = await uploadPhoto(existing.ref, 'passport', passportFile)
@@ -268,11 +271,21 @@ export async function updateApplication(id, { data, transactionId, passportFile,
     identityPath = null
   }
 
+  if (signatureFile) {
+    const uploaded = await uploadPhoto(existing.ref, 'signature', signatureFile)
+    if (existing.signature_photo && existing.signature_photo !== uploaded) await removePhotos([existing.signature_photo])
+    signaturePath = uploaded
+  } else if (removeSignature) {
+    await removePhotos([existing.signature_photo])
+    signaturePath = null
+  }
+
   const txnId = toNullableText(transactionId)
   const updates = {
     ...toRow(data || existing.data),
     passport_photo: passportPath,
     identity_photo: identityPath,
+    signature_photo: signaturePath,
     transaction_id: txnId || existing.transaction_id,
     updated_at: new Date().toISOString(),
   }
@@ -285,7 +298,7 @@ export async function updateApplication(id, { data, transactionId, passportFile,
 
 export async function deleteApplication(id) {
   const existing = await getApplicationById(id)
-  await removePhotos([existing.passport_photo, existing.identity_photo])
+  await removePhotos([existing.passport_photo, existing.identity_photo, existing.signature_photo])
   const { error } = await db.from('applications').delete().eq('id', id).select()
   if (error) throw new AppError(error.message, 500)
   return existing
@@ -373,8 +386,8 @@ const photoMime = (path) => {
 // works either way, so only the PDF path asks for data.
 export async function getPhotoUrl(rowId, { format } = {}) {
   const app = await getApplicationById(rowId)
-  const result = { passport: null, identity: null }
-  for (const key of ['passport', 'identity']) {
+  const result = { passport: null, identity: null, signature: null }
+  for (const key of ['passport', 'identity', 'signature']) {
     const path = app[`${key}_photo`]
     if (!path) continue
     if (format === 'data') {

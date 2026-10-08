@@ -5,6 +5,7 @@ import { buildInitialValues, computeEndDate } from './formUtils.js'
 import { submitApplication, sendPaymentReminder } from './api.js'
 import CheckoutPage from './CheckoutPage.jsx'
 import DonePage from './DonePage.jsx'
+import SignaturePad from './SignaturePad.jsx'
 
 function Field({ field, value, onChange, error }) {
   const handleText = (e) => onChange(field.id, e.target.value)
@@ -128,6 +129,12 @@ function Field({ field, value, onChange, error }) {
   if (field.type === 'file') {
     return (
       <PhotoField field={field} value={value} onChange={onChange} error={error} />
+    )
+  }
+
+  if (field.type === 'signature') {
+    return (
+      <SignaturePad field={field} value={value} onChange={onChange} error={error} />
     )
   }
 

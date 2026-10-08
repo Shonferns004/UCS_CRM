@@ -290,10 +290,9 @@ export const SECTIONS = [
       {
         id: 'applicantSignature',
         label: 'Applicant Signature',
-        type: 'text',
+        type: 'signature',
         required: true,
-        placeholder: 'Type your full name as your signature',
-        helpText: 'Type your full name as your signature.'
+        helpText: 'Draw your signature below using your mouse or finger.'
       },
       {
         id: 'submissionDate',
