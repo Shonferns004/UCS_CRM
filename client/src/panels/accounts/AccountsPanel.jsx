@@ -169,6 +169,14 @@ const SIM_NAV = [
     match: (p) => p === '/accounts/sim/owner' },
 ]
 
+/* SIM Management is one sidebar link, not a group: its sub-pages (Dashboard,
+   All SIM Cards, SIM Locker, All SIM Owner) are tabs on the page itself, the
+   same way Library works. SIM_NAV stays below purely for header title lookup. */
+const SIM_NAV_ITEM = {
+  id: 'sim', path: '/accounts/sim', label: 'SIM Management', icon: SIM_GROUP_ICON,
+  match: (p) => p.startsWith('/accounts/sim'),
+}
+
 // Flat list used for page-title meta lookup. Every nav item across top/groups/
 // bottom/sim lives here so the header can resolve the active page label.
 const ALL_NAV = [
@@ -204,7 +212,7 @@ const SIDEBAR_SECTIONS = [
       { id: 'g-data', label: NAV_DATA_GROUP.title, icon: NAV_DATA_GROUP.icon, storageKey: 'data', items: NAV_DATA_GROUP.items },
       { id: 'g-beneficiaries', label: 'Beneficiaries', icon: <Users size={18} />, storageKey: 'beneficiaries', items: BENEFICIARY_NAV,
         isGroupActive: (p) => p.startsWith('/accounts/beneficiaries') },
-      { id: 'g-sim', label: 'SIM Management', icon: SIM_GROUP_ICON, storageKey: 'sim', items: SIM_NAV },
+      SIM_NAV_ITEM,
     ],
   },
   { id: 'settings', heading: 'Settings', items: NAV_BOTTOM },

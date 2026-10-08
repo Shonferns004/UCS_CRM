@@ -7,6 +7,7 @@ import {
   updateApplication, verifyApplication, approveApplication, renewApplication
 } from './api.js'
 import { pdfMemberDoc } from './MembershipFormDoc.jsx'
+import SignaturePad from './SignaturePad.jsx'
 import { statusLabel } from './meta.js'
 import { RenewalDate } from './DateTags.jsx'
 import { formatINR, formatDate, formatTime, computeEndDate, renewalPreview } from './formUtils.js'
@@ -56,7 +57,7 @@ const EDIT_FIELDS = [
   { id: 'pinCode', label: 'PIN Code', input: 'text', type: 'tel', pattern: '^[0-9]{6}$', errorMsg: 'Please enter a valid 6-digit PIN code.' },
   { id: 'identityProofType', label: 'Identity Proof Type', input: 'select', type: 'radio', options: ID_PROOF_OPTIONS },
   { id: 'identityNumber', label: 'Identity Number', input: 'text', type: 'text' },
-  { id: 'applicantSignature', label: 'Applicant Signature', input: 'text', type: 'text' }
+  { id: 'applicantSignature', label: 'Applicant Signature', input: 'signature', type: 'text' }
 ]
 
 function buildEditValues(row) {
@@ -136,7 +137,7 @@ function FieldRow({ label, children }) {
 
 export default function ApplicationDetail({ row, onClose, refresh, startEditOnOpen = false }) {
   const toast = useToast()
-  const [files, setFiles] = useState({ passport: null, identity: null })
+  const [files, setFiles] = useState({ passport: null, identity: null, signature: null })
   const [busy, setBusy] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [reason, setReason] = useState('')
@@ -148,6 +149,10 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
   const [newPhotos, setNewPhotos] = useState({ passport: null, identity: null })
   const [newPhotoPrev, setNewPhotoPrev] = useState({ passport: null, identity: null })
   const [newPhotoErr, setNewPhotoErr] = useState({ passport: '', identity: '' })
+  // Pending signature replacement for the edit form: sigRemove marks the stored
+  // image for deletion; sigEpoch remounts the pad when it should go blank.
+  const [sigRemove, setSigRemove] = useState(false)
+  const [sigEpoch, setSigEpoch] = useState(0)
   const [mailLog, setMailLog] = useState([])
   const [logTick, setLogTick] = useState(0)
   const [copiedRef, setCopiedRef] = useState(false)
@@ -164,7 +169,8 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
         if (!on || !urls) return
         setFiles((f) => ({
           passport: urls.passport || f.passport,
-          identity: urls.identity || f.identity
+          identity: urls.identity || f.identity,
+          signature: urls.signature || f.signature
         }))
       })
       .catch(() => {})
@@ -273,6 +279,8 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
     baseUpdatedAt.current = row.updated_at || null
     setEditErrors({})
     resetPhotos()
+    setSigRemove(false)
+    setSigEpoch((e) => e + 1)
     setEditing(true)
   }
 
@@ -281,7 +289,33 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
     setEditValues(buildEditValues(row))
     setEditErrors({})
     resetPhotos()
+    setSigRemove(false)
+    setSigEpoch((e) => e + 1)
     setEditing(false)
+  }
+
+  const padValue =
+    typeof editValues.applicantSignature === 'string' && editValues.applicantSignature.startsWith('data:image')
+      ? editValues.applicantSignature
+      : ''
+
+  // The pad writes a data URL straight into editValues (so drafts/undo keep
+  // working); saveEdit() converts it to a Blob for upload.
+  const handleSigChange = (v) => {
+    if (v) {
+      setSigRemove(false)
+      handleEditChange('applicantSignature', v)
+    } else {
+      setSigRemove(true)
+      handleEditChange('applicantSignature', '')
+      setSigEpoch((e) => e + 1)
+    }
+  }
+
+  const removeStoredSig = () => {
+    setSigRemove(true)
+    handleEditChange('applicantSignature', '')
+    setSigEpoch((e) => e + 1)
   }
 
   const saveEdit = async () => {
@@ -301,13 +335,26 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
     }
     setBusy('save')
     try {
-      await updateApplication(row.id, editValues, editValues.transactionId, {
+      // Never let a base64 data URL reach the JSON `data` payload — it ships
+      // as the `signature` file instead (stored in S3 like passport/identity).
+      const payload = { ...editValues }
+      let sigBlob = null
+      const sigVal = payload.applicantSignature
+      if (typeof sigVal === 'string' && sigVal.startsWith('data:image')) {
+        sigBlob = await (await fetch(sigVal)).blob()
+        payload.applicantSignature = 'Drawn signature'
+      }
+      await updateApplication(row.id, payload, payload.transactionId, {
         passport: newPhotos.passport,
-        identity: newPhotos.identity
+        identity: newPhotos.identity,
+        signature: sigBlob,
+        removeSignature: sigRemove && !sigBlob
       })
       clearDraft(row.id)
       toast('Application details updated.')
       setEditing(false)
+      setSigRemove(false)
+      setSigEpoch((e) => e + 1)
       resetPhotos()
       refresh()
     } catch (e) {
@@ -373,7 +420,7 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
     setBusy('pdf')
     try {
       const urls = await getPhotoUrls(row.id, 'data')
-      await pdfMemberDoc([row], [urls && urls.passport])
+      await pdfMemberDoc([row], [urls || null])
       toast('Membership registration PDF downloaded.')
     } catch (e) {
       toast(`Could not generate PDF: ${e.message}`, 'error')
@@ -526,26 +573,48 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
               <p className="edit-hint">End date and fee recalculate automatically when you change the plan or start date.</p>
               <div className="edit-grid">
                 {EDIT_FIELDS.map((f) => (
-                  <label key={f.id} className={`edit-field ${f.input === 'textarea' ? 'edit-wide' : ''}`}>
-                    <span className="edit-label">{f.label}</span>
-                    {f.input === 'select' ? (
-                      <select value={editValues[f.id] || ''} onChange={(e) => handleEditChange(f.id, e.target.value)}>
-                        <option value="">— Select —</option>
-                        {f.options.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
-                    ) : f.input === 'textarea' ? (
-                      <textarea value={editValues[f.id] || ''} onChange={(e) => handleEditChange(f.id, e.target.value)} rows={2} />
-                    ) : (
-                      <input
-                        type={f.input}
-                        value={editValues[f.id] || ''}
-                        onChange={(e) => handleEditChange(f.id, e.target.value)}
-                      />
-                    )}
-                    {editErrors[f.id] && <span className="edit-error">{editErrors[f.id]}</span>}
-                  </label>
+                  f.input === 'signature' ? (
+                    <div key={f.id} className="edit-field edit-wide sig-edit">
+                      <span className="edit-label">{f.label}</span>
+                      {!padValue && !sigRemove && (files.signature || d.applicantSignature) && (
+                        <div className="sig-current">
+                          {files.signature ? (
+                            <img src={files.signature} alt="Stored signature" />
+                          ) : (
+                            <span className="sig-legacy">{d.applicantSignature}</span>
+                          )}
+                          <button type="button" className="doc-remove-btn" onClick={removeStoredSig}>
+                            <X size={13} /> Remove
+                          </button>
+                        </div>
+                      )}
+                      {sigRemove && !padValue && (
+                        <p className="sig-note">Signature marked for removal — save to confirm.</p>
+                      )}
+                      <SignaturePad key={sigEpoch} value={padValue} onChange={handleSigChange} />
+                    </div>
+                  ) : (
+                    <label key={f.id} className={`edit-field ${f.input === 'textarea' ? 'edit-wide' : ''}`}>
+                      <span className="edit-label">{f.label}</span>
+                      {f.input === 'select' ? (
+                        <select value={editValues[f.id] || ''} onChange={(e) => handleEditChange(f.id, e.target.value)}>
+                          <option value="">— Select —</option>
+                          {f.options.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : f.input === 'textarea' ? (
+                        <textarea value={editValues[f.id] || ''} onChange={(e) => handleEditChange(f.id, e.target.value)} rows={2} />
+                      ) : (
+                        <input
+                          type={f.input}
+                          value={editValues[f.id] || ''}
+                          onChange={(e) => handleEditChange(f.id, e.target.value)}
+                        />
+                      )}
+                      {editErrors[f.id] && <span className="edit-error">{editErrors[f.id]}</span>}
+                    </label>
+                  )
                 ))}
                 <label className="edit-field">
                   <span className="edit-label">Transaction / UTR</span>
@@ -591,7 +660,13 @@ export default function ApplicationDetail({ row, onClose, refresh, startEditOnOp
                 <FieldRow label="Gender">{d.gender}</FieldRow>
                 <FieldRow label="Guardian">{d.guardianName}</FieldRow>
                 {d.alternateMobileNumber && <FieldRow label="Alternate mobile">{d.alternateMobileNumber}</FieldRow>}
-                {d.applicantSignature && <FieldRow label="Signature">{d.applicantSignature}</FieldRow>}
+                {files.signature ? (
+                  <FieldRow label="Signature">
+                    <img className="d-signature" src={files.signature} alt="Applicant signature" />
+                  </FieldRow>
+                ) : d.applicantSignature ? (
+                  <FieldRow label="Signature">{d.applicantSignature}</FieldRow>
+                ) : null}
                 {d.remarks && <FieldRow label="Remarks">{d.remarks}</FieldRow>}
               </Section>
 
