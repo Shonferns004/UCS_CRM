@@ -1057,12 +1057,13 @@ class _HelpSheetState extends State<_HelpSheet> {
           }).toList();
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -1089,7 +1090,7 @@ class _HelpSheetState extends State<_HelpSheet> {
             ),
           ),
           const SizedBox(height: 8),
-          Expanded(
+          Flexible(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
@@ -1099,6 +1100,7 @@ class _HelpSheetState extends State<_HelpSheet> {
                         : filtered.isEmpty
                         ? const Center(child: Text('No employees found'))
                         : ListView.builder(
+                            shrinkWrap: true,
                             padding: const EdgeInsets.all(16),
                             itemCount: filtered.length,
                             itemBuilder: (_, i) {
@@ -1629,7 +1631,7 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
     final isPunchIn = widget.action == 'punch_in';
     final name = (widget.worker['name'] ?? 'Employee').toString();
     return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
