@@ -9,7 +9,8 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../services/api_service.dart';
 import '../../beneficiaries/beneficiary_detail_page.dart';
-import '../../beneficiaries/beneficiary_list_page.dart';
+
+// import '../../beneficiaries/beneficiary_list_page.dart';
 
 /// Kits screen — per-NGO (BSCT / AFLF / MANN) registration counts, total and
 /// kit-given cards, today's event name, and the list of beneficiaries who
@@ -29,6 +30,7 @@ class KitsPageState extends State<KitsPage> {
   String _eventName = '';
   bool _loading = true;
   String? _error;
+  String? _selectedEvent;
 
   @override
   void initState() {
@@ -37,6 +39,30 @@ class KitsPageState extends State<KitsPage> {
   }
 
   Future<void> refresh() => _load();
+  String _eventOf(Map<String, dynamic> c) {
+    final e = (c['event_name']?.toString() ?? '').trim();
+    return e.isEmpty ? 'No event' : e;
+  }
+
+  // event name -> kitne kits diye gaye
+  Map<String, int> get _eventCounts {
+    final m = <String, int>{};
+    for (final c in _collectors) {
+      final e = _eventOf(c);
+      m[e] = (m[e] ?? 0) + 1;
+    }
+    if (_eventName.isNotEmpty) m.putIfAbsent(_eventName, () => 0);
+    return m;
+  }
+
+  String? get _activeEvent =>
+      _eventCounts.containsKey(_selectedEvent) ? _selectedEvent : null;
+
+  List<Map<String, dynamic>> get _filteredCollectors {
+    final sel = _activeEvent;
+    if (sel == null) return _collectors;
+    return _collectors.where((c) => _eventOf(c) == sel).toList();
+  }
 
   Future<void> _load() async {
     if (!mounted) return;
@@ -56,8 +82,9 @@ class KitsPageState extends State<KitsPage> {
         _collectors = collectorsRaw is List
             ? collectorsRaw.map((e) => Map<String, dynamic>.from(e)).toList()
             : const [];
-        _totalRegistered =
-            data['total_registered'] is num ? (data['total_registered'] as num).toInt() : 0;
+        _totalRegistered = data['total_registered'] is num
+            ? (data['total_registered'] as num).toInt()
+            : 0;
         _kitGivenToday = data['kit_given_today'] is num
             ? (data['kit_given_today'] as num).toInt()
             : 0;
@@ -83,39 +110,36 @@ class KitsPageState extends State<KitsPage> {
         Text('Kit distribution overview', style: AppTextStyles.pageTitle),
         const SizedBox(height: 20),
         if (_loading) ...[
-          const SkeletonStatRow(cards: 3, height: 78),
-          const SizedBox(height: 12),
-          const SkeletonStatRow(cards: 2, height: 70, numberWidth: 40),
-          const SizedBox(height: 28),
           const SkeletonBox(width: 130, height: 15, borderRadius: 6),
-          const SizedBox(height: 8),
-          const SkeletonBox(width: 180, height: 12, borderRadius: 6),
-          const SizedBox(height: 16),
-          const SkeletonCardRows(rows: 3),
         ] else if (_error != null)
           _errorTile()
         else ...[
-          _programCards(),
-          const SizedBox(height: 12),
-          _summaryCards(),
-          const SizedBox(height: 28),
+          _eventsTodayCard(),
+          const SizedBox(height: 16),
+          _eventFilter(),
+          const SizedBox(height: 24),
           SectionHeader(
             title: 'Kits Collected',
-            subtitle: _eventName.isEmpty ? 'No event assigned today' : _eventName,
+            subtitle:
+                _activeEvent ??
+                (_eventName.isEmpty ? 'All events today' : _eventName),
           ),
           const SizedBox(height: 16),
-          if (_collectors.isEmpty)
+          if (_filteredCollectors.isEmpty)
             const EmptyState(
               icon: LucideIcons.box,
               title: 'No kits given yet',
-              message: 'Beneficiaries who collect a kit today will appear here.',
+              message:
+                  'Beneficiaries who collect a kit today will appear here.',
               dashed: true,
             )
           else
-            ..._collectors.map((c) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _collectorCard(c),
-                )),
+            ..._filteredCollectors.map(
+              (c) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _collectorCard(c),
+              ),
+            ),
         ],
       ],
     );
@@ -123,169 +147,186 @@ class KitsPageState extends State<KitsPage> {
 
   // ─── Program cards: BSCT | AFLF | MANN ─────────────────────────────
 
-  Widget _programCards() {
-    final b = _byCode('BSCT');
-    final a = _byCode('AFLF');
-    final m = _byCode('MANN');
+  // Widget _programCards() {
+  //   final b = _byCode('BSCT');
+  //   final a = _byCode('AFLF');
+  //   final m = _byCode('MANN');
 
-    return Row(
-      children: [
-        Expanded(child: _programCard('BSCT', _count(b), AppColors.statMembersBg, AppColors.statMembersBorder, AppColors.primaryBlue)),
-        const SizedBox(width: 10),
-        Expanded(child: _programCard('AFLF', _count(a), AppColors.statDonationsBg, AppColors.statDonationsBorder, AppColors.successGreen)),
-        const SizedBox(width: 10),
-        Expanded(child: _programCard('MANN', _count(m), AppColors.statPinkBg, AppColors.statPinkBorder, AppColors.statPinkText)),
-      ],
-    );
-  }
+  //   return Row(
+  //     children: [
+  //       Expanded(
+  //         child: _programCard(
+  //           'BSCT',
+  //           _count(b),
+  //           AppColors.statMembersBg,
+  //           AppColors.statMembersBorder,
+  //           AppColors.primaryBlue,
+  //         ),
+  //       ),
+  //       const SizedBox(width: 10),
+  //       Expanded(
+  //         child: _programCard(
+  //           'AFLF',
+  //           _count(a),
+  //           AppColors.statDonationsBg,
+  //           AppColors.statDonationsBorder,
+  //           AppColors.successGreen,
+  //         ),
+  //       ),
+  //       const SizedBox(width: 10),
+  //       Expanded(
+  //         child: _programCard(
+  //           'MANN',
+  //           _count(m),
+  //           AppColors.statPinkBg,
+  //           AppColors.statPinkBorder,
+  //           AppColors.statPinkText,
+  //         ),
+  //       ),
+  //     ],
+  //   );
+  // }
 
-  Map<String, dynamic>? _byCode(String code) {
-    for (final p in _programs) {
-      if ((p['code']?.toString() ?? '').toUpperCase() == code) return p;
-    }
-    return null;
-  }
+  // Map<String, dynamic>? _byCode(String code) {
+  //   for (final p in _programs) {
+  //     if ((p['code']?.toString() ?? '').toUpperCase() == code) return p;
+  //   }
+  //   return null;
+  // }
 
-  int _count(Map<String, dynamic>? p) {
-    final v = p?['registered'];
-    return v is num ? v.toInt() : 0;
-  }
+  // int _count(Map<String, dynamic>? p) {
+  //   final v = p?['registered'];
+  //   return v is num ? v.toInt() : 0;
+  // }
 
-  Widget _programCard(String label, int value, Color bg, Color border, Color accent) {
+  // Widget _programCard(
+  //   String label,
+  //   int value,
+  //   Color bg,
+  //   Color border,
+  //   Color accent,
+  // ) {
+  //   return Container(
+  //     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+  //     decoration: BoxDecoration(
+  //       color: bg,
+  //       borderRadius: BorderRadius.circular(18),
+  //       border: Border.all(color: border),
+  //     ),
+  //     child: Column(
+  //       children: [
+  //         Text(
+  //           '$value',
+  //           style: TextStyle(
+  //             fontSize: 24,
+  //             fontWeight: FontWeight.w700,
+  //             color: accent,
+  //           ),
+  //         ),
+  //         const SizedBox(height: 2),
+  //         Text(
+  //           label,
+  //           maxLines: 1,
+  //           overflow: TextOverflow.ellipsis,
+  //           style: const TextStyle(
+  //             fontSize: 12.5,
+  //             fontWeight: FontWeight.w600,
+  //             color: AppColors.textPrimary,
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
+  // ─── Summary: Total (bsct+aflf+mann) + Kit given ────────────────────
+  // ─── Aaj ke events ─────────────────────────────────────────────────
+
+  Widget _eventsTodayCard() {
+    final n = _eventCounts.length;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: bg,
+        color: AppColors.primaryBlueSoft,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border),
+        border: Border.all(color: AppColors.statMembersBorder),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Text(
-            '$value',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: accent,
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.statMembersIconBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              LucideIcons.calendar,
+              color: AppColors.primaryBlue,
+              size: 22,
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
+          const SizedBox(width: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$n',
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryBlue,
+                ),
+              ),
+              Text(
+                n == 1 ? 'Event today' : 'Events today',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // ─── Summary: Total (bsct+aflf+mann) + Kit given ────────────────────
-
-  Widget _summaryCards() {
-    return Row(
-      children: [
-        // Total is the way into the full member list (name + number, searchable).
-        Expanded(
-          child: InkWell(
-            onTap: () => _openBeneficiaryList(),
-            borderRadius: BorderRadius.circular(18),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.primaryBlueSoft,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppColors.statMembersBorder),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$_totalRegistered',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primaryBlue,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Total',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(
-                    LucideIcons.chevronRight,
-                    size: 18,
-                    color: AppColors.primaryBlue,
-                  ),
-                ],
-              ),
-            ),
+  // Event filter chips: All + har event (kits ki ginti ke saath)
+  Widget _eventFilter() {
+    final counts = _eventCounts;
+    final active = _activeEvent;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: Text('All (${_collectors.length})'),
+            selected: active == null,
+            onSelected: (_) => setState(() => _selectedEvent = null),
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.successGreenSoft,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.statDonationsBorder),
+          for (final e in counts.entries) ...[
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: Text('${e.key} (${e.value})'),
+              selected: active == e.key,
+              onSelected: (_) => setState(() => _selectedEvent = e.key),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$_kitGivenToday',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.successGreen,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Kit Given',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _openBeneficiaryList() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const BeneficiaryListPage(
-          title: 'All Beneficiaries',
-        ),
+          ],
+        ],
       ),
     );
   }
+
+  // Future<void> _openBeneficiaryList() async {
+  //   await Navigator.of(context).push(
+  //     MaterialPageRoute(
+  //       builder: (_) => const BeneficiaryListPage(title: 'All Beneficiaries'),
+  //     ),
+  //   );
+  // }
 
   // ─── Collector list ────────────────────────────────────────────────
 
@@ -349,7 +390,11 @@ class KitsPageState extends State<KitsPage> {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      const Icon(LucideIcons.calendar, size: 12, color: AppColors.successGreen),
+                      const Icon(
+                        LucideIcons.calendar,
+                        size: 12,
+                        color: AppColors.successGreen,
+                      ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
@@ -368,7 +413,11 @@ class KitsPageState extends State<KitsPage> {
                 ],
               ),
             ),
-            const Icon(LucideIcons.chevronRight, size: 18, color: AppColors.textTertiary),
+            const Icon(
+              LucideIcons.chevronRight,
+              size: 18,
+              color: AppColors.textTertiary,
+            ),
           ],
         ),
       ),
@@ -400,8 +449,18 @@ class KitsPageState extends State<KitsPage> {
     final dt = DateTime.tryParse(v?.toString() ?? '');
     if (dt == null) return '';
     const mons = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final local = dt.toLocal();
     final h = local.hour % 12 == 0 ? 12 : local.hour % 12;
@@ -423,12 +482,19 @@ class KitsPageState extends State<KitsPage> {
         ),
         child: Row(
           children: [
-            const Icon(LucideIcons.alertCircle, color: AppColors.error, size: 18),
+            const Icon(
+              LucideIcons.alertCircle,
+              color: AppColors.error,
+              size: 18,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 _error!,
-                style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
             TextButton(

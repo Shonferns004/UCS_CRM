@@ -11,6 +11,7 @@ import '../../core/widgets/empty_state.dart';
 import '../../core/utils/photo_utils.dart';
 import '../../services/api_service.dart';
 import 'edit_beneficiary_page.dart';
+import 'package:flutter/services.dart';
 
 /// Full member list reached from the Kits "Total" card. Lists name + mobile
 /// number, searchable by either, and opens the registration-style form for the
@@ -34,18 +35,19 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
   Timer? _debounce;
   int _page = 1;
   int _total = 0;
-  bool _loading = true;
+  bool _loading = false;
   bool _loadingMore = false;
   String _query = '';
   String? _error;
-
+  Map<String, int> _programCounts = {};
   bool get _hasMore => _members.length < _total;
+  bool get _searched => _query.length == 10;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _load();
+    _loadProgramCounts();
   }
 
   @override
@@ -65,20 +67,129 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
   }
 
   void _onSearchChanged(String value) {
-    // Debounce so a 10-digit number typed one key at a time is one request.
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted) return;
-      setState(() => _query = value.trim());
-      _load();
+    final q = value.trim();
+    setState(() {
+      _query = q;
+      if (q.length != 10) {
+        // 10 digit poore nahi -> list khali, koi request nahi
+        _members.clear();
+        _total = 0;
+        _error = null;
+        _loading = false;
+      }
     });
+    if (q.length == 10) {
+      _debounce = Timer(const Duration(milliseconds: 250), () {
+        if (!mounted) return;
+        _load();
+      });
+    }
   }
 
   void _clearSearch() {
     _debounce?.cancel();
     _searchController.clear();
-    setState(() => _query = '');
-    _load();
+    setState(() {
+      _query = '';
+      _members.clear();
+      _total = 0;
+      _error = null;
+      _loading = false;
+    });
+  }
+
+  // Pull-to-refresh: sirf tab list reload jab number search kiya ho
+  Future<void> _refresh() async {
+    await _loadProgramCounts();
+    if (_searched) await _load();
+  }
+
+  Future<void> _loadProgramCounts() async {
+    try {
+      final data = await ApiService.get('/operator/kits');
+      final list = (data['programs'] as List?) ?? const [];
+      final counts = <String, int>{};
+      for (final p in list) {
+        final code = (p['code']?.toString() ?? '').toUpperCase();
+        final v = p['registered'];
+        counts[code] = v is num ? v.toInt() : 0;
+      }
+      if (!mounted) return;
+      setState(() => _programCounts = counts);
+    } catch (_) {
+      // Cards 0 dikhayenge, list phir bhi kaam karegi.
+    }
+  }
+
+  Widget _programCards() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: _programCard(
+              'BSCT',
+              AppColors.statMembersBg,
+              AppColors.statMembersBorder,
+              AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _programCard(
+              'AFLF',
+              AppColors.statDonationsBg,
+              AppColors.statDonationsBorder,
+              AppColors.successGreen,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _programCard(
+              'MANN',
+              AppColors.statPinkBg,
+              AppColors.statPinkBorder,
+              AppColors.statPinkText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _programCard(String code, Color bg, Color border, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '${_programCounts[code] ?? 0}',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            code,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -99,16 +210,17 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
   }
 
   Future<void> _fetch({bool append = false}) async {
+    final q = _query; // is request ka number yaad rakho
     try {
       final result = await ApiService.get(
         '/beneficiaries',
         queryParams: {
           'page': '$_page',
           'pageSize': '$_pageSize',
-          if (_query.isNotEmpty) 'search': _query,
+          if (q.isNotEmpty) 'search': q,
         },
       );
-      if (!mounted) return;
+      if (!mounted || q != _query) return; // number badal gaya ya clear hua
       final rows = (result['data'] as List?) ?? const [];
       setState(() {
         _total = (result['total'] as num?)?.toInt() ?? 0;
@@ -153,9 +265,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     }
     if (!mounted) return;
     final updated = await Navigator.of(context).push<Map<String, dynamic>>(
-      MaterialPageRoute(
-        builder: (_) => EditBeneficiaryPage(beneficiary: full),
-      ),
+      MaterialPageRoute(builder: (_) => EditBeneficiaryPage(beneficiary: full)),
     );
     if (!mounted) return;
     if (updated != null) {
@@ -174,13 +284,11 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
       appBar: AppBar(title: Text(widget.title)),
       body: Column(
         children: [
+          _programCards(),
           _searchField(),
           _resultBar(),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _body(),
-            ),
+            child: RefreshIndicator(onRefresh: _refresh, child: _body()),
           ),
         ],
       ),
@@ -194,9 +302,13 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
         controller: _searchController,
         onChanged: _onSearchChanged,
         textInputAction: TextInputAction.search,
-        keyboardType: TextInputType.text,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(10),
+        ],
         decoration: InputDecoration(
-          hintText: 'Search by name or number',
+          hintText: 'Enter 10-digit mobile number',
           prefixIcon: const Icon(LucideIcons.search, size: 20),
           suffixIcon: _searchController.text.isEmpty
               ? null
@@ -206,28 +318,37 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
                   tooltip: 'Clear',
                 ),
           isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 14,
+          ),
         ),
       ),
     );
   }
 
   Widget _resultBar() {
-    if (_loading) return const SizedBox(height: 8);
-    final label = _query.isEmpty
-        ? '$_total member${_total == 1 ? '' : 's'}'
-        : '$_total match${_total == 1 ? '' : 'es'} for "$_query"';
+    if (_loading || !_searched) return const SizedBox(height: 8);
+    final label = _total == 1
+        ? '1 beneficiary found'
+        : '$_total beneficiaries found';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
       child: Align(
         alignment: Alignment.centerLeft,
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.primaryBlueSoft,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryBlue,
+            ),
           ),
         ),
       ),
@@ -235,13 +356,12 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
   }
 
   Widget _body() {
+    if (!_searched) return _searchPrompt();
     if (_loading) {
       return ListView(
         padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SkeletonCardRows(rows: 8),
-        ],
+        children: const [SkeletonCardRows(rows: 8)],
       );
     }
 
@@ -249,10 +369,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
       return ListView(
         padding: const EdgeInsets.all(24),
         physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          const SizedBox(height: 40),
-          _errorTile(),
-        ],
+        children: [const SizedBox(height: 40), _errorTile()],
       );
     }
 
@@ -264,10 +381,8 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
           const SizedBox(height: 40),
           EmptyState(
             icon: LucideIcons.userCircle,
-            title: _query.isEmpty ? 'No members yet' : 'No matches',
-            message: _query.isEmpty
-                ? 'Imported members will appear here.'
-                : 'Nothing matches "$_query". Try a different name or number.',
+            title: 'No matches',
+            message: 'No beneficiary found with number "$_query".',
             dashed: true,
           ),
         ],
@@ -284,11 +399,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Center(
-              child: SkeletonBox(
-                width: 120,
-                height: 12,
-                borderRadius: 6,
-              ),
+              child: SkeletonBox(width: 120, height: 12, borderRadius: 6),
             ),
           );
         }
@@ -317,21 +428,116 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     );
   }
 
+  // Number likhne se pehle ka khali screen
+  Widget _searchPrompt() {
+    final typed = _query.length;
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(32, 56, 32, 24),
+      children: [
+        Center(
+          child: Container(
+            width: 96,
+            height: 96,
+            decoration: const BoxDecoration(
+              color: AppColors.primaryBlueSoft,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              LucideIcons.search,
+              size: 40,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          'Find a beneficiary',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Enter the 10-digit mobile number to see\nthe beneficiary details.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13.5,
+            height: 1.5,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: typed == 0
+                  ? AppColors.surfaceSoft
+                  : AppColors.primaryBlueSoft,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '$typed / 10 digits',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: typed == 0
+                    ? AppColors.textSecondary
+                    : AppColors.primaryBlue,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _pill(String text, Color bg, Color fg, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: fg),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _memberCard(Map<String, dynamic> m) {
     final name = m['full_name']?.toString().trim();
-    final displayName = (name == null || name.isEmpty) ? 'Name not filled' : name;
-    final mobile = m['mobile']?.toString().trim();
-    final code = m['beneficiary_code']?.toString().trim();
+    final displayName = (name == null || name.isEmpty)
+        ? 'Name not filled'
+        : name;
+    final mobile = m['mobile']?.toString().trim() ?? '';
+    final code = m['beneficiary_code']?.toString().trim() ?? '';
     final ngo = m['ngos'] is Map ? (m['ngos']['name']?.toString() ?? '') : '';
     final photo = m['photo']?.toString();
 
-    // Photos are either an inline data URL (captured in the app) or a remote
-    // URL (imported records).
     final ImageProvider? avatar = isInlinePhoto(photo)
         ? MemoryImage(dataUrlBytes(photo!))
         : isRemotePhoto(photo)
-            ? NetworkImage(photo!)
-            : null;
+        ? NetworkImage(photo!)
+        : null;
 
     return Container(
       decoration: BoxDecoration(
@@ -339,81 +545,101 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
         borderRadius: AppTheme.radiusCard,
         boxShadow: AppTheme.cardShadow,
       ),
-      child: InkWell(
-        onTap: () => _open(m),
-        borderRadius: AppTheme.radiusCard,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: AppColors.primaryBlueSoft,
-                backgroundImage: avatar,
-                child: avatar != null
-                    ? null
-                    : Text(
-                        displayName.isNotEmpty
-                            ? displayName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primaryBlue,
-                        ),
-                      ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _open(m),
+          borderRadius: AppTheme.radiusCard,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: AppColors.primaryBlueSoft,
+                      backgroundImage: avatar,
+                      child: avatar != null
+                          ? null
+                          : Text(
+                              displayName[0].toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryBlue,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(
+                                LucideIcons.phone,
+                                size: 13,
+                                color: AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                mobile.isEmpty ? 'No number' : mobile,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    // The number the operator searches by, and the record code.
-                    Text(
-                      [
-                        if (mobile != null && mobile.isNotEmpty) mobile,
-                        if (code != null && code.isNotEmpty) code,
-                      ].join(' · '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: AppColors.textSecondary,
-                      ),
+                    const Icon(
+                      LucideIcons.chevronRight,
+                      size: 20,
+                      color: AppColors.textTertiary,
                     ),
-                    if (ngo.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        ngo,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.primaryBlue,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
-              ),
-              const Icon(
-                LucideIcons.chevronRight,
-                size: 18,
-                color: AppColors.textTertiary,
-              ),
-            ],
+                if (code.isNotEmpty || ngo.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (code.isNotEmpty)
+                        _pill(
+                          code,
+                          AppColors.surfaceSoft,
+                          AppColors.textSecondary,
+                        ),
+                      if (ngo.isNotEmpty)
+                        _pill(
+                          ngo,
+                          AppColors.primaryBlueSoft,
+                          AppColors.primaryBlue,
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),

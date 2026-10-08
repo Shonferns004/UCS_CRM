@@ -337,6 +337,8 @@ export const getKitsController = async (req, res) => {
     const worker = await getBnfOperatorBySession(req.user);
     const data = await getKitsDashboard({
       operatorId: worker?.id || null,
+      operatorName: worker?.name || null,
+      operatorLoginId: worker?.login_id || null,
       date: NORMALIZED_DATE(),
     });
     return res.json(data);

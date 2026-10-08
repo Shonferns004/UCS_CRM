@@ -21,7 +21,6 @@ import {
   setFestivalSuggestionSelected,
   setFestivalSuggestionsBeneficiary,
   mergeProgrammeRows,
-  blankRepeatedDates,
   BENEFICIARY_CATEGORIES,
 } from '../store.jsx'
 
@@ -166,6 +165,19 @@ const reportSuggestionCell = (s) => {
 
 const LABEL = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)' }
 
+/* ── Festival selection is SESSION-ONLY (deliberately NOT persisted) ────────
+   Every reload of this planner starts fresh: no restored AI ticks, no restored
+   typed programmes, no restored checkboxes and no restored download count.
+   The typed programme and the "Other suggestions" clear flag live in React
+   state only — nothing goes to localStorage, sessionStorage or the URL, and
+   even the selection bits the server still holds for a suggestion are ignored
+   on load. That is by request: the screen must always begin with nothing
+   chosen. */
+
+/* "date::festival" — the exact identity the suggestion grouping uses, so a
+   manual programme and an AI idea for the same row always meet on one key. */
+const festivalKeyOf = (s) => `${String(s?.observance_date || '').slice(0, 10)}::${String(s?.festival || '')}`
+
 /* Self-contained scrollbar styling for the modal bodies.
    Deliberately NOT .eh-scroll: that rule lives in calendar.css, which belongs to
    the Calendar page. Depending on it here would make this page's scrollbars
@@ -212,6 +224,20 @@ const FEST_GRID_CSS = `
 .eh-fest-grid tr.sel-row:hover td.ai, .eh-fest-grid tr.sel-row:hover td.sel { background: #faf9ff; }
 .eh-fest-grid tr.sel-row.sel td.ai, .eh-fest-grid tr.sel-row.sel td.sel { background: var(--eh-tint-1, #f0eefb); }
 .eh-fest-grid tr.sel-row.sel td.ai { box-shadow: inset 3px 0 0 var(--eh-primary, #6c5ce7); }
+.eh-fest-grid .sug-sec-label { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--eh-ink-soft, #6f6c86); margin-bottom: 6px; }
+.eh-fest-grid .sug-pick { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--eh-primary, #2036bd); border-radius: 9px; background: var(--eh-tint-1, #eef0ff); font: inherit; font-size: 13.5px; font-weight: 700; color: var(--eh-ink, #1f2430); cursor: pointer; text-align: left; max-width: 100%; transition: background .15s; }
+.eh-fest-grid .sug-pick:hover { background: #e2e8ff; }
+.eh-fest-grid .sug-check { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--eh-primary, #2036bd); color: #fff; font-size: 11px; font-weight: 900; flex: none; line-height: 1; }
+.eh-fest-grid .sug-check-lg { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--eh-primary, #2036bd); color: #fff; font-size: 12px; font-weight: 900; line-height: 1; }
+  .eh-fest-grid .sug-lg-btn { border: none; padding: 0; cursor: pointer; font: inherit; transition: opacity .15s; }
+  .eh-fest-grid .sug-lg-btn:hover { opacity: .72; }
+  .eh-fest-grid .sug-lg-btn:disabled { cursor: default; opacity: .5; }
+.eh-fest-grid .fest-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.eh-fest-grid textarea.fest-manual { display: block; width: 100%; min-height: 52px; resize: vertical; padding: 8px 10px; font-family: inherit; font-size: 13px; line-height: 1.35; color: var(--eh-ink, #1f2430); background: #fff; border: 1px solid var(--eh-line, #d1d5db); border-radius: 8px; outline: none; box-sizing: border-box; transition: border-color .15s, box-shadow .15s; }
+.eh-fest-grid textarea.fest-manual:focus { border-color: var(--eh-primary, #2036bd); box-shadow: 0 0 0 3px rgba(32, 54, 189, .12); }
+.eh-fest-grid textarea.fest-manual:disabled { background: #f7f7fb; cursor: wait; }
+.eh-fest-grid .fest-manual-hint { margin-top: 5px; font-size: 11.5px; color: var(--eh-ink-soft, #6f6c86); }
+.eh-fest-grid .sug-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 `
 
 function ModalShell({ title, subtitle, onClose, children, footer, width = 640 }) {
@@ -977,10 +1003,14 @@ export default function ActivityPlanner() {
   /* Festivals whose suggestion block is open THIS session, keyed
      "date::festival". Stored suggestions are never auto-opened: a reload or a
      navigation back starts every row collapsed on its "✦ Suggest programmes"
-     button, so asking the AI is always one click away. Ticks live server-side
-     and the download count reads them directly, so closing a block never loses
-     a selection. */
+     button, so asking the AI is always one click away. Everything decided in
+     this page lasts this session only — a reload starts it untouched. */
   const [festOpen, setFestOpen] = useState(() => new Set())
+  /* The user's own programme per festival and the "cleared" flag per festival.
+     Session-only by request: a reload starts them empty and they are NEVER
+     written to localStorage, sessionStorage or the URL. */
+  const [festManual, setFestManual] = useState(() => ({}))
+  const [festCleared, setFestCleared] = useState(() => new Set())
 
   const loadImportantDays = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1004,7 +1034,16 @@ export default function ActivityPlanner() {
   const loadFestivalSuggestions = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
     getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined })
-      .then((l) => setFestivalSuggestions(Array.isArray(l) ? l : []))
+      .then((l) => {
+        const list = Array.isArray(l) ? l : []
+        /* A reload starts this planner FRESH. The suggestions themselves load
+           normally from the API, but their stored selection bit is ignored —
+           every radio is unchecked, every block collapses, the download count
+           starts at zero. Nothing a previous session picked is restored.
+           Choosing during THIS session re-ticks the row in state (and calls
+           the save endpoint as before); the next reload resets the screen. */
+        setFestivalSuggestions(list.map((s) => ({ ...s, is_selected: false })))
+      })
       .catch(() => setFestivalSuggestions([]))
   }, [month, ngoId])
 
@@ -1047,11 +1086,79 @@ export default function ActivityPlanner() {
     return map
   }, [festivalSuggestions])
 
-  /* Feeds the count in the grid header and the download bar. */
-  const selectedFestivalCount = useMemo(
-    () => festivalSuggestions.filter((s) => Boolean(s.is_selected)).length,
-    [festivalSuggestions]
+  /* The stored manual entries of the NGO + month on screen, re-keyed to plain
+     "date::festival" so they line up with festivalSuggestionsByKey exactly. */
+  const scopedManualPrefix = `${ngoId || 'all'}|${month}|`
+  const scopedManual = useMemo(() => {
+    const out = {}
+    for (const k in festManual) {
+      if (k.startsWith(scopedManualPrefix)) out[k.slice(scopedManualPrefix.length)] = festManual[k]
+    }
+    return out
+  }, [festManual, scopedManualPrefix])
+
+  /* The manual row's export value in one place: selected AND actually typed,
+     so an emptied textarea can never claim a slot in the download. */
+  const manualExportText = useCallback(
+    (key) => {
+      const e = scopedManual[key]
+      const text = String(e?.text || '').trim()
+      return e?.selected && text ? text : ''
+    },
+    [scopedManual]
   )
+
+  /* A festival the user already decided about (an AI tick or a typed programme)
+     opens itself, so "what is in the download?" is answered on screen without a
+     click. The merge only ever ADDS keys: a block the user opened but has not
+     decided anything in yet is never closed behind their back. */
+  useEffect(() => {
+    setFestOpen((cur) => {
+      let changed = false
+      const next = new Set(cur)
+      for (const s of festivalSuggestions) {
+        if (!s?.is_selected) continue
+        const k = festivalKeyOf(s)
+        if (!next.has(k)) { next.add(k); changed = true }
+      }
+      for (const k in scopedManual) {
+        if (manualExportText(k) && !next.has(k)) { next.add(k); changed = true }
+      }
+      return changed ? next : cur
+    })
+  }, [festivalSuggestions, scopedManual, manualExportText])
+
+  /* One entry per festival that reaches the download: a typed programme
+     replaces its festival's selected AI idea (never sits beside it), so the
+     counter on screen always equals the rows the file will list. */
+  const selectedFestivalCount = useMemo(() => {
+    const manualKeys = new Set(Object.keys(scopedManual).filter((k) => {
+      const e = scopedManual[k]
+      return Boolean(e?.selected) && Boolean(String(e.text || '').trim())
+    }))
+    const ai = festivalSuggestions.filter((s) => s.is_selected && !manualKeys.has(festivalKeyOf(s))).length
+    return ai + manualKeys.size
+  }, [festivalSuggestions, scopedManual])
+
+  /* "Monthly target reached" popup. Fires when the selections for download
+     cross the in-scope NGO's quota (BSCT 25, AFLF 20, MANN 15 — monthlyTargetFor)
+     — ONCE per NGO + month. In "All NGOs" the count can't be attributed to one
+     quota, so it stays quiet there. Nothing is persisted: a reload forgets it. */
+  const [targetPopup, setTargetPopup] = useState(null)
+  const [targetPopupSeen, setTargetPopupSeen] = useState('')
+  useEffect(() => {
+    if (targetPopup || !ngo) return
+    if (selectedFestivalCount < monthlyTargetFor(ngo)) return
+    const seenKey = `${ngo.id}::${month}`
+    if (targetPopupSeen === seenKey) return
+    setTargetPopupSeen(seenKey)
+    setTargetPopup({
+      label: ngoShortLabel(ngo),
+      name: ngo.name,
+      count: selectedFestivalCount,
+      target: monthlyTargetFor(ngo),
+    })
+  }, [selectedFestivalCount, ngo, month, targetPopup, targetPopupSeen])
 
   /* The NGO column prints the single NGO in scope; on "All NGOs" it prints the
      scope label and each suggestion row prints its own stored NGO, so a reader
@@ -1130,6 +1237,9 @@ export default function ActivityPlanner() {
         // Open this festival's block so the fresh batch is on screen — the
         // only time a block opens by itself, and only for the row that asked.
         setFestOpen((cur) => new Set(cur).add(key))
+        // Fresh ideas are meant to be picked from: leave manual-only mode so
+        // the new batch is offered as options again.
+        updateFestivalManual(key, { mode: false })
         showToast(`${added.length} programme${added.length === 1 ? '' : 's'} suggested for ${shortDate(date)} · ${festivalName}.`)
       } else if (res?.ai && res.ai.available === false) {
         setFestivalError(res.ai.reason || 'AI suggestions are not available on this server yet.')
@@ -1143,38 +1253,102 @@ export default function ActivityPlanner() {
     }
   }
 
-  /* Tick of a single programme. The box flips optimistically, then the server's
-     own answer wins; a failed save restores the box and says so. */
-  const toggleFestivalSuggestion = async (s, checked) => {
-    const before = Boolean(s.is_selected)
-    setFestivalSuggestions((list) => list.map((x) => (x.id === s.id ? { ...x, is_selected: checked } : x)))
-    try {
-      const saved = await setFestivalSuggestionSelected(s.id, checked)
-      if (saved) {
-        setFestivalSuggestions((list) => list.map((x) => (x.id === s.id ? { ...x, is_selected: Boolean(saved.is_selected ?? checked) } : x)))
-      }
-    } catch (e) {
-      setFestivalSuggestions((list) => list.map((x) => (x.id === s.id ? { ...x, is_selected: before } : x)))
-      showToast(e?.message || 'Could not save the selection.')
-    }
-  }
+  /* ── One choice per festival ────────────────────────────────────────────── */
 
-  /* Select-all / clear over the grid's visible month + NGO set, followed by a
-     re-read so the count and every box agree with what is stored. */
-  const setFestivalSelectionAll = async (checked) => {
-    const targets = festivalSuggestions.filter((s) => Boolean(s.is_selected) !== checked)
-    if (!targets.length) return
+  /* Choosing an AI idea: this festival's group flips to exactly that one
+     suggestion (radio behaviour), every other idea of the same festival + NGO
+     is unticked in the same save, and a typed programme stops being the export
+     pick — its text is kept, only the override is dropped. The screen updates
+     first; a failed save puts everything back and says so. */
+  const selectFestivalSuggestion = async (s) => {
+    if (festBusy) return
+    const key = festivalKeyOf(s)
+    const sameGroup = (x) => festivalKeyOf(x) === key && String(x.ngo_id ?? '') === String(s.ngo_id ?? '')
+    const others = (festivalSuggestionsByKey[key] || []).filter((x) => sameGroup(x) && Number(x.id) !== Number(s.id) && x.is_selected)
+    const prevList = festivalSuggestions
+    const prevManual = festManual
     setFestBusy(true); setFestivalError('')
+    setFestivalSuggestions((list) => list.map((x) => (sameGroup(x) ? { ...x, is_selected: Number(x.id) === Number(s.id) } : x)))
+    setFestManual((cur) => {
+      const fk = `${scopedManualPrefix}${key}`
+      const next = { ...cur }
+      // Picking an idea leaves manual-only mode, and stops it being the export.
+      if (next[fk]?.mode || next[fk]?.selected) {
+        next[fk] = { ...next[fk], mode: false, selected: false }
+      }
+      return next
+    })
     try {
-      await Promise.all(targets.map((s) => setFestivalSuggestionSelected(s.id, checked).catch(() => null)))
-      const [y, m] = month.split('-').map(Number)
-      const fresh = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined }).catch(() => [])
-      setFestivalSuggestions(Array.isArray(fresh) ? fresh : [])
+      await Promise.all([
+        setFestivalSuggestionSelected(s.id, true),
+        ...others.map((x) => setFestivalSuggestionSelected(x.id, false)),
+      ])
     } catch (e) {
-      setFestivalError(e?.message || 'Could not update the selection.')
+      setFestivalSuggestions(prevList)
+      setFestManual(prevManual)
+      showToast(e?.message || 'Could not save the selection.')
     } finally {
       setFestBusy(false)
     }
+  }
+
+  /* Clicking the ✓ selected suggestion again puts every idea of that festival
+     back on the table: only this tick is removed — never a delete — and a typed
+     programme (if any) is left exactly as it was. */
+  const unselectFestivalSuggestion = async (s) => {
+    if (festBusy) return
+    const prevList = festivalSuggestions
+    setFestBusy(true)
+    setFestivalSuggestions((list) => list.map((x) => (Number(x.id) === Number(s.id) ? { ...x, is_selected: false } : x)))
+    // Leaving the choice means "show me the options" — never stay hidden in
+    // manual-only mode. The typed text and its tick are untouched.
+    updateFestivalManual(festivalKeyOf(s), { mode: false })
+    try {
+      await setFestivalSuggestionSelected(s.id, false)
+    } catch (e) {
+      setFestivalSuggestions(prevList)
+      showToast(e?.message || 'Could not save the selection.')
+    } finally {
+      setFestBusy(false)
+    }
+  }
+
+  /* The typed programme lives in React state only, so the AI suggestions
+     behind it are never changed in the database. */
+  const updateFestivalManual = (key, patch) => {
+    setFestManual((cur) => {
+      const fk = `${scopedManualPrefix}${key}`
+      const had = cur[fk]
+      const merged = { text: '', selected: false, ...(had || {}), ...patch }
+      // Nothing real behind it yet (no typed text, no tick, no manual-only
+      // intent) — write nothing, so an accidental focus never pollutes state.
+      if (!had && !merged.text && !merged.selected && !merged.mode) return cur
+      return { ...cur, [fk]: merged }
+    })
+  }
+
+  /* "Clear Suggestions": hides the Other-suggestions block for this festival
+     for the rest of the session. Pure UI state — the stored suggestions stay
+     in the database exactly as they are. */
+  const clearOtherSuggestions = (key) => {
+    const fk = `${scopedManualPrefix}${key}`
+    setFestCleared((cur) => {
+      if (cur.has(fk)) return cur
+      const next = new Set(cur)
+      next.add(fk)
+      return next
+    })
+  }
+
+  /* "Clear all AI suggestions": every ticked idea in THIS session is unticked
+     on screen at once, and the same save endpoint each radio uses is called in
+     the background so the unticking sticks (until the next reload, which starts
+     fresh anyway). Nothing is deleted — only the selection is dropped. */
+  const clearAllFestivalSelections = () => {
+    const selected = festivalSuggestions.filter((s) => s.is_selected)
+    if (!selected.length) return
+    setFestivalSuggestions((list) => list.map((x) => ({ ...x, is_selected: false })))
+    selected.forEach((s) => setFestivalSuggestionSelected(s.id, false).catch(() => null))
   }
 
   /* Bucket the month's events by activity id so each row can show what it
@@ -1606,27 +1780,23 @@ const pendingAll = scopedSuggestions
   const [festivalRowsLabel, setFestivalRowsLabel] = useState('')
   const [festivalRowsStamp, setFestivalRowsStamp] = useState('')
 
-  /* The download is the user's selected programmes, freshly read so it always
-     matches the server even if the UI has not reloaded since a tick. Sorted by
-     date then festival, then passed through the shared mergeProgrammeRows
-     normaliser — the final dedupe (unique key date + festival + NGO +
-     beneficiary) so several selected AI programmes for the same festival export
-     as ONE row with the programme titles comma-joined, never duplicate
-     date/festival rows. The export row shape (title/status) is unchanged. */
-  const buildFestivalExportRows = useCallback(async () => {
-    const [y, m] = month.split('-').map(Number)
-    const sel = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined, selected_only: true })
-      .catch(() => [])
-    if (!Array.isArray(sel)) return []
+  /* The download mirrors what the grid shows: the selections made THIS
+     session. Nothing from a previous session is restored after a reload —
+     stored server ticks are ignored here too, so the file can never revive a
+     choice the page started fresh without. A typed programme replaces its
+     festival's selected AI idea in the file, so every festival contributes at
+     most ONE row. Rows are sorted by date then festival and passed through the
+     shared mergeProgrammeRows normaliser. The export row shape is unchanged. */
+  const buildFestivalExportRows = useCallback(() => {
+    const sel = festivalSuggestions.filter((s) => s.is_selected)
     const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
+    const manualText = (k) => {
+      const e = scopedManual[k]
+      const t = String(e?.text || '').trim()
+      return e?.selected ? t : ''
+    }
     const rows = sel
-      .slice()
-      .sort((a, b) => {
-        if (a.observance_date !== b.observance_date) {
-          return String(a.observance_date) < String(b.observance_date) ? -1 : 1
-        }
-        return String(a.festival || '').localeCompare(String(b.festival || ''))
-      })
+      .filter((s) => !manualText(festivalKeyOf(s)))
       .map((s) => {
         const n = ngoById.get(String(s.ngo_id))
         const observed = String(s.observance_date || '')
@@ -1641,15 +1811,37 @@ const pendingAll = scopedSuggestions
           status: s.suggested_event_id ? 'Scheduled' : 'Draft',
         }
       })
+    /* The typed programmes: same row shape, Status always Draft, NGO/beneficiary
+       read from the same row the grid shows so the file matches the screen. */
+    for (const k of Object.keys(scopedManual)) {
+      const text = manualText(k)
+      if (!text) continue
+      const d = k.slice(0, 10)
+      const festival = k.includes('::') ? k.slice(k.indexOf('::') + 2) : ''
+      rows.push({
+        date: d,
+        dateLabel: shortDate(d),
+        weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
+        festival: festival || '—',
+        ngoLabel: ngo ? ngoShortLabel(ngo) : '—',
+        beneficiary: (festivalSuggestionsByKey[k] || []).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
+        programme: text,
+        status: 'Draft',
+      })
+    }
+    rows.sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1
+      return String(a.festival || '').localeCompare(String(b.festival || ''))
+    })
     /* Rule 8: final validation/deduplication before Excel/PDF generation.
-       mergeProgrammeRows collapses multiple programmes for the same festival onto
-       its ONE row; blankRepeatedDates then shows each date once — the Date/Day
-       cells fill only on the first row of that date, so a date with several
-       festivals never repeats across its own rows in the export. */
+       mergeProgrammeRows collapses several programmes of the SAME festival onto
+       its ONE row; distinct festivals sharing a date stay separate rows and
+       each of them repeats the date and weekday — two festivals on one date
+       print that date twice in the file, exactly as the grid shows it. */
     const merged = mergeProgrammeRows(rows, ['date', 'festival', 'ngoLabel', 'beneficiary'])
       .map((r) => ({ ...r, title: r.programme }))
-    return blankRepeatedDates(merged, 'dateLabel', 'weekday')
-  }, [month, ngos, ngoId])
+    return merged
+  }, [festivalSuggestions, ngos, scopedManual, festivalSuggestionsByKey, festBenef, ngo])
 
   /* Loads the cut-down rows once, mirrors them into state (which the off-screen
      preview renders and the PDF captures), and waits two frames so the freshly
@@ -1697,7 +1889,7 @@ const pendingAll = scopedSuggestions
         aoa.push([r.dateLabel, r.weekday, r.festival, r.ngoLabel, r.beneficiary, r.title, r.status])
       }
       if (!rows.length) {
-        aoa.push([`No programmes selected. Tick an AI suggestion's box in the Activities grid, then download again — only selected programmes are listed.`])
+        aoa.push([`No programmes selected. Choose an AI suggestion or tick your own Write Manually programme in the Activities grid, then download again — only the selected programme of each festival is listed.`])
       }
 
       const ws = XLSX.utils.aoa_to_sheet(aoa)
@@ -1741,7 +1933,7 @@ const pendingAll = scopedSuggestions
     try {
       const rows = await prepareFestivalExport()
       if (!rows.length) {
-        setToast('Nothing to export — tick some programmes first.')
+        setToast('Nothing to export — select a suggestion or write a programme first.')
         setDownloading('')
         return
       }
@@ -2135,28 +2327,15 @@ const pendingAll = scopedSuggestions
               {selectedFestivalCount} programme{selectedFestivalCount === 1 ? '' : 's'} selected for download
             </span>
           )}
-          {/* Only while a block is open: ticking rows nobody can see would
-              make the count move with no visible cause. */}
-          {festivalSuggestions.length > 0 && festOpen.size > 0 && (
-            <>
-              <button
-                className="eh-btn eh-btn-sm"
-                style={{ marginLeft: 'auto' }}
-                disabled={festBusy}
-                title="Tick every festival programme shown for the download"
-                onClick={() => setFestivalSelectionAll(true)}
-              >
-                Select all
-              </button>
-              <button
-                className="eh-btn eh-btn-sm"
-                disabled={festBusy}
-                title="Clear every download tick shown"
-                onClick={() => setFestivalSelectionAll(false)}
-              >
-                Clear selection
-              </button>
-            </>
+          {festivalSuggestions.some((s) => s.is_selected) && (
+            <button
+              className="eh-btn eh-btn-sm"
+              disabled={festBusy}
+              title="Untick every AI suggestion — each festival starts back from its suggestions list. Nothing is deleted."
+              onClick={clearAllFestivalSelections}
+            >
+              Clear all AI suggestions
+            </button>
           )}
         </div>
 
@@ -2196,41 +2375,53 @@ const pendingAll = scopedSuggestions
                     </tr>
                   )
                 }
-                // Each festival is one block: the date, festival name, NGO and
-                // beneficiary are written once and span the block, while every
-                // programme keeps its own compact row in AI SUGGESTION + SELECT.
-                // Sub-dividers cut only those two columns between ideas, so the
-                // suggestions stay visually tied to their festival without any
-                // giant blank cells. Full dividers separate festival blocks.
-                // A collapsed festival (block not open this session) renders
-                // exactly one action row regardless of what is stored, so the
-                // date cell's rowSpan must count rendered rows, not stored
-                // suggestions.
-                const blockRows = (o) => {
-                  const key = `${date}::${o.name}`
-                  if (!festOpen.has(key)) return 1
-                  return Math.max(1, (festivalSuggestionsByKey[key] || []).length)
-                }
-                const totalRows = obs.reduce((acc, o) => acc + blockRows(o), 0)
+                // Each festival is one block and carries its OWN date cell: a
+                // date that holds 2-3 festivals prints the same date beside
+                // every one of them (double rows allowed), while festival name,
+                // NGO and beneficiary span their block and the choices live in
+                // the AI SUGGESTION + SELECT columns:
+                //   · nothing decided yet → one radio row per AI idea, then the
+                //     Write Manually row;
+                //   · one chosen → SELECTED SUGGESTION (✓), the OTHER
+                //     SUGGESTIONS block (until it is cleared), Write Manually;
+                //   · collapsed → one action row.
                 const festivalCell = (o) => (
                   <>
                     <span className="ff-name">{o.name}</span>
                     {o.type && <span className="ff-type"><span className="ff-dot" />{capFirst(o.type)}</span>}
                   </>
                 )
-                return obs.map((o, oi) => {
+                return obs.map((o) => {
                   const key = `${date}::${o.name}`
                   const sugg = festivalSuggestionsByKey[key] || []
                   const generating = festGenerating?.key === key
+                  const open = festOpen.has(key)
+                  const chosen = sugg.find((s) => Boolean(s.is_selected)) || null
+                  const manual = scopedManual[key]
+                  const manualChecked = Boolean(manual?.selected)
+                  const manualOn = Boolean(manualExportText(key))
+                  const cleared = festCleared.has(`${scopedManualPrefix}${key}`)
+                  const othersVisible = Boolean(chosen) && sugg.length > 1 && !cleared
+                  // The Write Manually row owns the block once it is clicked:
+                  // opened from ✍ or entered from its own row, it is shown
+                  // ALONE — no AI list, no radios. "← Show AI suggestions" or a
+                  // regeneration brings the ideas back.
+                  const manualOnly = Boolean(manual?.mode)
+                  const rowCount = manualOnly
+                    ? 1
+                    : chosen
+                      ? 1 + (othersVisible ? 1 : 0) + 1
+                      : sugg.length + 1
                   const trs = []
-                  if (sugg.length === 0 || !festOpen.has(key)) {
-                    // Nothing stored, or stored but not open this session — one
-                    // slim action row: pick the beneficiary category, then
-                    // generate aimed at it. Saved suggestions never open by
-                    // themselves after a reload; the button is always here.
+
+                  if (!open) {
+                    // Nothing decided in yet (or nothing stored) — one slim
+                    // action row: pick the beneficiary category, then generate
+                    // aimed at it, or skip the AI entirely and write a
+                    // programme yourself.
                     trs.push(
                       <tr key={`${key}-g`}>
-                        {oi === 0 && <td className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>}
+                        <td className="dd divider">{shortDate(date)}</td>
                         <td className="ff divider">{festivalCell(o)}</td>
                         <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
                         <td className="bn divider">
@@ -2241,51 +2432,10 @@ const pendingAll = scopedSuggestions
                             onChange={(v) => handleFestivalBeneficiary(key, v)}
                           />
                         </td>
-                        <td className="ai divider nowrap">
-                          <button
-                            className="eh-btn eh-btn-sm"
-                            disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
-                            title={!ngoId
-                              ? 'Pick a single NGO to generate festival programmes for it'
-                              : !festivalBeneficiaryFor(key)
-                                ? 'Pick a Beneficiary category for this festival first'
-                                : festGenerating
-                                  ? 'A festival programme set is already generating'
-                                  : sugg.length
-                                    ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
-                                    : `Generate AI programme ideas for ${o.name}`}
-                            onClick={() => suggestFestival(date, o.name)}
-                          >
-                            {generating ? 'Generating…' : '✦ Suggest programmes'}
-                          </button>
-                        </td>
-                        <td className="sel divider" />
-                      </tr>
-                    )
-                    return trs
-                  }
-                  sugg.forEach((s, si) => {
-                    const firstRow = si === 0
-                    const notLast = si < sugg.length - 1
-                    const cells = []
-                    if (firstRow) {
-                      if (oi === 0) cells.push(<td key="d" className="dd divider" rowSpan={totalRows}>{shortDate(date)}</td>)
-                        cells.push(
-                          <td key="f" className="ff divider" rowSpan={sugg.length}>{festivalCell(o)}</td>,
-                          <td key="n" className="ng divider" rowSpan={sugg.length}><span className="ng-pill">{festivalNgoLabel}</span></td>,
-                          <td key="b" className="bn divider" rowSpan={sugg.length}>
-                            <FestivalBeneficiarySelect
-                              value={festivalBeneficiaryFor(key)}
-                              disabled={festBusy || festGenerating !== null}
-                              title="Who the AI should aim this festival's programmes at. Change it, then run Suggest again to regenerate."
-                              onChange={(v) => handleFestivalBeneficiary(key, v)}
-                            />
-                            {/* Regenerate without collapsing the block: new
-                                ideas join the ones already here and nothing
-                                ticked is lost. */}
+                        <td className="ai divider">
+                          <div className="fest-actions">
                             <button
                               className="eh-btn eh-btn-sm"
-                              style={{ marginTop: 6 }}
                               disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
                               title={!ngoId
                                 ? 'Pick a single NGO to generate festival programmes for it'
@@ -2294,44 +2444,253 @@ const pendingAll = scopedSuggestions
                                   : festGenerating
                                     ? 'A festival programme set is already generating'
                                     : sugg.length
-                                      ? `Ask the AI again for ${o.name} — new ideas, nothing ticked is lost`
+                                      ? `Ask the AI again for ${o.name} — new ideas, nothing chosen is lost`
                                       : `Generate AI programme ideas for ${o.name}`}
                               onClick={() => suggestFestival(date, o.name)}
                             >
-                              {generating ? 'Generating…' : '✦ Suggest again'}
+                              {generating ? 'Generating…' : '✦ Suggest programmes'}
                             </button>
-                          </td>,
-                        )
-                    }
-                    const aiCls = `ai${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
-                    const selCls = `sel${firstRow ? ' divider' : ''}${notLast ? ' subline' : ''}`
+                            <button
+                              className="eh-btn eh-btn-sm"
+                              disabled={festBusy || festGenerating !== null}
+                              title={`Type your own programme for ${o.name} instead of asking the AI`}
+                              onClick={() => {
+                                // Manual mode: open the row with ONLY the textarea
+                                // — any stored AI ideas are not offered here.
+                                updateFestivalManual(key, { mode: true })
+                                setFestOpen((cur) => new Set(cur).add(key))
+                              }}
+                            >
+                              ✍ Write Manually
+                            </button>
+                          </div>
+                        </td>
+                        <td className="sel divider" />
+                      </tr>
+                    )
+                    return trs
+                  }
+
+                  /* The four cells that span the whole block: the date (one copy
+                     per festival, so two festivals on the same date print the
+                     date twice), festival, NGO, and beneficiary + the generate
+                     button. Called exactly ONCE — by the block's first row. */
+                  const sharedCells = () => {
+                    const cells = []
                     cells.push(
-                      <td key="a" className={aiCls}>
-                        <span className="ai-title">{s.title || '—'}</span>
-                        {(s.format || s.priority) && (
+                      <td key="d" className="dd divider" rowSpan={rowCount}>{shortDate(date)}</td>,
+                      <td key="f" className="ff divider" rowSpan={rowCount}>{festivalCell(o)}</td>,
+                      <td key="n" className="ng divider" rowSpan={rowCount}><span className="ng-pill">{festivalNgoLabel}</span></td>,
+                      <td key="b" className="bn divider" rowSpan={rowCount}>
+                        <FestivalBeneficiarySelect
+                          value={festivalBeneficiaryFor(key)}
+                          disabled={festBusy || festGenerating !== null}
+                          title="Who the AI should aim this festival's programmes at. Change it, then run Suggest again to regenerate."
+                          onChange={(v) => handleFestivalBeneficiary(key, v)}
+                        />
+                        {/* Regenerate without collapsing the block: new ideas
+                            join the ones already here and whatever is chosen
+                            stays chosen. */}
+                        <button
+                          className="eh-btn eh-btn-sm"
+                          style={{ marginTop: 6 }}
+                          disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
+                          title={!ngoId
+                            ? 'Pick a single NGO to generate festival programmes for it'
+                            : !festivalBeneficiaryFor(key)
+                              ? 'Pick a Beneficiary category for this festival first'
+                              : festGenerating
+                                ? 'A festival programme set is already generating'
+                                : sugg.length
+                                  ? `Ask the AI again for ${o.name} — new ideas, nothing chosen is lost`
+                                  : `Generate AI programme ideas for ${o.name}`}
+                          onClick={() => suggestFestival(date, o.name)}
+                        >
+                          {generating ? 'Generating…' : sugg.length ? '✦ Suggest again' : '✦ Suggest programmes'}
+                        </button>
+                      </td>,
+                    )
+                    return cells
+                  }
+
+                  /* Dividers: the first row of the block gets the top rule,
+                     every row but the last gets the lighter one between ideas. */
+                  const pairCls = (i, n) => ({
+                    ai: `ai${i === 0 ? ' divider' : ''}${i < n - 1 ? ' subline' : ''}`,
+                    sel: `sel${i === 0 ? ' divider' : ''}${i < n - 1 ? ' subline' : ''}`,
+                  })
+
+                  /* The Write Manually row: a textarea and its own ✓ box — the
+                     tick says "export my text for this festival". It sits at the
+                     bottom of every open block, chosen in or not. */
+                  const manualRow = (i, n) => {
+                    const c = pairCls(i, n)
+                    return (
+                      <tr key={`${key}-manual`} className={`sel-row${manualChecked ? ' sel' : ''}`}>
+                        {i === 0 ? sharedCells() : null}
+                        <td className={c.ai}>
+                          <div className="sug-sec-label">Write manually</div>
+                          <textarea
+                            className="fest-manual"
+                            rows={2}
+                            value={manual?.text || ''}
+                            disabled={festBusy}
+                            placeholder="Type your own program…"
+                            title="Your own programme for this festival"
+                            onFocus={() => {
+                              // Clicking into Write Manually hides the AI list
+                              // at once — this row is what the user chose.
+                              if (!manual?.mode) updateFestivalManual(key, { mode: true })
+                            }}
+                            onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+                          />
+                          {manualChecked && manualOn && (
+                            <div className="fest-manual-hint">
+                              {manualOnly
+                                ? chosen
+                                  ? 'Your programme is exported instead of this festival’s selected AI suggestion (hidden while you write).'
+                                  : 'Your programme is exported for this festival.'
+                                : chosen
+                                  ? 'Your programme is exported instead of the AI suggestion above.'
+                                  : 'Your programme is exported for this festival.'}
+                            </div>
+                          )}
+                          {manualChecked && !manualOn && (
+                            <div className="fest-manual-hint">Type your programme in the box above — an empty box exports nothing.</div>
+                          )}
+                          {/* Manual-only view: a way back to the stored ideas
+                              without paying for a regeneration. */}
+                          {manualOnly && sugg.length > 0 && (
+                            <button
+                              className="eh-btn eh-btn-sm"
+                              style={{ marginTop: 6 }}
+                              disabled={festBusy}
+                              title="Show the stored AI suggestions as options again"
+                              onClick={() => updateFestivalManual(key, { mode: false })}
+                            >
+                              ← Show AI suggestions
+                            </button>
+                          )}
+                        </td>
+                        <td className={c.sel}>
+                          <input
+                            type="checkbox"
+                            checked={manualChecked}
+                            disabled={festBusy}
+                            title={manualChecked ? 'Your programme is in the download. Untick to leave it out.' : 'Export your own programme for this festival instead of the AI suggestion.'}
+                            onChange={(e) => {
+                              const patch = { selected: e.target.checked }
+                              // Ticking it means "my programme wins" — the AI
+                              // ideas step out of view while that is true.
+                              if (e.target.checked && !manual?.mode) patch.mode = true
+                              updateFestivalManual(key, patch)
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  // MANUAL-ONLY: one row, just the textarea + its ✓ box. The AI
+                  // ideas stay stored but are not offered here, no matter
+                  // whether one of them is already chosen.
+                  if (manualOnly) {
+                    trs.push(manualRow(0, rowCount))
+                    return trs
+                  }
+
+                  if (!chosen) {
+                    // NOTHING CHOSEN — every AI idea is one radio option, so
+                    // exactly one can end up selected, then Write Manually.
+                    sugg.forEach((s, si) => {
+                      const c = pairCls(si, rowCount)
+                      const cells = si === 0 ? sharedCells() : []
+                      cells.push(
+                        <td key="a" className={c.ai}>
+                          <span className="ai-title">{s.title || '—'}</span>
+                          {(s.format || s.priority) && (
+                            <span className="ai-badges">
+                              {s.format && <Badge tone="primary">{s.format}</Badge>}
+                              {s.priority && <Badge tone={PRIORITY_TONE[s.priority] || 'muted'}>{s.priority}</Badge>}
+                            </span>
+                          )}
+                        </td>,
+                        <td key="c" className={c.sel}>
+                          <input
+                            type="radio"
+                            name={`fest-${key}-${s.ngo_id ?? 'x'}`}
+                            checked={Boolean(s.is_selected)}
+                            disabled={festBusy}
+                            title={`Choose “${s.title}” for this festival`}
+                            onChange={() => selectFestivalSuggestion(s)}
+                          />
+                        </td>,
+                      )
+                      trs.push(<tr key={String(s.id)} className={`sel-row${s.is_selected ? ' sel' : ''}`}>{cells}</tr>)
+                    })
+                    trs.push(manualRow(sugg.length, rowCount))
+                    return trs
+                  }
+
+                  // ONE CHOSEN — show only it, with a checked ✓. The other
+                  // ideas are gone from this view; the small block below lets
+                  // the user clear them away for good (UI only — nothing is
+                  // deleted from the server).
+                  {
+                    const c0 = pairCls(0, rowCount)
+                    const cells = sharedCells()
+                    cells.push(
+                      <td key="a" className={c0.ai}>
+                        <div className="sug-sec-label">Selected suggestion</div>
+                        <button
+                          className="sug-pick"
+                          disabled={festBusy}
+                          title="Click to unselect — all suggestions come back as options"
+                          onClick={() => unselectFestivalSuggestion(chosen)}
+                        >
+                          <span className="sug-check">✓</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 700 }}>{chosen.title || '—'}</span>
+                        </button>
+                        {(chosen.format || chosen.priority) && (
                           <span className="ai-badges">
-                            {s.format && <Badge tone="primary">{s.format}</Badge>}
-                            {s.priority && <Badge tone={PRIORITY_TONE[s.priority] || 'muted'}>{s.priority}</Badge>}
+                            {chosen.format && <Badge tone="primary">{chosen.format}</Badge>}
+                            {chosen.priority && <Badge tone={PRIORITY_TONE[chosen.priority] || 'muted'}>{chosen.priority}</Badge>}
                           </span>
                         )}
                       </td>,
-                      <td key="c" className={selCls}>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(s.is_selected)}
+                      <td key="c" className={c0.sel}>
+                        <button
+                          className="sug-check-lg sug-lg-btn"
                           disabled={festBusy}
-                          title={s.is_selected ? `${s.title} is in the download. Untick to leave it out.` : `${s.title} is not in the download. Tick to include it.`}
-                          onChange={(e) => toggleFestivalSuggestion(s, e.target.checked)}
-                        />
+                          title="Click to unselect — all suggestions come back as options"
+                          onClick={() => unselectFestivalSuggestion(chosen)}
+                        >✓</button>
                       </td>,
                     )
-                    trs.push(
-                      <tr key={String(s.id)} className={`sel-row${s.is_selected ? ' sel' : ''}`}>
-                        {cells}
-                      </tr>
-                    )
-                  })
-                  return trs
+                    trs.push(<tr key={`sel-${chosen.id}`} className="sel-row sel">{cells}</tr>)
+
+                    if (othersVisible) {
+                      const c1 = pairCls(1, rowCount)
+                      trs.push(
+                        <tr key={`${key}-others`} className="sel-row">
+                          <td className={c1.ai}>
+                            <div className="sug-sec-label">Other suggestions</div>
+                            <button
+                              className="eh-btn eh-btn-sm"
+                              disabled={festBusy}
+                              title="Hide the unselected suggestions for this festival — they stay saved, only this block goes away"
+                              onClick={() => clearOtherSuggestions(key)}
+                            >
+                              Clear Suggestions
+                            </button>
+                          </td>
+                          <td className={c1.sel} />
+                        </tr>
+                      )
+                    }
+                    trs.push(manualRow(rowCount - 1, rowCount))
+                    return trs
+                  }
                 })
               })}
             </tbody>
@@ -2384,8 +2743,9 @@ const pendingAll = scopedSuggestions
           </table>
         ) : (
           <div style={{ fontSize: 11, color: '#8A5A00', background: '#FFF7E6', border: '1px solid #F0D9A8', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
-            No programmes selected. Tick an AI suggestion’s box in the Activities grid, then
-            download again — only selected programmes are listed.
+            No programmes selected. Choose an AI suggestion or tick your own Write
+            Manually programme in the Activities grid, then download again — only
+            the selected programme of each festival is listed.
           </div>
         )}
       </div>
@@ -2444,6 +2804,26 @@ const pendingAll = scopedSuggestions
             {deleteError && (
               <div style={{ padding: '10px 13px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)' }}>{deleteError}</div>
             )}
+          </div>
+        </ModalShell>
+      )}
+
+      {targetPopup && (
+        <ModalShell
+          title="Monthly target reached"
+          subtitle={`${targetPopup.label} · ${monthLabel(month)}`}
+          width={460}
+          onClose={() => setTargetPopup(null)}
+          footer={
+            <button className="eh-btn eh-btn-primary" onClick={() => setTargetPopup(null)}>OK</button>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: 'var(--eh-ink)' }}>
+            <p style={{ margin: 0 }}>
+              <b>{targetPopup.count}</b> programme{targetPopup.count === 1 ? '' : 's'} selected for download —
+              that reaches <b>{targetPopup.label}</b>'s monthly target of <b>{targetPopup.target}</b>.
+            </p>
+            <p style={{ margin: 0 }}>Keep going, or download what is already selected.</p>
           </div>
         </ModalShell>
       )}

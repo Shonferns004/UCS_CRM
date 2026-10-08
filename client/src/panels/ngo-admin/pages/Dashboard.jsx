@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X } from 'lucide-react';
+import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X, Bell } from 'lucide-react';
 import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
@@ -2414,6 +2414,23 @@ export default function Dashboard() {
                               <span style={{ fontWeight: highlighted ? 700 : 600, color: idl ? '#b91c1c' : live ? '#15803d' : (met ? '#6d28d9' : '#17233C'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
                               {idl && (
                                 <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
+                              )}
+                              {(p.today_idle_seconds || 0) > 3600 && (
+                                <button
+                                  title={`Idle for ${formatDuration(p.today_idle_seconds)} — click to warn this telecaller`}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      const r = await apiPost('/ngo-admin/notify-fro', { workerId: p.fro_id, message: 'Your idle time is increasing. Kindly get back to work.' });
+                                      toast(r?.message || `Warning sent to ${p.fro_name}`, 'success');
+                                    } catch (err) {
+                                      toast(err.message || 'Could not send warning', 'error');
+                                    }
+                                  }}
+                                  style={{ background: '#dc2626', border: '1px solid #b91c1c', cursor: 'pointer', padding: '1px 6px', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 3, borderRadius: 999, fontSize: 9, fontWeight: 700, flexShrink: 0 }}
+                                >
+                                  <Bell size={9} fill="currentColor" /> Warn
+                                </button>
                               )}
                               {met && (
                                 // Icon only. The word "Meeting" cost more width

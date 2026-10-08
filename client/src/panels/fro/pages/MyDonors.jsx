@@ -129,7 +129,12 @@ function filterAndSortDonors(list) {
       const aHidden = a.is_suppressed ? 1 : 0;
       const bHidden = b.is_suppressed ? 1 : 0;
       if (aHidden !== bHidden) return aHidden - bHidden;
-      // Called longest ago first, most recently called last, never-called at the bottom.
+      // Pure "never-called / pending" leads go on top: everything the FRO has
+      // already put a claim on (ringing, busy, scheduled, …) sits below.
+      const aPending = a.status === 'pending' || a.status == null || a.status === '';
+      const bPending = b.status === 'pending' || b.status == null || b.status === '';
+      if (aPending !== bPending) return aPending ? -1 : 1;
+      // Oldest called first, most recently called after.
       const ca = a.last_contacted_at ? new Date(a.last_contacted_at).getTime() : null;
       const cb = b.last_contacted_at ? new Date(b.last_contacted_at).getTime() : null;
       if (ca === null && cb !== null) return 1;

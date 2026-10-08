@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../config.dart';
@@ -32,7 +33,12 @@ class RealtimeService extends ChangeNotifier {
   };
 
   RealtimeEvent? get lastEvent => _lastEvent;
-  bool get isConnected => _socket != null;
+  bool get isConnected => _socket?.connected == true;
+
+  // Coalesce bursts of db:change events (e.g. bulk imports emit one per row)
+  // so every page listener doesn't trigger its own `_load()` per row.
+  Timer? _debounce;
+  RealtimeEvent? _pendingEvent;
 
   Future<void> init(String workerId, {bool isAdmin = false}) async {
     if (_initialized && _workerId == workerId && _isAdmin == isAdmin) return;
@@ -69,8 +75,13 @@ class RealtimeService extends ChangeNotifier {
           if (rowWorkerId != null && rowWorkerId.toString() != workerId) return;
         }
       }
-      _lastEvent = event;
-      notifyListeners();
+      _pendingEvent = event;
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 500), () {
+        _lastEvent = _pendingEvent;
+        _pendingEvent = null;
+        notifyListeners();
+      });
     });
 
     socket.on('connect_error', (data) {
@@ -84,6 +95,9 @@ class RealtimeService extends ChangeNotifier {
   }
 
   void _disconnect() {
+    _debounce?.cancel();
+    _debounce = null;
+    _pendingEvent = null;
     if (_socket != null) {
       _socket!.dispose();
       _socket = null;
