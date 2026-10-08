@@ -35,6 +35,7 @@ router.delete('/applications/:id', c.remove)
 router.post('/applications/:id/verify', c.verify)
 router.post('/applications/:id/approve', c.approve)
 router.post('/applications/:id/reject', c.reject)
+router.post('/applications/:id/renew', c.renew)
 router.post('/applications/:id/emails/membership', emailC.sendMembershipEmail)
 router.post('/applications/import', c.importMembers)
 

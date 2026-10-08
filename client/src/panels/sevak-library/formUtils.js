@@ -55,14 +55,47 @@ export function computeEndDate(startDate, plan) {
   return toISODate(d)
 }
 
+// Renewal preview — mirrors the backend renewApplication math: extend from the
+// current end date when it is still in the future (remaining days kept), else
+// from today. Returns { from, to, keeps } or null when dates are unknown.
+export function renewalPreview(row) {
+  if (!row || !row.membership_type) return null
+  const today = todayISO()
+  const keeps = !!row.end_date && row.end_date >= today
+  const from = keeps ? row.end_date : today
+  const to = computeEndDate(from, row.membership_type)
+  if (!to) return null
+  return { from, to, keeps }
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// Spec §11: never expose raw ISO — render "03 Oct 2026".
 export function formatDate(iso) {
   if (!iso) return '—'
-  const [y, m, d] = iso.split('-')
-  return `${d}/${m}/${y}`
+  const s = String(iso)
+  let d
+  if (s.includes('T')) {
+    d = new Date(s)
+    if (Number.isNaN(d.getTime())) return '—'
+  } else {
+    const [y, m, day] = s.slice(0, 10).split('-').map(Number)
+    if (!y || !m || !day) return '—'
+    d = new Date(y, m - 1, day)
+  }
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+}
+
+// Spec §12: "10:42 AM" companion for full timestamps.
+export function formatTime(iso) {
+  if (!iso) return ''
+  const d = new Date(String(iso))
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
 }
 
 export function formatINR(n) {
   const num = Number(n)
   if (Number.isNaN(num)) return '—'
-  return `Rs. ${num.toLocaleString('en-IN')}`
+  return `₹${num.toLocaleString('en-IN')}`
 }

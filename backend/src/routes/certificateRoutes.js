@@ -31,14 +31,17 @@ const TEMPLATE_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/zip',
   'application/octet-stream',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
 ]);
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (TEMPLATE_MIMES.has(file.mimetype) || /\.(docx|pptx)$/i.test(file.originalname || '')) return cb(null, true);
-    return cb(new Error('Only .docx or .pptx templates are supported.'));
+    if (TEMPLATE_MIMES.has(file.mimetype) || /\.(docx|pptx|png|jpe?g|webp)$/i.test(file.originalname || '') || /image\/(png|jpe?g|webp)/i.test(file.mimetype || '')) return cb(null, true);
+    return cb(new Error('Only .docx, .pptx, .png, .jpg or .webp templates are supported.'));
   },
 });
 
