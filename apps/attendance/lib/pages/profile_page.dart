@@ -915,9 +915,6 @@ class _ProfilePageState extends State<ProfilePage> {
               _legendDot('Leave', const Color(0xFFd1e4ff)),
               _legendDot('Late', const Color(0xFFffddb8)),
               _legendDot('Half-day', const Color(0xFFe8d5f5)),
-              _legendDot('Holiday', const Color(0xFFe8d5f5)),
-              _smLegendDot(LucideIcons.circle, 'Event', const Color(0xFF2563eb)),
-              _smLegendDot(LucideIcons.cake, 'Birthday', const Color(0xFFf43f5e)),
             ],
           ),
         ],
@@ -1213,14 +1210,4 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _smLegendDot(IconData icon, String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: Responsive.sp(context, 10), color: color),
-        SizedBox(width: Responsive.pad(context, 4)),
-        Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      ],
-    );
-  }
 }
