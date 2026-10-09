@@ -35,6 +35,7 @@ import MetropadPage from '../accounts/metropad/MetropadPage'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
+import { EMBED_PANELS, injectEmbedCss } from './embedPanels'
 
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', eyebrow: 'Super Admin', icon: GridFour },
@@ -63,16 +64,28 @@ const NAV = [
 const navMap = {}
 NAV.forEach(n => { navMap[n.id] = n })
 
-const GROUPS = [
-  { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
+// Sidebar categories. Dashboard stays on top, outside any category.
+// 'less' is the "Less used" bucket: those pages are duplicated inside another
+// panel (Leaves/Volunteers are also under HR), or are set-once settings.
+// It starts collapsed. To promote a page, move its id into another category.
+const CATEGORIES = [
+  { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter'] },
+  { id: 'people', label: 'People', icon: Users, items: ['organization', 'admin-attendance'] },
+  { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'data-management'] },
+  { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
+  { id: 'comms', label: 'Communication', icon: Megaphone, items: ['notices', 'chat'] },
+  { id: 'less', label: 'Less used', icon: Clipboard, items: ['employees', 'leaves', 'late-policy', 'assets', 'metropad'] },
 ]
-
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'metropad', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'fro-idle', 'assets', 'incentives', 'notices', 'late-policy', 'chat']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
+  const navigate = useNavigate()
+  const [openPanels, setOpenPanels] = useState([])
   const [collapsedGroups, setCollapsedGroups] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sa_collapsed_groups') || '[]') } catch { return [] }
+    try {
+      const raw = localStorage.getItem('sa_collapsed_groups')
+      return raw === null ? ['less'] : JSON.parse(raw)
+    } catch { return ['less'] }
   })
 
   const toggleGroup = (id) => {
@@ -83,17 +96,58 @@ function Sidebar({ mobileOpen }) {
     })
   }
 
-  const isActive = (path) => {
-    if (path.endsWith('/employees')) return location.pathname.startsWith('/sa/employees')
-    if (path.endsWith('/accounts')) return location.pathname.startsWith('/sa/accounts')
-    if (path.endsWith('/fro')) return location.pathname.startsWith('/sa/fro')
-    if (path.endsWith('/ngo-admin')) return location.pathname.startsWith('/sa/ngo-admin')
-    if (path.endsWith('/hr')) return location.pathname.startsWith('/sa/hr')
-    if (path.endsWith('/event-head')) return location.pathname.startsWith('/sa/event-head')
-    if (path.endsWith('/recruiter')) return location.pathname.startsWith('/sa/recruiter')
-    if (path.endsWith('/incentives')) return location.pathname.startsWith('/sa/incentives')
-    return location.pathname === path
+  // Segment-aware, so /sa/fro-idle does not light up /sa/fro.
+  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
+
+  const renderItem = (id) => {
+    const n = navMap[id]
+    const Icon = n.icon
+    const embed = EMBED_PANELS[id]
+    if (embed) {
+      const here = isActive(n.path)
+      const open = here || openPanels.includes(id)
+      return (
+        <div key={n.id}>
+          <div
+            className={`sa-nav-item sa-nav-sub${here ? ' active' : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => {
+              if (!here) navigate(`${n.path}/${embed.items[0].path}`)
+              setOpenPanels(prev => prev.includes(id) && !here ? prev.filter(x => x !== id) : [...prev.filter(x => x !== id), id])
+            }}
+          >
+            <Icon className="sa-nav-icon" size={16} />
+            <span className="sa-nav-label">{n.label}</span>
+            <span className={`sa-nav-chevron${open ? ' open' : ''}`} style={{ marginLeft: 'auto' }}>▸</span>
+          </div>
+          {open && (
+            <div className="sa-nav-group-items">
+              {embed.items.map(it => {
+                const to = `${n.path}/${it.path}`
+                return (
+                  <NavLink key={it.path} to={to} className={`sa-nav-item sa-nav-sub${isActive(to) ? ' active' : ''}`}
+                    style={{ paddingLeft: 40 }}>
+                    <span className="sa-nav-label">{it.label}</span>
+                  </NavLink>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    }
+    return (
+      <NavLink key={n.id} to={n.path} end={n.id !== 'employees'}
+        className={`sa-nav-item sa-nav-sub${isActive(n.path) ? ' active' : ''}`}>
+        <Icon className="sa-nav-icon" size={16} />
+        <span className="sa-nav-label">{n.label}</span>
+        {n.id === 'chat' && <ChatNavBadge />}
+      </NavLink>
+    )
   }
+
+  const dash = navMap['dashboard']
+  const DashIcon = dash.icon
 
   return (
     <aside className={`sa-sidebar${mobileOpen ? ' open' : ''}`}>
@@ -102,40 +156,24 @@ function Sidebar({ mobileOpen }) {
         <div><div className="sa-logo-text">UFS</div><div style={{fontSize:11,color:'var(--text-muted)',letterSpacing:.5,textTransform:'uppercase'}}>Super Admin</div></div>
       </div>
       <nav className="sa-nav">
-        {standaloneIds.map(id => {
-          const n = navMap[id]
-          const Icon = n.icon
-          return (
-            <NavLink key={n.id} to={n.path} end className={`sa-nav-item${isActive(n.path) ? ' active' : ''}`}>
-              <Icon className="sa-nav-icon" size={16} />
-              <span className="sa-nav-label">{n.label}</span>
-              {n.id === 'chat' && <ChatNavBadge />}
-            </NavLink>
-          )
-        })}
-        {GROUPS.map(g => {
+        <NavLink to={dash.path} end className={`sa-nav-item${isActive(dash.path) ? ' active' : ''}`}>
+          <DashIcon className="sa-nav-icon" size={16} />
+          <span className="sa-nav-label">{dash.label}</span>
+        </NavLink>
+        {CATEGORIES.map(g => {
           const GroupIcon = g.icon
+          const collapsed = collapsedGroups.includes(g.id)
           return (
-          <div key={g.id}>
-            <div className="sa-nav-group-header" onClick={() => toggleGroup(g.id)}>
-              <GroupIcon className="sa-nav-icon" size={14} />
-              <span>{g.label}</span>
-              <span className={`sa-nav-chevron${collapsedGroups.includes(g.id) ? '' : ' open'}`}>▸</span>
+            <div key={g.id}>
+              <div className="sa-nav-group-header" onClick={() => toggleGroup(g.id)}>
+                <GroupIcon className="sa-nav-icon" size={14} />
+                <span>{g.label}</span>
+                <span className={`sa-nav-chevron${collapsed ? '' : ' open'}`}>▸</span>
+              </div>
+              <div className={`sa-nav-group-items${collapsed ? ' collapsed' : ''}`} style={{ maxHeight: collapsed ? 0 : 'none' }}>
+                {g.items.map(renderItem)}
+              </div>
             </div>
-            <div className={`sa-nav-group-items${collapsedGroups.includes(g.id) ? ' collapsed' : ''}`}>
-              {g.items.map(id => {
-                const n = navMap[id]
-                const Icon = n.icon
-                return (
-                  <NavLink key={n.id} to={n.path} end={n.id !== 'employees'}
-                    className={`sa-nav-item sa-nav-sub${isActive(n.path) ? ' active' : ''}`}>
-                    <Icon className="sa-nav-icon" size={16} />
-                    <span className="sa-nav-label">{n.label}</span>
-                  </NavLink>
-                )
-              })}
-            </div>
-          </div>
           )
         })}
       </nav>
@@ -230,7 +268,7 @@ function PageShell({ children }) {
   // the host must not also scroll it. Without this the shell's overflow-y:auto
   // and the chat's internal panes fight each other and you get two scrollbars.
   const isChatRoute = location.pathname.startsWith('/sa/chat')
-  const meta = NAV.find(n => location.pathname.startsWith(n.path))
+  const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Super Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const drawerSections = [
@@ -333,12 +371,35 @@ function EmployeePage() {
   return <Workers onViewWorker={(id) => navigate(`/sa/employees/${id}`)} />
 }
 
-function PanelFrame({ src }) {
+// Shows another panel's *page* inside the Super Admin layout. The part of the
+// URL after /sa/<panel>/ picks the page, so /sa/ngo-admin/agents loads the Admin
+// panel's Agents page. The iframe stays hidden until its own sidebar/topbar have
+// been stripped, so there is no flash of a second layout.
+function PanelFrame({ panel }) {
+  const location = useLocation()
+  const ref = useRef(null)
+  const [ready, setReady] = useState(false)
+  const cfg = EMBED_PANELS[panel]
+  const prefix = `/sa/${panel}`
+  const rest = location.pathname.startsWith(prefix) ? location.pathname.slice(prefix.length).replace(/^\/+/, '') : ''
+  const sub = rest || cfg.items[0].path
+  const src = `${cfg.base}/${sub}`
+
+  useEffect(() => { setReady(false) }, [src])
+
+  const onLoad = () => {
+    injectEmbedCss(ref.current)
+    setReady(true)
+  }
+
   return (
     <iframe
+      ref={ref}
+      key={src}
       src={src}
-      title={src}
-      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none' }}
+      title={`${cfg.label} - ${sub}`}
+      onLoad={onLoad}
+      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', opacity: ready ? 1 : 0, transition: 'opacity .15s' }}
     />
   )
 }
@@ -356,16 +417,16 @@ export default function SuperAdminPanel() {
         <Route path="leaves" element={<Leaves />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="events" element={<Events />} />
-        <Route path="accounts" element={<PanelFrame src="/accounts" />} />
+        <Route path="accounts/*" element={<PanelFrame panel="accounts" />} />
         <Route path="metropad" element={<MetropadPage />} />
-        <Route path="fro" element={<PanelFrame src="/fro" />} />
+        <Route path="fro/*" element={<PanelFrame panel="fro" />} />
         <Route path="live-fro" element={<LiveFroStatus />} />
         <Route path="fro-idle" element={<FroIdleReport />} />
-        <Route path="ngo-admin" element={<PanelFrame src="/ngo-admin" />} />
-        <Route path="hr" element={<PanelFrame src="/hr" />} />
+        <Route path="ngo-admin/*" element={<PanelFrame panel="ngo-admin" />} />
+        <Route path="hr/*" element={<PanelFrame panel="hr" />} />
         <Route path="admin-attendance" element={<AdminAttendance />} />
-        <Route path="event-head" element={<PanelFrame src="/event-head" />} />
-        <Route path="recruiter" element={<PanelFrame src="/recruiter" />} />
+        <Route path="event-head/*" element={<PanelFrame panel="event-head" />} />
+        <Route path="recruiter/*" element={<PanelFrame panel="recruiter" />} />
         <Route path="assets" element={<AssetOverview />} />
         <Route path="incentives" element={<IncentivesPage />}>
           <Route index element={<Navigate to="sir" replace />} />

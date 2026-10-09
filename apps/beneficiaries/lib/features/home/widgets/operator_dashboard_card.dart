@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/indian_locations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_skeleton.dart';
+import '../../../core/widgets/searchable_dropdown.dart';
 import '../../../services/api_service.dart';
 
 class OperatorDashboardCard extends StatefulWidget {
@@ -27,6 +28,10 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
 // Selected dropdown values.
   String? _selectedState;
   String? _selectedCity;
+
+  List<Map<String, dynamic>> _states = [];
+  List<String> _cities = [];
+
   final TextEditingController _eventController = TextEditingController();
   int? _selectedKitId;
   int? _selectedOrganizerId;
@@ -99,6 +104,7 @@ setState(() {
         _selfieBase64 = null;
         _loading = false;
       });
+      _applyOfflineLocations(savedState: _selectedState, savedCity: _selectedCity);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -106,6 +112,44 @@ setState(() {
         _loading = false;
       });
     }
+  }
+
+  void _applyOfflineLocations({
+    String? savedState,
+    String? savedCity,
+  }) {
+    final states = <Map<String, dynamic>>[
+      for (final s in indianStates) {'name': s},
+    ];
+
+    String? matchedState;
+    if (savedState != null && savedState.isNotEmpty) {
+      for (final state in states) {
+        if ((state['name'] as String).toLowerCase() ==
+            savedState.toLowerCase()) {
+          matchedState = state['name'] as String;
+          break;
+        }
+      }
+    }
+
+    final cities = citiesForState(matchedState);
+    String? matchedCity;
+    if (savedCity != null && savedCity.isNotEmpty) {
+      for (final c in cities) {
+        if (c.toLowerCase() == savedCity.toLowerCase()) {
+          matchedCity = c;
+          break;
+        }
+      }
+    }
+
+    setState(() {
+      _states = states;
+      _selectedState = matchedState;
+      _cities = List<String>.from(cities);
+      _selectedCity = matchedCity;
+    });
   }
 
   Future<void> _pickSelfie() async {
@@ -227,28 +271,38 @@ if (_loading)
             )
           else ...[
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: _dropdown<String>(
+                  child: SearchableDropdown(
                     label: 'State',
-                    value: _selectedState,
-                    items: indianStates
-                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                        .toList(),
                     hint: 'Select state',
-                    onChanged: (v) => setState(() => _selectedState = v),
+                    value: _selectedState,
+                    items: _states
+                        .map((state) => state['name'].toString())
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _selectedState = value;
+                        _selectedCity = null;
+                        _cities = List<String>.from(citiesForState(value));
+                      });
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _dropdown<String>(
+                  child: SearchableDropdown(
                     label: 'City',
+                    hint: _selectedState == null
+                        ? 'Select state first'
+                        : 'Select city',
                     value: _selectedCity,
-                    items: indianCities
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                        .toList(),
-                    hint: 'Select city',
-                    onChanged: (v) => setState(() => _selectedCity = v),
+                    items: _cities,
+                    enabled: _selectedState != null,
+                    onChanged: (value) =>
+                        setState(() => _selectedCity = value),
                   ),
                 ),
               ],

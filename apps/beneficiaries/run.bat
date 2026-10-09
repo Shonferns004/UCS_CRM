@@ -1,0 +1,2 @@
+@echo off
+flutter run %*
