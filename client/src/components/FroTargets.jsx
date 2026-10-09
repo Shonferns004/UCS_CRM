@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as XLSX from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
 import { api } from '../api/auth';
 import { toast } from './Toast';
 import { istMonthKey } from '../utils/istDate';
@@ -251,9 +251,6 @@ export default function FroTargets() {
       });
   }, [rows, filter, search]);
 
-  // Counted off `visible`, not `rows`, so the line agrees with what is on screen.
-  const abscondedShown = useMemo(() => visible.filter(isAbsconded).length, [visible]);
-
   // Exports exactly what the table shows, so the search box and source filter
   // apply to the file too - otherwise a filtered screen would silently hand over
   // the whole roster. Target stays a number (not "₹1,00,000") so the column is
@@ -316,6 +313,7 @@ export default function FroTargets() {
             onChange={(e) => e.target.value && setMonth(e.target.value)}
             style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6 }}
           />
+          <button className="btn btn-sm btn-outline" onClick={exportExcel}>Download</button>
           <button className="btn btn-sm btn-outline" onClick={load}>Refresh</button>
           <button className="btn btn-sm btn-outline" onClick={exportExcel} disabled={loading || visible.length === 0}>
             Export Excel
