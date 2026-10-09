@@ -39,6 +39,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     RealtimeService.instance.removeListener(_onRealtimeChange);
     _refreshTimer?.cancel();
     _searchController.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
@@ -61,6 +62,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
           _records = results[0];
           _workers = results[1];
           _loading = false;
+          _recomputeDerived();
         });
       }
     } catch (e) {
@@ -82,34 +84,57 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 
-  List<dynamic> get _dayRecords {
-    return _records.where((r) => (r['date']?.toString() ?? '') == _dateKey).toList();
-  }
+  List<dynamic> _dayRecords = [];
+  Map<String, Map<String, dynamic>> _recordByWorker = {};
+  List<dynamic> _filteredWorkers = [];
+  int _presentCount = 0;
+  int _lateCount = 0;
+  int _halfDayCount = 0;
+  int _leaveCount = 0;
+  int _absentCount = 0;
+  Timer? _searchDebounce;
 
-  Map<String, dynamic> _recordForWorker(String workerId) {
+  void _recomputeDerived() {
+    _dayRecords = _records.where((r) => (r['date']?.toString() ?? '') == _dateKey).toList();
+    _recordByWorker = {};
     for (final r in _dayRecords) {
-      if ((r['worker_id']?.toString() ?? '') == workerId) return Map<String, dynamic>.from(r);
+      final id = r['worker_id']?.toString() ?? '';
+      if (id.isNotEmpty) _recordByWorker[id] = Map<String, dynamic>.from(r);
     }
-    return {};
-  }
-
-  List<dynamic> get _sortedWorkers {
-    final list = List<dynamic>.from(_workers);
-    list.sort((a, b) {
+    final sorted = List<dynamic>.from(_workers);
+    sorted.sort((a, b) {
       final an = (a['name']?.toString() ?? '').toLowerCase();
       final bn = (b['name']?.toString() ?? '').toLowerCase();
       return an.compareTo(bn);
     });
-    return list;
+    if (_searchQuery.isEmpty) {
+      _filteredWorkers = sorted;
+    } else {
+      _filteredWorkers = sorted.where((w) {
+        final name = (w['name']?.toString() ?? '').toLowerCase();
+        final dept = (w['department']?.toString() ?? '').toLowerCase();
+        return name.contains(_searchQuery) || dept.contains(_searchQuery);
+      }).toList();
+    }
+    int present = 0, late = 0, half = 0, leave = 0, absent = 0;
+    for (final w in _workers) {
+      final r = _recordByWorker[w['id']?.toString() ?? ''] ?? const {};
+      final s = r['status']?.toString() ?? 'absent';
+      if (s == 'present' || s == 'late') present++;
+      if (s == 'late') late++;
+      if (s == 'half-day') half++;
+      if (s == 'leave') leave++;
+      if (s == 'absent' || s.isEmpty) absent++;
+    }
+    _presentCount = present;
+    _lateCount = late;
+    _halfDayCount = half;
+    _leaveCount = leave;
+    _absentCount = absent;
   }
 
-  List<dynamic> get _filteredWorkers {
-    if (_searchQuery.isEmpty) return _sortedWorkers;
-    return _sortedWorkers.where((w) {
-      final name = (w['name']?.toString() ?? '').toLowerCase();
-      final dept = (w['department']?.toString() ?? '').toLowerCase();
-      return name.contains(_searchQuery) || dept.contains(_searchQuery);
-    }).toList();
+  Map<String, dynamic> _recordForWorker(String workerId) {
+    return _recordByWorker[workerId] ?? {};
   }
 
   bool get _canGoNext {
@@ -119,46 +144,12 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     return _selectedDate.day < now.day;
   }
 
-  int get _presentCount {
-    return _workers.where((w) {
-      final r = _recordForWorker(w['id']?.toString() ?? '');
-      final s = r['status']?.toString() ?? 'absent';
-      return s == 'present' || s == 'late';
-    }).length;
-  }
-
-  int get _lateCount {
-    return _workers.where((w) {
-      final r = _recordForWorker(w['id']?.toString() ?? '');
-      return r['status']?.toString() == 'late';
-    }).length;
-  }
-
-  int get _halfDayCount {
-    return _workers.where((w) {
-      final r = _recordForWorker(w['id']?.toString() ?? '');
-      return r['status']?.toString() == 'half-day';
-    }).length;
-  }
-
-  int get _leaveCount {
-    return _workers.where((w) {
-      final r = _recordForWorker(w['id']?.toString() ?? '');
-      return r['status']?.toString() == 'leave';
-    }).length;
-  }
-
-  int get _absentCount {
-    return _workers.where((w) {
-      final r = _recordForWorker(w['id']?.toString() ?? '');
-      final s = r['status']?.toString() ?? 'absent';
-      return s == 'absent' || s.isEmpty;
-    }).length;
-  }
-
   void _shiftDay(int delta) {
     if (delta > 0 && !_canGoNext) return;
-    setState(() => _selectedDate = _selectedDate.add(Duration(days: delta)));
+    setState(() {
+      _selectedDate = _selectedDate.add(Duration(days: delta));
+      _recomputeDerived();
+    });
   }
 
   Future<void> _pickDate() async {
@@ -168,7 +159,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
     );
-    if (picked != null) setState(() => _selectedDate = picked);
+    if (picked != null) setState(() {
+      _selectedDate = picked;
+      _recomputeDerived();
+    });
   }
 
   @override
@@ -387,7 +381,15 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
       padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
       child: TextField(
         controller: _searchController,
-        onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+        onChanged: (v) {
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+            if (mounted) setState(() {
+              _searchQuery = v.trim().toLowerCase();
+              _recomputeDerived();
+            });
+          });
+        },
         decoration: InputDecoration(
           hintText: 'Search by name or department',
           hintStyle: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
@@ -398,7 +400,11 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                   icon: const Icon(LucideIcons.x, size: 18),
                   onPressed: () {
                     _searchController.clear();
-                    setState(() => _searchQuery = '');
+                    setState(() {
+                      _searchQuery = '';
+                      _searchController.clear();
+                      _recomputeDerived();
+                    });
                   },
                 ),
           isDense: true,

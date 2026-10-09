@@ -7,10 +7,12 @@ import { getBnfOperatorByLoginId, getBnfOperatorById, updateBnfOperator } from '
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
-import { releaseOperatorSessions, getActiveSessionsForTarget, clearOperatorCoverLabels, claimStations, releaseConflictingCovers } from '../models/workAsSessionModel.js';
+import { releaseOperatorSessions, getActiveSessionsForTarget, getActiveSessionTargets, clearOperatorCoverLabels, claimStations, releaseConflictingCovers } from '../models/workAsSessionModel.js';
 import { resolveOperatorIdentity } from '../utils/workAs.js';
+import { istDateStr, sessionHandoverPlan } from '../utils/froIdle.js';
+import { isWorkerOnline } from '../socket.js';
 import { authenticateAgent, getActiveAgentByWorkerId, getAgentById, getAgentByLoginId, setAgentPasswordHash } from '../models/crmAgentModel.js';
-import { commitIdleOnExit } from '../services/froIdleCommit.js';
+import { endSessionIdle, parkIdleState } from '../services/froIdleCommit.js';
 import { closeOpenSession } from '../services/froTimeSessions.js';
 
 dotenv.config();
@@ -18,6 +20,7 @@ dotenv.config();
 // CRMs / admin and salary portals get a rolling 24h session; the mobile
 // (Flutter) worker login override below emits tokens with no expiry.
 const TOKEN_EXPIRY = '24h';
+const REFRESH_TOKEN_EXPIRY = '60d';
 
 // Block a FRO's own login once an agent holds their account.
 //
@@ -373,6 +376,40 @@ async function recordCrmLogin(uid, nm, rl, routePath) {
 
 // Explicit logout: mark the open session logged out and append a logout event
 // (drives the per-user logout counts in Telecaller Performance).
+// Exchanges a refresh token for a fresh access token. The refresh token carries
+// no `exp` claim (see unifiedLogin), so this endpoint keeps working until the
+// worker logs out and the app drops the stored refresh token.
+export const refreshAccessToken = async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      return res.status(400).json({ message: 'refresh_token is required' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refresh_token, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    if (decoded.type !== 'refresh' || !decoded.id) {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    const { id, login_id, ngo_id, name, role, department } = decoded;
+    const token = jwt.sign(
+      { id, login_id, ngo_id, name, role, department },
+      process.env.JWT_SECRET,
+      { expiresIn: TOKEN_EXPIRY }
+    );
+
+    return res.json({ token, refresh_token: refresh_token });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const logout = async (req, res) => {
   try {
     const u = req.user || {};
@@ -384,7 +421,13 @@ export const logout = async (req, res) => {
       const agentId = String(u.agent_user_id);
       try {
         await clearOperatorCoverLabels(agentId);
+        // Same reason as releaseWorkAs: park the FROs whose cover ends with this
+        // logout, read before the release.
+        const endingTargets = await getActiveSessionTargets(agentId).catch(() => []);
         await releaseOperatorSessions(agentId);
+        for (const targetId of endingTargets) {
+          await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+        }
         // Unbrand the FRO this agent was working, for this agent only. Keyed on
         // the operator id so a different cover on the same FRO is left alone.
         if (u.impersonation && u.id != null) {
@@ -406,8 +449,22 @@ export const logout = async (req, res) => {
     // An FRO signing out mid-idle would otherwise lose the open period from both
     // the day total and the monthly salary figure. Non-fatal and a no-op for
     // anyone without a live-status row.
+    //
+    // endSessionIdle, not commitIdleOnExit(key): the heartbeat files on the HUMAN
+    // at the keyboard, so under a work-as session that is the operator, not
+    // req.user.id (the painted FRO). Committing against the painted id banked
+    // idle on the wrong person and left the operator's own interval running to
+    // shift end. It now closes both identities when they differ.
     try {
-      await commitIdleOnExit(key);
+      const { human, painted } = await endSessionIdle(u);
+      // The operator's own CRM session must close too, or presence keeps reading
+      // them as online after they signed out of somebody else's panel.
+      if (human && painted && human !== painted) {
+        await sql(
+          `UPDATE auth_sessions SET logged_out_at = $1 WHERE user_id = $2 AND logged_out_at IS NULL`,
+          [now, human]
+        );
+      }
     } catch (e) {
       console.warn('[auth] FRO idle commit on logout failed:', e?.message || String(e));
     }
@@ -549,6 +606,11 @@ export const unifiedLogin = async (req, res) => {
         if (covered) return res.status(403).json(covered);
       }
       const dept = (worker.department || '').toLowerCase().trim();
+      // A FRO signing in on a different machine hands over from their previous
+      // session, so the gap between the two panels is not billed as their idle.
+      if (dept === 'fro' && !isHrFormLogin) {
+        await reconcileSessionHandover(worker.id);
+      }
       let role;
       if (dept === 'hr') role = 'hr';
       else if (dept.includes('recruit')) role = 'recruiter';
@@ -558,18 +620,35 @@ export const unifiedLogin = async (req, res) => {
       else if (dept === 'digital' || dept.includes('develop')) role = 'digital';
       else if (dept.includes('event')) role = 'event_head';
       else role = 'worker';
+      const claims = { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department };
+
+      // Apps that declare themselves get the short-lived access token +
+      // long-lived refresh token pair. The refresh token is intentionally
+      // issued WITHOUT an expiry so a worker never gets logged out of the
+      // mobile app; access is still capped at 24h and silently renewed.
+      const isAppClient = String(req.body.client || '').trim() === 'attendance';
       const token = jwt.sign(
-        { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department },
+        claims,
         process.env.JWT_SECRET,
-        signOptions
+        isAppClient ? { expiresIn: TOKEN_EXPIRY } : signOptions
       );
-      await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
-      return res.json({
+      let refreshToken = null;
+      if (isAppClient) {
+        // No expiresIn => no `exp` claim => this token does not expire.
+        refreshToken = jwt.sign(
+          { ...claims, type: 'refresh' },
+          process.env.JWT_SECRET
+        );
+      }
+await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
+      const body = {
         token,
         role,
         user: { id: worker.id, name: worker.name, email: worker.email, login_id: worker.login_id, ngo_id: worker.ngo_id, gender: worker.gender, dob: worker.dob, department: worker.department },
         message: 'Login successful',
-      });
+      };
+      if (refreshToken) body.refresh_token = refreshToken;
+      return res.json(body);
     }
 
     if (isEmail) {
@@ -655,6 +734,9 @@ export const unifiedLogin = async (req, res) => {
           if (covered) return res.status(403).json(covered);
         }
         const dept = (workerByLogin.department || '').toLowerCase().trim();
+        if (dept === 'fro' && !isHrFormLogin) {
+          await reconcileSessionHandover(workerByLogin.id);
+        }
         let wRole;
         if (dept === 'hr') wRole = 'hr';
         else if (dept.includes('recruit')) wRole = 'recruiter';
@@ -699,6 +781,9 @@ export const unifiedLogin = async (req, res) => {
           if (covered) return res.status(403).json(covered);
         }
         const eDept = (workerByEmail.department || '').toLowerCase().trim();
+        if (eDept === 'fro' && !isHrFormLogin) {
+          await reconcileSessionHandover(workerByEmail.id);
+        }
         let eRole;
         if (eDept === 'hr') eRole = 'hr';
         else if (eDept.includes('recruit')) eRole = 'recruiter';
@@ -763,6 +848,9 @@ export const unifiedLogin = async (req, res) => {
       if (covered) return res.status(403).json(covered);
     }
     const dept = (worker.department || '').toLowerCase().trim();
+    if (dept === 'fro' && !isHrFormLogin) {
+      await reconcileSessionHandover(worker.id);
+    }
     let role;
     if (dept === 'hr') role = 'hr';
     else if (dept.includes('recruit')) role = 'recruiter';
@@ -986,7 +1074,13 @@ export const impersonateFRO = async (req, res) => {
       // Priya" for as long as they stayed logged out — a cover that had ended but
       // still named, on the very board that is meant to say who is covering whom.
       await clearOperatorCoverLabels(imposterId);
+      // Switching away ends those covers, so the targets' rows must be parked —
+      // same reason as releaseWorkAs. Read before the release.
+      const switchedTargets = await getActiveSessionTargets(imposterId).catch(() => []);
       await releaseOperatorSessions(imposterId);
+      for (const targetId of switchedTargets) {
+        await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+      }
 
       // Explicit take-over. The default is still to refuse (claimStations returns
       // the holders and we 409 below), because a station quietly changing hands is
@@ -1031,7 +1125,11 @@ export const impersonateFRO = async (req, res) => {
       // Unrestricted switch still supersedes any earlier scoped session, and
       // takes its display label with it.
       await clearOperatorCoverLabels(imposterId);
+      const unscopedTargets = await getActiveSessionTargets(imposterId).catch(() => []);
       await releaseOperatorSessions(imposterId);
+      for (const targetId of unscopedTargets) {
+        await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+      }
     }
 
     // Park the operator's own open idle state before the switch begins.
@@ -1252,6 +1350,57 @@ async function parkIdleForCoverStart(operatorId) {
   }
 }
 
+// Hand over from a previous session on this same account.
+//
+// A FRO who shuts one laptop and opens another is NOT idle in between: the old
+// panel is gone, so there is nobody at the keyboard to be idle. But the previous
+// session's interval and its lapsed disposition deadline survive on the one row
+// the account has, and the hydrate path would then bill her from that deadline to
+// this login — which is where a 45-minute "idle" appeared the moment she moved
+// machines.
+//
+// So the interval is closed at the LAST EVIDENCE of presence (the row's own
+// updated_at — the previous device's final heartbeat), never at login time, and
+// the spent settle grace is cleared so she takes a fresh one. Skipped when her
+// previous panel is still connected (a second tab), because that session is still
+// live and must not be reset under her.
+async function reconcileSessionHandover(workerId) {
+  const id = String(workerId ?? '');
+  if (!id) return { skipped: 'no_id' };
+  try {
+    const { data: row } = await db
+      .from('fro_live_status')
+      .select('updated_at')
+      .eq('worker_id', id)
+      .maybeSingle();
+    if (!row) return { skipped: 'no_live_row' };
+
+    const lastSeenMs = row.updated_at ? new Date(row.updated_at).getTime() : NaN;
+    const nowMs = Date.now();
+    const plan = sessionHandoverPlan({
+      panelStillLive: isWorkerOnline(id),
+      lastSeenAtMs,
+      nowMs,
+      sameIstDay: Number.isFinite(lastSeenMs)
+        ? istDateStr(new Date(lastSeenMs)) === istDateStr(new Date(nowMs))
+        : null,
+    });
+    if (plan.skip) return { skipped: plan.skip };
+
+    const r = await parkIdleState(id, {
+      nowMs,
+      closeAtMs: plan.closeAtMs,
+      reason: 'session_handover',
+      rearmGrace: true,
+      clearCurrent: true,
+    });
+    return { parked: r.changed, lastSeen: new Date(plan.closeAtMs).toISOString() };
+  } catch (e) {
+    // Non-fatal: the worst case is the old billing, not a lost session.
+    return { error: e?.message || String(e) };
+  }
+}
+
 // Park a COVERED FRO's own row when they are not actually at their keyboard.
 //
 // While an agent covers them, the FRO's row stops receiving their own
@@ -1304,7 +1453,16 @@ export const releaseWorkAs = async (req, res) => {
     // reads their active sessions to find those targets, so it has to run first —
     // after release there is nothing left to enumerate.
     await clearOperatorCoverLabels(operatorId);
+    // Park every FRO this operator was covering as the cover ends. Their rows stop
+    // being refreshed at this moment and the covered-away freeze stops applying
+    // the instant the session is released, so an interval left open here would
+    // keep billing idle to somebody who was never at their desk. Read the targets
+    // BEFORE releasing — afterwards there is nothing left to enumerate.
+    const endingTargets = await getActiveSessionTargets(operatorId).catch(() => []);
     const released = await releaseOperatorSessions(operatorId);
+    for (const targetId of endingTargets) {
+      await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+    }
     // The caller's painted id is cleared afterwards as a belt-and-braces pass: it
     // is what the token says they were working, and it is a no-op when the helper
     // already handled it.

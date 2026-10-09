@@ -93,12 +93,29 @@ class ApiService {
   }
 
   static bool? _preferStandardClient;
+  static http.Client? _sharedStandardClient;
+  static IOClient? _sharedDohClient;
+  static String? _clientBaseUrl;
+
+  static void _resetClientsIfUrlChanged() {
+    if (_clientBaseUrl != null && _clientBaseUrl != baseUrl) {
+      _sharedStandardClient?.close();
+      _sharedDohClient?.close();
+      _sharedStandardClient = null;
+      _sharedDohClient = null;
+      _preferStandardClient = null;
+      _cachedIp = null;
+      _cacheExpiry = null;
+    }
+    _clientBaseUrl = baseUrl;
+  }
 
   static Future<http.Client> _createClient() async {
     // Prefer the standard client (uses platform DNS/TLS). Fall back to the
-    // DoH + direct-IP client only if normal networking fails, and always cap
-    // socket connection attempts with a timeout so a stalled network can never
-    // hang the UI forever. The decision is probed once and cached.
+    // DoH + direct-IP client only if normal networking fails. Clients are
+    // shared and reused across requests so keep-alive connections are
+    // preserved instead of paying a TCP+TLS handshake per request.
+    _resetClientsIfUrlChanged();
     if (_preferStandardClient == null) {
       try {
         final probe = http.Client();
@@ -112,8 +129,10 @@ class ApiService {
         _preferStandardClient = false;
       }
     }
-    if (_preferStandardClient == true) return http.Client();
-    return _createDohClient();
+    if (_preferStandardClient == true) {
+      return _sharedStandardClient ??= http.Client();
+    }
+    return _sharedDohClient ??= await _createDohClient();
   }
 
   static Future<bool> checkConnectivity() async {
@@ -126,14 +145,18 @@ class ApiService {
   }
 
   static Future<http.Response> _send(
-    Future<http.Response> Function(http.Client client) run,
-  ) async {
+    Future<http.Response> Function(http.Client client) run, {
+    bool skipRefresh = false,
+  }) async {
     final client = await _createClient();
-    try {
-      return await run(client).timeout(_defaultTimeout);
-    } finally {
-      client.close();
+    // Shared client is reused across requests — do NOT close it here.
+    final res = await run(client).timeout(_defaultTimeout);
+    // Access tokens are short-lived. If one lapsed mid-flight, mint a new one
+    // now so the user's next action goes through without a visible logout.
+    if (!skipRefresh && res.statusCode == 401) {
+      await _refreshAccessToken();
     }
+    return res;
   }
 
   static Future<http.Response> _get(
@@ -147,8 +170,12 @@ class ApiService {
     Uri uri, {
     Map<String, String>? headers,
     Object? body,
+    bool skipRefresh = false,
   }) async {
-    return _send((client) => client.post(uri, headers: headers, body: body));
+    return _send(
+      (client) => client.post(uri, headers: headers, body: body),
+      skipRefresh: skipRefresh,
+    );
   }
 
   static Future<http.Response> _put(
@@ -166,23 +193,111 @@ class ApiService {
     return _send((client) => client.delete(uri, headers: headers));
   }
 
+  static SharedPreferences? _prefs;
+  static Future<SharedPreferences> get _prefsInstance async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
+  static String? _cachedToken;
+  static String? _cachedRefreshToken;
+  static DateTime? _accessTokenExpiry;
+
+  static DateTime? _jwtExpiry(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      final exp = payload is Map ? payload['exp'] : null;
+      if (exp is num) return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
+    } catch (_) {}
+    return null;
+  }
+
+  /// Swaps the refresh token for a new short-lived access token.
+  static Future<bool> _refreshAccessToken() async {
+    if (_refreshing) return false;
+    final refresh = await getRefreshToken();
+    if (refresh == null || refresh.isEmpty) return false;
+    _refreshing = true;
+    try {
+      final res = await _post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': refresh}),
+        skipRefresh: true,
+      );
+      if (res.statusCode != 200) return false;
+      final body = jsonDecode(res.body);
+      if (body is! Map) return false;
+      final token = body['token'];
+      if (token is! String || token.isEmpty) return false;
+      await saveToken(token);
+      final newRefresh = body['refresh_token'];
+      if (newRefresh is String && newRefresh.isNotEmpty) {
+        await saveRefreshToken(newRefresh);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  static bool _refreshing = false;
+
+  /// Refreshes the access token shortly before it expires, so normal requests
+  /// never hit a 401 in the first place.
+  static Future<void> _ensureFreshToken() async {
+    final expiry = _accessTokenExpiry;
+    if (expiry == null) return; // no exp claim — nothing to rotate
+    if (expiry.isAfter(DateTime.now().add(const Duration(minutes: 5)))) return;
+    await _refreshAccessToken();
+  }
+
+  static Future<String?> getRefreshToken() async {
+    if (_cachedRefreshToken != null) return _cachedRefreshToken;
+    final prefs = await _prefsInstance;
+    _cachedRefreshToken = prefs.getString('refresh_token');
+    return _cachedRefreshToken;
+  }
+
+  static Future<void> saveRefreshToken(String token) async {
+    _cachedRefreshToken = token;
+    final prefs = await _prefsInstance;
+    await prefs.setString('refresh_token', token);
+  }
+
+  /// Renews the access token at startup when it has lapsed but a refresh token
+  /// is still held, so an expired access token never forces a logout.
+  static Future<void> ensureSession() async {
+    final refresh = await getRefreshToken();
+    if (refresh == null || refresh.isEmpty) return;
+    await _ensureFreshToken();
+  }
+
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('worker_token');
+    if (_cachedToken == null) {
+      final prefs = await _prefsInstance;
+      _cachedToken = prefs.getString('worker_token');
+      _accessTokenExpiry = _cachedToken != null ? _jwtExpiry(_cachedToken!) : null;
+    }
+    return _cachedToken;
   }
 
   static Future<void> saveToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = token;
+    _accessTokenExpiry = _jwtExpiry(token);
+    final prefs = await _prefsInstance;
     await prefs.setString('worker_token', token);
   }
 
   static Future<void> saveWorkerData(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('worker_data', jsonEncode(data));
   }
 
   static Future<Map<String, dynamic>?> getWorkerData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('worker_data');
     if (data != null) return jsonDecode(data);
     return null;
@@ -203,7 +318,12 @@ class ApiService {
   static bool isCachedNgoAdmin() => _cachedIsAdmin ?? false;
 
   static Future<void> clearAuth() async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = null;
+    _cachedRefreshToken = null;
+    _accessTokenExpiry = null;
+    _cachedIsAdmin = null;
+    final prefs = await _prefsInstance;
+    await prefs.remove('refresh_token');
     await prefs.remove('worker_token');
     await prefs.remove('worker_data');
     final keys = prefs.getKeys().where((k) => k.startsWith('cache_')).toList();
@@ -211,16 +331,17 @@ class ApiService {
   }
 
   static Future<void> saveLastLoginId(String loginId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('last_login_id', loginId);
   }
 
   static Future<String?> getLastLoginId() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     return prefs.getString('last_login_id');
   }
 
   static Future<Map<String, String>> _headers() async {
+    await _ensureFreshToken();
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
@@ -232,7 +353,8 @@ class ApiService {
     final res = await _post(
       Uri.parse('$baseUrl/auth/worker/login'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'identifier': identifier, 'password': password}),
+      body: jsonEncode({'identifier': identifier, 'password': password, 'client': 'attendance'}),
+      skipRefresh: true,
     );
     try {
       final body = jsonDecode(res.body);
@@ -275,14 +397,14 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>?> getCachedTodayStatus() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString(_todayCacheKey());
     if (data != null) return jsonDecode(data);
     return null;
   }
 
   static Future<void> _cacheTodayStatus(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString(_todayCacheKey(), jsonEncode(data));
   }
 
@@ -302,14 +424,14 @@ class ApiService {
   }
 
   static Future<List<dynamic>?> getCachedHistory() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('cache_history');
     if (data != null) return jsonDecode(data);
     return null;
   }
 
   static Future<void> _cacheHistory(List<dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('cache_history', jsonEncode(data));
   }
 
@@ -391,6 +513,57 @@ class ApiService {
     if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
     if (body is List) return body;
     return body['workers'] ?? [];
+  }
+
+  // Selfie + geo-tagged punch for another employee (used from Help sheet).
+  static Future<Map<String, dynamic>> hrSelfiePunch({
+    required String workerId,
+    required String type,
+    required String selfieBase64,
+    required String mimeType,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final res = await _post(
+      Uri.parse('$baseUrl/attendance/hr-selfie-punch'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'worker_id': workerId,
+        'type': type,
+        'selfie_base64': selfieBase64,
+        'mime_type': mimeType,
+        'latitude': latitude,
+        'longitude': longitude,
+      }),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(body is Map ? (body['message'] ?? 'Punch failed') : 'Punch failed');
+    }
+    return body;
+  }
+
+  // Worker-safe: workers list (scope=all) and today's attendance for everyone.
+  // Available to any authenticated worker — used by the Help sheet.
+  static Future<List<dynamic>> getWorkersScopedAll() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/workers?scope=all'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
+    if (body is List) return body;
+    return body['workers'] ?? [];
+  }
+
+  static Future<List<dynamic>> getTodayAllAttendance() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/attendance/today-all'),
+      headers: await _headers(),
+    );
+    final body = res.body.isEmpty ? null : jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to load today status') : 'Failed to load today status');
+    return body is List ? body : <dynamic>[];
   }
 
   // ---- Admin: worker monthly attendance ----
@@ -509,14 +682,14 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>?> getCachedProfile() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('cache_profile');
     if (data != null) return jsonDecode(data);
     return null;
   }
 
   static Future<void> _cacheProfile(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('cache_profile', jsonEncode(data));
   }
 
@@ -600,7 +773,7 @@ class ApiService {
   }
 
   static Future<List<dynamic>?> getCachedNotifications(String workerId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     final data = prefs.getString('cache_notifications_$workerId');
     if (data != null) return jsonDecode(data);
     return null;
@@ -614,7 +787,7 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception('Failed to get notifications');
     final list = body is List ? body : [];
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setString('cache_notifications_$workerId', jsonEncode(list));
     return list;
   }
@@ -642,7 +815,7 @@ class ApiService {
   }
 
   static Future<int> getCachedUnreadCount(String workerId) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     return prefs.getInt('cache_unread_$workerId') ?? 0;
   }
 
@@ -654,7 +827,7 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception('Failed to get unread count');
     final count = (body['count'] ?? 0) as int;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefsInstance;
     await prefs.setInt('cache_unread_$workerId', count);
     return count;
   }

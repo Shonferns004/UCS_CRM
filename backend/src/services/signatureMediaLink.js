@@ -37,6 +37,21 @@ import { describeStoredObjectUrl, isSafeKey } from './receiptFileLink.js';
 // signed link to some other part of the bucket.
 const SIGNATURE_PREFIX = 'worker-documents/worker_signatures/';
 
+// Profile photos live in the same bucket under worker_photos/, so the same
+// public-access lockdown that broke signature URLs 403s photos too. They are
+// presigned on the way out for the identical reason.
+const PHOTO_PREFIX = 'worker-documents/worker_photos/';
+
+// Notice attachments go through POST /api/upload, which writes to
+// `db.storage.from('whatsapp-media')` and returns getPublicUrl() -- the same
+// unsigned string, stored verbatim in notices.media_url and handed straight back
+// by listNotices. So notice images 403 for exactly the same reason, and this
+// controller was simply never migrated when signatures and photos were.
+// Scoped to this prefix so a bad media_url cannot be turned into a signed link to
+// some other part of the bucket (WhatsApp conversation media lives under the same
+// bucket and is a separate concern with a separate fix).
+const NOTICE_MEDIA_PREFIX = 'whatsapp-media/';
+
 // Long enough to cover an HR session -- the ODAR letter is built in the browser
 // from a worker list fetched when the panel opens, and a volunteer leaving the
 // page open must not silently lose their own signature -- while still expiring
@@ -77,7 +92,7 @@ const isPresigned = (value) => SIGNED_MARKERS.some((m) => value.includes(m));
  * deployment does not manage, or is not a signature object. Callers treat null as
  * "return the stored value unchanged".
  */
-export function locateSignature(stored) {
+function locateWithPrefix(stored, prefix) {
   const value = String(stored ?? '').trim();
   if (!value) return null;
   if (isPresigned(value)) return null;
@@ -91,22 +106,55 @@ export function locateSignature(stored) {
     account = described.account;
     key = described.key;
   } else {
-    // A bare key carries no bucket, so it is resolved against the same account
-    // the single-argument storage calls use. If a future migration stores keys
-    // this is the only line that has to know it.
     const handle = db.storage.raw() || db.storage.raw('head');
     if (!handle) return null;
     account = handle.account;
     key = value;
   }
 
-  // isSafeKey is the reason a prefix check is not enough on its own: S3 resolves
-  // `..` within a key, so `worker_signatures/../../receipts/1.pdf` satisfies
-  // startsWith() and still addresses a different object. Checked for bare keys
-  // here because a URL input has already been through it inside
-  // describeStoredObjectUrl(); applying it to both keeps the invariant local.
-  if (!isSafeKey(key) || !key.startsWith(SIGNATURE_PREFIX)) return null;
+  if (!isSafeKey(key) || !key.startsWith(prefix)) return null;
   return { account, key };
+}
+
+export function locateSignature(stored) {
+  return locateWithPrefix(stored, SIGNATURE_PREFIX);
+}
+
+export function locatePhoto(stored) {
+  return locateWithPrefix(stored, PHOTO_PREFIX);
+}
+
+export function locateNoticeMedia(stored) {
+  return locateWithPrefix(stored, NOTICE_MEDIA_PREFIX);
+}
+
+/**
+ * The signed URL for a notice attachment, or `stored` unchanged when it cannot be
+ * signed. Same two invariants as above: never persisted, never throws, never
+ * blanks a value it does not recognise.
+ */
+export async function presignNoticeMediaUrl(stored) {
+  const original = String(stored ?? '');
+  const located = locateNoticeMedia(original);
+  if (!located) return original;
+
+  const handle = db.storage.raw(located.account);
+  if (!handle) return original;
+
+  try {
+    return await getSignedUrl(
+      handle.client,
+      new GetObjectCommand({ Bucket: handle.bucket, Key: located.key }),
+      { expiresIn: ttlSeconds() }
+    );
+  } catch (e) {
+    console.warn(`[notice-media] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
+    return original;
+  }
+}
+
+export function presignNoticeMediaUrls(list) {
+  return Promise.all((Array.isArray(list) ? list : []).map((v) => presignNoticeMediaUrl(v)));
 }
 
 /**
@@ -133,6 +181,26 @@ export async function presignSignatureUrl(stored) {
     );
   } catch (e) {
     console.warn(`[signature] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
+    return original;
+  }
+}
+
+export async function presignPhotoUrl(stored) {
+  const original = String(stored ?? '');
+  const located = locatePhoto(original);
+  if (!located) return original;
+
+  const handle = db.storage.raw(located.account);
+  if (!handle) return original;
+
+  try {
+    return await getSignedUrl(
+      handle.client,
+      new GetObjectCommand({ Bucket: handle.bucket, Key: located.key }),
+      { expiresIn: ttlSeconds() }
+    );
+  } catch (e) {
+    console.warn(`[photo] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
     return original;
   }
 }

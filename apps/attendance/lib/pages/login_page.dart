@@ -49,6 +49,10 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     try {
       final data = await ApiService.login(_loginCtrl.text.trim(), _passCtrl.text);
       await ApiService.saveToken(data['token']);
+      final refresh = data['refresh_token'];
+      if (refresh is String && refresh.isNotEmpty) {
+        await ApiService.saveRefreshToken(refresh);
+      }
       final userData = data['user'];
       if (userData is Map<String, dynamic>) {
         userData['role'] = data['role'];

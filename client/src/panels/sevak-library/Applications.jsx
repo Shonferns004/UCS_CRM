@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Inbox, FileText, Loader2, Timer,
+  Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Inbox, FileText, Loader2,
   SlidersHorizontal, RefreshCw, Copy, Check, MoreVertical, Eye, Pencil, ShieldCheck,
-  BadgeCheck, Mail, Ban, Trash2
+  BadgeCheck, Mail, Ban, Trash2, Tag, ChevronDown, Clock, Users, IndianRupee,
+  Bell, AlertTriangle, CircleCheck
 } from 'lucide-react'
 import {
-  STATUS_ORDER, statusLabel, statusMeta, PLAN_COLORS, isRenewalDue,
-  daysRemainingForRow, membershipState
+  STATUS_ORDER, statusLabel, PLAN_COLORS, isRenewalDue, daysUntil,
+  daysRemainingForRow, membershipState, toLocalIso
 } from './meta.js'
 import {
   exportApplicationsCsv, getPhotoUrls, sendPaymentReminder, verifyApplication,
@@ -16,18 +17,9 @@ import {
 import { pdfMemberDoc } from './MembershipFormDoc.jsx'
 import { formatINR, formatDate, formatTime, renewalPreview } from './formUtils.js'
 import { useToast } from './toast.jsx'
+import StatCard from './StatCard.jsx'
 
 const PAGE_SIZES = [10, 25, 50, 100]
-
-// Spec §5: compact summary statistics.
-const STAT_DEFS = [
-  { key: 'ALL', label: 'Total', color: '#0B7FDB' },
-  { key: 'SUBMITTED', label: 'Payment Pending', color: '#D97706' },
-  { key: 'PAYMENT_SUBMITTED', label: 'Awaiting Verification', color: '#3B82F6' },
-  { key: 'VERIFIED', label: 'Verified', color: '#16A34A' },
-  { key: 'APPROVED', label: 'Approved', color: '#16A34A' },
-  { key: 'REJECTED', label: 'Rejected', color: '#DC2626' }
-]
 
 const MEMBERSHIP_FILTERS = [
   { key: 'active', label: 'Active' },
@@ -38,6 +30,30 @@ const MEMBERSHIP_FILTERS = [
 const emptyDraft = () => ({
   statuses: [], plans: [], membership: [], from: '', to: '', expiryFrom: '', expiryTo: ''
 })
+
+// Toolbar Time dropdown: filters by application date (created_at).
+const TIME_OPTIONS = [
+  { key: 'all', label: 'All applications' },
+  { key: 'm1', label: 'Last 1 month' },
+  { key: 'm3', label: 'Last 3 months' },
+  { key: 'm6', label: 'Last 6 months' },
+  { key: 'y1', label: 'Last 1 year' }
+]
+
+const timeCutoff = (key) => {
+  const d = new Date()
+  if (key === 'm1') d.setMonth(d.getMonth() - 1)
+  else if (key === 'm3') d.setMonth(d.getMonth() - 3)
+  else if (key === 'm6') d.setMonth(d.getMonth() - 6)
+  else if (key === 'y1') d.setFullYear(d.getFullYear() - 1)
+  return toLocalIso(d).slice(0, 10)
+}
+
+const keyForFrom = (val) => {
+  if (!val) return 'all'
+  for (const k of ['m1', 'm3', 'm6', 'y1']) if (val === timeCutoff(k)) return k
+  return 'custom'
+}
 
 export default function Applications({
   rows, loading = false, onOpen, initialFilters = {}, onRefresh, refreshing = false, refresh
@@ -56,6 +72,7 @@ export default function Applications({
   const [expiryFrom, setExpiryFrom] = useState(initialFilters.expiryFrom || '')
   const [expiryTo, setExpiryTo] = useState(initialFilters.expiryTo || '')
   const [membership, setMembership] = useState([])
+  const [timeKey, setTimeKey] = useState(() => keyForFrom(initialFilters.from || ''))
   const [sortKey, setSortKey] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
   const [page, setPage] = useState(1)
@@ -64,6 +81,8 @@ export default function Applications({
 
   const [selected, setSelected] = useState(() => new Set())
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [openSel, setOpenSel] = useState('')
+  const [alertsOpen, setAlertsOpen] = useState(false)
   const [popPos, setPopPos] = useState(null)
   const [draft, setDraft] = useState(null)
   const [copiedRef, setCopiedRef] = useState('')
@@ -80,6 +99,8 @@ export default function Applications({
   const filterRef = useRef(null)
   const popRef = useRef(null)
   const menuRef = useRef(null)
+  const selRef = useRef(null)
+  const alertsRef = useRef(null)
   const checkAllRef = useRef(null)
 
   const counts = useMemo(() => {
@@ -102,7 +123,69 @@ export default function Applications({
     [planCounts]
   )
 
-  const renewalCount = useMemo(() => rows.filter((r) => isRenewalDue(r)).length, [rows])
+  // Moved from the removed Dashboard tab: totals + revenue for the CURRENT
+  // time filter (from/to, same bounds the table uses). The delta badge compares
+  // the period against the immediately preceding equal-length window; for an
+  // unbounded period ("All applications") it falls back to this-month context.
+  const hero = useMemo(() => {
+    const todayIso = toLocalIso(new Date()).slice(0, 10)
+    const inRange = (iso10, startIso, endIso) => {
+      if (!iso10) return false
+      if (startIso && iso10 < startIso) return false
+      if (endIso && iso10 > endIso) return false
+      return true
+    }
+    const paidInRange = (startIso, endIso) =>
+      rows
+        .filter(
+          (r) =>
+            (r.status === 'VERIFIED' || r.status === 'APPROVED') &&
+            inRange((r.created_at || '').slice(0, 10), startIso, endIso)
+        )
+        .reduce((s, r) => s + (Number(r.membership_fee) || 0) + (Number(r.renewal_fees) || 0), 0)
+
+    const total = rows.filter((r) => inRange((r.created_at || '').slice(0, 10), from, to)).length
+    const newTotal = rows.filter((r) => {
+      const t = new Date(r.created_at || '').getTime()
+      return Number.isFinite(t) && t >= Date.now() - 7 * 86400000
+    }).length
+    const revenue = paidInRange(from, to)
+
+    // Previous equal-length window for the delta badge — only when the period
+    // has a start (pickTime sets from; custom ranges set both ends; '' = all).
+    let revDelta = null
+    if (from) {
+      const startMs = new Date(`${from}T00:00:00`).getTime()
+      const endMs = new Date(`${to || todayIso}T00:00:00`).getTime()
+      const spanDays = Math.max(1, Math.round((endMs - startMs) / 86400000) + 1)
+      const prevEndIso = toLocalIso(new Date(startMs - 86400000)).slice(0, 10)
+      const prevStartIso = toLocalIso(new Date(startMs - spanDays * 86400000)).slice(0, 10)
+      const prev = paidInRange(prevStartIso, prevEndIso)
+      if (prev > 0) revDelta = Math.round(((revenue - prev) / prev) * 100)
+    }
+
+    const monthKey = (offset = 0) => {
+      const d = new Date()
+      d.setDate(1)
+      d.setMonth(d.getMonth() + offset)
+      return toLocalIso(d).slice(0, 7)
+    }
+    const thisMonth = paidInRange(monthKey(0), `${monthKey(0)}-31`)
+    return { total, newTotal, revenue, revDelta, thisMonth }
+  }, [rows, from, to])
+
+  // Bell-icon alerts: renewals due (expiring soon / overdue / expired) + queued work.
+  const alertsData = useMemo(() => {
+    const due = rows
+      .filter((r) => isRenewalDue(r))
+      .map((r) => ({ row: r, days: daysUntil(r.end_date) }))
+      .sort((a, b) => (a.days ?? 0) - (b.days ?? 0))
+    const expired = due.filter((a) => a.days < 0).length
+    const soon = due.length - expired
+    const pending = rows.filter((r) => r.status === 'SUBMITTED').length
+    const awaiting = rows.filter((r) => r.status === 'PAYMENT_SUBMITTED').length
+    return { due, expired, soon, pending, awaiting, total: due.length + pending + awaiting }
+  }, [rows])
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -180,6 +263,26 @@ export default function Applications({
     return () => document.removeEventListener('mousedown', onDown)
   }, [filtersOpen])
 
+  // Close Plan/Time dropdown menus on outside click.
+  useEffect(() => {
+    if (!openSel) return
+    const onDown = (e) => {
+      if (selRef.current && !selRef.current.contains(e.target)) setOpenSel('')
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [openSel])
+
+  // Close the alerts popover on outside click.
+  useEffect(() => {
+    if (!alertsOpen) return
+    const onDown = (e) => {
+      if (alertsRef.current && !alertsRef.current.contains(e.target)) setAlertsOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [alertsOpen])
+
   const positionFilters = () => {
     const btn = filterRef.current?.querySelector('button')
     if (!btn) return
@@ -227,17 +330,19 @@ export default function Applications({
   }, [menuFor])
 
   useEffect(() => {
-    if (!filtersOpen && !menuFor) return
+    if (!filtersOpen && !menuFor && !openSel && !alertsOpen) return
     const onKey = (e) => {
       if (e.key === 'Escape') {
         setFiltersOpen(false)
         setMenuFor(null)
         setMenuConfirm(null)
+        setOpenSel('')
+        setAlertsOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [filtersOpen, menuFor])
+  }, [filtersOpen, menuFor, openSel, alertsOpen])
 
   const clearFilters = () => {
     setQ('')
@@ -249,6 +354,7 @@ export default function Applications({
     setTo('')
     setExpiryFrom('')
     setExpiryTo('')
+    setTimeKey('all')
   }
 
   const openFilters = () => {
@@ -264,10 +370,28 @@ export default function Applications({
     setMembership(draft.membership)
     setFrom(draft.from)
     setTo(draft.to)
+    setTimeKey(keyForFrom(draft.from))
     setExpiryFrom(draft.expiryFrom)
     setExpiryTo(draft.expiryTo)
     setFiltersOpen(false)
   }
+
+  const pickPlan = (p) => {
+    setPlans(p ? [p] : [])
+    setOpenSel('')
+  }
+
+  const pickTime = (key) => {
+    setTimeKey(key)
+    setFrom(key === 'all' ? '' : timeCutoff(key))
+    setTo('')
+    setOpenSel('')
+  }
+
+  const timeLabel =
+    TIME_OPTIONS.find((t) => t.key === timeKey)?.label || 'Custom dates'
+  const planLabel =
+    plans.length === 0 ? 'All plans' : plans.length === 1 ? plans[0] : `${plans.length} plans`
 
   const toggleDraft = (field, value) => {
     setDraft((d) => ({
@@ -283,12 +407,6 @@ export default function Applications({
       setSortKey(key)
       setSortDir('asc')
     }
-  }
-
-  const clickStat = (key) => {
-    setRenewal(false)
-    if (key === 'ALL') setStatuses([])
-    else setStatuses((prev) => (prev.length === 1 && prev[0] === key ? [] : [key]))
   }
 
   const openApp = (row, opts) => {
@@ -316,7 +434,7 @@ export default function Applications({
     setPdfBusy(true)
     try {
       const urls = await Promise.all(
-        approved.map((r) => getPhotoUrls(r.id, 'data').then((u) => (u && u.passport) || null).catch(() => null))
+        approved.map((r) => getPhotoUrls(r.id, 'data').then((u) => u || null).catch(() => null))
       )
       await pdfMemberDoc(approved, urls)
       toast(`Downloaded ${approved.length} membership registration PDF(s).`)
@@ -731,6 +849,118 @@ export default function Applications({
           <p className="admin-sub">Manage membership applications and verification</p>
         </div>
         <div className="admin-view-head-btns">
+          <div className="alerts-wrap" ref={alertsRef}>
+            <button
+              type="button"
+              className={`bell-btn ${alertsOpen ? 'active' : ''}`}
+              onClick={() => setAlertsOpen((o) => !o)}
+              title="Alerts"
+              aria-label="Alerts"
+            >
+              <Bell size={16} />
+              {alertsData.total > 0 && <span className="bell-badge">{alertsData.total}</span>}
+            </button>
+
+            {alertsOpen && (
+              <div className="alerts-pop">
+                <div className="alerts-head">
+                  <strong><Bell size={14} /> Alerts</strong>
+                  <small>{alertsData.total} need attention</small>
+                </div>
+
+                {alertsData.total === 0 ? (
+                  <div className="alerts-empty">
+                    <CircleCheck size={18} /> Nothing needs attention.
+                  </div>
+                ) : (
+                  <>
+                    {alertsData.due.length > 0 && (
+                      <>
+                        <div className="alerts-sec">
+                          <AlertTriangle size={13} /> Renewals due
+                          <em>{alertsData.due.length}</em>
+                        </div>
+                        {alertsData.due.slice(0, 6).map(({ row, days }) => (
+                          <button
+                            key={row.id}
+                            type="button"
+                            className="alert-row"
+                            onClick={() => { setAlertsOpen(false); openApp(row) }}
+                          >
+                            <span className={`alert-dot ${days < 0 ? 'red' : 'amber'}`} />
+                            <span className="alert-main">
+                              <strong>{row.full_name || '—'}</strong>
+                              <small>
+                                {row.ref} ·{' '}
+                                {days < 0
+                                  ? `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago`
+                                  : days === 0
+                                    ? 'Expires today'
+                                    : `Due in ${days} day${days === 1 ? '' : 's'}`}
+                              </small>
+                            </span>
+                            <ChevronRight size={14} />
+                          </button>
+                        ))}
+                        {alertsData.due.length > 6 && (
+                          <button
+                            type="button"
+                            className="alerts-all"
+                            onClick={() => {
+                              setAlertsOpen(false)
+                              setStatuses([])
+                              setRenewal(true)
+                            }}
+                          >
+                            View all {alertsData.due.length} renewals due <ChevronRight size={13} />
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {alertsData.pending > 0 && (
+                      <button
+                        type="button"
+                        className="alert-row"
+                        onClick={() => {
+                          setAlertsOpen(false)
+                          setRenewal(false)
+                          setStatuses(['SUBMITTED'])
+                        }}
+                      >
+                        <span className="alert-dot amber" />
+                        <span className="alert-main">
+                          <strong>{alertsData.pending} payment pending</strong>
+                          <small>Collect fees before approving members</small>
+                        </span>
+                        <ChevronRight size={14} />
+                      </button>
+                    )}
+
+                    {alertsData.awaiting > 0 && (
+                      <button
+                        type="button"
+                        className="alert-row"
+                        onClick={() => {
+                          setAlertsOpen(false)
+                          setRenewal(false)
+                          setStatuses(['PAYMENT_SUBMITTED'])
+                        }}
+                      >
+                        <span className="alert-dot blue" />
+                        <span className="alert-main">
+                          <strong>{alertsData.awaiting} awaiting verification</strong>
+                          <small>Verify submitted transactions</small>
+                        </span>
+                        <ChevronRight size={14} />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
           <button
             className="btn-export btn-export-pdf"
             onClick={printPdf}
@@ -763,24 +993,28 @@ export default function Applications({
         </div>
       ) : (
         <>
-          <div className="sum-cards">
-            {STAT_DEFS.map((s) => {
-              const active =
-                s.key === 'ALL'
-                  ? statuses.length === 0 && !renewal
-                  : statuses.length === 1 && statuses[0] === s.key && !renewal
-              return (
-                <button
-                  key={s.key}
-                  className={`sum-card ${active ? 'active' : ''}`}
-                  style={{ '--sc': s.color }}
-                  onClick={() => clickStat(s.key)}
-                >
-                  <span className="sum-value">{counts[s.key]}</span>
-                  <span className="sum-label">{s.label}</span>
-                </button>
-              )
-            })}
+          <div className="hero-stats">
+            <StatCard
+              icon={<Users size={20} />} label="Total applications" value={hero.total}
+              color="#0ea5e9" dot
+              sub={`${hero.newTotal} new this week`}
+            />
+            <StatCard
+              icon={<IndianRupee size={20} />} label="Revenue collected" value={hero.revenue}
+              color="#8b5cf6"
+              sub={formatINR(hero.revenue)}
+              trend={
+                hero.revDelta !== null
+                  ? {
+                      up: hero.revDelta >= 0,
+                      label: `${Math.abs(hero.revDelta)}% vs previous period`,
+                      color: hero.revDelta >= 0 ? '#15803d' : '#b91c1c'
+                    }
+                  : from
+                    ? { label: 'No revenue in previous period', color: '#5f6368' }
+                    : { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
+              }
+            />
           </div>
 
           <div className="app-toolbar">
@@ -791,6 +1025,64 @@ export default function Applications({
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search by name, reference, email, mobile number..."
               />
+            </div>
+
+            <div className="sel-group" ref={selRef}>
+            <div className="sel-wrap">
+              <button
+                type="button"
+                className={`sel-btn ${plans.length ? 'active' : ''}`}
+                onClick={() => setOpenSel(openSel === 'plan' ? '' : 'plan')}
+              >
+                <Tag size={14} /> {planLabel} <ChevronDown size={14} />
+              </button>
+              {openSel === 'plan' && (
+                <div className="sel-pop">
+                  <button
+                    type="button"
+                    className={`sel-item ${plans.length === 0 ? 'active' : ''}`}
+                    onClick={() => pickPlan('')}
+                  >
+                    All plans <span>{planCounts.ALL}</span>
+                  </button>
+                  {planList.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`sel-item ${plans.length === 1 && plans[0] === p ? 'active' : ''}`}
+                      onClick={() => pickPlan(p)}
+                    >
+                      <i className="sel-dot" style={{ background: PLAN_COLORS[p] || '#9aa0a6' }} />
+                      {p} <span>{planCounts[p]}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="sel-wrap">
+              <button
+                type="button"
+                className={`sel-btn ${timeKey !== 'all' ? 'active' : ''}`}
+                onClick={() => setOpenSel(openSel === 'time' ? '' : 'time')}
+              >
+                <Clock size={14} /> {timeLabel} <ChevronDown size={14} />
+              </button>
+              {openSel === 'time' && (
+                <div className="sel-pop">
+                  {TIME_OPTIONS.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={`sel-item ${timeKey === t.key ? 'active' : ''}`}
+                      onClick={() => pickTime(t.key)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             </div>
 
             <div className="filter-wrap" ref={filterRef}>
@@ -902,68 +1194,6 @@ export default function Applications({
             <button type="button" className="btn-filter" onClick={onRefresh} disabled={refreshing || !onRefresh}>
               <RefreshCw size={15} className={refreshing ? 'spin' : ''} /> Refresh
             </button>
-          </div>
-
-          <div className="status-chips">
-            <button
-              className={`chip ${statuses.length === 0 && !renewal ? 'active' : ''}`}
-              onClick={() => { setStatuses([]); setRenewal(false) }}
-            >
-              All <span>{counts.ALL}</span>
-            </button>
-            {STATUS_ORDER.map((s) => {
-              const m = statusMeta(s)
-              const active = statuses.length === 1 && statuses[0] === s && !renewal
-              return (
-                <button
-                  key={s}
-                  className={`chip chip-status ${active ? 'active' : ''}`}
-                  style={{ '--cc': m.dot, '--csoft': m.soft, '--ctext': m.text }}
-                  onClick={() => { setStatuses([s]); setRenewal(false) }}
-                >
-                  <i className="chip-dot" />
-                  {m.label} <span>{counts[s]}</span>
-                </button>
-              )
-            })}
-            <button
-              className={`chip chip-renewal ${renewal ? 'active' : ''}`}
-              onClick={() => {
-                const next = !renewal
-                setRenewal(next)
-                if (next) setStatuses([])
-              }}
-              title="Approved memberships expiring within 30 days (or already expired)"
-            >
-              <Timer size={13} /> Renewals due <span>{renewalCount}</span>
-            </button>
-            {hasFilters && (
-              <button className="chip chip-clear" onClick={clearFilters}>
-                ✕ Clear filters
-              </button>
-            )}
-          </div>
-
-          <div className="status-chips plan-chips">
-            <button
-              className={`chip ${plans.length === 0 ? 'active' : ''}`}
-              onClick={() => setPlans([])}
-            >
-              All plans <span>{planCounts.ALL}</span>
-            </button>
-            {planList.map((p) => (
-              <button
-                key={p}
-                className={`chip chip-plan ${plans.includes(p) ? 'active' : ''}`}
-                style={{ '--pc': PLAN_COLORS[p] || '#9aa0a6' }}
-                onClick={() =>
-                  setPlans((prev) => (prev.length === 1 && prev[0] === p ? [] : [p]))
-                }
-              >
-                <i className="chip-dot" />
-                {p} <span>{planCounts[p]}</span>
-              </button>
-            ))}
           </div>
 
           {selected.size > 0 && (

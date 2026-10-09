@@ -153,8 +153,10 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       throw Exception('No beneficiary found with this fingerprint. Try again.');
     }
 
-    matches.sort((a, b) =>
-        ((b as Map)['score'] as num).compareTo((a as Map)['score'] as num));
+    matches.sort(
+      (a, b) =>
+          ((b as Map)['score'] as num).compareTo((a as Map)['score'] as num),
+    );
     final best = Map<String, dynamic>.from(matches.first as Map);
     final bestIndex = (best['index'] as num).toInt();
     final beneficiaryId = candidates[bestIndex]['beneficiary_id']?.toString();
@@ -180,8 +182,9 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     setState(() => _matchedBeneficiary = null);
   }
 
-  Future<List<Map<String, dynamic>>> _loadTemplates(
-      {bool force = false}) async {
+  Future<List<Map<String, dynamic>>> _loadTemplates({
+    bool force = false,
+  }) async {
     final cache = _templateCache;
     final cacheValid = cache != null && cache.isNotEmpty;
     if (cacheValid && !force) return cache;
@@ -206,17 +209,17 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     final Color accent = matched
         ? AppColors.successGreen
         : deviceGrey
-            ? AppColors.disabled
-            : _error == null
-                ? AppColors.primaryBlue
-                : AppColors.error;
+        ? AppColors.disabled
+        : _error == null
+        ? AppColors.primaryBlue
+        : AppColors.error;
     final Color accentSoft = matched
         ? AppColors.successGreenSoft
         : deviceGrey
-            ? AppColors.surfaceSoft
-            : _error == null
-                ? AppColors.primaryBlueSoft
-                : AppColors.errorSoft;
+        ? AppColors.surfaceSoft
+        : _error == null
+        ? AppColors.primaryBlueSoft
+        : AppColors.errorSoft;
 
     final Color labelColor;
     final Color labelBg;
@@ -235,18 +238,25 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     final greeting = hour < 12
         ? 'Good Morning'
         : hour < 17
-            ? 'Good Afternoon'
-            : 'Good Evening';
+        ? 'Good Afternoon'
+        : 'Good Evening';
 
     return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(LucideIcons.arrowLeft),
+          tooltip: 'Back',
+          onPressed: () => Navigator.maybePop(context),
+        ),
+      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             final centerY = constraints.maxHeight / 2;
             final String? stateLabel =
                 (_error != null && _error != 'Device not connected')
-                    ? _error
-                    : null;
+                ? _error
+                : null;
             return Stack(
               children: [
                 Positioned(
@@ -260,8 +270,10 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('BEING SEVAK',
-                                style: AppTextStyles.pageLabel),
+                            const Text(
+                              'BEING SEVAK',
+                              style: AppTextStyles.pageLabel,
+                            ),
                             const SizedBox(height: 6),
                             Text(
                               '$greeting, ${widget.name} 👋',
@@ -296,9 +308,11 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                               accentSoft: accentSoft,
                             )
                           : _IdleFingerprintGlyph(
-                              key: ValueKey(matched
-                                  ? 'matched'
-                                  : (_error == null ? 'idle' : 'error')),
+                              key: ValueKey(
+                                matched
+                                    ? 'matched'
+                                    : (_error == null ? 'idle' : 'error'),
+                              ),
                               accent: accent,
                               accentSoft: accentSoft,
                               matched: matched,
@@ -317,7 +331,9 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: labelBg,
                           borderRadius: BorderRadius.circular(14),

@@ -16,6 +16,26 @@ export const releaseOperatorSessions = async (operatorUserId) => {
   return (data || []).length;
 };
 
+// Which FROs this operator is covering RIGHT NOW.
+//
+// Must be read BEFORE releaseOperatorSessions, which returns only a count and
+// closes the rows. The covered FROs' live rows need parking as the cover ends:
+// their row stops being refreshed, the covered-away freeze stops applying the
+// moment the session is released, and any open interval left on it keeps accruing
+// idle for somebody who was never at their desk.
+export const getActiveSessionTargets = async (operatorUserId) => {
+  const op = String(operatorUserId ?? '');
+  if (!op) return [];
+  const { data, error } = await db
+    .from('work_as_sessions')
+    .select('target_fro_worker_id')
+    .eq('operator_user_id', op)
+    .is('released_at', null)
+    .gt('expires_at', new Date().toISOString());
+  if (error) throw error;
+  return [...new Set((data || []).map((r) => r.target_fro_worker_id).filter(Boolean).map(String))];
+};
+
 export const getActiveSessionsForTarget = async (targetWorkerId) => {
   const { data, error } = await db
     .from('work_as_sessions')

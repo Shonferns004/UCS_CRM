@@ -28,6 +28,13 @@ const LETTER_COPY = {
       'Congratulations once again, and welcome aboard!',
     ],
     sign: ['"Sevak Bano – Serving Selfless Service"', 'Selfless Service Towards Nation'],
+    contentOnly: [
+      'We are truly happy to have you join us as a Volunteer and become a part of our journey of selfless service towards society and the Nation.',
+      'By choosing to volunteer, you have taken a meaningful step towards making a difference in the lives of those who need support, dignity, opportunity and care. Your time, skills, compassion and commitment can create an impact far beyond what you may imagine.',
+      'GAP',
+      'We congratulate you on taking this step and look forward to seeing your enthusiasm, dedication and contribution in our various initiatives and community programs.',
+      '🤝 Welcome to the Sevak Family! Together, let us serve with compassion, work with dedication and create a better society.',
+    ],
   },
   MANN: {
     paras: [
@@ -41,6 +48,13 @@ const LETTER_COPY = {
       'Congratulations once again, and welcome aboard!',
     ],
     sign: ['"Empowering Women. Inspiring Change."', 'For a Better, Equal & Empowered Society'],
+    contentOnly: [
+      'We are truly delighted to have you join us as a Volunteer and become a part of our journey towards creating a more equal, empowered and compassionate society for women and girls.',
+      'By choosing to volunteer, you have taken a meaningful step towards supporting women and girls with dignity, confidence, education, health, care and opportunities for a better future. Your time, skills, compassion and commitment can become a source of hope and positive change in someone’s life.',
+      'GAP',
+      'We congratulate you on taking this meaningful step and look forward to your enthusiasm, dedication and valuable contribution to our various initiatives and community programs.',
+      '🤝 Welcome to the {name} Family! Together, let us empower women, inspire girls and create opportunities for a brighter tomorrow.',
+    ],
   },
   AFLF: {
     paras: [
@@ -53,14 +67,43 @@ const LETTER_COPY = {
       'Congratulations once again, and welcome aboard!',
     ],
     sign: ['Be the Ashray – Be the Support', 'Transforming Lives Through Compassion & Action', 'Building a Just, Equitable & Humane Society'],
+    contentOnly: [
+      'We are truly happy to welcome you as a Volunteer and have you join our mission of creating meaningful change, empowering lives and building a more compassionate and self-reliant society.',
+      'By choosing to volunteer, you have taken a meaningful step towards making a difference in the lives of those who need support, dignity, opportunity and care. Your time, skills, compassion and commitment can create an impact far beyond what you may imagine.',
+      'GAP',
+      'We congratulate you on taking this step and look forward to seeing your enthusiasm, dedication and contribution in our various initiatives and community programs.',
+      '🤝 Welcome to the Ashray Family! Together, let us serve with compassion, work with dedication and create a better society.',
+    ],
   },
 };
 
-export default function WelcomeLetter({ ngoName, ngoCode, personal }) {
+export default function WelcomeLetter({ ngoName, ngoCode, personal, contentOnly = false, topMargin = 60 }) {
   const code = (ngoCode || '').toUpperCase().trim();
   const name = LETTERHEAD_NAMES[code] || ngoName || 'Organization';
   const copy = LETTER_COPY[code] || LETTER_COPY.BSCT;
   const fill = (t) => t.replace(/\{name\}/g, name);
+  if (contentOnly) {
+    const paras = (copy.contentOnly || []).map(fill);
+    return (
+      <div className="print-page">
+        <style>{`
+          .wl-content *{margin:0;padding:0;box-sizing:border-box;font-family:"Times New Roman",Times,serif}
+          .wl-content{width:210mm;height:297mm;background:#fff;padding:${topMargin}mm 20mm 10mm;overflow:hidden;text-align:justify}
+          .wl-content p{font-size:15pt;line-height:1.75;margin:0 0 16px}
+          .wl-content .gap{height:18px}
+        `}</style>
+        <div className="wl-content">
+          <p>Dear {personal?.fullName || 'Volunteer'},</p>
+          <div className="gap"></div>
+          {paras.map((line, i) => (
+            line === 'GAP'
+              ? <div className="gap" key={i}></div>
+              : <p key={i}>{line}</p>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="print-page">
       <style>{`

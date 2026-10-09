@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { SimProvider, useSim } from '../sim/store'
-import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal, SimBrandHistoryModal } from '../sim/modals'
+import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal } from '../sim/modals'
 import { ImportModal, DeleteConfirmModal } from '../sim/ImportModal'
 import { deleteSimCard } from '../sim/api'
 import { toast } from '../../../components/Toast'
@@ -29,6 +29,16 @@ const PAGE_META = {
   importexport: ['SIM Management', 'Import / Export', 'Import SIM cards from Excel or export data.'],
 }
 
+/* The four tabs of the SIM Management page, in place of the old sidebar
+   sub-group. Each one is still a real route, so deep links keep working and
+   the browser back button behaves; the tab bar is only the visual switch. */
+const SIM_TABS = [
+  { label: 'Dashboard', path: '/accounts/sim' },
+  { label: 'All SIM Cards', path: '/accounts/sim/inventory' },
+  { label: 'SIM Locker', path: '/accounts/sim/cards' },
+  { label: 'All SIM Owner', path: '/accounts/sim/owner' },
+]
+
 function SectionInner() {
   const sim = useSim()
   const location = useLocation()
@@ -43,7 +53,6 @@ function SectionInner() {
   const [viewCard, setViewCard] = useState(null)
   const [replaceCard, setReplaceCard] = useState(null)
   const [historyCard, setHistoryCard] = useState(null)
-  const [brandHistoryOpen, setBrandHistoryOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [deleteCard, setDeleteCard] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -70,11 +79,10 @@ function SectionInner() {
     return () => window.removeEventListener('resize', publish)
   }, [])
 
-  /* The SIM History overlay no longer covers the sidebar rail (simScope.css), so a
-     nav click can land while it is open. Close every open modal on route change,
-     otherwise the overlay survives the navigation and dims the new page. */
+  /* Modal overlays no longer cover the sidebar rail (simScope.css), so a nav
+     click can land while one is open. Close every open modal on route change,
+     otherwise an overlay survives the navigation and dims the new page. */
   useEffect(() => {
-    setBrandHistoryOpen(false)
     setImportOpen(false)
     setFormOpen(false); setEditing(null)
     setViewCard(null); setReplaceCard(null); setHistoryCard(null)
@@ -126,13 +134,30 @@ function SectionInner() {
     return list
   }
 
+  /* Tab bar: each tab is a real route, so deep links and the back button keep
+     working - the bar is only the visual switch, like Library's tabs. */
+  const isTabActive = (t) => (t === '/accounts/sim' ? isDashboard : location.pathname === t)
+
   return (
     <div className="sim-scope" ref={scopeRef}>
-      <div className="sim-actions" style={{ marginBottom: 16, justifyContent: 'flex-end' }}>
-        {!isOwner && <button className="sim-btn" onClick={() => setBrandHistoryOpen(true)}>
-          {simName === 'Nokia' ? 'Nokia History' : simName === 'Android' ? 'Android History' : 'SIM History'}
-        </button>}
-        {!isOwner && !isDashboard && <>
+      <div className="sim-page-tabs" role="tablist" aria-label="SIM Management">
+        {SIM_TABS.map((t) => {
+          const active = isTabActive(t.path)
+          return (
+            <button
+              key={t.path}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`sim-page-tab${active ? ' is-on' : ''}`}
+              onClick={() => navigate(t.path)}
+            >{t.label}</button>
+          )
+        })}
+      </div>
+
+      {!isOwner && !isDashboard && (
+        <div className="sim-actions" style={{ marginBottom: 16, justifyContent: 'flex-end' }}>
           {!isInventory && <button className="sim-btn" onClick={() => setImportOpen(true)}>Import</button>}
           {simName === 'Android' ? (
             <>
@@ -150,8 +175,8 @@ function SectionInner() {
               <button className="sim-btn" onClick={() => exportToExcel(filteredCards())}>Export</button>
             </>
           )}
-        </>}
-      </div>
+        </div>
+      )}
 
       <Routes>
         <Route index element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
@@ -168,15 +193,9 @@ function SectionInner() {
       </Routes>
 
       <SimFormModal key={formKey} open={formOpen} card={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} />
-      <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard) }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null) } }} />
+      <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard) }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null) } }} onHistory={() => { if (viewCard) { setHistoryCard(viewCard); setViewCard(null) } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
       <SimHistoryModal card={historyCard} open={!!historyCard} onClose={() => setHistoryCard(null)} />
-      <SimBrandHistoryModal
-        open={brandHistoryOpen}
-        initialBrand={simName}
-        onClose={() => setBrandHistoryOpen(false)}
-        onGoToLocker={() => { setBrandHistoryOpen(false); navigate('/accounts/sim/cards') }}
-      />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); sim.refresh() }} />
       <DeleteConfirmModal card={deleteCard} deleting={deleting} onClose={() => { if (!deleting) setDeleteCard(null) }} onConfirm={() => deleteCard && doDelete(deleteCard)} />
     </div>

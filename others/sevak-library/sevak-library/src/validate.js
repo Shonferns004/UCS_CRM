@@ -117,6 +117,11 @@ export function validateField(field, value, allValues) {
     return ''
   }
 
+  if (field.type === 'signature') {
+    if (typeof value === 'string' && value.startsWith('data:image')) return ''
+    return field.required ? (field.errorMsg || 'Please draw your signature.') : ''
+  }
+
   if (field.type === 'checkboxes') {
     if (!value || value.length === 0) {
       return field.required ? 'Please select at least one option.' : ''

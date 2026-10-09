@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import groq from '../config/groq.js';
 import { emitRealtime } from '../socket.js';
+import { presignPhotoUrl } from '../services/signatureMediaLink.js';
 import { randomUUID } from 'crypto';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import {
@@ -319,7 +320,7 @@ export const sendFroBroadcast = async (req, res) => {
       eventId: `fro-bc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       workerId: worker.id,
       workerName: worker.name || 'FRO',
-      photoUrl: worker.photo_url || null,
+      photoUrl: worker.photo_url ? await presignPhotoUrl(worker.photo_url) : null,
       text,
       sentAt: new Date().toISOString(),
     };

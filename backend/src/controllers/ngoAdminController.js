@@ -616,21 +616,26 @@ export const getFroWorkers = async (req, res) => {
       }
     }
 
-    let agentLabelMap = {};
+let agentLabelMap = {};
+    let agentIdMap = {};
     if (workerIds.length > 0) {
       const { data: agentRows, error: agentErr } = await db
         .from('crm_agents')
-        .select('worker_id, label')
+        .select('id, worker_id, label')
         .in('worker_id', workerIds)
         .eq('is_active', true);
       if (agentErr) throw agentErr;
       for (const a of agentRows || []) {
         if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
+        if (a.worker_id && !agentIdMap[a.worker_id]) agentIdMap[a.worker_id] = a.id;
       }
     }
 
-    // Only FROs that actually have an agent show here, always under their
-    // agent's name. FRO rows without an agent are excluded entirely.
+    // Only FROs that actually have an agent show here. `name` stays the volunteer's
+    // real name -- it used to be overwritten with the agent label, which made every
+    // row read "Agent 1" and left the station picker unable to say whose account it
+    // was. The label is reported as agent_label, and the agent as agent_id, so a
+    // caller can show "Agent 1 -- Maya Jadhao" and assign by agent.
     const coveredFroWorkers = froWorkers.filter(w => agentLabelMap[w.id]);
 
     const result = await Promise.all(coveredFroWorkers.map(async (w) => {
@@ -638,7 +643,7 @@ export const getFroWorkers = async (req, res) => {
       const agentName = agentLabelMap[w.id];
       return {
         id: w.id,
-        name: agentName || w.name,
+        name: w.name,
         login_id: w.login_id,
         email: w.email,
         phone: w.phone,
@@ -651,6 +656,7 @@ export const getFroWorkers = async (req, res) => {
         allocated_ngo_ids: allocMap[w.id] || [],
         fro_name: w.name,
         agent_label: agentName || null,
+        agent_id: agentIdMap[w.id] || null,
       };
     }));
 
@@ -838,6 +844,11 @@ export const getTargets = async (req, res) => {
         id: w.id,
         name: w.name,
         login_id: w.login_id,
+        // Absconding a worker sets employment_status/is_active but leaves them in
+        // department 'FRO', so this list still contains them. Forwarded so the board
+        // can mark and sort them out of the way instead of counting someone who left
+        // as an FRO still owing a target.
+        employment_status: w.employment_status || 'active',
         // Echoed so the editor can post an explicit ngo_id instead of relying on
         // the server's fallback; setTarget still falls back to the worker's own
         // ngo_id, and rejects an ngo_id this account may not write for.
@@ -1832,33 +1843,58 @@ export const getStations = async (req, res) => {
     const stationMap = {};
     const displayFroId = (a) => (a.fro_worker_id && a.workers?.is_test !== true) ? a.fro_worker_id : null;
     // Agent labels replace the FRO's raw name in station views.
+    //
+    // The label comes from the station's OWN agent of record (crm_agent_id), not
+    // from asking which agent covers the worker today. A station belongs to a
+    // seat, not to a person: moving that FRO to another agent must not change
+    // who owns the station. The worker_id lookup is kept only as the fallback for
+    // rows written before the column existed.
     const assignmentWorkerIds = [...new Set(assignments.map((a) => a.fro_worker_id).filter(Boolean))];
+    const assignmentAgentIds = [...new Set(assignments.map((a) => a.crm_agent_id).filter(Boolean))];
     let stationAgentLabelMap = {};
-    if (assignmentWorkerIds.length > 0) {
-      const { data: agentRows, error: agentErr } = await db
-        .from('crm_agents')
-        .select('worker_id, label')
-        .in('worker_id', assignmentWorkerIds)
-        .eq('is_active', true);
-      if (agentErr) console.error('[stations] agent label load failed:', agentErr.message);
-      for (const a of agentRows || []) {
+    if (assignmentWorkerIds.length > 0 || assignmentAgentIds.length > 0) {
+      const byWorker = assignmentWorkerIds.length > 0
+        ? db.from('crm_agents').select('worker_id, label, id').in('worker_id', assignmentWorkerIds).eq('is_active', true)
+        : null;
+      const byAgent = assignmentAgentIds.length > 0
+        ? db.from('crm_agents').select('id, label').in('id', assignmentAgentIds)
+        : null;
+      const [byWorkerRes, byAgentRes] = await Promise.all([
+        byWorker || Promise.resolve({ data: [] }),
+        byAgent || Promise.resolve({ data: [] }),
+      ]);
+      if (byWorkerRes.error) console.error('[stations] agent label load failed:', byWorkerRes.error.message);
+      if (byAgentRes.error) console.error('[stations] station agent load failed:', byAgentRes.error.message);
+      for (const a of byAgentRes.data || []) {
+        if (a.id && !stationAgentLabelMap[a.id]) stationAgentLabelMap[a.id] = a.label;
+      }
+      for (const a of byWorkerRes.data || []) {
         if (a.worker_id && !stationAgentLabelMap[a.worker_id]) stationAgentLabelMap[a.worker_id] = a.label;
       }
     }
-    const displayFroName = (a) => {
-      const fid = displayFroId(a);
-      if (!fid) return null;
-      return stationAgentLabelMap[fid] || a.workers?.name || null;
-    };
+    // Two lookups, and the order is the requirement: the station's own record
+    // first, the worker's current agent only when the station has none.
+    const agentLabelFor = (a) => (a.crm_agent_id && stationAgentLabelMap[a.crm_agent_id])
+      || (displayFroId(a) && stationAgentLabelMap[displayFroId(a)])
+      || null;
+    // The station row now reports the FRO of record and the agent of record
+    // as separate fields, so the agent label is no longer substituted into
+    // fro_worker_name here.
 
     for (const a of assignments) {
       const s = a.station.trim();
+      const agentLabel = agentLabelFor(a);
       if (!stationMap[s]) {
         stationMap[s] = {
           station: s,
           ngos: [],
           fro_worker_id: displayFroId(a),
-          fro_worker_name: displayFroName(a),
+          // The volunteer's own name. The agent label is reported separately as
+          // agent_label, because "who sits here" and "who owns this seat" are
+          // different questions now that the two can move independently.
+          fro_worker_name: a.workers?.name || null,
+          crm_agent_id: a.crm_agent_id || null,
+          agent_label: agentLabel,
         };
       }
       stationMap[s].ngos.push({
@@ -1869,7 +1905,13 @@ export const getStations = async (req, res) => {
       // Update FRO if this assignment has one (first non-null wins)
       if (!stationMap[s].fro_worker_id && displayFroId(a)) {
         stationMap[s].fro_worker_id = displayFroId(a);
-        stationMap[s].fro_worker_name = displayFroName(a);
+        stationMap[s].fro_worker_name = a.workers?.name || null;
+      }
+      if (!stationMap[s].crm_agent_id && a.crm_agent_id) {
+        stationMap[s].crm_agent_id = a.crm_agent_id;
+      }
+      if (!stationMap[s].agent_label && agentLabel) {
+        stationMap[s].agent_label = agentLabel;
       }
     }
 
@@ -1881,6 +1923,8 @@ export const getStations = async (req, res) => {
           ngos: [],
           fro_worker_id: null,
           fro_worker_name: null,
+          crm_agent_id: null,
+          agent_label: null,
         };
       }
     }
@@ -2099,6 +2143,25 @@ export const updateStationNgos = async (req, res) => {
     const { ngo_id, fro_worker_id } = req.body;
     const trimmed = station.trim();
 
+    // A station is assigned by AGENT (the seat), not by the person currently
+    // sitting in it. Resolving the agent first means fro_worker_id is derived
+    // and always tracks whichever FRO that agent covers, instead of being
+    // frozen at assignment time and going stale after the next reassignment.
+    let resolvedAgentId = null;
+    let resolvedWorkerId = fro_worker_id || null;
+    const requestedAgentId = req.body?.crm_agent_id ? String(req.body.crm_agent_id) : null;
+    if (requestedAgentId) {
+      const { data: agentRow, error: agentErr } = await db
+        .from('crm_agents')
+        .select('id, worker_id, label')
+        .eq('id', requestedAgentId)
+        .maybeSingle();
+      if (agentErr) throw agentErr;
+      if (!agentRow) return res.status(404).json({ message: 'Agent not found' });
+      resolvedAgentId = agentRow.id;
+      resolvedWorkerId = agentRow.worker_id;
+    }
+
     // Look up the existing station assignment to preserve its ngo_id.
     // Prefer the exact (station, ngo) row so an agent edit on a station that
     // happens to exist under another NGO cannot resolve to the wrong row, then
@@ -2127,14 +2190,15 @@ export const updateStationNgos = async (req, res) => {
         station: trimmed,
         ngo_id: resolvedNgoId,
         assigned_by: req.user.id,
-        fro_worker_id: fro_worker_id || null,
+        fro_worker_id: resolvedWorkerId || null,
+        crm_agent_id: resolvedAgentId,
       }, { onConflict: 'station,ngo_id' });
     if (upsertErr) throw upsertErr;
 
-    // Only an explicit agent assignment rewrites donor FROs. handleNgoChange
-    // sends ngo_id alone, and moving a station between NGOs must not wipe agents.
-    if (Object.prototype.hasOwnProperty.call(req.body, 'fro_worker_id') && resolvedNgoId) {
-      await syncStationAgentToFro(db, resolvedNgoId, trimmed, fro_worker_id || null);
+    // Only an explicit assignment rewrites donor FROs. handleNgoChange sends
+    // ngo_id alone, and moving a station between NGOs must not wipe agents.
+    if ((Object.prototype.hasOwnProperty.call(req.body, 'fro_worker_id') || requestedAgentId) && resolvedNgoId) {
+      await syncStationAgentToFro(db, resolvedNgoId, trimmed, resolvedWorkerId || null);
     }
 
     bustStationCache();
