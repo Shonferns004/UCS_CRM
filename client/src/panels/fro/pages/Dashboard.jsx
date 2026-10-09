@@ -264,6 +264,9 @@ export default function Dashboard() {
     try {
       const res = await getMyCollections(ngoId, targetMonth)
       if (res?.month) setCollectionsMonthLabel(monthLabelOf(res.month))
+      // Keep the whole response, not just its rows: it carries the server-side
+      // total so the modal can show the subtotal of what it rendered.
+      setCollectionsData(res)
       let collectionsByNgo = res?.collections || { all: [] }
       let ngoMap = res?.ngoMap || {}
       
@@ -304,6 +307,9 @@ export default function Dashboard() {
       console.error('Error:', err.message)
       setCollectionsByNgo({ all: [] })
       setNgoMap({})
+      // Cleared with the rows: a total left over from the previous month would
+      // otherwise be shown next to an empty list.
+      setCollectionsData(null)
     } finally {
       setCollectionsLoading(false)
     }
@@ -901,6 +907,13 @@ return (
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
                   {collectionsLoading ? 'Loading…' : `${(collectionsByNgo[selectedCollectionNgo] || []).length} collections`}
                   {collectionsMonthLabel ? ` · ${collectionsMonthLabel}` : ''}
+                  {/* The subtotal of the rows actually shown. Served by the same
+                      loader the Collected card totals, so on the current month
+                      with no NGO filter this must equal the card; if it ever does
+                      not, the number on screen is what was collected. */}
+                  {!collectionsLoading && selectedCollectionNgo === 'all' && collectionsMonth === 'current' && collectionsData?.total != null && (
+                    <span> · {currency(Number(collectionsData.total))} total</span>
+                  )}
                 </div>
                 <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all'); setCollectionSearch('') }}
                   style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
