@@ -844,6 +844,11 @@ export const getTargets = async (req, res) => {
         id: w.id,
         name: w.name,
         login_id: w.login_id,
+        // Absconding a worker sets employment_status/is_active but leaves them in
+        // department 'FRO', so this list still contains them. Forwarded so the board
+        // can mark and sort them out of the way instead of counting someone who left
+        // as an FRO still owing a target.
+        employment_status: w.employment_status || 'active',
         // Echoed so the editor can post an explicit ngo_id instead of relying on
         // the server's fallback; setTarget still falls back to the worker's own
         // ngo_id, and rejects an ngo_id this account may not write for.
