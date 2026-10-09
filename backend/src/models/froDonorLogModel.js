@@ -39,15 +39,21 @@ export const createDonorLog = async (data) => {
   return result;
 };
 
-// Find a same-day disposition log for the same assignment + worker + detail so
+// Find a same-day disposition log for the same assignment + actor + detail so
 // repeat saves (e.g. re-dialing a ringing/busy donor) refresh the existing row
 // instead of piling up identical timeline entries.
-export const findDispositionLogToday = async (assignmentId, workerId, detail, dayStart) => {
+//
+// The actor is matched against operator_id OR fro_worker_id because those columns
+// split by session type: a self-service save records the worker in
+// fro_worker_id, while a work-as save records the covered FRO there and the
+// operator in operator_id. fro_worker_id is foreign-keyed to workers, so it can
+// never hold an agent's or an admin's id.
+export const findDispositionLogToday = async (assignmentId, actorId, detail, dayStart) => {
   const { data, error } = await db
     .from('fro_donor_logs')
     .select('id')
     .eq('assignment_id', assignmentId)
-    .eq('fro_worker_id', workerId)
+    .or(`fro_worker_id.eq.${actorId},operator_id.eq.${actorId}`)
     .eq('action', 'disposition')
     .eq('disposition_detail', detail)
     .gte('created_at', dayStart)
