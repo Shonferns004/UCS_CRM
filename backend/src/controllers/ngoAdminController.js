@@ -5842,8 +5842,9 @@ export const getTLDashboard = async (req, res) => {
     // moment a meeting or admin pause began, and these two reads did not.
     //
     // Now shared, so the three surfaces cannot drift apart again.
-    // idle_since drives the idle status pill and KPI count on this board.
-    const liveCols = `${FRO_IDLE_LIVE_COLS}, idle_since`;
+    // idle_since drives the idle status pill and KPI count on this board, and
+    // today_idle_seconds is the committed day total the IDLE cell falls back to.
+    const liveCols = `${FRO_IDLE_LIVE_COLS}, idle_since, today_idle_seconds`;
     // One row per worker, and that row belongs to the worker themselves: a
     // covering operator writes their own row, so the extra "fetch rows whose
     // work_as_operator_id is in scope" query this used to run is no longer
@@ -6412,6 +6413,14 @@ export const getTLDashboard = async (req, res) => {
       const rowIdleSeconds = ledgerDay
         ? ledgerDay.idle_seconds
         : effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
+      // A fallback that cannot see banked idle silently reads as zero. That is
+      // what today_idle_seconds IS — the committed total — and the shared column
+      // list omits it, so any FRO without a ledger row for today (no panel yet, or
+      // a day before the roll-out) had only the still-open streak to show and
+      // their IDLE cell looked like they had never been idle at all.
+      const idleDisplaySeconds = ledgerDay
+        ? rowIdleSeconds
+        : Math.max(rowIdleSeconds, Number(ls.today_idle_seconds || 0) || 0);
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -6498,7 +6507,11 @@ export const getTLDashboard = async (req, res) => {
         status,
         work_as_operator_name: workAsLabel,
         idleMinutes: Math.floor(idleStreakSeconds / 60),
-        today_idle_seconds: rowIdleSeconds,
+        // The IDLE column is TODAY's total. idleMinutes above is a different
+        // thing — only the stretch running right now — so the two legitimately
+        // disagree while somebody is working; both are shown, they answer
+        // different questions.
+        today_idle_seconds: idleDisplaySeconds,
         // `ls` is the worker's own row, so these need no "acting" branch.
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,
