@@ -1194,10 +1194,10 @@ export default function MonthlyPlanner() {
 
   const ScopeBar = (
     <div className="card" style={{ marginBottom: 0 }}>
-      <div className="card-pad" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <div className="card-pad eh-planner-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div>
           <label style={LABEL}>Important Days Calendar</label>
-          <div style={{ display: 'flex', gap: 6, background: 'var(--eh-tint-1)', padding: 3, borderRadius: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', background: 'var(--eh-tint-1)', padding: 3, borderRadius: 10 }}>
             {['all', 'worldwide', 'india'].map(s => (
               <button
                 key={s}
@@ -1254,7 +1254,7 @@ export default function MonthlyPlanner() {
 
   const FilterBar = (
     <div className="card" style={{ marginBottom: 0 }}>
-      <div className="card-pad" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <div className="card-pad eh-planner-bar" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 200px' }}><label style={LABEL}>Search Events</label><SearchInput value={search} onChange={setSearch} placeholder="Search events, NGO, activity…" /></div>
         <div style={{ width: 170 }}><label style={LABEL}>NGO</label>
           <Select value={filterNgo} onChange={(v) => changeNgo(v)}><option value="">All NGOs</option>{ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}</Select>
