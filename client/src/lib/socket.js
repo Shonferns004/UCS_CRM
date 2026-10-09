@@ -1,12 +1,14 @@
 import { io } from 'socket.io-client'
-import { API_BASE } from './apiBase'
+import { socketBaseUrl } from './apiBase'
 
 let socket = null
 
 function getBaseUrl() {
-  const override = import.meta.env.VITE_SOCKET_URL
-  if (override) return override
-  return API_BASE.replace(/\/api\/?$/, '')
+  // socketBaseUrl() owns the VITE_SOCKET_URL override and the /api strip, and
+  // it stringifies defensively. It used to be inlined here as
+  // `API_BASE.replace(/\/api\/?$/, '')`, which threw a TypeError on every
+  // realtime subscription when client/.env was missing. See lib/apiBase.js.
+  return socketBaseUrl()
 }
 
 function getToken() {

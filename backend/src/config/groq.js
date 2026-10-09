@@ -2,7 +2,44 @@ import Groq from 'groq-sdk';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+/* WHY THE CLIENT IS BUILT LAZILY, ON FIRST USE.
+ *
+ * It used to be `const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })` at
+ * module scope. groq-sdk's constructor throws when the key is empty, and this
+ * module is imported (statically, hoisted) by index.js on the way to a dozen
+ * routes. So one unset optional variable — GROQ_API_KEY — killed the entire
+ * process at startup: the server never listened, nodemon reported "app crashed",
+ * and every unrelated subsystem (auth, attendance, chat, WhatsApp) went down
+ * with it. A missing AI credential must degrade the AI features, not the app.
+ *
+ * The proxy defers construction to the first property access, so an unset key
+ * surfaces as a rejected request inside the caller's own try/catch instead of a
+ * boot crash. Every call site already wraps `groq.chat.completions.create` in a
+ * try/catch, and the message below is phrased to match the "not configured on
+ * this server" pattern in eventHeadController's classifyAiAttempt(), so the UI
+ * reports a configuration gap rather than a generic AI failure.
+ */
+let _client = null;
+
+function getClient() {
+  if (_client) return _client;
+  const apiKey = (process.env.GROQ_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY is not configured on this server — Groq features are unavailable');
+  }
+  _client = new Groq({ apiKey });
+  return _client;
+}
+
+const groq = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      const value = getClient()[prop];
+      return typeof value === 'function' ? value.bind(getClient()) : value;
+    },
+  }
+);
 
 /**
  * The chat model every Groq call in this service uses.

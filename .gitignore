@@ -41,6 +41,30 @@ client/assets/*.properties
 tmp_schema.sql
 aws/main.md
 
+# Plaintext credential dumps (never commit).
+# scripts/aws/cred holds AWS ROOT account keys AND the production RDS password in
+# cleartext prose — its own header says so. Nothing matched before this rule:
+# `.env`/`*.env`/`backend/credentials/` do not cover a file named `cred`, so a
+# single `git add .` would have committed live credentials. Anchored with a
+# leading slash so it matches only at the repo root, not any nested `cred` file
+# that some future package might legitimately ship.
+scripts/aws/cred
+# Belt and braces: same reason, in case the file is ever moved or renamed.
+aws/cred
+aws/*.cred
+aws/credentials*
+
+# SSH private keys (never commit).
+# /key/ucs-backend.pem is the EC2 bastion key the RDS tunnel script uses. Nothing
+# matched before this rule, so `git add .` staged it. Leading slash anchors it to
+# the repo root — the matching public key (.pub) is deliberately NOT ignored, so
+# it stays committable.
+/key/*.pem
+/key/*.ppk
+/key/id_rsa*
+/key/id_ecdsa*
+/key/id_ed25519*
+
 # Flutter / Android build outputs (never commit)
 /build/
 **/build/
@@ -55,8 +79,10 @@ aws/main.md
 
 # Credentials & private keys (never commit)
 # Blocked by GitHub push protection on 2026-10-10: key/aws.txt (AWS access key
-# ID + secret) and scripts/aws/cred (AWS secret) were committed and had to be
-# purged from history. Keep them out from here on.
+# ID + secret) and scripts/aws/cred (AWS secret) were committed. Both files are
+# gone from the working tree, but their blobs are still inside commit 27bf39e2
+# in this branch's history, so a push of master stays rejected until that commit
+# is rewritten. These rules only stop them being re-added.
 *.pem
 *.ppk
 *.key
