@@ -33,7 +33,6 @@ import {
   updateAnnouncementCelebration,
   deleteAnnouncement,
 } from '../models/leadChampionModel.js';
-import { ensureLowLeadRangeActive } from '../bootstrap/ensureSpecialIncentiveSchema.js';
 
 // ─── Settings ──────────────────────────────────────────────
 
@@ -60,10 +59,6 @@ export async function updateSettingsHandler(req, res) {
 
 export async function listSlabsHandler(req, res) {
   try {
-    // Self-heal: guarantee the ₹1–₹20,000 range exists & is active before it is
-    // listed, so a soft-deleted/missing low band reappears the moment the Lead
-    // Incentive page loads (no backend restart required).
-    try { await ensureLowLeadRangeActive(); } catch (e) { console.error('[lead rules heal]', e?.message); }
     const slabs = await getAllSlabs();
     return res.json(slabs);
   } catch (e) {
@@ -260,9 +255,6 @@ export async function stopAllSlabsCompetitionHandler(req, res) {
 
 export async function dailySummaryHandler(req, res) {
   try {
-    // Same self-heal as listSlabsHandler — the page fetches slabs + summary in
-    // parallel, so heal here too to avoid a stale first summary.
-    try { await ensureLowLeadRangeActive(); } catch (e) { console.error('[lead rules heal]', e?.message); }
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     const summary = await getDailySummary(date);
 
