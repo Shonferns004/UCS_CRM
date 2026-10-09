@@ -42,6 +42,16 @@ const SIGNATURE_PREFIX = 'worker-documents/worker_signatures/';
 // presigned on the way out for the identical reason.
 const PHOTO_PREFIX = 'worker-documents/worker_photos/';
 
+// Notice attachments go through POST /api/upload, which writes to
+// `db.storage.from('whatsapp-media')` and returns getPublicUrl() -- the same
+// unsigned string, stored verbatim in notices.media_url and handed straight back
+// by listNotices. So notice images 403 for exactly the same reason, and this
+// controller was simply never migrated when signatures and photos were.
+// Scoped to this prefix so a bad media_url cannot be turned into a signed link to
+// some other part of the bucket (WhatsApp conversation media lives under the same
+// bucket and is a separate concern with a separate fix).
+const NOTICE_MEDIA_PREFIX = 'whatsapp-media/';
+
 // Long enough to cover an HR session -- the ODAR letter is built in the browser
 // from a worker list fetched when the panel opens, and a volunteer leaving the
 // page open must not silently lose their own signature -- while still expiring
@@ -112,6 +122,39 @@ export function locateSignature(stored) {
 
 export function locatePhoto(stored) {
   return locateWithPrefix(stored, PHOTO_PREFIX);
+}
+
+export function locateNoticeMedia(stored) {
+  return locateWithPrefix(stored, NOTICE_MEDIA_PREFIX);
+}
+
+/**
+ * The signed URL for a notice attachment, or `stored` unchanged when it cannot be
+ * signed. Same two invariants as above: never persisted, never throws, never
+ * blanks a value it does not recognise.
+ */
+export async function presignNoticeMediaUrl(stored) {
+  const original = String(stored ?? '');
+  const located = locateNoticeMedia(original);
+  if (!located) return original;
+
+  const handle = db.storage.raw(located.account);
+  if (!handle) return original;
+
+  try {
+    return await getSignedUrl(
+      handle.client,
+      new GetObjectCommand({ Bucket: handle.bucket, Key: located.key }),
+      { expiresIn: ttlSeconds() }
+    );
+  } catch (e) {
+    console.warn(`[notice-media] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
+    return original;
+  }
+}
+
+export function presignNoticeMediaUrls(list) {
+  return Promise.all((Array.isArray(list) ? list : []).map((v) => presignNoticeMediaUrl(v)));
 }
 
 /**
