@@ -2126,7 +2126,7 @@ export const claimSuspenseReceipt = async (req, res) => {
         payment_from: finalFrom,
         pan_number: effectivePan,
         transaction_datetime: finalTxn,
-        created_by: creditWorkerId,
+        created_by: workerId,
       })
       .select()
       .single();
@@ -3417,7 +3417,7 @@ export const createDonorLogHandler = async (req, res) => {
         return isNaN(d.getTime()) ? null : d.toISOString();
       })(),
       accounts_status: null,
-      created_by: creditWorkerId,
+      created_by: workerId,
     };
 
     if (action === 'disposition' && disposition_detail === 'lead_done') {
