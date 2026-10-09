@@ -3222,6 +3222,16 @@
   .panel-event-head .eh-reports-bar > h3 { font-size: 15px; }
   .panel-event-head .eh-reports-actions { width: 100%; }
   .panel-event-head .eh-reports-actions > * { flex: 1 1 100%; justify-content: center; max-width: 100% !important; }
+  /* Monthly Planner: the scope + filter bars set their control widths inline
+     (150/105/170/210/200/110px…), which a selector cannot outrank, so each field
+     is forced to a full line instead of recalculating every inline width. */
+  .panel-event-head .eh-planner-bar > div {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin-left: 0 !important;
+  }
 }
 
 @media (max-width:480px) {
