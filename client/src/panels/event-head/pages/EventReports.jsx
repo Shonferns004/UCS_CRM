@@ -169,7 +169,8 @@ function KeyVal({ label, value }) {
 function Table({ cols, rows }) {
   if (!rows || !rows.length) return <div style={{ color: '#9ca3af', fontSize: 13 }}>No records</div>
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+    <div className="eh-table-scroll" style={{ overflowX: 'auto' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 660 }}>
       <thead>
         <tr>
           {cols.map(c => <th key={c.key} style={{ textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid #d1d5db', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase' }}>{c.label}</th>)}
@@ -183,6 +184,7 @@ function Table({ cols, rows }) {
         ))}
       </tbody>
     </table>
+    </div>
   )
 }
 
@@ -533,6 +535,13 @@ export default function EventReports() {
     finally { setMonthlyLoading(false) }
   }
 
+  // Auto-load the monthly report (all NGOs) when the page opens, so the
+  // report cards appear without a click. The Generate button below is kept
+  // as a manual fallback.
+  useEffect(() => {
+    generateMonthly() /* eslint-disable-line react-hooks/exhaustive-deps */
+  }, [])
+
   const exportMonthlyCSV = () => {
     const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
       ngo: n.ngo_name, event: e.name, sector: e.sector_name, activity: e.activity_name,
@@ -584,11 +593,23 @@ export default function EventReports() {
     try {
       const { default: html2canvas } = await import('html2canvas')
       const { default: jsPDF } = await import('jspdf')
+      await Promise.all(
+        [...el.querySelectorAll('img')].map(img =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise(resolve => {
+                img.onload = () => resolve()
+                img.onerror = () => resolve()
+              })
+        )
+      )
+      await (document.fonts && document.fonts.ready)
       const canvas = await html2canvas(el, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
+        imageTimeout: 15000,
       })
       const imgData = canvas.toDataURL('image/jpeg', 0.95)
       const pdf = new jsPDF('p', 'mm', 'a4')
@@ -606,9 +627,9 @@ export default function EventReports() {
       pdf.addImage(imgData, 'JPEG', margin, margin, contentW, 0)
       heightLeft -= pageHeightPx
       while (heightLeft > 0) {
-        position = heightLeft - pageHeightPx
+        position = heightLeft - pxH
         pdf.addPage()
-        pdf.addImage(imgData, 'JPEG', margin, position * -1 + margin, contentW, 0)
+        pdf.addImage(imgData, 'JPEG', margin, margin + position / pxPerMm, contentW, 0)
         heightLeft -= pageHeightPx
       }
       pdf.save(`monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.pdf`)
@@ -761,7 +782,7 @@ export default function EventReports() {
         <div className="card" style={{ background: '#fff', marginBottom: 20 }} id="eh-all-summary">
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
             <h3>All Events Summary Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>({allData.total || 0} events{statusFilter ? ` · ${statusFilter}` : ''})</span></h3>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button className="btn btn-sm" onClick={downloadPdf}>Download PDF</button>
               <button className="btn btn-sm" onClick={() => exportAllCSV(allData.events || [])}>Download CSV</button>
             </div>
@@ -789,7 +810,7 @@ export default function EventReports() {
       <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
         <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
           <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>· by NGO</span></h3>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <select value={monthlyMonth} onChange={e => setMonthlyMonth(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
               {Array.from({ length: 12 }, (_, i) => { const m = String(i + 1).padStart(2, '0'); return <option key={m} value={m}>{new Date(2000, i, 1).toLocaleString('en-IN', { month: 'long' })}</option> })}
             </select>
@@ -972,7 +993,7 @@ export default function EventReports() {
         <div className="card" style={{ background: '#fff' }}>
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
             <h3>{REPORT_TYPES.find(r => r.id === reportType)?.label}</h3>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button className="btn btn-primary btn-sm" onClick={downloadPdf}>Download PDF</button>
               <button className="btn btn-sm" onClick={exportJSON}>Export JSON</button>
               {reportType === 'expense' && <button className="btn btn-sm" onClick={() => exportCSV(expenseCols, reportData.expenses || [], `expenses-${ev.id}.csv`)}>Export CSV</button>}
@@ -1096,6 +1117,11 @@ export default function EventReports() {
 
           .eh-print-root thead { display:table-header-group; }
           .eh-print-root tr { page-break-inside:avoid; break-inside:avoid; }
+          /* The screen-side scroll wrapper (width:100% + overflow-x:auto + the
+             table's inline min-width) would clip wide tables on paper, so it is
+             disabled for print; the table then flows across the page normally. */
+          .eh-print-root .eh-table-scroll { overflow: visible !important; }
+          .eh-print-root .eh-table-scroll table { min-width: 0 !important; }
           .eh-report-body, .eh-print-brand, .eh-print-footer {
             page-break-inside:avoid; break-inside:avoid;
           }
