@@ -430,6 +430,35 @@ export function nextDeadline(shift, nowMs = Date.now()) {
   return new Date(nowMs + DISPOSITION_WINDOW_SECONDS * 1000).toISOString();
 }
 
+/**
+ * What to do when a FRO signs in again on a different machine.
+ *
+ * The gap between closing one panel and opening the other is not idle: there is
+ * nobody at the keyboard to be idle. But the account has one live row, so the
+ * previous session's interval and its lapsed deadline survive, and the hydrate
+ * would bill from that deadline to this login — which is where a FRO who moved
+ * machines mid-shift was charged 45 minutes she never sat through.
+ *
+ * Returns `{ skip }` when the handover must not happen, otherwise `{ closeAtMs }`
+ * — the last evidence of presence, NEVER the login time. Clamping to login would
+ * bill the gap; clamping to nothing would under-bill a session that really was
+ * open.
+ *
+ * Pure, so the rule is testable without a database.
+ */
+export function sessionHandoverPlan({ panelStillLive = false, lastSeenAtMs = NaN, nowMs = Date.now(), sameIstDay = null } = {}) {
+  // A second tab is still the same live session. Resetting it would hand out a
+  // fresh window to somebody who has not left.
+  if (panelStillLive) return { skip: 'panel_still_live' };
+  if (!Number.isFinite(lastSeenAtMs)) return { skip: 'no_last_seen' };
+  // Another day's session is the day-boundary cleanup's business, not this one.
+  if (typeof sameIstDay === 'boolean' && !sameIstDay) return { skip: 'other_day' };
+  // Last seen in the future means the clock disagrees; leave the row alone rather
+  // than closing an interval at a moment that has not happened.
+  if (lastSeenAtMs > nowMs) return { skip: 'last_seen_in_future' };
+  return { closeAtMs: lastSeenAtMs };
+}
+
 export function dispositionDueMs(row) {
   return toMs(row?.disposition_due_at);
 }
