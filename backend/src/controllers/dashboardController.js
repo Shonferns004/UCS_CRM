@@ -1312,9 +1312,20 @@ export const getSuperAdminAlerts = async (req, res) => {
       // a meeting/pause means an admin is holding the FRO rather than the FRO
       // stalling — neither belongs in this alert.
       const todayIst = istDateStr(now);
+      // A COVERED FRO is not stalling either. Their row is the one the covering
+      // agent's heartbeats land on, so a lapsed deadline on it describes the
+      // agent's timer, not the FRO's — alerting on it pages somebody about a
+      // telecaller who is demonstrably being worked for.
+      let coveredNow = new Set();
+      try {
+        const { data: covers } = await getActiveCoversForTargets((idleRows || []).map(r => r.worker_id));
+        coveredNow = new Set(covers || []);
+      } catch (e) {
+        console.error('Idle alert cover lookup failed:', e.message);
+      }
       const idleFros = (idleRows || []).filter(f =>
         f.status !== 'meeting' && istDateStr(new Date(f.idle_since)) === todayIst
-      );
+      ).filter(f => !coveredNow.has(String(f.worker_id)));
 
       if ((idleFros || []).length > 0) {
         const wIds = idleFros.map(f => f.worker_id);

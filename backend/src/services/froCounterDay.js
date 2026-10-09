@@ -1,14 +1,30 @@
 import db from '../config/db.js';
 import { getShiftWindowMs, istDateStr, liveIdleSeconds, idlePeriodStartMs, counterDayOf, isCounterDayStale } from '../utils/froIdle.js';
-import { dayTotalsForDate } from './froTimeSessions.js';
+import { dayTotalsForDate, getSessionsInRange } from './froTimeSessions.js';
 
 // Authoritative idle for a day, from the interval ledger. Returns null when the
 // ledger has no rows for that day (migration not applied, or a day before the
 // roll-out), so callers keep their legacy-derived fallback for that case.
+//
+// ALWAYS the FRO's own half of the day: dayTotalsForDate defaults to the unstamped
+// intervals, so time an agent spent on their stations is excluded and is not
+// banked against somebody who was never at their desk.
+//
+// "Has no rows" and "has rows, all of them an agent's" must not collapse into the
+// same answer. In the second case the FRO's own idle is genuinely zero, and
+// falling back to the shared live row would hand the agent's idle straight back to
+// the FRO — the exact attribution this exists to prevent. So the unfiltered day is
+// consulted before deciding the fallback applies.
 export async function ledgerIdleForDate(workerId, dateStr, shift = null) {
   try {
     const { hasLedger, totals } = await dayTotalsForDate(workerId, dateStr, { shift });
-    return hasLedger ? totals.idle_seconds : null;
+    if (hasLedger) return totals.idle_seconds;
+
+    const startMs = new Date(`${dateStr}T00:00:00.000+05:30`).getTime();
+    const any = await getSessionsInRange(workerId, startMs, startMs + 24 * 60 * 60 * 1000);
+    if (any.length > 0) return 0;
+
+    return null;
   } catch (_) {
     return null;
   }

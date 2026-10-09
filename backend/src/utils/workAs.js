@@ -15,8 +15,28 @@ export function resolveOperatorIdentity(user) {
   return {
     chained,
     imposterId: chained ? user.imposter_id : user?.id,
-    imposterName: chained ? (user.imposter_name || '') : (user?.name || ''),
+    imposterName: chained ? (user?.imposter_name || '') : (user?.name || ''),
   };
+}
+
+/**
+ * Every identity whose idle clocks must be closed when a session ends.
+ *
+ * Logout used to commit against req.user.id alone, which under a work-as session
+ * is the PAINTED FRO. The heartbeat files on the HUMAN. Those two disagreed, so
+ * signing out of a work-as session banked idle against the wrong person and left
+ * the operator's own interval running to shift end — the "logged out but idle
+ * kept counting" report.
+ *
+ * Both are returned, de-duplicated, so neither can be left accruing. Pure, so the
+ * rule is testable without a session.
+ */
+export function idleIdentitiesToClose({ humanId, paintedId }) {
+  return [...new Set(
+    [humanId, paintedId]
+      .filter((v) => v != null && String(v) !== '')
+      .map(String)
+  )];
 }
 
 // Map operator id -> the one covered row that represents them.

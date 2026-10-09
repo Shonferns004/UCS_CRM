@@ -66,23 +66,28 @@ export function fallbackIntervals(liveRow, shift, nowMs = Date.now()) {
  *   legacyIdleSince       start of the open IDLE interval, else null
  *   hasLedger             whether authoritative intervals exist for today
  */
-export async function computeTimeStatus({ workerId, liveRow, shift, nowMs = Date.now(), pool } = {}) {
+export async function computeTimeStatus({ workerId, liveRow, shift, nowMs = Date.now(), pool, agentId = null } = {}) {
   let sessions = [];
   try {
-    sessions = await getSessionsForDay(workerId, { nowMs, ...(pool ? { pool } : {}) });
+    sessions = await getSessionsForDay(workerId, { nowMs, agentId, ...(pool ? { pool } : {}) });
   } catch (_) {
     // Ledger absent (migration not applied) → fall back to legacy derivation.
     sessions = [];
   }
 
   const hasLedger = sessions.length > 0;
-  const intervals = hasLedger ? sessions : fallbackIntervals(liveRow, shift, nowMs);
+  // An agent asking for their own day with no stamped intervals of their own must
+  // NOT be handed the covered FRO's live row as a fallback: that row is shared, and
+  // the fallback exists only for panels that predate the ledger. Nothing of the
+  // agent's has been recorded, so the honest answer is zero.
+  const useFallback = hasLedger ? false : (agentId == null || agentId === '');
+  const intervals = useFallback ? fallbackIntervals(liveRow, shift, nowMs) : sessions;
   const totals = sumIntervalsByState(intervals, { shift, nowMs });
 
   const open = hasLedger ? sessions.find((s) => !s.ended_at) : null;
-  const state = open?.state || legacyStateOf(liveRow, shift, nowMs);
+  const state = open?.state || (useFallback ? legacyStateOf(liveRow, shift, nowMs) : null);
   const legacyIdleSince = state === TIME_STATES.IDLE
-    ? (open?.started_at || toIso(idlePeriodStartMs(liveRow, nowMs) || nowMs))
+    ? (open?.started_at || (useFallback ? toIso(idlePeriodStartMs(liveRow, nowMs) || nowMs) : toIso(nowMs)))
     : null;
 
   return { state, totals, legacyIdleSince, hasLedger, inShift: withinShift(shift, nowMs) };
