@@ -54,6 +54,31 @@ const SOURCE_STYLE = {
   not_set: { bg: '#fee2e2', color: '#991b1b' },
 };
 
+// Plain labels for the downloaded sheet (the on-screen pills carry extra detail
+// like "month 2" or the source month, which does not belong in a flat column).
+const SOURCE_TEXT = {
+  auto: 'Auto (first 3 months)',
+  manual: 'Set for this month',
+  carried_forward: 'Carried over',
+  not_set: 'Not set',
+};
+
+const csvEscape = (rows) => '\uFEFF' + rows
+  .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+  .join('\r\n');
+
+function downloadCsv(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function SourcePill({ row }) {
   const style = SOURCE_STYLE[row.target_source] || SOURCE_STYLE.not_set;
   const label = (SOURCE_LABEL[row.target_source] || SOURCE_LABEL.not_set)(row);
@@ -220,6 +245,26 @@ export default function FroTargets() {
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   }, [rows, filter, search]);
 
+  const download = useCallback(() => {
+    if (visible.length === 0) { toast('Nothing to download', 'error'); return; }
+    const rows = [
+      [`FRO Monthly Targets — ${fmtMonth(month)}`],
+      ['Generated', new Date().toLocaleString('en-IN')],
+      [],
+      ['FRO Name', 'Login ID', 'Salary', 'Tenure (months)', 'Target', 'Source'],
+      ...visible.map((r) => [
+        r.name || '',
+        r.login_id || '',
+        r.salary ?? '',
+        r.months_employed != null ? r.months_employed + 1 : '',
+        r.target ?? '',
+        SOURCE_TEXT[r.target_source] || r.target_source || '',
+      ]),
+    ];
+    downloadCsv(csvEscape(rows), `fro-targets-${month}.csv`);
+    toast(`Downloaded ${visible.length} FRO target${visible.length === 1 ? '' : 's'}`, 'success');
+  }, [visible, month]);
+
   const th = { padding: '8px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', borderBottom: '1px solid #e5e7eb' };
 
   return (
@@ -239,6 +284,7 @@ export default function FroTargets() {
             onChange={(e) => e.target.value && setMonth(e.target.value)}
             style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6 }}
           />
+          <button className="btn btn-sm btn-outline" onClick={download}>Download</button>
           <button className="btn btn-sm btn-outline" onClick={load}>Refresh</button>
         </div>
       </div>
