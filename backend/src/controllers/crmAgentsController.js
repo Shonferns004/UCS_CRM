@@ -12,6 +12,7 @@ import {
   DEFAULT_AGENT_PASSWORD,
 } from '../models/crmAgentModel.js';
 import { carryAgentStationsToWorker } from '../services/stationAgentOfRecord.js';
+import { commitIdleOnExit } from '../services/froIdleCommit.js';
 
 // Management of CRM login agents ("Agent N").
 //
@@ -127,6 +128,16 @@ const closeFroSessions = async (workerId) => {
   } catch (e) {
     // auth_sessions may be absent until migration 125. The login guard still holds.
     console.warn('[agents] could not close FRO session:', e?.message || String(e));
+  }
+  // Presence is only half of it. Without committing the open idle period, the
+  // FRO's row keeps its lapsed deadline and idle stamp, the covered-away freeze
+  // then stops applying the moment this returns, and the board goes on billing
+  // idle for an FRO who has just been taken off the keyboard — the same gap a
+  // manual sign-out used to have.
+  try {
+    await commitIdleOnExit(String(workerId));
+  } catch (e) {
+    console.warn('[agents] could not commit FRO idle on cover:', e?.message || String(e));
   }
 };
 
@@ -379,6 +390,14 @@ export const forceLogoutCrmAgent = async (req, res) => {
       .update({ logged_out_at: new Date().toISOString() })
       .eq('user_id', String(agent.worker_id))
       .is('logged_out_at', null);
+
+    // Same reason as closeFroSessions: a signed-out session must also stop
+    // accruing idle, or the FRO's row keeps billing them to shift end.
+    try {
+      await commitIdleOnExit(String(agent.worker_id));
+    } catch (e) {
+      console.warn('[agents] idle commit on force-logout failed:', e?.message || String(e));
+    }
 
     return res.json({ message: `${agent.label} signed out` });
   } catch (error) {

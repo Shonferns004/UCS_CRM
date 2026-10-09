@@ -22,7 +22,7 @@ import {
   IDLE_STATES,
   istDateStr,
 } from '../utils/froTimeState.js';
-import { getSessionsInRange } from './froTimeSessions.js';
+import { getSessionsInRange, sessionsForActor } from './froTimeSessions.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -126,9 +126,10 @@ export function enumerateIstDays(fromDate, toDate) {
  * (zero-filled for days with no sessions) plus range totals. Reads the ledger
  * only.
  */
-export async function getIdleReportForWorker({ workerId, from, to, nowMs = Date.now(), pool } = {}) {
+export async function getIdleReportForWorker({ workerId, from, to, nowMs = Date.now(), pool, agentId = null } = {}) {
   const { fromMs, toMs } = istDayRangeToMs(from, to);
-  const intervals = await getSessionsInRange(workerId, fromMs, toMs, pool ? { pool } : {});
+  const fetched = await getSessionsInRange(workerId, fromMs, toMs, pool ? { pool } : {});
+  const intervals = sessionsForActor(fetched, agentId);
   const { dayMap, total } = perDayStateTotals(intervals, { fromMs, toMs, nowMs });
 
   const daily = enumerateIstDays(from, to).map((date) => {
@@ -166,10 +167,11 @@ export function idleSessionsForDay(intervals = [], dateStr, { nowMs = Date.now()
 }
 
 /** Same, but fetches the day's intervals from the ledger first. */
-export async function getIdleSessionsForDay({ workerId, date, nowMs = Date.now(), pool } = {}) {
+export async function getIdleSessionsForDay({ workerId, date, nowMs = Date.now(), pool, agentId = null } = {}) {
   const fromMs = istMidnightMs(date);
   const toMs = fromMs + DAY_MS;
-  const intervals = await getSessionsInRange(workerId, fromMs, toMs, pool ? { pool } : {});
+  const fetched = await getSessionsInRange(workerId, fromMs, toMs, pool ? { pool } : {});
+  const intervals = sessionsForActor(fetched, agentId);
   return { hasLedger: intervals.length > 0, sessions: idleSessionsForDay(intervals, date, { nowMs }) };
 }
 
@@ -177,6 +179,10 @@ export async function getIdleSessionsForDay({ workerId, date, nowMs = Date.now()
  * Total IDLE seconds per worker across an inclusive IST date range, for a set of
  * workers. One SQL aggregate — the per-FRO monthly board must not pull every
  * session row into the app. An open interval is clipped at now().
+ *
+ * `agent_id IS NULL` is load-bearing: this is the FRO's own idle. An agent
+ * working their stations stamps their uuid on the interval, and without this
+ * clause the FRO is billed for time they never spent at their desk.
  */
 export async function getFroIdleTotalsForRange(workerIds, from, to, { pool = db._pool } = {}) {
   const ids = (workerIds || []).map(String).filter(Boolean);
@@ -190,6 +196,7 @@ export async function getFroIdleTotalsForRange(workerIds, from, to, { pool = db.
             ))), 0)::bigint AS idle_seconds
        FROM fro_time_sessions
       WHERE worker_id = ANY($1::uuid[])
+        AND agent_id IS NULL
         AND state IN ('IDLE', 'SLEEPING', 'HIDDEN')
         AND started_at < $3::timestamptz
         AND COALESCE(ended_at, 'infinity'::timestamptz) > $2::timestamptz

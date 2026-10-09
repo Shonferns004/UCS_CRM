@@ -106,6 +106,7 @@ import { ensureCertificateSchema } from './bootstrap/ensureCertificateSchema.js'
 import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js';
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
 import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema.js';
+import { ensureFroTimeSessionsAgentSchema } from './bootstrap/ensureFroTimeSessionsAgentSchema.js';
 import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureChatSchema } from './bootstrap/ensureChatSchema.js';
@@ -1181,6 +1182,7 @@ if (!process.env.VERCEL) {
     await ensureCertificateSchema().catch(e => console.error('ensureCertificateSchema failed:', e?.message || e));
     await ensureNoticeSchema().catch(e => console.error('ensureNoticeSchema failed:', e?.message || e));
     await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));
+await ensureFroTimeSessionsAgentSchema().catch(e => console.error('ensureFroTimeSessionsAgentSchema failed:', e?.message || e));
     await ensureMeetingSchema().catch(e => console.error('ensureMeetingSchema failed:', e?.message || e));
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));

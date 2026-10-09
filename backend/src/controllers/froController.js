@@ -1014,7 +1014,7 @@ export const getMyPerformance = async (req, res) => {
     // Riya's numbers to Priya — and because fro_donor_logs are already credited
     // to the operator during work-as, the calls she actually made were being
     // counted for nobody.
-    const { data: dataCtx, human: humanCtx, isWorkAs } = splitWorkerContext(req.user);
+    const { data: dataCtx, human: humanCtx, isWorkAs, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = dataCtx.id;
     const metricsWorkerId = humanCtx.id;
     // `identityWorkerId` is the long-standing name for "who the strip counts",
@@ -1163,7 +1163,7 @@ export const getMyPerformance = async (req, res) => {
     }
     let idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
     try {
-      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs });
+      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs, agentId: agentCtx?.id ?? null });
       if (ts.hasLedger) idleSeconds = ts.totals.idle_seconds;
     } catch (ledgerErr) {
       console.error('performance strip ledger idle read failed:', ledgerErr.message);
@@ -2170,7 +2170,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     // keyboard's window so it cannot time the FRO out mid-claim. Non-fatal.
     let timer = null;
     try {
-      const { human: humanCtx } = splitWorkerContext(req.user);
+      const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
       timer = await resetLiveWindow(humanCtx.id, { nowMs: Date.now(), dbg: 'claim' });
     } catch (claimTimerErr) {
       console.warn('suspense claim live window reset skipped:', claimTimerErr.message);
@@ -3597,7 +3597,7 @@ export const createDonorLogHandler = async (req, res) => {
     if (action === 'disposition') {
       try {
         const nowMs = Date.now();
-        const { human: humanCtx } = splitWorkerContext(req.user);
+        const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
         timer = await resetLiveWindow(humanCtx.id, { nowMs, dbg: 'disposition' });
         // Record the state-machine transition through the event resolver, not a
         // raw set. DISPOSITION_SUCCESS closes an IDLE (or WORKING) interval and
@@ -3606,7 +3606,7 @@ export const createDonorLogHandler = async (req, res) => {
         // silently end a hold an admin set. The fresh 240s deadline is written by
         // resetLiveWindow above; this only moves the ledger in step with it.
         try {
-          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition' });
+          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition', agentId: agentCtx?.id ?? null });
         } catch (_) { /* ledger absent — non-fatal */ }
       } catch (timerErr) {
         // Non-fatal: the action is already saved; the timer just keeps its
@@ -3633,7 +3633,7 @@ export const createDonorLogHandler = async (req, res) => {
       // advances rather than erroring repeatedly. Still re-arm the human's
       // window so a suppressed duplicate cannot leave them stamped idle.
       try {
-        const { human: humanCtx } = splitWorkerContext(req.user);
+        const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
         await resetLiveWindow(humanCtx.id, { nowMs: Date.now() });
       } catch (dupTimerErr) {
         console.warn('duplicate-suppressed live window reset skipped:', dupTimerErr.message);
@@ -4916,7 +4916,7 @@ export const updateLiveStatus = async (req, res) => {
     // The disposition save (createDonorLogHandler) re-arms through
     // resetLiveWindow on the SAME human id, so a disposition always refreshes
     // the row this heartbeat writes.
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
 
     // Force-logout enforcement: once an admin logs the FRO out (logged_out_at
@@ -5364,7 +5364,7 @@ export const updateLiveStatus = async (req, res) => {
           : isIdleNow(fresh, shift, Date.now()) ? TIME_STATES.IDLE
             : TIME_STATES.WORKING;
     try {
-      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat' });
+      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat', agentId: agentCtx?.id ?? null });
     } catch (ledgerErr) {
       // Not fatal to the heartbeat, but a failure here means the authoritative
       // ledger is not being fed. Surface it instead of swallowing it: an empty
@@ -5374,7 +5374,7 @@ export const updateLiveStatus = async (req, res) => {
 
     let timeStatus = null;
     try {
-      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now() });
+      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now(), agentId: agentCtx?.id ?? null });
     } catch (_) { /* non-fatal */ }
 
     return res.json({
@@ -5416,7 +5416,7 @@ export const updateLiveStatus = async (req, res) => {
 // rather than overwriting one another on the shared row.
 export const getMyProgress = async (req, res) => {
   try {
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
@@ -5430,7 +5430,7 @@ export const getMyProgress = async (req, res) => {
 
 export const saveMyProgress = async (req, res) => {
   try {
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
     const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
     const payload = {
@@ -5517,6 +5517,18 @@ export const logoutAllFros = async (req, res) => {
       } catch (e) {
         // Non-fatal: live status row may not exist for every session.
       }
+      // Fold each session's open idle period into their day BEFORE marking them
+      // offline. This endpoint used to stop at presence: the sessions closed but
+      // the open interval and lapsed deadline stayed on the row, so the board
+      // kept deriving idle for somebody who had just been logged out — the same
+      // complaint as a manual sign-out that never stops.
+      for (const s of sessions) {
+        try {
+          await commitIdleOnExit(String(s.user_id));
+        } catch (e) {
+          // Non-fatal: continue with the rest of the batch.
+        }
+      }
     }
 
     emitRealtime('fro:force-logout', { at: nowIso });
@@ -5567,7 +5579,7 @@ export const resumeOwnPause = async (req, res) => {
     // the two. Both halves of that are gone, so this is a single-row update and
     // the "resume runs on a loop" failure (the panel re-converging to paused
     // because the other row was still paused) cannot recur.
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
     const ids = [String(humanCtx.id)];
@@ -5626,7 +5638,7 @@ export const resumeOwnPause = async (req, res) => {
 // OFF_SHIFT is derived from the shift window rather than reported by the client.
 export const applyFroTimeEvent = async (req, res) => {
   try {
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const event = String(req.body?.event || '');
     const allowed = Object.values(TIME_EVENTS);
     if (!allowed.includes(event)) {
@@ -5635,7 +5647,7 @@ export const applyFroTimeEvent = async (req, res) => {
     const nowMs = Date.now();
     let result;
     try {
-      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event });
+      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event, agentId: agentCtx?.id ?? null });
     } catch (ledgerErr) {
       // The ledger table may not be migrated yet. Fail loud so an operator sees
       // it, but do not silently drop the event onto the legacy columns either.
@@ -5674,7 +5686,7 @@ export const applyFroTimeEvent = async (req, res) => {
     } catch (_) { /* non-fatal */ }
     let timeStatus = null;
     try {
-      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs, agentId: agentCtx?.id ?? null });
     } catch (_) { /* non-fatal */ }
 
     return res.json({
@@ -5704,7 +5716,7 @@ export const getMyLiveStatus = async (req, res) => {
     // The old "merge the operator's paused flag into the target's row" hack is
     // gone for the same reason: there is only one row now, so there is nothing
     // left to merge. A pause on the operator's row is simply read directly.
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('*')
@@ -5763,7 +5775,7 @@ export const getMyLiveStatus = async (req, res) => {
     // there is exactly one idle calculation in the system.
     let timeStatus;
     try {
-      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs, agentId: agentCtx?.id ?? null });
     } catch (timeErr) {
       console.warn('time-status compute skipped:', timeErr.message);
       timeStatus = null;
