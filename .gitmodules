@@ -1,0 +1,3 @@
+[submodule "whtsapp"]
+	path = whtsapp
+	url = https://github.com/jatinjk7054-tech/whtsapp.git
