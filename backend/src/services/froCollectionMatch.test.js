@@ -10,9 +10,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CATEGORY_LABELS,
   buildAgentNameMatches,
   dedupeCollectionReceipts,
   escapeLikePattern,
+  isCategoryLabel,
+  mergeAttributedReceipts,
   normalizeAgentName,
   paymentIdentity,
   receiptMatchesAgentName,
@@ -109,6 +112,94 @@ test('dedupe keeps the first row for a repeated payment and drops the copy', () 
   const kept = dedupeCollectionReceipts([first, copy]);
   assert.equal(kept.length, 1);
   assert.equal(kept[0].mode, 'upi', 'the first sighting wins so the row detail stays stable');
+});
+
+// ---------------------------------------------------------------------------
+// log_id-first attribution
+//
+// receipts.agent_name is free text written by many paths and is NOT a reliable
+// owner: an agent's work-as switch stamps the label "Agent 13", bank-audit and
+// suspense write 'Suspense'/'PG'/free text, and deleting an agent deletes the
+// worker_aliases row that used to resolve its label. receipts.log_id ->
+// fro_donor_logs.fro_worker_id is a hard FK written at collection time, so it is
+// the authoritative owner.
+// ---------------------------------------------------------------------------
+
+test('a receipt linked to this FRO log is credited even when agent_name says otherwise', () => {
+  // The label was stamped by the agent session, or is simply stale. The log is
+  // the owner, so the money must not fall out of this FRO's total.
+  const byLog = [{ id: 'r1', log_id: 7, agent_name: 'Agent 13', amount: 5000, receipt_date: '2026-10-02' }];
+  const byName = [];
+  const merged = mergeAttributedReceipts(byLog, byName);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].attributed_by, 'log');
+  assert.equal(totalCollectionAmount(merged), 5000);
+});
+
+test('a receipt with no log is still credited by name', () => {
+  // Suspense claims and older imports write no log_id. Falling back to the name
+  // is what keeps that money attributed at all.
+  const merged = mergeAttributedReceipts([], [
+    { id: 'r2', log_id: null, agent_name: 'Kshitija Jadhav', amount: 3000, receipt_date: '2026-10-04' },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].attributed_by, 'name');
+  assert.equal(totalCollectionAmount(merged), 3000);
+});
+
+test('a receipt in both windows is credited once, and the log wins', () => {
+  const byLog = [{ id: 'r1', log_id: 7, agent_name: 'Agent 13', amount: 5000, receipt_date: '2026-10-02' }];
+  const byName = [{ id: 'r1', log_id: 7, agent_name: 'Agent 13', amount: 5000, receipt_date: '2026-10-02' }];
+  const merged = mergeAttributedReceipts(byLog, byName);
+  assert.equal(merged.length, 1, 'counted once');
+  assert.equal(merged[0].attributed_by, 'log');
+  assert.equal(totalCollectionAmount(merged), 5000);
+});
+
+test('category labels are never credited to a worker', () => {
+  // 'Suspense' is bank money nobody has claimed. Crediting it to an FRO who
+  // never collected it would inflate a real person's target attainment.
+  for (const label of CATEGORY_LABELS) {
+    assert.equal(isCategoryLabel(label), true, `${label} is a category label`);
+    assert.equal(isCategoryLabel(` ${label.toUpperCase()} `), true, 'case and padding do not matter');
+  }
+  // Even in the pathological case of a worker whose name IS one of these, the
+  // label must not match itself.
+  const matches = buildAgentNameMatches('Suspense');
+  assert.equal(receiptMatchesAgentName('Suspense', matches), false);
+});
+
+test('a real name that merely contains a category word still matches', () => {
+  // Only the whole normalized value is the category; a person called
+  // "Library Anne" is a person.
+  const matches = buildAgentNameMatches('Library Anne');
+  assert.equal(receiptMatchesAgentName('Library Anne', matches), true);
+  assert.equal(isCategoryLabel('Library Anne'), false);
+});
+
+test('one FRO log-linked receipt is not also credited to a colleague by name', () => {
+  // The scenario that made the old total too high: agent_name matched a
+  // colleague while the log named this FRO, or vice versa. Two different FROs,
+  // each keeping only what their own log claims.
+  const mine = mergeAttributedReceipts(
+    [{ id: 'r1', log_id: 7, agent_name: 'Mamta Shah', amount: 1000, receipt_date: '2026-10-01' }],
+    []
+  );
+  const theirs = mergeAttributedReceipts(
+    [{ id: 'r2', log_id: 8, agent_name: 'mamta shah', amount: 4000, receipt_date: '2026-10-01' }],
+    []
+  );
+  assert.equal(totalCollectionAmount(mine), 1000);
+  assert.equal(totalCollectionAmount(theirs), 4000);
+});
+
+test('rows with no id are never counted twice from an unkeyed set', () => {
+  // mergeAttributedReceipts keys on receipt id; a row without one cannot be
+  // deduped, so it must still not be summed twice when the same unkeyed row
+  // arrives from both windows.
+  const unkeyed = [{ amount: 750, receipt_date: '2026-10-03', payment_id: 'P9' }];
+  const merged = mergeAttributedReceipts(unkeyed, unkeyed);
+  assert.equal(totalCollectionAmount(merged), 750, 'payment identity still collapses it');
 });
 
 test('the summed total equals the sum of the rows the list renders', () => {
