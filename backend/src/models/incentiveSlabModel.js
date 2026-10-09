@@ -122,6 +122,32 @@ export const createSlab = async ({ min_amount, max_amount, incentive_amount, amo
 };
 
 export const updateSlab = async (id, { min_amount, max_amount, incentive_amount, amount_to_win, started_at, ended_at }) => {
+  // The unique index on (min_amount, max_amount) also covers soft-deleted rows,
+  // while the controller's overlap check ignores is_active=false. So editing a
+  // slab onto a range held by a deleted "ghost" bypasses validation and then
+  // fails the index. Resolve the collision here: drop inactive ghosts (same
+  // self-heal the dedupe routine uses) or reject an active duplicate clearly.
+  const { data: collisions, error: collErr } = await db
+    .from('incentive_slabs')
+    .select('id, is_active')
+    .eq('min_amount', min_amount)
+    .eq('max_amount', max_amount)
+    .neq('id', id);
+  if (collErr) throw collErr;
+
+  const active = (collisions || []).find(s => s.is_active);
+  if (active) {
+    throw new Error(`A range ₹${Number(min_amount).toLocaleString('en-IN')} – ₹${Number(max_amount).toLocaleString('en-IN')} already exists`);
+  }
+  const ghostIds = (collisions || []).map(s => s.id);
+  if (ghostIds.length > 0) {
+    const { error: delErr } = await db
+      .from('incentive_slabs')
+      .delete()
+      .in('id', ghostIds);
+    if (delErr) throw delErr;
+  }
+
   const patch = {
     min_amount,
     max_amount,
