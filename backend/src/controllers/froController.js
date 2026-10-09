@@ -478,13 +478,13 @@ function realOperatorId(user) {
   return user?.impersonation && user.imposter_id != null ? user.imposter_id : user.id;
 }
 
-async function taggedAssignmentIds(assignmentIds, workerId) {
-  if (!workerId || !Array.isArray(assignmentIds) || assignmentIds.length === 0) return new Set();
+async function taggedAssignmentIds(assignmentIds, operatorId) {
+  if (!operatorId || !Array.isArray(assignmentIds) || assignmentIds.length === 0) return new Set();
   const { data, error } = await db
     .from('fro_donor_logs')
     .select('assignment_id')
     .in('assignment_id', assignmentIds)
-    .eq('fro_worker_id', workerId);
+    .or(`operator_id.eq.${operatorId},fro_worker_id.eq.${operatorId}`);
   if (error) throw error;
   return new Set((data || []).map(l => l.assignment_id));
 }
@@ -2114,7 +2114,10 @@ export const claimSuspenseReceipt = async (req, res) => {
       .insert({
         assignment_id: assignmentId,
         donor_id: donorId,
-        fro_worker_id: creditWorkerId,
+        // Both FK columns hold the covered FRO; the operator is recorded in
+        // operator_id, which carries no FK (see createDonorLogHandler).
+        fro_worker_id: workerId,
+        operator_id: creditWorkerId === workerId ? null : creditWorkerId,
         action: 'disposition',
         disposition_detail: 'lead_done',
         amount_collected: receipt.amount,
@@ -2126,7 +2129,7 @@ export const claimSuspenseReceipt = async (req, res) => {
         payment_from: finalFrom,
         pan_number: effectivePan,
         transaction_datetime: finalTxn,
-        created_by: creditWorkerId,
+        created_by: workerId,
       })
       .select()
       .single();
@@ -3399,7 +3402,11 @@ export const createDonorLogHandler = async (req, res) => {
     const logData = {
       assignment_id: assignment.id,
       donor_id: donorId,
-      fro_worker_id: creditWorkerId,
+      // fro_worker_id and created_by are both FK'd to workers(id), so they hold
+      // the covered FRO. The operator goes in operator_id, which has no FK
+      // because an agent's or admin's id does not exist in workers.
+      fro_worker_id: workerId,
+      operator_id: creditWorkerId === workerId ? null : creditWorkerId,
       action,
       notes: notes || null,
       outcome: outcome || null,
@@ -3417,7 +3424,7 @@ export const createDonorLogHandler = async (req, res) => {
         return isNaN(d.getTime()) ? null : d.toISOString();
       })(),
       accounts_status: null,
-      created_by: creditWorkerId,
+      created_by: workerId,
     };
 
     if (action === 'disposition' && disposition_detail === 'lead_done') {
@@ -3465,6 +3472,12 @@ export const createDonorLogHandler = async (req, res) => {
             remark: logData.remark,
             upi_transaction_id: logData.upi_transaction_id,
             transaction_datetime: logData.transaction_datetime,
+            // Re-attribute the refreshed row to whoever is saving now: the dedupe
+            // above can match a row an agent created earlier today, and without
+            // this the FRO's own save would inherit the agent's operator_id.
+            fro_worker_id: logData.fro_worker_id,
+            operator_id: logData.operator_id,
+            created_by: logData.created_by,
             created_at: new Date().toISOString(),
           });
         } else {
@@ -4381,7 +4394,7 @@ export const getMyHistory = async (req, res) => {
       .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
       .eq('fro_assignments.fro_worker_id', workerId);
     if (req.user.impersonation && req.user.imposter_id != null) {
-      historyQuery = historyQuery.eq('fro_worker_id', realOperatorId(req.user));
+      historyQuery = historyQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
     }
     const { data: logs, error } = await historyQuery
       .order('created_at', { ascending: false })
@@ -6427,7 +6440,7 @@ export const getMyDisposedLeads = async (req, res) => {
       .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
       .eq('fro_assignments.fro_worker_id', workerId);
     if (req.user.impersonation && req.user.imposter_id != null) {
-      disposedQuery = disposedQuery.eq('fro_worker_id', realOperatorId(req.user));
+      disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
     }
     const { data: disposedLogs, error: logErr } = await disposedQuery
       // History is scoped to THIS billing month's work. The daily rollover
