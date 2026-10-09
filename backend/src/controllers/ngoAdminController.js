@@ -29,7 +29,7 @@ import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
-import { dayTotalsForWorkers } from '../services/froTimeSessions.js';
+import { dayTotalsForWorkers, dayTotalsForAgents, agentTotalKey } from '../services/froTimeSessions.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -5842,8 +5842,9 @@ export const getTLDashboard = async (req, res) => {
     // moment a meeting or admin pause began, and these two reads did not.
     //
     // Now shared, so the three surfaces cannot drift apart again.
-    // idle_since drives the idle status pill and KPI count on this board.
-    const liveCols = `${FRO_IDLE_LIVE_COLS}, idle_since`;
+    // idle_since drives the idle status pill and KPI count on this board, and
+    // today_idle_seconds is the committed day total the IDLE cell falls back to.
+    const liveCols = `${FRO_IDLE_LIVE_COLS}, idle_since, today_idle_seconds`;
     // One row per worker, and that row belongs to the worker themselves: a
     // covering operator writes their own row, so the extra "fetch rows whose
     // work_as_operator_id is in scope" query this used to run is no longer
@@ -6329,6 +6330,34 @@ export const getTLDashboard = async (req, res) => {
       console.error('tl-dashboard ledger idle read failed:', ledgerErr.message);
     }
 
+    // Whose idle the IDLE cell should show when somebody else is at the keyboard.
+    //
+    // An agent covering a FRO files their own time against that FRO's stations, and
+    // the covered FRO's own strip shows the AGENT's figure (they are the one at the
+    // panel). Showing the FRO's own banked idle here instead left the two screens
+    // disagreeing for the same row — a covered FRO read 44m on this board while the
+    // panel in front of the agent read 2m, and neither number was wrong; they were
+    // two different people. This row belongs to whoever is actually working it, so
+    // while a cover is live the agent's own today-idle is what this cell reports.
+    const coveringAgentByTarget = new Map();
+    for (const [targetId, covers] of coversByTarget.entries()) {
+      const withLabel = (covers || []).filter((c) => c?.operatorUserId);
+      if (withLabel.length > 0) coveringAgentByTarget.set(String(targetId), withLabel);
+    }
+    let agentTotals = new Map();
+    try {
+      // Keyed by (covered FRO, agent) and clamped to that FRO's shift, because
+      // that is exactly what the agent's own strip does — see dayTotalsForAgents.
+      const pairs = [...coveringAgentByTarget.entries()].flatMap(([targetId, list]) =>
+        list.map((c) => ({ workerId: targetId, agentId: c.operatorUserId })));
+      agentTotals = await dayTotalsForAgents(pairs, {
+        nowMs: now.getTime(),
+        shiftFor: (id) => shiftMap[String(id)] || null,
+      });
+    } catch (agentLedgerErr) {
+      console.error('tl-dashboard agent idle read failed:', agentLedgerErr.message);
+    }
+
     // Collection/target figures for the Telecaller Performance board, from the
     // SAME leaderboard that backs /ngo-admin/fro-performance and the High/Low
     // Performance cards. Resolved here rather than in the browser joining two
@@ -6412,6 +6441,19 @@ export const getTLDashboard = async (req, res) => {
       const rowIdleSeconds = ledgerDay
         ? ledgerDay.idle_seconds
         : effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
+      // A fallback that cannot see banked idle silently reads as zero. That is
+      // what today_idle_seconds IS — the committed total — and the shared column
+      // list omits it, so any FRO without a ledger row for today (no panel yet, or
+      // a day before the roll-out) had only the still-open streak to show and
+      // their IDLE cell looked like they had never been idle at all.
+      const idleDisplaySeconds = ledgerDay
+        ? rowIdleSeconds
+        : Math.max(rowIdleSeconds, Number(ls.today_idle_seconds || 0) || 0);
+      // A live cover wins the IDLE cell: the person at the keyboard is the agent,
+      // and their panel shows this same figure, so the board and the strip agree.
+      const activeCover = coveringAgentByTarget.get(String(w.id))?.[0] || null;
+      const coveringIdle = activeCover ? agentTotals.get(agentTotalKey(w.id, activeCover.operatorUserId)) : null;
+      const idleAttributedTo = activeCover ? (activeCover.operatorName || 'an agent') : null;
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -6498,7 +6540,14 @@ export const getTLDashboard = async (req, res) => {
         status,
         work_as_operator_name: workAsLabel,
         idleMinutes: Math.floor(idleStreakSeconds / 60),
-        today_idle_seconds: rowIdleSeconds,
+        // The IDLE column is TODAY's total. idleMinutes above is a different
+        // thing — only the stretch running right now — so the two legitimately
+        // disagree while somebody is working; both are shown, they answer
+        // different questions.
+        today_idle_seconds: coveringIdle != null ? coveringIdle : idleDisplaySeconds,
+        // Whose time the figure above belongs to, when that is not the FRO. Null
+        // whenever the FRO's own figures are being shown.
+        idle_attributed_to: coveringIdle != null ? idleAttributedTo : null,
         // `ls` is the worker's own row, so these need no "acting" branch.
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,
