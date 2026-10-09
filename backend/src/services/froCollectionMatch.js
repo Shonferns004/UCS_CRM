@@ -71,8 +71,49 @@ export function buildAgentNameMatches(canonicalName, aliasNames = []) {
 export function receiptMatchesAgentName(agentName, matches) {
   const n = normalizeAgentName(agentName);
   if (!n) return false;
+  // A category label is never a person's collection, whatever else matches it.
+  if (isCategoryLabel(n)) return false;
   if (matches instanceof Set) return matches.has(n);
   return normalizeAgentName(matches) === n;
+}
+
+/**
+ * Merges two row sets into one ordered collection, keyed the log_id-first way.
+ *
+ * `byLogId` are receipts whose log links to THIS worker, so their owner is known
+ * from the database rather than inferred from a free-text name. `byName` are the
+ * fallbacks: receipts with no log at all, which can only be attributed by name.
+ *
+ * A receipt present in both is credited once. The log wins, because it is the
+ * authoritative owner -- this is what stops a stale or wrong agent_name from
+ * moving one FRO's money onto another's total.
+ */
+export function mergeAttributedReceipts(byLogId, byName) {
+  const out = [];
+  const ids = new Set();
+  for (const r of byLogId || []) {
+    if (!r) continue;
+    // A receipt always has an id (it is the table's primary key), so a row
+    // without one means the caller handed us a malformed shape. Skipping it
+    // would silently drop real money if that ever changed, so it is passed
+    // through and left to payment-level dedup below.
+    if (r.id != null) {
+      const id = String(r.id);
+      if (ids.has(id)) continue;
+      ids.add(id);
+    }
+    out.push({ ...r, attributed_by: 'log' });
+  }
+  for (const r of byName || []) {
+    if (!r) continue;
+    if (r.id != null) {
+      const id = String(r.id);
+      if (ids.has(id)) continue;
+      ids.add(id);
+    }
+    out.push({ ...r, attributed_by: 'name' });
+  }
+  return dedupeCollectionReceipts(out);
 }
 
 /**
@@ -81,6 +122,18 @@ export function receiptMatchesAgentName(agentName, matches) {
  */
 export const escapeLikePattern = (value) =>
   String(value ?? '').replace(/([\\%_])/g, '\\$1');
+
+// `pg`, `library` and `na` sit alongside 'suspense' in the category-label set the
+// accounts report layer already treats as non-people (accountsController.js:6093).
+// They are deliberately NEVER matched to a worker: the suspense flow depends on
+// them staying unresolved so an unreconciled bank entry is not credited to an FRO
+// who never collected it.
+export const CATEGORY_LABELS = ['suspense', 'pg', 'library', 'na'];
+
+/**
+ * True when a value is a category label rather than a person's name.
+ */
+export const isCategoryLabel = (value) => CATEGORY_LABELS.includes(normalizeAgentName(value));
 
 /**
  * The identity of a payment, for deduplicating the same donation arriving by

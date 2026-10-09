@@ -1,9 +1,10 @@
 import db, { sql } from '../config/db.js';
 import { maybeRefreshSpecialIncentives } from '../services/specialIncentiveService.js';
 import {
+  CATEGORY_LABELS,
   buildAgentNameMatches,
-  dedupeCollectionReceipts,
   escapeLikePattern,
+  mergeAttributedReceipts,
   paymentIdentity,
 } from '../services/froCollectionMatch.js';
 
@@ -175,69 +176,74 @@ const getWorkerAliasNames = async (workerId) => {
  * deduplicated. This is the ONE loader behind both the dashboard's "Collected"
  * card and the "View collections" list.
  *
- * They used to run different queries, which is why the card's headline number
- * and the rows underneath it could disagree:
- *   - the card matched agent_name with `ilike`, where `_` and `%` in a printed
- *     name act as wildcards and leading/trailing spaces never matched;
- *   - the list matched with `lower(btrim(...)) = $3` and had no verified union.
- * Now both call this, so the headline is by construction the sum of the rows.
+ * Attribution is log_id first, name only as a fallback, because
+ * receipts.agent_name is free text written by many paths and cannot be trusted
+ * as the owner:
+ *   - a CRM agent who switches into a FRO's data stamps the LABEL ("Agent 13")
+ *     rather than the FRO's name (authController.js:960, imposter_name);
+ *   - the bank-audit and suspense paths write category labels and free text
+ *     ('Suspense', 'PG', whatever an operator typed);
+ *   - deleteAgent removes the worker_aliases row along with the agent
+ *     (crmAgentModel.js:350), after which historical "Agent 13" receipts match no
+ *     name and no alias and vanish from every total.
  *
- * Two windows are unioned, matching what "collected this month" means to the
- * Verified card: receipts whose receipt_date (transaction date) falls in the
- * window, and receipts whose linked log was verified in the window even though
- * the transaction is older.
+ * receipts.log_id -> fro_donor_logs.fro_worker_id is a hard foreign key written at
+ * collection time, so it survives all of the above. It is therefore authoritative:
+ * a receipt linked to one of this worker's logs belongs to them regardless of what
+ * agent_name says. Only a receipt with no usable log falls back to name matching,
+ * expanded with worker_aliases so an agent label still resolves while its alias
+ * row exists.
+ *
+ * Category labels ('Suspense', 'PG', 'Library', 'NA') are never matched, so
+ * unreconciled bank money is not credited to an FRO who never collected it.
  */
 export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd) => {
-  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
-  if (!worker?.name) return [];
-
   const monthStartDay = String(monthStart).slice(0, 10);
   const monthEndDay = String(monthEnd).slice(0, 10);
+  const RECEIPT_COLS = 'id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id, donor_name, donor_mobile, mode';
 
-  const aliasNames = await getWorkerAliasNames(workerId);
-  const matches = buildAgentNameMatches(worker.name, aliasNames);
-
-  // Names are compared in SQL, so each one is normalized and its LIKE
-  // wildcards escaped before it becomes a pattern.
-  const patterns = [...matches].map((n) => escapeLikePattern(n));
-
-  let receipts = [];
-  if (patterns.length > 0) {
-    const orClause = patterns.map((_, i) => `lower(btrim(agent_name)) = $${i + 4}`).join(' OR ');
-    try {
-      receipts = await sql(
-        `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id, donor_name, donor_mobile, mode
-         FROM receipts
-         WHERE receipt_date >= $1 AND receipt_date <= $2
-           AND (${orClause})`,
-        [monthStartDay, monthEndDay, ...patterns]
-      );
-    } catch (e) { receipts = []; }
-  }
-
-  // Verified this month but backdated. Attributed by the linked log's
-  // fro_worker_id (authoritative) rather than the name, so a variant spelling
-  // cannot hide a verification from its own FRO.
-  let verifiedReceipts = [];
+  // Window 1 - authoritative. The log states the owner, so this needs no name at
+  // all and is immune to a mislabelled agent_name. The date filter stays on
+  // receipt_date (the transaction date): a collection belongs to the month the
+  // money arrived, not the month someone verified it later.
+  let byLogId = [];
   try {
-    verifiedReceipts = await sql(
+    byLogId = await sql(
       `SELECT r.id, r.donor_id, r.amount, r.project_id, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id, r.donor_name, r.donor_mobile, r.mode
        FROM receipts r
        JOIN fro_donor_logs l ON l.id = r.log_id
-       WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
-         AND l.verified_at >= $2 AND l.verified_at <= $3`,
-      [workerId, monthStart, monthEnd]
+       WHERE l.fro_worker_id = $1
+         AND r.receipt_date >= $2 AND r.receipt_date <= $3`,
+      [workerId, monthStartDay, monthEndDay]
     );
-  } catch (e) { verifiedReceipts = []; }
+  } catch (e) { byLogId = []; }
 
-  const byId = new Map();
-  for (const r of receipts || []) byId.set(String(r.id), r);
-  // A row present in both windows must not be counted twice.
-  for (const r of verifiedReceipts || []) {
-    if (r && r.id != null && !byId.has(String(r.id))) byId.set(String(r.id), r);
+  // Window 2 - fallback. Receipts with no usable log can only be attributed by
+  // the printed name, matched exactly against the worker's name plus every
+  // curated alias (migration 080), with LIKE wildcards escaped.
+  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
+  let byName = [];
+  if (worker?.name) {
+    const aliasNames = await getWorkerAliasNames(workerId);
+    const matches = buildAgentNameMatches(worker.name, aliasNames);
+    const patterns = [...matches]
+      .filter((n) => !CATEGORY_LABELS.includes(n))
+      .map((n) => escapeLikePattern(n));
+    if (patterns.length > 0) {
+      const orClause = patterns.map((_, i) => `lower(btrim(agent_name)) = $${i + 4}`).join(' OR ');
+      try {
+        byName = await sql(
+          `SELECT ${RECEIPT_COLS}
+           FROM receipts r
+           WHERE r.receipt_date >= $1 AND r.receipt_date <= $2
+             AND (${orClause})`,
+          [monthStartDay, monthEndDay, ...patterns]
+        );
+      } catch (e) { byName = []; }
+    }
   }
 
-  return dedupeCollectionReceipts([...byId.values()]);
+  return mergeAttributedReceipts(byLogId, byName);
 };
 
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
@@ -245,63 +251,64 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
   return receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
 };
 
-// Same rows as getWorkerCollectionReceipts, but bucketed by day so the daily AKI
-// chart agrees with the Collected card. It cannot just call that loader: a
-// receipt can belong to two different buckets, because the card counts it in the
-// transaction month while this counts a backdated receipt under the day it was
-// VERIFIED. So it re-runs the same two queries (same matching, same verified
-// union) and only differs in which date becomes the bucket key.
+// Same attribution as getWorkerCollectionReceipts -- log_id first, name as a
+// fallback -- so the daily AKI chart and the Collected card can never disagree
+// about who collected what. It cannot simply reuse that loader because the two
+// bucket by different dates: the card counts a collection in the transaction
+// month, while this has historically credited a backdated receipt to the day it
+// was VERIFIED, so the daily AKI days line up with the Verified Today card.
+// That day choice is the only difference; ownership comes from the shared
+// helpers so it cannot drift.
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
-  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
-  if (!worker?.name) return {};
-
   const monthStartDay = String(monthStart).slice(0, 10);
   const monthEndDay = String(monthEnd).slice(0, 10);
 
-  const aliasNames = await getWorkerAliasNames(workerId);
-  const patterns = [...buildAgentNameMatches(worker.name, aliasNames)].map((n) => escapeLikePattern(n));
-
-  let receipts = [];
-  if (patterns.length > 0) {
-    const orClause = patterns.map((_, i) => `lower(btrim(agent_name)) = $${i + 3}`).join(' OR ');
-    try {
-      receipts = await sql(
-        `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id
-         FROM receipts
-         WHERE receipt_date >= $1 AND receipt_date <= $2
-           AND (${orClause})`,
-        [monthStartDay, monthEndDay, ...patterns]
-      );
-    } catch (e) { receipts = []; }
-  }
-
-  // Same verified-in-month union as the card, bucketed by the verification day
-  // so daily AKI days line up with the Verified Today card.
-  let verifiedRows = [];
+  // Authoritative window: linked to this worker's log, in the verified window so
+  // the bucket day can be the verification date.
+  let byLogId = [];
   try {
-    verifiedRows = await sql(
+    byLogId = await sql(
       `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id,
               l.verified_at AS verified_at
        FROM receipts r
        JOIN fro_donor_logs l ON l.id = r.log_id
-       WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
+       WHERE l.fro_worker_id = $1
          AND l.verified_at >= $2 AND l.verified_at <= $3`,
       [workerId, monthStart, monthEnd]
     );
-  } catch (e) { verifiedRows = []; }
-  const mergedById = new Map();
-  for (const r of receipts || []) mergedById.set(String(r.id), { ...r, verified_at: null });
-  // Verified-day version wins when the same receipt appears in both queries.
-  for (const r of verifiedRows || []) {
-    if (r && r.id != null) mergedById.set(String(r.id), r);
+  } catch (e) { byLogId = []; }
+
+  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
+  let byName = [];
+  if (worker?.name) {
+    const aliasNames = await getWorkerAliasNames(workerId);
+    const patterns = [...buildAgentNameMatches(worker.name, aliasNames)]
+      .filter((n) => !CATEGORY_LABELS.includes(n))
+      .map((n) => escapeLikePattern(n));
+    if (patterns.length > 0) {
+      const orClause = patterns.map((_, i) => `lower(btrim(agent_name)) = $${i + 3}`).join(' OR ');
+      try {
+        byName = await sql(
+          `SELECT id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name, log_id
+           FROM receipts
+           WHERE receipt_date >= $1 AND receipt_date <= $2
+             AND (${orClause})`,
+          [monthStartDay, monthEndDay, ...patterns]
+        );
+      } catch (e) { byName = []; }
+    }
   }
 
-  // paymentIdentity is keyed on the payment, not the day, so a payment that
-  // appears under two rows cannot be split across two buckets and counted twice
-  // in the chart's total.
+  // Every receipt credited here is in the window by whichever date applies, and
+  // deduplicated once across both windows before bucketing.
+  const merged = mergeAttributedReceipts(
+    byLogId.map((r) => ({ ...r, verified_at: r.verified_at || null })),
+    byName.map((r) => ({ ...r, verified_at: null })),
+  );
+
   const seenPayments = new Set();
   const byDay = {};
-  for (const r of mergedById.values()) {
+  for (const r of merged) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
     const vDay = r.verified_at ? String(r.verified_at).slice(0, 10) : null;
@@ -474,6 +481,27 @@ export const getRangeCollectionByWorker = async (workerIds, startDay, endDay) =>
     if (!w.name) continue;
     const k = w.name.trim().toLowerCase();
     (byName[k] = byName[k] || []).push(w.id);
+  }
+  // Widen the map with each worker's curated aliases. Without this, a receipt
+  // stamped "Agent 13" (the label an agent's work-as switch writes, see
+  // authController.js:960) matched no name here and was invisible to this
+  // batch total even though worker_aliases still maps it to its FRO.
+  if (workerIds.length > 0) {
+    try {
+      const { data: aliasRows } = await db
+        .from('worker_aliases')
+        .select('alias_name, worker_id')
+        .in('worker_id', workerIds);
+      const known = new Set(workerIds.map(String));
+      for (const a of aliasRows || []) {
+        const k = String(a.alias_name || '').trim().toLowerCase();
+        // Category labels are not people; never let one become a worker key.
+        if (!k || CATEGORY_LABELS.includes(k)) continue;
+        if (!known.has(String(a.worker_id))) continue;
+        const list = (byName[k] = byName[k] || []);
+        if (!list.some((id) => String(id) === String(a.worker_id))) list.push(a.worker_id);
+      }
+    } catch (e) { /* an alias lookup failure must not lose the canonical names */ }
   }
   if (Object.keys(byName).length === 0) return result;
 
