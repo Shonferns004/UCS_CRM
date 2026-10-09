@@ -419,7 +419,11 @@ return (
             <Icon color="#8b5cf6">
               <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
             </Icon>
-            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, flex: 1, textTransform: 'uppercase', letterSpacing: 0.3 }}>Monthly Target</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, flex: 1, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {/* Same window as the Collected card below, and labelled the same way
+                  so the two are visibly a pair. */}
+              Target{ts.month ? ` · ${monthLabel(ts.month)}` : ''}
+            </span>
             <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{currency(target)}</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
@@ -438,7 +442,15 @@ return (
             <Icon color="var(--sage)">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="17" y2="12"/><path d="M17 6v12"/>
             </Icon>
-            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, flex: 1, textTransform: 'uppercase', letterSpacing: 0.3 }}>Collected</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, flex: 1, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {/* The figure is scoped to the current calendar month, but on the
+                  1st it resets to near-zero and on the last day it is a whole
+                  month's work -- which reads like a bug unless the month is
+                  stated. Labelled from the server's own `month` value rather than
+                  recomputed here, so the label cannot drift from the window the
+                  total was actually summed over. */}
+              Collected{ts.month ? ` · ${monthLabel(ts.month)}` : ''}
+            </span>
             <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--sage)' }}>{currency(displayCollected)}</span>
           </div>
           <div style={{ height: 4, borderRadius: 2, background: 'var(--md-outline-variant)', overflow: 'hidden', marginBottom: 4 }}>
