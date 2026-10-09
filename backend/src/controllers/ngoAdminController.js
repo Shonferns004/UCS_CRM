@@ -29,7 +29,7 @@ import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
-import { dayTotalsForWorkers, dayTotalsForAgents } from '../services/froTimeSessions.js';
+import { dayTotalsForWorkers, dayTotalsForAgents, agentTotalKey } from '../services/froTimeSessions.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -6346,8 +6346,14 @@ export const getTLDashboard = async (req, res) => {
     }
     let agentTotals = new Map();
     try {
-      const agentIds = [...new Set([...coveringAgentByTarget.values()].flat().map((c) => c.operatorUserId))];
-      agentTotals = await dayTotalsForAgents(agentIds, { nowMs: now.getTime() });
+      // Keyed by (covered FRO, agent) and clamped to that FRO's shift, because
+      // that is exactly what the agent's own strip does — see dayTotalsForAgents.
+      const pairs = [...coveringAgentByTarget.entries()].flatMap(([targetId, list]) =>
+        list.map((c) => ({ workerId: targetId, agentId: c.operatorUserId })));
+      agentTotals = await dayTotalsForAgents(pairs, {
+        nowMs: now.getTime(),
+        shiftFor: (id) => shiftMap[String(id)] || null,
+      });
     } catch (agentLedgerErr) {
       console.error('tl-dashboard agent idle read failed:', agentLedgerErr.message);
     }
@@ -6446,7 +6452,7 @@ export const getTLDashboard = async (req, res) => {
       // A live cover wins the IDLE cell: the person at the keyboard is the agent,
       // and their panel shows this same figure, so the board and the strip agree.
       const activeCover = coveringAgentByTarget.get(String(w.id))?.[0] || null;
-      const coveringIdle = activeCover ? agentTotals.get(String(activeCover.operatorUserId)) : null;
+      const coveringIdle = activeCover ? agentTotals.get(agentTotalKey(w.id, activeCover.operatorUserId)) : null;
       const idleAttributedTo = activeCover ? (activeCover.operatorName || 'an agent') : null;
 
       // Presence-driven status: an operator actively working a covered panel
