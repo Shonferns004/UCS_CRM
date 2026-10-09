@@ -352,4 +352,43 @@ export async function dayTotalsForWorkers(workerIds, { shiftFor = () => null, no
   return out;
 }
 
+/**
+ * Today's idle totals for AGENTS, keyed by agent uuid.
+ *
+ * An agent has no row in `workers` — that is why their time is stamped on the
+ * covered FRO's intervals in the first place — so this is the only way to ask the
+ * ledger "how much idle has the person actually at the keyboard run up today". The
+ * admin board needs it to show, on a covered FRO's row, the figure belonging to
+ * whoever is really working that queue, which is what the covered FRO's own strip
+ * shows them. One query for every covering agent on the board.
+ */
+export async function dayTotalsForAgents(agentIds, { nowMs = Date.now(), pool = db._pool } = {}) {
+  const ids = [...new Set((agentIds || []).filter(Boolean).map(String))];
+  const out = new Map();
+  if (ids.length === 0) return out;
+  const day = istDayBoundsMs(nowMs);
+  const { rows } = await pool.query(
+    `SELECT agent_id, state, started_at, ended_at
+       FROM fro_time_sessions
+      WHERE agent_id = ANY($1::text[])
+        AND started_at < $3
+        AND COALESCE(ended_at, 'infinity'::timestamptz) > $2
+      ORDER BY started_at ASC`,
+    [ids, toIso(day.startMs), toIso(day.endMs)]
+  );
+  const byAgent = new Map();
+  for (const r of rows) {
+    const k = String(r.agent_id);
+    if (!byAgent.has(k)) byAgent.set(k, []);
+    byAgent.get(k).push(r);
+  }
+  for (const [k, sessions] of byAgent) {
+    // The same first-presence clamp the worker readers use: an interval left open
+    // overnight must not bill an agent for hours before they started.
+    const clamped = clampIdleToFirstPresence(sessions, day.startMs);
+    out.set(k, sumIntervalsByState(clamped, { shift: null, nowMs, dayBounds: day }).idle_seconds);
+  }
+  return out;
+}
+
 export const __internal = { durationSecondsBetween };
