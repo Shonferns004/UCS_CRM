@@ -78,9 +78,47 @@ export function receiptMatchesAgentName(agentName, matches) {
 }
 
 /**
+ * True when a receipt's agent_name names some OTHER real worker.
+ *
+ * The log fallback must never claim a receipt that agent_name already gave to a
+ * different person. receipts.log_id is a link, not an owner: linking a bank
+ * entry to a donor's pending hands the receipt that lead's log, whose
+ * fro_worker_id is the assignment's FRO rather than the collector. Crediting
+ * such a receipt here is how receipt 83746 (agent_name 'Mamta Shah', collected
+ * under a station log) landed in a second FRO's total alongside money that was
+ * genuinely hers.
+ *
+ * An agent label ('Agent 13') or a category label is NOT another person -- those
+ * are precisely the rows the fallback exists to recover, since alias resolution
+ * is not guaranteed. Only a name that resolves to a real worker blocks it.
+ *
+ * resolvers maps a normalized agent_name to the worker id it resolves to, so the
+ * caller decides what "resolves to a real worker" means (exact name or curated
+ * alias) and this stays a pure comparison.
+ */
+export function namesAnotherWorker(agentName, resolvers) {
+  const n = normalizeAgentName(agentName);
+  if (!n) return false;
+  // Blank or a category label: no competing claim.
+  if (isCategoryLabel(n)) return false;
+  // An agent label ('Agent 13') resolves to a worker TOO, so it is in the
+  // resolver set -- but it must not block the fallback, because when a label
+  // fails to resolve the log is the only remaining evidence of who collected.
+  // Blocking here would drop real collections, which is the one failure this
+  // whole function exists to prevent. Only a name that is unambiguously some
+  // other person's counts as a competing claim.
+  if (isAgentLabel(n)) return false;
+  if (resolvers instanceof Map) return resolvers.has(n);
+  if (resolvers instanceof Set) return resolvers.has(n);
+  return false;
+}
+
+/**
  * Merges the two row sets into one deduplicated collection.
  *
- * PRECEDENCE IS NAME FIRST. This was log-first and it was wrong.
+ * PRECEDENCE IS NAME FIRST, AND THE LOG IS A TRUE FALLBACK. This was log-first
+ * and it was wrong; then it was name-first but still additive, which was also
+ * wrong.
  *
  * receipts.log_id is a reliable LINK but not a reliable OWNER. When an operator
  * matches a bank entry to a donor's pending lead (bankAuditController.js:181),
@@ -92,15 +130,19 @@ export function receiptMatchesAgentName(agentName, matches) {
  *
  * So: agent_name wins whenever it resolves to a real person, because on the
  * bank-audit and suspense paths it is what the operator saw and confirmed in the
- * Edit Receipt form. The log is the fallback for receipts whose name is blank or
- * is a category label ('Suspense'/'PG'/'Library'/'NA'), where no name evidence
- * exists and the link is all that is left.
+ * Edit Receipt form. The log is the fallback ONLY where agent_name gives no
+ * person at all -- blank, or a category label ('Suspense'/'PG'/'Library'/'NA').
  *
- * Both sets are queried per worker, so a receipt can only ever land on one
- * person; where both match, it is credited once and tagged with which signal
- * claimed it, so a mismatch is visible rather than silent.
+ * `resolvers` maps a normalized agent_name to the worker id it resolves to for
+ * ANY worker, not just this one. Without it the fallback stayed additive and
+ * pulled another FRO's collection in: Varsha Tambe's card showed ~10,284 against
+ * an actual 7,433, the difference being four BSCT receipts stamped 'Mamta Shah'
+ * that her station's logs also touched. Passing that set is what makes the log a
+ * genuine fallback rather than a second opinion that overrides the name.
+ *
+ * A receipt is then claimed exactly once, tagged with which signal claimed it.
  */
-export function mergeAttributedReceipts(byName, byLogId) {
+export function mergeAttributedReceipts(byName, byLogId, resolvers) {
   const out = [];
   const ids = new Set();
   const take = (rows, tag) => {
@@ -119,7 +161,11 @@ export function mergeAttributedReceipts(byName, byLogId) {
     }
   };
   take(byName, 'name');
-  take(byLogId, 'log');
+  // The fallback yields to any receipt agent_name already gave to a real person.
+  // This is the difference between "name wins" and "name wins and the log may
+  // still add": without it, a receipt stamped with a colleague's name but linked
+  // to this worker's station log is counted on both cards.
+  take((byLogId || []).filter((r) => !namesAnotherWorker(r && r.agent_name, resolvers)), 'log');
   return dedupeCollectionReceipts(out);
 }
 
@@ -141,6 +187,18 @@ export const CATEGORY_LABELS = ['suspense', 'pg', 'library', 'na'];
  * True when a value is a category label rather than a person's name.
  */
 export const isCategoryLabel = (value) => CATEGORY_LABELS.includes(normalizeAgentName(value));
+
+// CRM agent labels ("Agent 13"), written into receipts.agent_name by an agent's
+// work-as switch (authController.js:960) and resolved back to the covered FRO
+// through worker_aliases. Recognised by SHAPE, because the label text is
+// admin-configurable (crmAgentModel.js:131 lets a label be overridden to anything)
+// and must not be matched as a person name.
+const AGENT_LABEL_RE = /^(agent|ag)\s*[:#-]?\s*\d+$/i;
+
+/**
+ * True when a value looks like a CRM agent label rather than a person's name.
+ */
+export const isAgentLabel = (value) => AGENT_LABEL_RE.test(normalizeAgentName(value));
 
 /**
  * The identity of a payment, for deduplicating the same donation arriving by
