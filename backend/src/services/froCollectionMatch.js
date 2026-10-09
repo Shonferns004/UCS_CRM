@@ -78,41 +78,48 @@ export function receiptMatchesAgentName(agentName, matches) {
 }
 
 /**
- * Merges two row sets into one ordered collection, keyed the log_id-first way.
+ * Merges the two row sets into one deduplicated collection.
  *
- * `byLogId` are receipts whose log links to THIS worker, so their owner is known
- * from the database rather than inferred from a free-text name. `byName` are the
- * fallbacks: receipts with no log at all, which can only be attributed by name.
+ * PRECEDENCE IS NAME FIRST. This was log-first and it was wrong.
  *
- * A receipt present in both is credited once. The log wins, because it is the
- * authoritative owner -- this is what stops a stale or wrong agent_name from
- * moving one FRO's money onto another's total.
+ * receipts.log_id is a reliable LINK but not a reliable OWNER. When an operator
+ * matches a bank entry to a donor's pending lead (bankAuditController.js:181),
+ * the receipt inherits that lead's log, and log.fro_worker_id is whoever the
+ * ASSIGNMENT belongs to -- not who collected the cash. A donor sitting on a
+ * station gets a receipt stamped with the collector's name in agent_name while
+ * the log points at the station's FRO. Trusting the log then credited one FRO
+ * with another's collection, which is the exact bug this work set out to remove.
+ *
+ * So: agent_name wins whenever it resolves to a real person, because on the
+ * bank-audit and suspense paths it is what the operator saw and confirmed in the
+ * Edit Receipt form. The log is the fallback for receipts whose name is blank or
+ * is a category label ('Suspense'/'PG'/'Library'/'NA'), where no name evidence
+ * exists and the link is all that is left.
+ *
+ * Both sets are queried per worker, so a receipt can only ever land on one
+ * person; where both match, it is credited once and tagged with which signal
+ * claimed it, so a mismatch is visible rather than silent.
  */
-export function mergeAttributedReceipts(byLogId, byName) {
+export function mergeAttributedReceipts(byName, byLogId) {
   const out = [];
   const ids = new Set();
-  for (const r of byLogId || []) {
-    if (!r) continue;
-    // A receipt always has an id (it is the table's primary key), so a row
-    // without one means the caller handed us a malformed shape. Skipping it
-    // would silently drop real money if that ever changed, so it is passed
-    // through and left to payment-level dedup below.
-    if (r.id != null) {
-      const id = String(r.id);
-      if (ids.has(id)) continue;
-      ids.add(id);
+  const take = (rows, tag) => {
+    for (const r of rows || []) {
+      if (!r) continue;
+      // A receipt always has an id (it is the table's primary key), so a row
+      // without one means the caller handed us a malformed shape. Skipping it
+      // would silently drop real money if that ever changed, so it is passed
+      // through and left to payment-level dedup below.
+      if (r.id != null) {
+        const id = String(r.id);
+        if (ids.has(id)) continue;
+        ids.add(id);
+      }
+      out.push({ ...r, attributed_by: tag });
     }
-    out.push({ ...r, attributed_by: 'log' });
-  }
-  for (const r of byName || []) {
-    if (!r) continue;
-    if (r.id != null) {
-      const id = String(r.id);
-      if (ids.has(id)) continue;
-      ids.add(id);
-    }
-    out.push({ ...r, attributed_by: 'name' });
-  }
+  };
+  take(byName, 'name');
+  take(byLogId, 'log');
   return dedupeCollectionReceipts(out);
 }
 

@@ -115,45 +115,56 @@ test('dedupe keeps the first row for a repeated payment and drops the copy', () 
 });
 
 // ---------------------------------------------------------------------------
-// log_id-first attribution
+// Name-first attribution
 //
-// receipts.agent_name is free text written by many paths and is NOT a reliable
-// owner: an agent's work-as switch stamps the label "Agent 13", bank-audit and
-// suspense write 'Suspense'/'PG'/free text, and deleting an agent deletes the
-// worker_aliases row that used to resolve its label. receipts.log_id ->
-// fro_donor_logs.fro_worker_id is a hard FK written at collection time, so it is
-// the authoritative owner.
+// receipts.log_id is a reliable LINK but not a reliable OWNER: linking a bank
+// entry to a donor's pending lead (bankAuditController.js:181) hands the receipt
+// that lead's log, and log.fro_worker_id is the ASSIGNMENT's FRO, not whoever
+// collected the cash. Trusting the log credited one FRO with another's
+// collection -- reported as receipt 83746 (agent_name "Mamta Shah" landing in
+// Varsha Tambe's total). So the name wins whenever it resolves to a person.
 // ---------------------------------------------------------------------------
 
-test('a receipt linked to this FRO log is credited even when agent_name says otherwise', () => {
-  // The label was stamped by the agent session, or is simply stale. The log is
-  // the owner, so the money must not fall out of this FRO's total.
-  const byLog = [{ id: 'r1', log_id: 7, agent_name: 'Agent 13', amount: 5000, receipt_date: '2026-10-02' }];
-  const byName = [];
-  const merged = mergeAttributedReceipts(byLog, byName);
-  assert.equal(merged.length, 1);
-  assert.equal(merged[0].attributed_by, 'log');
-  assert.equal(totalCollectionAmount(merged), 5000);
-});
-
-test('a receipt with no log is still credited by name', () => {
-  // Suspense claims and older imports write no log_id. Falling back to the name
-  // is what keeps that money attributed at all.
-  const merged = mergeAttributedReceipts([], [
-    { id: 'r2', log_id: null, agent_name: 'Kshitija Jadhav', amount: 3000, receipt_date: '2026-10-04' },
-  ]);
+test('a name naming this FRO beats a log owned by someone else', () => {
+  // The reported bug. Mamta collected it; the donor's pending lead belonged to
+  // Varsha's assignment, so the log points at Varsha. The confirmed agent_name
+  // is the operator's own record and must win.
+  const byName = [{ id: 'r1', log_id: 7, agent_name: 'Mamta Shah', amount: 50, receipt_date: '2026-10-02' }];
+  const byLog = [];   // this worker's own log query finds nothing
+  const merged = mergeAttributedReceipts(byName, byLog);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].attributed_by, 'name');
-  assert.equal(totalCollectionAmount(merged), 3000);
+  assert.equal(totalCollectionAmount(merged), 50, 'the 50 rupees stay with the named FRO');
 });
 
-test('a receipt in both windows is credited once, and the log wins', () => {
-  const byLog = [{ id: 'r1', log_id: 7, agent_name: 'Agent 13', amount: 5000, receipt_date: '2026-10-02' }];
-  const byName = [{ id: 'r1', log_id: 7, agent_name: 'Agent 13', amount: 5000, receipt_date: '2026-10-02' }];
-  const merged = mergeAttributedReceipts(byLog, byName);
-  assert.equal(merged.length, 1, 'counted once');
+test('the same receipt linked to a different FRO log is not double-credited', () => {
+  // Both workers query it -- Varsha via the log, Mamta via the name. Each gets
+  // their own list, and within one worker it is credited exactly once.
+  const byName = [{ id: 'r1', log_id: 7, agent_name: 'Mamta Shah', amount: 50, receipt_date: '2026-10-02' }];
+  const byLog = [{ id: 'r1', log_id: 7, agent_name: 'Mamta Shah', amount: 50, receipt_date: '2026-10-02' }];
+  const merged = mergeAttributedReceipts(byName, byLog);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].attributed_by, 'name');
+  assert.equal(totalCollectionAmount(merged), 50);
+});
+
+test('a receipt with no resolvable name falls back to its log', () => {
+  // Blank agent_name, or a category label: no name evidence exists, so the link
+  // is all that is left and this money must not vanish.
+  const merged = mergeAttributedReceipts(
+    [],
+    [{ id: 'r3', log_id: 9, agent_name: 'Suspense', amount: 2500, receipt_date: '2026-10-05' }]
+  );
+  assert.equal(merged.length, 1);
   assert.equal(merged[0].attributed_by, 'log');
-  assert.equal(totalCollectionAmount(merged), 5000);
+  assert.equal(totalCollectionAmount(merged), 2500);
+});
+
+test('an agent label still resolves while its alias row exists', () => {
+  // agent_name is still needed, because an agent's work-as switch stamps
+  // "Agent 13" (authController.js:960) and worker_aliases maps it to the FRO.
+  const matches = buildAgentNameMatches('Mamta Shah', ['Agent 13']);
+  assert.equal(receiptMatchesAgentName('Agent 13', matches), true);
 });
 
 test('category labels are never credited to a worker', () => {
@@ -177,20 +188,17 @@ test('a real name that merely contains a category word still matches', () => {
   assert.equal(isCategoryLabel('Library Anne'), false);
 });
 
-test('one FRO log-linked receipt is not also credited to a colleague by name', () => {
-  // The scenario that made the old total too high: agent_name matched a
-  // colleague while the log named this FRO, or vice versa. Two different FROs,
-  // each keeping only what their own log claims.
-  const mine = mergeAttributedReceipts(
+test('two FROs each keep only their own collection', () => {
+  const mamta = mergeAttributedReceipts(
     [{ id: 'r1', log_id: 7, agent_name: 'Mamta Shah', amount: 1000, receipt_date: '2026-10-01' }],
     []
   );
-  const theirs = mergeAttributedReceipts(
-    [{ id: 'r2', log_id: 8, agent_name: 'mamta shah', amount: 4000, receipt_date: '2026-10-01' }],
+  const varsha = mergeAttributedReceipts(
+    [{ id: 'r2', log_id: 8, agent_name: 'Varsha Tambe', amount: 4000, receipt_date: '2026-10-01' }],
     []
   );
-  assert.equal(totalCollectionAmount(mine), 1000);
-  assert.equal(totalCollectionAmount(theirs), 4000);
+  assert.equal(totalCollectionAmount(mamta), 1000);
+  assert.equal(totalCollectionAmount(varsha), 4000);
 });
 
 test('rows with no id are never counted twice from an unkeyed set', () => {

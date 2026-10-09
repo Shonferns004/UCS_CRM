@@ -176,23 +176,27 @@ const getWorkerAliasNames = async (workerId) => {
  * deduplicated. This is the ONE loader behind both the dashboard's "Collected"
  * card and the "View collections" list.
  *
- * Attribution is log_id first, name only as a fallback, because
- * receipts.agent_name is free text written by many paths and cannot be trusted
- * as the owner:
- *   - a CRM agent who switches into a FRO's data stamps the LABEL ("Agent 13")
- *     rather than the FRO's name (authController.js:960, imposter_name);
- *   - the bank-audit and suspense paths write category labels and free text
- *     ('Suspense', 'PG', whatever an operator typed);
- *   - deleteAgent removes the worker_aliases row along with the agent
- *     (crmAgentModel.js:350), after which historical "Agent 13" receipts match no
- *     name and no alias and vanish from every total.
+ * Attribution is NAME first, log_id only as a fallback -- deliberately reversed
+ * from an earlier version of this file, which trusted the log and credited one
+ * FRO with another FRO's collection.
  *
- * receipts.log_id -> fro_donor_logs.fro_worker_id is a hard foreign key written at
- * collection time, so it survives all of the above. It is therefore authoritative:
- * a receipt linked to one of this worker's logs belongs to them regardless of what
- * agent_name says. Only a receipt with no usable log falls back to name matching,
- * expanded with worker_aliases so an agent label still resolves while its alias
- * row exists.
+ * receipts.log_id is a reliable LINK but not a reliable OWNER. When an operator
+ * matches a bank entry to a donor's pending lead (bankAuditController.js:181),
+ * the receipt inherits that lead's log, and log.fro_worker_id is whoever the
+ * ASSIGNMENT belongs to -- not who collected the cash. A donor on a station
+ * produces a receipt whose agent_name is the real collector while the log points
+ * at the station's FRO.
+ *
+ * So agent_name wins whenever it resolves to a real person: on the bank-audit and
+ * suspense paths that is the name the operator saw and confirmed in the Edit
+ * Receipt form. The log is used only when the name is blank or is a category
+ * label, where there is no name evidence at all.
+ *
+ * agent_name still cannot be trusted blindly -- a CRM agent's work-as switch
+ * stamps the label "Agent 13" rather than a name (authController.js:960), and the
+ * bank-audit and suspense paths write 'Suspense'/'PG'/free text -- so the name
+ * query is alias-expanded (migration 080) and category labels are excluded
+ * outright, leaving unreconciled bank money credited to nobody.
  *
  * Category labels ('Suspense', 'PG', 'Library', 'NA') are never matched, so
  * unreconciled bank money is not credited to an FRO who never collected it.
@@ -203,9 +207,9 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
   const RECEIPT_COLS = 'id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id, donor_name, donor_mobile, mode';
 
   // Window 1 - authoritative. The log states the owner, so this needs no name at
-  // all and is immune to a mislabelled agent_name. The date filter stays on
-  // receipt_date (the transaction date): a collection belongs to the month the
-  // money arrived, not the month someone verified it later.
+  // all and is immune to a mislabelled agent_name. Only consulted for receipts
+  // whose name gave us nothing (blank, or a category label like 'Suspense'),
+  // so it can never override a name an operator actually confirmed.
   let byLogId = [];
   try {
     byLogId = await sql(
@@ -218,9 +222,10 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
     );
   } catch (e) { byLogId = []; }
 
-  // Window 2 - fallback. Receipts with no usable log can only be attributed by
-  // the printed name, matched exactly against the worker's name plus every
-  // curated alias (migration 080), with LIKE wildcards escaped.
+  // Window 2 - primary. Receipts whose printed agent_name names this worker (or
+  // one of their curated aliases), matched exactly with LIKE wildcards escaped.
+  // Category labels are excluded so 'Suspense' bank money is never credited to a
+  // person.
   const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
   let byName = [];
   if (worker?.name) {
@@ -243,7 +248,7 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
     }
   }
 
-  return mergeAttributedReceipts(byLogId, byName);
+  return mergeAttributedReceipts(byName, byLogId);
 };
 
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
@@ -251,7 +256,7 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
   return receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
 };
 
-// Same attribution as getWorkerCollectionReceipts -- log_id first, name as a
+// Same attribution as getWorkerCollectionReceipts -- name first, log as a
 // fallback -- so the daily AKI chart and the Collected card can never disagree
 // about who collected what. It cannot simply reuse that loader because the two
 // bucket by different dates: the card counts a collection in the transaction
@@ -264,7 +269,8 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
   const monthEndDay = String(monthEnd).slice(0, 10);
 
   // Authoritative window: linked to this worker's log, in the verified window so
-  // the bucket day can be the verification date.
+  // the bucket day can be the verification date. Fallback only, for receipts whose
+  // name resolved to nobody.
   let byLogId = [];
   try {
     byLogId = await sql(
@@ -302,8 +308,8 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
   // Every receipt credited here is in the window by whichever date applies, and
   // deduplicated once across both windows before bucketing.
   const merged = mergeAttributedReceipts(
-    byLogId.map((r) => ({ ...r, verified_at: r.verified_at || null })),
     byName.map((r) => ({ ...r, verified_at: null })),
+    byLogId.map((r) => ({ ...r, verified_at: r.verified_at || null })),
   );
 
   const seenPayments = new Set();
