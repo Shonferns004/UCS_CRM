@@ -4,9 +4,105 @@ import {
   withinShift, dispositionDueMs,
 } from '../utils/froIdle.js';
 import { isCoveredAway } from './froCoverFreeze.js';
+import { idleIdentitiesToClose } from '../utils/workAs.js';
 import { rollCountersForNewDay, writeDailySnapshot, isCounterDayStale, ledgerIdleForDate } from './froCounterDay.js';
 import { closeOpenSession, getOpenSession } from './froTimeSessions.js';
 import { isHeldState } from '../utils/froTimeState.js';
+
+// Park a person's live idle state: stop accrual NOW without inventing or
+// destroying the time they genuinely banked.
+//
+// `closeAtMs` is the moment the interval is closed at. For a session handover
+// that is the last evidence we had of presence (their last heartbeat), NOT the
+// moment they logged in again — otherwise the hours between closing one laptop
+// and opening another are billed as idle, which is how a FRO who switched devices
+// mid-shift came to be charged 45 minutes she never sat through.
+//
+// `rearmGrace` clears settle_until as well, so the next heartbeat hands back a
+// fresh settle-in grace and then the ordinary window. Without it a row parked
+// mid-day would have a spent grace and arm its window from a deadline that is
+// already in the past, so the person would be re-billed from the moment they
+// arrived.
+//
+// today_idle_seconds is deliberately untouched: that is real, already-banked
+// idle and belongs to the day it happened on.
+export async function parkIdleState(workerId, {
+  nowMs = Date.now(),
+  closeAtMs = null,
+  reason = 'parked',
+  rearmGrace = true,
+  clearCurrent = false,
+} = {}) {
+  const id = String(workerId ?? '');
+  if (!id) return { changed: false };
+
+  const endMs = Number.isFinite(closeAtMs) ? Math.min(closeAtMs, nowMs) : nowMs;
+
+  try {
+    await closeOpenSession(id, { atMs: endMs, reason });
+  } catch (e) {
+    console.warn('[froIdleCommit] park ledger close failed:', e?.message || String(e));
+  }
+
+  const patch = {
+    idle_since: null,
+    disposition_due_at: null,
+    updated_at: new Date(nowMs).toISOString(),
+  };
+  if (rearmGrace) patch.settle_until = null;
+  if (clearCurrent) {
+    patch.current_donor_id = null;
+    patch.call_started_at = null;
+  }
+
+  try {
+    const { data } = await db
+      .from('fro_live_status')
+      .update(patch)
+      .eq('worker_id', id)
+      .select('worker_id');
+    return { changed: Array.isArray(data) ? data.length > 0 : false };
+  } catch (e) {
+    console.warn('[froIdleCommit] park live-row update failed:', e?.message || String(e));
+    return { changed: false };
+  }
+}
+
+// End every idle clock a session was responsible for, for the identity that was
+// actually at the keyboard.
+//
+// Logout used to commit against req.user.id, which is the PAINTED account — the
+// covered FRO during a work-as session. The heartbeat, meanwhile, files on the
+// human (splitWorkerContext). Those two disagreed, so signing out of a work-as
+// session banked idle against the wrong person and left the operator's own open
+// interval running to shift end. This resolves the human the same way the
+// heartbeat does and closes both identities when they differ, so neither is left
+// accruing after the session is gone.
+export async function endSessionIdle(user, { nowMs = Date.now(), capMs = null } = {}) {
+  const painted = user?.id ?? null;
+  let human = painted;
+  try {
+    // Imported lazily to keep this module free of a cycle: utils/workAs.js is
+    // pure and imports nothing from here, but froController imports both.
+    const { splitWorkerContext } = await import('../utils/workAs.js');
+    human = splitWorkerContext(user)?.human?.id ?? painted;
+  } catch (e) {
+    // Fall back to the painted id: that is what the old code did, and it is
+    // correct for an ordinary login.
+  }
+
+  const ids = idleIdentitiesToClose({ humanId: human, paintedId: painted });
+  const out = [];
+  for (const id of ids) {
+    try {
+      const r = await commitIdleOnExit(id, nowMs, capMs);
+      out.push({ id, committed: r != null });
+    } catch (e) {
+      console.warn('[froIdleCommit] endSessionIdle commit failed for', id, e?.message || String(e));
+    }
+  }
+  return { human: human == null ? null : String(human), painted: painted == null ? null : String(painted), results: out };
+}
 
 // Committing idle when an FRO session ENDS (manual sign-out or the shift-end
 // auto-logout sweep).

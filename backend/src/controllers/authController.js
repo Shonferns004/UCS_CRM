@@ -7,10 +7,12 @@ import { getBnfOperatorByLoginId, getBnfOperatorById, updateBnfOperator } from '
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
-import { releaseOperatorSessions, getActiveSessionsForTarget, clearOperatorCoverLabels, claimStations, releaseConflictingCovers } from '../models/workAsSessionModel.js';
+import { releaseOperatorSessions, getActiveSessionsForTarget, getActiveSessionTargets, clearOperatorCoverLabels, claimStations, releaseConflictingCovers } from '../models/workAsSessionModel.js';
 import { resolveOperatorIdentity } from '../utils/workAs.js';
+import { istDateStr, sessionHandoverPlan } from '../utils/froIdle.js';
+import { isWorkerOnline } from '../socket.js';
 import { authenticateAgent, getActiveAgentByWorkerId, getAgentById, getAgentByLoginId, setAgentPasswordHash } from '../models/crmAgentModel.js';
-import { commitIdleOnExit } from '../services/froIdleCommit.js';
+import { endSessionIdle, parkIdleState } from '../services/froIdleCommit.js';
 import { closeOpenSession } from '../services/froTimeSessions.js';
 
 dotenv.config();
@@ -419,7 +421,13 @@ export const logout = async (req, res) => {
       const agentId = String(u.agent_user_id);
       try {
         await clearOperatorCoverLabels(agentId);
+        // Same reason as releaseWorkAs: park the FROs whose cover ends with this
+        // logout, read before the release.
+        const endingTargets = await getActiveSessionTargets(agentId).catch(() => []);
         await releaseOperatorSessions(agentId);
+        for (const targetId of endingTargets) {
+          await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+        }
         // Unbrand the FRO this agent was working, for this agent only. Keyed on
         // the operator id so a different cover on the same FRO is left alone.
         if (u.impersonation && u.id != null) {
@@ -441,8 +449,22 @@ export const logout = async (req, res) => {
     // An FRO signing out mid-idle would otherwise lose the open period from both
     // the day total and the monthly salary figure. Non-fatal and a no-op for
     // anyone without a live-status row.
+    //
+    // endSessionIdle, not commitIdleOnExit(key): the heartbeat files on the HUMAN
+    // at the keyboard, so under a work-as session that is the operator, not
+    // req.user.id (the painted FRO). Committing against the painted id banked
+    // idle on the wrong person and left the operator's own interval running to
+    // shift end. It now closes both identities when they differ.
     try {
-      await commitIdleOnExit(key);
+      const { human, painted } = await endSessionIdle(u);
+      // The operator's own CRM session must close too, or presence keeps reading
+      // them as online after they signed out of somebody else's panel.
+      if (human && painted && human !== painted) {
+        await sql(
+          `UPDATE auth_sessions SET logged_out_at = $1 WHERE user_id = $2 AND logged_out_at IS NULL`,
+          [now, human]
+        );
+      }
     } catch (e) {
       console.warn('[auth] FRO idle commit on logout failed:', e?.message || String(e));
     }
@@ -584,6 +606,11 @@ export const unifiedLogin = async (req, res) => {
         if (covered) return res.status(403).json(covered);
       }
       const dept = (worker.department || '').toLowerCase().trim();
+      // A FRO signing in on a different machine hands over from their previous
+      // session, so the gap between the two panels is not billed as their idle.
+      if (dept === 'fro' && !isHrFormLogin) {
+        await reconcileSessionHandover(worker.id);
+      }
       let role;
       if (dept === 'hr') role = 'hr';
       else if (dept.includes('recruit')) role = 'recruiter';
@@ -707,6 +734,9 @@ await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
           if (covered) return res.status(403).json(covered);
         }
         const dept = (workerByLogin.department || '').toLowerCase().trim();
+        if (dept === 'fro' && !isHrFormLogin) {
+          await reconcileSessionHandover(workerByLogin.id);
+        }
         let wRole;
         if (dept === 'hr') wRole = 'hr';
         else if (dept.includes('recruit')) wRole = 'recruiter';
@@ -751,6 +781,9 @@ await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
           if (covered) return res.status(403).json(covered);
         }
         const eDept = (workerByEmail.department || '').toLowerCase().trim();
+        if (eDept === 'fro' && !isHrFormLogin) {
+          await reconcileSessionHandover(workerByEmail.id);
+        }
         let eRole;
         if (eDept === 'hr') eRole = 'hr';
         else if (eDept.includes('recruit')) eRole = 'recruiter';
@@ -815,6 +848,9 @@ await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
       if (covered) return res.status(403).json(covered);
     }
     const dept = (worker.department || '').toLowerCase().trim();
+    if (dept === 'fro' && !isHrFormLogin) {
+      await reconcileSessionHandover(worker.id);
+    }
     let role;
     if (dept === 'hr') role = 'hr';
     else if (dept.includes('recruit')) role = 'recruiter';
@@ -1038,7 +1074,13 @@ export const impersonateFRO = async (req, res) => {
       // Priya" for as long as they stayed logged out — a cover that had ended but
       // still named, on the very board that is meant to say who is covering whom.
       await clearOperatorCoverLabels(imposterId);
+      // Switching away ends those covers, so the targets' rows must be parked —
+      // same reason as releaseWorkAs. Read before the release.
+      const switchedTargets = await getActiveSessionTargets(imposterId).catch(() => []);
       await releaseOperatorSessions(imposterId);
+      for (const targetId of switchedTargets) {
+        await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+      }
 
       // Explicit take-over. The default is still to refuse (claimStations returns
       // the holders and we 409 below), because a station quietly changing hands is
@@ -1083,7 +1125,11 @@ export const impersonateFRO = async (req, res) => {
       // Unrestricted switch still supersedes any earlier scoped session, and
       // takes its display label with it.
       await clearOperatorCoverLabels(imposterId);
+      const unscopedTargets = await getActiveSessionTargets(imposterId).catch(() => []);
       await releaseOperatorSessions(imposterId);
+      for (const targetId of unscopedTargets) {
+        await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+      }
     }
 
     // Park the operator's own open idle state before the switch begins.
@@ -1304,6 +1350,57 @@ async function parkIdleForCoverStart(operatorId) {
   }
 }
 
+// Hand over from a previous session on this same account.
+//
+// A FRO who shuts one laptop and opens another is NOT idle in between: the old
+// panel is gone, so there is nobody at the keyboard to be idle. But the previous
+// session's interval and its lapsed disposition deadline survive on the one row
+// the account has, and the hydrate path would then bill her from that deadline to
+// this login — which is where a 45-minute "idle" appeared the moment she moved
+// machines.
+//
+// So the interval is closed at the LAST EVIDENCE of presence (the row's own
+// updated_at — the previous device's final heartbeat), never at login time, and
+// the spent settle grace is cleared so she takes a fresh one. Skipped when her
+// previous panel is still connected (a second tab), because that session is still
+// live and must not be reset under her.
+async function reconcileSessionHandover(workerId) {
+  const id = String(workerId ?? '');
+  if (!id) return { skipped: 'no_id' };
+  try {
+    const { data: row } = await db
+      .from('fro_live_status')
+      .select('updated_at')
+      .eq('worker_id', id)
+      .maybeSingle();
+    if (!row) return { skipped: 'no_live_row' };
+
+    const lastSeenMs = row.updated_at ? new Date(row.updated_at).getTime() : NaN;
+    const nowMs = Date.now();
+    const plan = sessionHandoverPlan({
+      panelStillLive: isWorkerOnline(id),
+      lastSeenAtMs,
+      nowMs,
+      sameIstDay: Number.isFinite(lastSeenMs)
+        ? istDateStr(new Date(lastSeenMs)) === istDateStr(new Date(nowMs))
+        : null,
+    });
+    if (plan.skip) return { skipped: plan.skip };
+
+    const r = await parkIdleState(id, {
+      nowMs,
+      closeAtMs: plan.closeAtMs,
+      reason: 'session_handover',
+      rearmGrace: true,
+      clearCurrent: true,
+    });
+    return { parked: r.changed, lastSeen: new Date(plan.closeAtMs).toISOString() };
+  } catch (e) {
+    // Non-fatal: the worst case is the old billing, not a lost session.
+    return { error: e?.message || String(e) };
+  }
+}
+
 // Park a COVERED FRO's own row when they are not actually at their keyboard.
 //
 // While an agent covers them, the FRO's row stops receiving their own
@@ -1356,7 +1453,16 @@ export const releaseWorkAs = async (req, res) => {
     // reads their active sessions to find those targets, so it has to run first —
     // after release there is nothing left to enumerate.
     await clearOperatorCoverLabels(operatorId);
+    // Park every FRO this operator was covering as the cover ends. Their rows stop
+    // being refreshed at this moment and the covered-away freeze stops applying
+    // the instant the session is released, so an interval left open here would
+    // keep billing idle to somebody who was never at their desk. Read the targets
+    // BEFORE releasing — afterwards there is nothing left to enumerate.
+    const endingTargets = await getActiveSessionTargets(operatorId).catch(() => []);
     const released = await releaseOperatorSessions(operatorId);
+    for (const targetId of endingTargets) {
+      await parkIdleState(targetId, { reason: 'cover_end', rearmGrace: true }).catch(() => {});
+    }
     // The caller's painted id is cleared afterwards as a belt-and-braces pass: it
     // is what the token says they were working, and it is a no-op when the helper
     // already handled it.

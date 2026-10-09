@@ -5517,6 +5517,18 @@ export const logoutAllFros = async (req, res) => {
       } catch (e) {
         // Non-fatal: live status row may not exist for every session.
       }
+      // Fold each session's open idle period into their day BEFORE marking them
+      // offline. This endpoint used to stop at presence: the sessions closed but
+      // the open interval and lapsed deadline stayed on the row, so the board
+      // kept deriving idle for somebody who had just been logged out — the same
+      // complaint as a manual sign-out that never stops.
+      for (const s of sessions) {
+        try {
+          await commitIdleOnExit(String(s.user_id));
+        } catch (e) {
+          // Non-fatal: continue with the rest of the batch.
+        }
+      }
     }
 
     emitRealtime('fro:force-logout', { at: nowIso });
