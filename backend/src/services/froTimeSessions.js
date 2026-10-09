@@ -17,7 +17,10 @@ import {
   resolveEventState,
   sumIntervalsByState,
   istDayBoundsMs,
+  isIdleState,
 } from '../utils/froTimeState.js';
+
+const IDLE_SET = new Set(['IDLE', 'SLEEPING', 'HIDDEN']);
 
 const OPEN_SESSION_UNIQUE = 'uq_fro_time_sessions_open_per_worker';
 
@@ -156,14 +159,78 @@ export async function getOpenSession(workerId, { pool = db._pool } = {}) {
 }
 
 /**
+ * Close an interval that is still open from a PREVIOUS IST day, ending it at that
+ * day's end rather than at the moment the worker finally shows up.
+ *
+ * WHY. A panel closed overnight leaves HIDDEN/IDLE open indefinitely. Every read
+ * then clips it to today's window, so the FRO is billed idle for the hours between
+ * their shift start and their login — before they were at their desk at all. The
+ * read clamp (clampIdleToFirstPresence) hides the symptom; this removes the cause
+ * for everyone from the next day on. Cross-midnight shifts are unaffected: their
+ * interval legitimately spans midnight and is re-armed by this call only on the
+ * NEXT day's first beat.
+ */
+export async function closeSessionOpenedBeforeDay(workerId, { nowMs = Date.now(), pool = db._pool } = {}) {
+  if (!workerId) return { changed: false };
+  const day = istDayBoundsMs(nowMs);
+  const { rowCount } = await pool.query(
+    `UPDATE fro_time_sessions
+        SET ended_at = $3,
+            duration_seconds = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ($3::timestamptz - started_at))))::int,
+            reason = COALESCE(reason, 'day_boundary'),
+            updated_at = now()
+      WHERE worker_id = $1
+        AND ended_at IS NULL
+        AND started_at < $2`,
+    [workerId, toIso(day.startMs), toIso(day.startMs)]
+  );
+  return { changed: rowCount > 0 };
+}
+
+/**
  * All intervals that touch the IST calendar day `dateStr` ('YYYY-MM-DD'), oldest
  * first. An interval that started the previous day but is still open
  * (cross-midnight shift) is included and clipped by sumIntervalsByState.
+ *
+ * LATE-LOGIN CLAMP. An IDLE/SLEEPING/HIDDEN interval that began on an earlier day
+ * and was never closed (the panel was closed overnight, or the machine was off)
+ * used to bill the FRO for the whole gap between their shift start and the moment
+ * they actually logged in — 30 minutes of "idle" for somebody who had not yet
+ * arrived. Idle before first presence is not idle: it is nobody being there.
+ * So leading idle intervals that start before this day's first WORKING (or held)
+ * interval are treated as beginning at that first presence instead.
  */
 export async function getSessionsForDate(workerId, dateStr, { pool = db._pool } = {}) {
   const startMs = new Date(`${dateStr}T00:00:00.000+05:30`).getTime();
   const endMs = startMs + 24 * 60 * 60 * 1000;
-  return getSessionsInRange(workerId, startMs, endMs, { pool });
+  const sessions = await getSessionsInRange(workerId, startMs, endMs, { pool });
+  return clampIdleToFirstPresence(sessions, startMs);
+}
+
+// Exported for the batch reader, which must apply the identical rule or the admin
+// board and the FRO's own strip would disagree about a late login.
+export function clampIdleToFirstPresence(sessions, dayStartMs) {
+  const rows = sessions || [];
+  if (rows.length < 2) return rows;
+
+  // First moment of this day the worker was demonstrably on the panel.
+  let presenceMs = NaN;
+  for (const s of rows) {
+    if (IDLE_SET.has(s.state)) continue;
+    const startMs = new Date(s.started_at).getTime();
+    if (Number.isFinite(startMs) && startMs >= dayStartMs) { presenceMs = startMs; break; }
+  }
+  if (!Number.isFinite(presenceMs)) return rows;
+
+  // Nothing to clamp when the worker was never present today: a still-open
+  // overnight idle interval is the only row, and the caller must not invent a
+  // presence for it.
+  return rows.map((s) => {
+    if (!IDLE_SET.has(s.state)) return s;
+    const startMs = new Date(s.started_at).getTime();
+    if (!Number.isFinite(startMs) || startMs >= presenceMs) return s;
+    return { ...s, started_at: toIso(presenceMs) };
+  });
 }
 
 /**
@@ -249,7 +316,7 @@ export async function dayTotalsForWorkers(workerIds, { shiftFor = () => null, no
   for (const [k, sessions] of byWorker) {
     const cut = nowFor(k);
     const at = Number.isFinite(cut) ? Math.min(cut, nowMs) : nowMs;
-    out.set(k, sumIntervalsByState(sessions, { shift: shiftFor(k), nowMs: at, dayBounds: day }));
+    out.set(k, sumIntervalsByState(clampIdleToFirstPresence(sessions, day.startMs), { shift: shiftFor(k), nowMs: at, dayBounds: day }));
   }
   return out;
 }
