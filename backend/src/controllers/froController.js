@@ -1014,7 +1014,7 @@ export const getMyPerformance = async (req, res) => {
     // Riya's numbers to Priya — and because fro_donor_logs are already credited
     // to the operator during work-as, the calls she actually made were being
     // counted for nobody.
-    const { data: dataCtx, human: humanCtx, isWorkAs } = splitWorkerContext(req.user);
+    const { data: dataCtx, human: humanCtx, isWorkAs, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = dataCtx.id;
     const metricsWorkerId = humanCtx.id;
     // `identityWorkerId` is the long-standing name for "who the strip counts",
