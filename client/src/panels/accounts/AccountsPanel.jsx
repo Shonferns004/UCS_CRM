@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Heart, Wallet, Database, Smartphone, BookOpen } from 'lucide-react'
+import { Users, Wallet, Database, Smartphone, BookOpen, Boxes } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -14,14 +14,15 @@ import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import LeadAudit from './pages/LeadAudit'
 import Reports from './pages/Reports'
-import TeamsPage from './pages/Teams'
 import IncentiveSetup from './pages/IncentiveSetup'
 import IncentiveVerification from './pages/IncentiveVerification'
-import FroTargets from '../../components/FroTargets'
-import NewData from './pages/NewData'
-import OldData from './pages/OldData'
-import Donors from './pages/Donors'
-import AddressImport from './pages/AddressImport'
+// Teams + FRO Targets, Donors + Address and New/Old Data are each rendered by one
+// section component that owns the tab strip, so the panel itself no longer imports
+// the individual pages.
+import TeamsSection from './components/TeamsSection'
+import DonorSection from './components/DonorSection'
+import DataSection from './components/DataSection'
+import PageTabs from './components/PageTabs'
 import AssetRegister from './pages/AssetRegister'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
 import EmailAccountsView from './components/EmailAccountsView'
@@ -50,18 +51,26 @@ import LeadIncentive from '../../components/LeadIncentive'
 import IncentivesPage from '../super-admin/pages/IncentivesPage'
 import SpecialIncentives from '../super-admin/pages/SpecialIncentives'
 import SevakPanel from '../sevak-library/SevakPanel'
+import MetropadPage from './metropad/MetropadPage'
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10"/></svg> },
   { id: 'receipt-generator', path: '/accounts/receipt-generator', label: 'Receipts',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
-  { id: 'bill-reminder', path: '/accounts/bill-reminder', label: 'Bill Reminder',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
-    match: (p) => p.startsWith('/accounts/bill-reminder') },
-  { id: 'library', path: '/accounts/library', label: 'Library',
-    icon: <BookOpen size={18} /> },
 ]
+
+const DONOR_NAV = {
+  id: 'donors', path: '/accounts/donors', label: 'Donors',
+  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  match: (p) => p.startsWith('/accounts/donors'),
+}
+
+const DATA_NAV_ITEM = {
+  id: 'data', path: '/accounts/data', label: 'Data',
+  icon: <Database size={18} />,
+  match: (p) => p.startsWith('/accounts/data') || p === '/accounts/new-data' || p === '/accounts/old-data',
+}
 
 const NAV_GROUPS = [
   {
@@ -70,41 +79,32 @@ const NAV_GROUPS = [
     items: [
       { id: 'attendance', path: '/accounts/attendance', label: 'Attendance',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14l2 2 4-4"/></svg> },
-      { id: 'volunteers', path: '/accounts/volunteers', label: 'Salary',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+      { id: 'payroll', path: '/accounts/volunteers', label: 'Salary & Advances',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+        match: (p) => p.startsWith('/accounts/volunteers') || p === '/accounts/loans' },
       { id: 'teams', path: '/accounts/teams', label: 'Teams',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+        match: (p) => p.startsWith('/accounts/teams') },
       { id: 'incentive', path: '/accounts/incentive', label: 'Incentive',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg> },
-      { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify',
+      { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify', hidden: true,
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-      { id: 'fro-targets', path: '/accounts/fro-targets', label: 'FRO Targets',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> },
+      // FRO Targets used to be its own entry here. It is now a tab on the Teams
+      // page, where the target sits next to the team it is aimed at;
+      // /accounts/fro-targets still resolves by redirect.
       { id: 'incentives', path: '/accounts/incentives', label: 'NGO wise Incentive',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
         match: (p) => p.startsWith('/accounts/incentives') },
     ],
   },
   {
-    title: 'Donor Management',
-    icon: <Heart size={18} />,
-    items: [
-      { id: 'donors', path: '/accounts/donors', label: 'Donors',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-      { id: 'address', path: '/accounts/address', label: 'Address',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> },
-      { id: 'certificates', path: '/accounts/certificates', label: 'Certificates',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="6"/><path d="M15.5 13l1.5 9-5-3-5 3 1.5-9"/></svg> },
-    ],
-  },
-  {
-    title: 'Asset & Finance',
+    title: 'Finance & Records',
     icon: <Wallet size={18} />,
     items: [
       { id: 'asset-register', path: '/accounts/asset-register', label: 'Asset Register',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
-      { id: 'loans', path: '/accounts/loans', label: 'Loan & Advance',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+      DONOR_NAV,
+      DATA_NAV_ITEM,
     ],
   },
   {
@@ -115,21 +115,32 @@ const NAV_GROUPS = [
         icon: <Trophy size={18} /> },
       { id: 'audience-voting', path: '/accounts/audience-voting', label: 'Audience Voting',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/><path d="M8 23h8"/></svg> },
+      // Certificates moved here from Donor Management: a certificate is issued
+      // for a ceremony, so it belongs with Awards and Audience Voting rather than
+      // with the donor list it reads against.
+      { id: 'certificates', path: '/accounts/certificates', label: 'Certificates',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="6"/><path d="M15.5 13l1.5 9-5-3-5 3 1.5-9"/></svg> },
     ],
   },
 ]
 
+// Title lookup only: the Address tab is a tab, not a sidebar entry.
+const DONOR_SUB_NAV = {
+  id: 'address', path: '/accounts/donors/address', label: 'Address',
+  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+  match: (p) => p.startsWith('/accounts/donors/address'),
+}
+
+// Beneficiaries is one sidebar item and one page. The five sections (Overview,
+// All Beneficiaries, Collection OTPs, Import Members, Daily Events) are switched by
+// the tab strip inside BeneficiariesPanel rather than by five separate nav entries,
+// so reaching the second one no longer means going back out to the sidebar. Their
+// routes still exist, so any bookmarked deep link lands on the right tab. The
+// sidebar renders its copy from MODULES_NAV below, which adds the `match` that
+// keeps the entry lit while a deeper tab is open.
 const BENEFICIARY_NAV = [
-  { id: 'bnf-overview', path: '/accounts/beneficiaries', label: 'Overview',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg> },
-  { id: 'bnf-all', path: '/accounts/beneficiaries/all', label: 'All Beneficiaries',
+  { id: 'bnf-overview', path: '/accounts/beneficiaries', label: 'Beneficiaries',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><circle cx="17" cy="9" r="2.5"/><path d="M18 14a4 4 0 0 1 3 4v2"/></svg> },
-  { id: 'bnf-otps', path: '/accounts/beneficiaries/otps', label: 'Collection OTPs',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> },
-  { id: 'bnf-import', path: '/accounts/beneficiaries/import', label: 'Import Members',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> },
-  { id: 'bnf-events', path: '/accounts/beneficiaries/events', label: 'Daily Events',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg> },
 ]
 
 const NAV_BOTTOM = [
@@ -141,15 +152,25 @@ const NAV_BOTTOM = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg> },
 ]
 
-const NAV_DATA_GROUP = {
-  title: 'Data',
-  icon: <Database size={18} />,
-  items: [
-    { id: 'new-data', path: '/accounts/new-data', label: 'New Data',
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> },
-    { id: 'old-data', path: '/accounts/old-data', label: 'Old Data',
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
-  ],
+// Title lookup only. Ahead of DATA_NAV_ITEM so the Old Data tab is not titled "Data".
+const DATA_SUB_NAV = [
+  {
+    id: 'old-data', path: '/accounts/data/old', label: 'Old Data',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+    match: (p) => p === '/accounts/data/old' || p === '/accounts/old-data',
+  },
+  {
+    id: 'new-data', path: '/accounts/data', label: 'New Data',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+    match: (p) => p === '/accounts/data' || p === '/accounts/new-data',
+  },
+]
+
+// Title lookup only: FRO Targets is a tab on the Teams page now.
+const FRO_TARGETS_NAV = {
+  id: 'fro-targets', path: '/accounts/teams/targets', label: 'FRO Targets',
+  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
+  match: (p) => p === '/accounts/teams/targets' || p === '/accounts/fro-targets',
 }
 
 const SIM_GROUP_ICON = <Smartphone size={18} />
@@ -169,28 +190,39 @@ const SIM_NAV = [
     match: (p) => p === '/accounts/sim/owner' },
 ]
 
-// Flat list used for page-title meta lookup. Every nav item across top/groups/
-// bottom/sim lives here so the header can resolve the active page label.
+const SIM_NAV_ITEM = {
+  id: 'sim', path: '/accounts/sim', label: 'SIM Management', icon: SIM_GROUP_ICON,
+  match: (p) => p.startsWith('/accounts/sim'),
+}
+
+const MODULES_NAV = [
+  { id: 'bill-reminder', path: '/accounts/bill-reminder', label: 'Bill Reminder',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+    match: (p) => p.startsWith('/accounts/bill-reminder') },
+  { id: 'metropad', path: '/accounts/metropad', label: 'Metropad',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg> },
+  { id: 'library', path: '/accounts/library', label: 'Library',
+    icon: <BookOpen size={18} /> },
+  { ...BENEFICIARY_NAV[0], match: (p) => p.startsWith('/accounts/beneficiaries') },
+  SIM_NAV_ITEM,
+]
+
 const ALL_NAV = [
   ...NAV_TOP,
+  ...DATA_SUB_NAV,
+  DONOR_SUB_NAV,
+  FRO_TARGETS_NAV,
   ...NAV_GROUPS.flatMap(g => g.items),
-  ...BENEFICIARY_NAV,
-  ...NAV_BOTTOM,
-  ...NAV_DATA_GROUP.items,
   ...SIM_NAV,
+  ...MODULES_NAV,
+  ...NAV_BOTTOM,
 ]
 
 const navIsActive = (n, pathname) => {
-  if (n.id === 'volunteers' && pathname.startsWith('/accounts/volunteers')) return true
-  if (n.id === 'attendance' && pathname === '/accounts/attendance') return true
   if (n.match) return n.match(pathname)
   return pathname === n.path
 }
 
-/* Sidebar layout, built from the same arrays the rest of the panel uses so the
-   nav has exactly one source of truth. A group is any item carrying `items`;
-   everything else is a leaf link. `isGroupActive` exists only for Beneficiaries,
-   whose children have no catch-all match of their own. */
 const SIDEBAR_SECTIONS = [
   {
     id: 'main',
@@ -198,17 +230,23 @@ const SIDEBAR_SECTIONS = [
     items: [
       ...NAV_TOP,
       { id: 'g-workforce', label: NAV_GROUPS[0].title, icon: NAV_GROUPS[0].icon, storageKey: 'workforce', items: NAV_GROUPS[0].items },
-      { id: 'g-donor', label: NAV_GROUPS[1].title, icon: NAV_GROUPS[1].icon, storageKey: 'donor_management', items: NAV_GROUPS[1].items },
-      { id: 'g-asset', label: NAV_GROUPS[2].title, icon: NAV_GROUPS[2].icon, storageKey: 'asset_finance', items: NAV_GROUPS[2].items },
-      { id: 'g-ceremony', label: NAV_GROUPS[3].title, icon: NAV_GROUPS[3].icon, storageKey: 'ceremony', items: NAV_GROUPS[3].items },
-      { id: 'g-data', label: NAV_DATA_GROUP.title, icon: NAV_DATA_GROUP.icon, storageKey: 'data', items: NAV_DATA_GROUP.items },
-      { id: 'g-beneficiaries', label: 'Beneficiaries', icon: <Users size={18} />, storageKey: 'beneficiaries', items: BENEFICIARY_NAV,
-        isGroupActive: (p) => p.startsWith('/accounts/beneficiaries') },
-      { id: 'g-sim', label: 'SIM Management', icon: SIM_GROUP_ICON, storageKey: 'sim', items: SIM_NAV },
+      { id: 'g-asset', label: NAV_GROUPS[1].title, icon: NAV_GROUPS[1].icon, storageKey: 'asset_finance', items: NAV_GROUPS[1].items },
+      { id: 'g-ceremony', label: NAV_GROUPS[2].title, icon: NAV_GROUPS[2].icon, storageKey: 'ceremony', items: NAV_GROUPS[2].items },
+      { id: 'g-modules', label: 'Modules', icon: <Boxes size={18} />, storageKey: 'modules', items: MODULES_NAV },
     ],
   },
   { id: 'settings', heading: 'Settings', items: NAV_BOTTOM },
 ]
+
+const withoutHidden = (sections) => sections
+  .map((s) => ({
+    ...s,
+    items: s.items
+      .filter((i) => !i.hidden)
+      .map((i) => (i.items ? { ...i, items: i.items.filter((c) => !c.hidden) } : i))
+      .filter((i) => !i.items || i.items.length > 0),
+  }))
+  .filter((s) => s.items.length > 0)
 
 const settingsViews = [
   { key: 'razorpay', label: 'Razorpay Accounts', width: 420,
@@ -245,7 +283,7 @@ function VolunteersListPage({ theme }) {
   const navigate = useNavigate()
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
-      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Attendance" showPagarExport={true}
+      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Attendance" showPagarExport={true} showPayExports={false}
         onSelect={(w) => navigate(`/accounts/volunteers/${w.id}`)}
         onOffboard={(w) => navigate(`/accounts/volunteers/${w.id}/offboard`)} />
     </div>
@@ -278,6 +316,29 @@ function VolunteerOffboardPage({ theme }) {
         : !worker ? <div className="empty">Attendance not found.</div>
         : <Offboarding worker={worker} onBack={() => navigate('/accounts/volunteers')} />}
     </div>
+  )
+}
+
+function PayrollSection({ theme }) {
+  const { pathname } = useLocation()
+  const tabs = [
+    { label: 'Salary', path: '/accounts/volunteers' },
+    { label: 'Loan & Advance', path: '/accounts/volunteers/loans' },
+  ]
+  const here = pathname.replace(/\/$/, '')
+  const onDetail = here.startsWith('/accounts/volunteers')
+    && here !== '/accounts/volunteers'
+    && here !== '/accounts/volunteers/loans'
+  return (
+    <>
+      {!onDetail && <PageTabs tabs={tabs} ariaLabel="Salary & Advances" />}
+      <Routes>
+        <Route index element={<VolunteersListPage theme={theme} />} />
+        <Route path="loans" element={<Loans />} />
+        <Route path=":id" element={<VolunteerDetailPage theme={theme} />} />
+        <Route path=":id/offboard" element={<VolunteerOffboardPage theme={theme} />} />
+      </Routes>
+    </>
   )
 }
 
@@ -384,7 +445,7 @@ export default function AccountsPanel() {
   return (
     <div className={`app${sidebarOpen ? ' sidebar-open' : ''}`}>
       <AccountsSidebar
-        sections={SIDEBAR_SECTIONS}
+        sections={withoutHidden(SIDEBAR_SECTIONS)}
         isActive={navIsActive}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -443,38 +504,44 @@ export default function AccountsPanel() {
             <Route index element={<Navigate to="leads" replace />} />
             <Route path="leads" element={<LeadAudit />} />
             <Route path="receipts" element={<Navigate to="/accounts/receipt-generator" replace />} />
-            <Route path="donors" element={<Donors />} />
-            <Route path="address" element={<AddressImport />} />
+            <Route path="donors/*" element={<DonorSection />} />
+            {/* Old standalone Address URL -> the Address tab of the Donors page. */}
+            <Route path="address" element={<Navigate to="/accounts/donors/address" replace />} />
             <Route path="receipt-history" element={<Navigate to="/accounts/receipt-generator" replace />} />
             <Route path="receipt-generator" element={<Receipts />} />
-            <Route path="volunteers" element={<VolunteersListPage theme={themes[themeName]} />} />
-            <Route path="volunteers/:id" element={<VolunteerDetailPage theme={themes[themeName]} />} />
-            <Route path="volunteers/:id/offboard" element={<VolunteerOffboardPage theme={themes[themeName]} />} />
+            <Route path="volunteers/*" element={<PayrollSection theme={themes[themeName]} />} />
             <Route path="attendance" element={<AttendancePage />} />
             <Route path="tickets" element={<AccountsTickets />} />
             <Route path="chat" element={<ChatWorkspace />} />
-            <Route path="loans" element={<Loans />} />
+<Route path="loans" element={<Navigate to="/accounts/volunteers/loans" replace />} />
             <Route path="awards" element={<AwardsPage theme={themes[themeName]} />} />
             <Route path="audience-voting" element={<AudienceVoting />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="template-settings" element={<TemplateSettings />} />
             <Route path="asset-register" element={<AssetRegister />} />
             <Route path="reports" element={<Reports />} />
-            <Route path="teams" element={<TeamsPage />} />
+            <Route path="teams/*" element={<TeamsSection />} />
+            {/* FRO Targets moved into Teams as a tab; the old URL redirects. */}
+            <Route path="fro-targets" element={<Navigate to="/accounts/teams/targets" replace />} />
             <Route path="incentive" element={<IncentiveSetup />} />
             <Route path="incentive-verify" element={<IncentiveVerification />} />
-        <Route path="fro-targets" element={<FroTargets />} />
             <Route path="incentives" element={<IncentivesPage />}>
               <Route index element={<Navigate to="sir" replace />} />
               <Route path="sir" element={<SpecialIncentives />} />
               <Route path="lead" element={<LeadIncentive />} />
             </Route>
-            <Route path="new-data" element={<NewData />} />
-            <Route path="old-data" element={<OldData />} />
+            <Route path="data/*" element={<DataSection />} />
+            {/* Old standalone Data URLs -> the tabs of the single Data page. */}
+            <Route path="new-data" element={<Navigate to="/accounts/data" replace />} />
+            <Route path="old-data" element={<Navigate to="/accounts/data/old" replace />} />
             <Route path="sim/*" element={<SimSection />} />
             <Route path="beneficiaries/*" element={<BeneficiariesPanel base="/accounts/beneficiaries" />} />
             <Route path="bill-reminder/*" element={<BillReminderPage />} />
             <Route path="library" element={<SevakPanel />} />
+            {/* Metropad moved here from the super-admin panel. A plain path, not a splat:
+                MetropadPage renders its dashboard directly and has no routes of
+                its own (the standalone build in metropad/App.jsx owns those). */}
+            <Route path="metropad" element={<MetropadPage />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>

@@ -1,6 +1,10 @@
 import db, { sql } from '../config/db.js';
 import { getActiveSlabs, getAllSlabAssignments, getStoppedSlabIds } from '../models/incentiveSlabModel.js';
 import { getSettings } from '../models/incentiveSettingsModel.js';
+import { getTargetsForWorkersMonth, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
+import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
+import { resolveMonthlyTarget } from './froMonthlyTarget.js';
+import { istMonthBounds, istDateString } from '../utils/ist.js';
 import {
   getAnnouncementByDateAndSlab,
   insertAnnouncement,
@@ -73,44 +77,48 @@ function getSlabForTarget(target, slabs) {
   return slabs[0] || null;
 }
 
-// Get FRO's monthly target (manual fro_monthly_targets takes priority, then incentive_targets)
-async function getFroTarget(froId, month) {
-  // Try fro_monthly_targets first (manual, NGO-admin set)
-  const { data: froData } = await db
-    .from('fro_monthly_targets')
-    .select('target_amount')
-    .eq('fro_worker_id', froId)
-    .eq('month', month)
-    .maybeSingle();
-  if (froData && Number(froData.target_amount) > 0) {
-    return Number(froData.target_amount);
-  }
+// Resolve every FRO's monthly target for the month containing `date` through the
+// SAME resolver the Teams → FRO Targets screen uses (manual → auto →
+// carried-forward). This is why an FRO who shows a target there is now bucketed
+// into the matching incentive range instead of always landing in the first slab.
+//
+// The old code read only the current month's manual fro_monthly_targets row with
+// a UTC-derived month key, so it returned 0 for auto (first three months) and
+// carried-forward FROs and broke outright on workers holding one row per NGO.
+// Returns a Map of worker id -> target amount.
+async function buildFroTargetMap(fros, date) {
+  const map = new Map();
+  const rows = (fros || []).filter(f => f && f.id);
+  if (rows.length === 0) return map;
 
-  // Fallback to incentive_targets (auto-generated)
-  const { data: incData } = await db
-    .from('incentive_targets')
-    .select('target_amount')
-    .eq('worker_id', froId)
-    .eq('month', month)
-    .maybeSingle();
-  if (incData && Number(incData.target_amount) > 0) {
-    return Number(incData.target_amount);
-  }
+  const month = istMonthBounds(new Date(`${date}T00:00:00Z`)).month; // 'YYYY-MM-01'
+  const ids = rows.map(f => f.id);
+  const [currentRows, priorRows, salaryByWorker] = await Promise.all([
+    getTargetsForWorkersMonth(ids, month),
+    getLatestTargetsBeforeMonthForWorkers(ids, month),
+    getActiveSalaryByWorkers(ids),
+  ]);
 
-  return 0;
+  const refDate = new Date(`${month}T00:00:00Z`);
+  for (const f of rows) {
+    const key = String(f.id);
+    const salaryRow = salaryByWorker.get(f.id);
+    const resolved = resolveMonthlyTarget({
+      joiningDate: f.created_at,
+      salary: salaryRow ? Number(salaryRow.salary || 0) : 0,
+      currentRow: currentRows.get(key) || null,
+      priorRow: priorRows.get(key) || null,
+      refDate,
+    });
+    map.set(key, Number(resolved.target) || 0);
+  }
+  return map;
 }
-
-const monthStrOf = (dateStr) => {
-  const startDate = new Date(dateStr);
-  startDate.setHours(0, 0, 0, 0);
-  return new Date(startDate.getFullYear(), startDate.getMonth(), 1).toISOString().slice(0, 10);
-};
 
 // Resolve the FRO's competition range: an admin-assigned slab (via ⚙️ Configure)
 // wins; otherwise the FRO falls into a range automatically from their monthly
 // target (existing behavior for unassigned FROs).
-async function resolveFroSlab(froId, date, slabs, assignMap, slabById) {
-  const target = await getFroTarget(froId, monthStrOf(date)); // still shown in summary
+function resolveFroSlab(froId, target, slabs, assignMap, slabById) {
   const assignedId = assignMap[froId];
   if (assignedId && slabById[assignedId]) return { slab: slabById[assignedId], target };
   return { slab: getSlabForTarget(target, slabs), target };
@@ -219,7 +227,7 @@ export const getDailySummary = async (date) => {
   const [slabs, settings, frosResult, assignments] = await Promise.all([
     getActiveSlabs(),
     getSettings(),
-    db.from('workers').select('id, name').eq('is_active', true).ilike('department', 'fro').order('name'),
+    db.from('workers').select('id, name, created_at').eq('is_active', true).ilike('department', 'fro').order('name'),
     getAllSlabAssignments(),
   ]);
 
@@ -229,11 +237,13 @@ export const getDailySummary = async (date) => {
   const assignMap = {};
   for (const a of assignments || []) assignMap[a.fro_worker_id] = a.slab_id;
 
+  const targetMap = await buildFroTargetMap(fros, date);
   const results = [];
   const pool = {}; // slabId -> Set of competing FRO ids
 
   for (const fro of fros) {
-    const { slab, target } = await resolveFroSlab(fro.id, date, slabs, assignMap, slabById);
+    const target = targetMap.get(String(fro.id)) || 0;
+    const { slab } = resolveFroSlab(fro.id, target, slabs, assignMap, slabById);
     const calc = await calculateFroLeadIncentive(fro.id, date, slabs, settings, { target, slab });
     results.push({
       fro_id: fro.id,
@@ -388,7 +398,7 @@ export const getFroDetail = async (froId, date) => {
   const [slabs, settings, froResult, assignments] = await Promise.all([
     getActiveSlabs(),
     getSettings(),
-    db.from('workers').select('id, name').eq('id', froId).maybeSingle(),
+    db.from('workers').select('id, name, created_at').eq('id', froId).maybeSingle(),
     getAllSlabAssignments(),
   ]);
 
@@ -399,7 +409,9 @@ export const getFroDetail = async (froId, date) => {
   const assignMap = {};
   for (const a of assignments || []) assignMap[a.fro_worker_id] = a.slab_id;
 
-  const { slab, target } = await resolveFroSlab(froId, date, slabs, assignMap, slabById);
+  const targetMap = await buildFroTargetMap([froResult.data], date);
+  const target = targetMap.get(String(froId)) || 0;
+  const { slab } = resolveFroSlab(froId, target, slabs, assignMap, slabById);
   const calc = await calculateFroLeadIncentive(froId, date, slabs, settings, { target, slab });
 
   // Flat model: the range's flat prize (incentive_amount) lands only on the
@@ -746,26 +758,18 @@ export const announceChampion = async ({ date, message, userId }) => {
 async function froIdsInSlab(slabId, activeSlabs) {
   const { data: froRows } = await db
     .from('workers')
-    .select('id')
+    .select('id, created_at')
     .eq('is_active', true)
     .ilike('department', 'fro');
   if (!froRows || froRows.length === 0) return [];
 
   const assignments = await getAllSlabAssignments();
   const assignedSlab = {};
-  for (const a of assignments || {}) {
+  for (const a of assignments || []) {
     if (a && a.fro_worker_id) assignedSlab[a.fro_worker_id] = a.slab_id;
   }
 
-  const month = monthStrOf(new Date().toISOString().slice(0, 10));
-  const [{ data: manual }, { data: auto }] = await Promise.all([
-    db.from('fro_monthly_targets').select('fro_worker_id, target_amount').eq('month', month),
-    db.from('incentive_targets').select('worker_id, target_amount').eq('month', month),
-  ]);
-  const manualMap = {};
-  for (const m of manual || {}) manualMap[m.fro_worker_id] = Number(m.target_amount) || 0;
-  const autoMap = {};
-  for (const m of auto || {}) autoMap[m.worker_id] = Number(m.target_amount) || 0;
+  const targetMap = await buildFroTargetMap(froRows, istDateString());
 
   const inSlab = [];
   for (const f of froRows) {
@@ -774,7 +778,7 @@ async function froIdsInSlab(slabId, activeSlabs) {
       if (String(a) === String(slabId)) inSlab.push(f.id);
       continue;
     }
-    const t = manualMap[f.id] > 0 ? manualMap[f.id] : (autoMap[f.id] || 0);
+    const t = targetMap.get(String(f.id)) || 0;
     const bucket = getSlabForTarget(t, activeSlabs);
     if (bucket && String(bucket.id) === String(slabId)) inSlab.push(f.id);
   }

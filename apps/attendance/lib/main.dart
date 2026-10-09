@@ -315,8 +315,14 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _checkAuth() async {
     try {
-      final token = await ApiService.getToken().timeout(const Duration(seconds: 2));
+      var token = await ApiService.getToken().timeout(const Duration(seconds: 2));
       if (token != null) {
+        // Access token may have lapsed while the app was closed; swap it for a
+        // fresh one via the stored refresh token before deciding auth state.
+        try {
+          await ApiService.ensureSession().timeout(const Duration(seconds: 6));
+          token = await ApiService.getToken();
+        } catch (_) {}
         await ApiService.isNgoAdmin();
       }
       if (token != null && firebaseInitialized) {
@@ -582,28 +588,17 @@ class _LazyIndexedStackState extends State<_LazyIndexedStack> {
   void initState() {
     super.initState();
     _built.add(widget.index);
-    // Pre-warm the remaining tabs after the first frame so switching tabs is
-    // instant once the user taps, without blocking the first frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _warmAll());
+    // Tabs are built lazily on first visit only — pre-warming every tab runs
+    // all their timers, polls, and realtime listeners at once (main-thread +
+    // network churn) even while hidden.
   }
 
   @override
   void didUpdateWidget(covariant _LazyIndexedStack oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.index >= 0 && widget.index < widget.children.length) {
-      _built.add(widget.index);
+    if (widget.index >= 0 && widget.index < widget.children.length && !_built.contains(widget.index)) {
+      setState(() => _built.add(widget.index));
     }
-    _warmAll();
-  }
-
-  void _warmAll() {
-    if (!mounted) return;
-    if (widget.children.indexed.every((e) => _built.contains(e.$1))) return;
-    setState(() {
-      for (var i = 0; i < widget.children.length; i++) {
-        _built.add(i);
-      }
-    });
   }
 
   @override

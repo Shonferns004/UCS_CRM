@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle } from 'lucide-react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
+import { apiGet, apiPost, apiPut, apiDelete, listCrmAgents } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
@@ -954,7 +954,20 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
   );
 }
 
-function SearchableSelect({ options, value, onChange, placeholder }) {
+// A station is assigned by AGENT -- the seat -- not by whoever currently holds
+// that agent's FRO account. Reassigning an agent's FRO therefore leaves the
+// station where it is; only the account it resolves to changes.
+//
+// Options are the agents, each labelled with the FRO they cover right now
+// ("Agent 1 -- Maya Jadhao"), so the admin can see both at the moment of
+// assigning. Value is the agent id.
+const agentOptionLabel = (a) => {
+  if (!a) return '';
+  const fro = a.fro_name || a.name;
+  return fro ? `${a.agent_label || 'Agent'} — ${fro}` : (a.agent_label || '');
+};
+
+function AgentSelect({ options, value, onChange, placeholder }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef(null);
@@ -966,18 +979,22 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const filtered = options.filter(w =>
-    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase())
+  const filtered = options.filter(a =>
+    !search
+      || a.agent_label?.toLowerCase().includes(search.toLowerCase())
+      || a.fro_name?.toLowerCase().includes(search.toLowerCase())
+      || a.name?.toLowerCase().includes(search.toLowerCase())
+      || a.login_id?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const selected = options.find(w => w.id === value);
+  const selected = options.find(a => a.id === value);
 
   return (
-    <div ref={ref} className="searchable-select" style={{ position: 'relative', maxWidth: 180 }}>
+    <div ref={ref} className="searchable-select" style={{ position: 'relative', maxWidth: 200 }}>
       <div onClick={() => setOpen(!open)}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
         <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {selected ? selected.name : (placeholder || '-- Select --')}
+          {selected ? agentOptionLabel(selected) : (placeholder || '-- Select --')}
         </span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
       </div>
@@ -987,25 +1004,25 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search FRO..."
+              placeholder="Search agent or FRO..."
               style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent' }}
               autoFocus />
           </div>
           <div style={{ maxHeight: 180, overflowY: 'auto' }}>
             <div onClick={() => { onChange(''); setOpen(false); }}
               style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: '#9ca3af', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
-              -- No FRO --
+              -- No Agent --
             </div>
-            {filtered.map(w => (
-              <div key={w.id} onClick={() => { onChange(w.id); setOpen(false); }}
-                style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
+            {filtered.map(a => (
+              <div key={a.id} onClick={() => { onChange(a.id); setOpen(false); }}
+                style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: a.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
                 onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
-                onMouseLeave={e => e.currentTarget.style.background = w.id === value ? '#f0fdf4' : 'transparent'}>
-                <span>{w.name}</span>
+                onMouseLeave={e => e.currentTarget.style.background = a.id === value ? '#f0fdf4' : 'transparent'}>
+                <span>{agentOptionLabel(a)}</span>
               </div>
             ))}
             {filtered.length === 0 && (
-              <div style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>No FROs match</div>
+              <div style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>No agents match</div>
             )}
           </div>
           <div style={{ padding: '4px 8px', borderTop: '1px solid var(--line, #e5e7eb)', fontSize: 10, color: 'var(--ink-soft)', textAlign: 'right' }}>
@@ -2027,6 +2044,7 @@ export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
   const [froWorkers, setFroWorkers] = useState([]);
+  const [agents, setAgents] = useState([]);
   const [targets, setTargets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newStation, setNewStation] = useState('');
@@ -2159,11 +2177,13 @@ export default function StationManagement() {
         apiGet('/ngo-admin/ngos/all'),
         apiGet('/ngo-admin/fro-workers'),
         apiGet('/ngo-admin/targets?month=' + m),
+        listCrmAgents().catch(() => ({ agents: [] })),
       ]);
-    }).then(([n, f, t]) => {
+    }).then(([n, f, t, a]) => {
       setAllNgos(Array.isArray(n) ? n : []);
       setFroWorkers(Array.isArray(f) ? f : []);
       if (Array.isArray(t)) setTargets(t);
+      setAgents(Array.isArray(a?.agents) ? a.agents : []);
       const ngoList = Array.isArray(n) ? n : [];
       if (ngoList.length > 0) {
         setSelectedNgoId(ngoList[0].id);
@@ -2181,6 +2201,37 @@ export default function StationManagement() {
 
   const activeTransfers = transfers.filter(t => !t.returned);
   const historyTransfers = transfers.filter(t => t.returned);
+
+  // Picker options: one row per agent, carrying the FRO that agent covers right
+  // now. Built from /fro-workers (which is the agent's own list) and completed
+  // from the agents endpoint so an agent whose FRO has no station row still shows.
+  const agentOptions = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    for (const fw of froWorkers) {
+      if (!fw.agent_id || seen.has(fw.agent_id)) continue;
+      seen.add(fw.agent_id);
+      rows.push({
+        id: fw.agent_id,
+        agent_label: fw.agent_label,
+        fro_name: fw.fro_name || fw.name,
+        name: fw.fro_name || fw.name,
+        login_id: fw.login_id,
+      });
+    }
+    for (const ag of agents) {
+      if (seen.has(ag.id)) continue;
+      seen.add(ag.id);
+      rows.push({
+        id: ag.id,
+        agent_label: ag.label,
+        fro_name: ag.worker_name || null,
+        name: ag.worker_name || ag.label,
+        login_id: ag.worker_login_id,
+      });
+    }
+    return rows;
+  }, [froWorkers, agents]);
 
   const groupBase = stations.filter(s => {
     if (!ngoGroup) return true;
@@ -2290,13 +2341,16 @@ export default function StationManagement() {
     }
   };
 
-  const handleFroChange = async (station, froWorkerId) => {
+  // Station assignment is by agent. The server resolves the agent's current FRO,
+  // stores it as the station's FRO of record, and re-points the station's donors
+  // to that FRO -- so assigning a seat is a single act, not two.
+  const handleAgentChange = async (station, agentId) => {
     const s = stations.find(st => st.station === station);
     if (!s) return;
     try {
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, {
         ngo_id: s.ngos[0]?.ngo_id || null,
-        fro_worker_id: froWorkerId,
+        crm_agent_id: agentId || null,
       });
       fetchData();
     } catch (err) {
@@ -2529,7 +2583,7 @@ export default function StationManagement() {
                   <tr>
                     <th style={{ width: '13%' }}>Station</th>
                     <th style={{ width: '8%' }}>NGO</th>
-                    <th style={{ width: '20%' }}>FRO Worker</th>
+                    <th style={{ width: '20%' }}>FRO Name / Agent</th>
                     <th style={{ width: '13%' }}>Donors</th>
 
                     <th style={{ width: '10%', textAlign: 'right' }}>Actions</th>
@@ -2540,7 +2594,18 @@ export default function StationManagement() {
                     const ngoName = s.ngos?.[0]?.ngo_name;
                     const ngoCol = ngoColor(ngoName);
                     const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
-                    const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                    // The station's agent of record, as stored on the assignment.
+                    // Deriving it from the worker's CURRENT agent is what used to
+                    // make a station change owner the moment that FRO was moved to
+                    // another agent -- the station had never been edited.
+                    const seatAgentId = s.crm_agent_id || null;
+                    const seatAgent = seatAgentId
+                      ? (agents.find(a => String(a.id) === String(seatAgentId))
+                        || agentOptions.find(a => String(a.id) === String(seatAgentId)))
+                      : null;
+                    const coveredFro = seatAgent
+                      ? (seatAgent.fro_name || seatAgent.name)
+                      : (s.fro_worker_name || null);
                     return (
                       <tr key={s.station}>
                         <td>
@@ -2566,12 +2631,15 @@ export default function StationManagement() {
                           </span>
                         </td>
                         <td>
-                          <SearchableSelect
-                            options={froWorkers}
-                            value={s.fro_worker_id || ''}
-                            onChange={(val) => handleFroChange(s.station, val)}
-                            placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
+                          <AgentSelect
+                            options={agentOptions}
+                            value={seatAgentId || ''}
+                            onChange={(val) => handleAgentChange(s.station, val)}
+                            placeholder={seatAgentId ? (seatAgent ? agentOptionLabel(seatAgent) : '--') : '+ Assign Agent'}
                           />
+                          {coveredFro && (
+                            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 3 }}>FRO: {coveredFro}</div>
+                          )}
                         </td>
                         <td>{renderDonorPills(s)}</td>
 

@@ -2415,9 +2415,9 @@ export default function Dashboard() {
                               {idl && (
                                 <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
                               )}
-                              {idl && (p.idleMinutes || 0) > 60 && (
+                              {(p.today_idle_seconds || 0) > 3600 && (
                                 <button
-                                  title={`Idle for ${p.idleMinutes}m — click to warn this telecaller`}
+                                  title={`Idle for ${formatDuration(p.today_idle_seconds)} — click to warn this telecaller`}
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     try {
@@ -2427,9 +2427,9 @@ export default function Dashboard() {
                                       toast(err.message || 'Could not send warning', 'error');
                                     }
                                   }}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#dc2626', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+                                  style={{ background: '#dc2626', border: '1px solid #b91c1c', cursor: 'pointer', padding: '1px 6px', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 3, borderRadius: 999, fontSize: 9, fontWeight: 700, flexShrink: 0 }}
                                 >
-                                  <Bell size={14} fill="currentColor" />
+                                  <Bell size={9} fill="currentColor" /> Warn
                                 </button>
                               )}
                               {met && (

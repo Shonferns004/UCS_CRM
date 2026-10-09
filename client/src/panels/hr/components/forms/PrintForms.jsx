@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import WelcomeLetter from './WelcomeLetter'
 import Template1 from './Template1'
 import Template2 from './Template2'
@@ -10,6 +10,15 @@ import Template6 from './Template6'
 
 export default function PrintForms({ data, onClose }) {
   const ref = useRef(null)
+  const [contentOnly, setContentOnly] = useState(() => {
+    try { return localStorage.getItem('wl_content_only') === '1' } catch { return false }
+  })
+  const [topMargin, setTopMargin] = useState(() => {
+    try { return Number(localStorage.getItem('wl_top_margin')) || 60 } catch { return 60 }
+  })
+
+  useEffect(() => { try { localStorage.setItem('wl_content_only', contentOnly ? '1' : '0') } catch {} }, [contentOnly])
+  useEffect(() => { try { localStorage.setItem('wl_top_margin', String(topMargin)) } catch {} }, [topMargin])
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -59,10 +68,21 @@ export default function PrintForms({ data, onClose }) {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Print Preview — All Forms</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={contentOnly} onChange={(e) => setContentOnly(e.target.checked)} />
+            Welcome letter: signed-paper (content-only)
+          </label>
+          {contentOnly && (
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+              Top margin (mm):
+              <input type="number" value={topMargin} min={0} max={200}
+                onChange={(e) => setTopMargin(Number(e.target.value) || 0)}
+                style={{ width: 70, padding: '4px 6px' }} />
+            </label>
+          )}
           <button className="btn btn-primary" onClick={handlePrint}
-            style={{ padding: '10px 24px', fontSize: 14, fontWeight: 700 }}>
-            🖨️ Print All Forms
+            style={{ padding: '10px 24px', fontSize: 14, fontWeight: 700 }}>            🖨️ Print All Forms
           </button>
           <button className="btn" onClick={onClose}
             style={{ padding: '10px 24px', fontSize: 14 }}>
@@ -71,7 +91,7 @@ export default function PrintForms({ data, onClose }) {
         </div>
       </div>
       <div ref={ref}>
-        <WelcomeLetter personal={data.personal} ngoName={data.ngoName} ngoCode={data.ngoCode} />
+        <WelcomeLetter personal={data.personal} ngoName={data.ngoName} ngoCode={data.ngoCode} contentOnly={contentOnly} topMargin={topMargin} />
         <Template1 personal={data.personal} education={data.education} family={data.family || []} organizations={data.organizations || []} photo_url={data.photo_url || ''} />
         <Template2 />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />

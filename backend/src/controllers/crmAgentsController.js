@@ -11,6 +11,8 @@ import {
   deleteAgent,
   DEFAULT_AGENT_PASSWORD,
 } from '../models/crmAgentModel.js';
+import { carryAgentStationsToWorker } from '../services/stationAgentOfRecord.js';
+import { commitIdleOnExit } from '../services/froIdleCommit.js';
 
 // Management of CRM login agents ("Agent N").
 //
@@ -126,6 +128,16 @@ const closeFroSessions = async (workerId) => {
   } catch (e) {
     // auth_sessions may be absent until migration 125. The login guard still holds.
     console.warn('[agents] could not close FRO session:', e?.message || String(e));
+  }
+  // Presence is only half of it. Without committing the open idle period, the
+  // FRO's row keeps its lapsed deadline and idle stamp, the covered-away freeze
+  // then stops applying the moment this returns, and the board goes on billing
+  // idle for an FRO who has just been taken off the keyboard — the same gap a
+  // manual sign-out used to have.
+  try {
+    await commitIdleOnExit(String(workerId));
+  } catch (e) {
+    console.warn('[agents] could not commit FRO idle on cover:', e?.message || String(e));
   }
 };
 
@@ -254,6 +266,25 @@ export const updateCrmAgentAssignment = async (req, res) => {
     const agent = await reassignAgentWorker(req.params.id, worker.id);
     if (!agent) return res.status(404).json({ message: 'Agent not found.' });
 
+    // The agent keeps its stations -- a station is a seat, not a person -- but
+    // the FRO of record and every donor sitting in those stations have to follow
+    // it, or the station would still be attributed to the outgoing FRO. Failing
+    // this would leave donor lists, dashboards and salary reading the old FRO,
+    // so it is reported rather than swallowed.
+    let stationsMoved = { stations: 0, donors: 0 };
+    try {
+      stationsMoved = await carryAgentStationsToWorker(
+        req.params.id,
+        worker.id,
+        previous?.[0]?.worker_id,
+      );
+    } catch (carryErr) {
+      console.error('[agent reassign] station carry-over failed:', carryErr?.message || carryErr);
+      return res.status(500).json({
+        message: `Agent reassigned, but their stations could not be moved: ${carryErr?.message || carryErr}`,
+      });
+    }
+
     // Close the new FRO's sessions, and the old one's too: they are no longer
     // covered by anybody, and a token that outlives its cover is exactly the leak
     // this feature exists to close. Both reopen on next login.
@@ -263,6 +294,7 @@ export const updateCrmAgentAssignment = async (req, res) => {
     return res.json({
       agent,
       swapped: !!agent?.swapped,
+      stations: stationsMoved,
       message: agent?.swapped
         ? `${agent.label} now covers ${worker.name}; its old FRO moved to the other agent`
         : `${agent.label} now covers ${worker.name}`,
@@ -358,6 +390,14 @@ export const forceLogoutCrmAgent = async (req, res) => {
       .update({ logged_out_at: new Date().toISOString() })
       .eq('user_id', String(agent.worker_id))
       .is('logged_out_at', null);
+
+    // Same reason as closeFroSessions: a signed-out session must also stop
+    // accruing idle, or the FRO's row keeps billing them to shift end.
+    try {
+      await commitIdleOnExit(String(agent.worker_id));
+    } catch (e) {
+      console.warn('[agents] idle commit on force-logout failed:', e?.message || String(e));
+    }
 
     return res.json({ message: `${agent.label} signed out` });
   } catch (error) {

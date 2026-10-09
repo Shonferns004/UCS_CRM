@@ -7,7 +7,8 @@ import {
   markBeneficiaryKitGiven, lookupBeneficiaryByToken, deleteBeneficiariesController,
   parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
-  sendCollectionOtp,
+  sendCollectionOtp, verifyCollectionOtp,
+  exportBeneficiariesController,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -66,6 +67,9 @@ router.get('/search/mobile', authenticateRole('super_admin', 'admin', 'ngo', 'ac
 router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), lookupBeneficiaryByToken);
 
 // CRUD
+// Export — every beneficiary matching the current list filters as xlsx rows.
+// Declared before '/:id' so 'export' is not parsed as an id.
+router.get('/export', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), exportBeneficiariesController);
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
 router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), createNewBeneficiary);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);
@@ -84,6 +88,10 @@ router.post('/:id/kit-given', authenticateRole('super_admin', 'admin', 'ngo', 'a
 // Re-issue collection OTP — generated when the operator accepts the
 // "Already collected" prompt; shown in the accounts panel Beneficiaries section.
 router.post('/:id/collection-otp', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), sendCollectionOtp);
+
+// Verify the collection OTP - must pass within 15 minutes of generation
+// before the app allows the kit re-issue swipe.
+router.post('/:id/verify-collection-otp', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), verifyCollectionOtp);
 
 // Audit
 router.get('/:id/audit', authenticateRole('master', 'super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker', 'fro', 'hr', 'recruiter', 'digital'), getAuditTrail);

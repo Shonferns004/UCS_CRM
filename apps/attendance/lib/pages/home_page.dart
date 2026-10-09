@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/location_service.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
 import '../services/remote_config_service.dart';
@@ -27,12 +31,9 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _minPunchOutDelay = Duration(minutes: 5);
   final ScrollController _scrollController = ScrollController();
-  Timer? _clockTimer;
   Timer? _refreshTimer;
-  DateTime _now = DateTime.now();
   DateTime? _punchInTime;
   DateTime? _punchOutTime;
-  String _workedDisplay = '00:00:00';
   bool _isPunchedIn = false;
   bool _isPunchedOut = false;
   bool _loading = true;
@@ -59,12 +60,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _pulseAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeOut),
     );
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _now = DateTime.now());
-      if (_isPunchedIn && !_isPunchedOut) {
-        _updateWorked();
-      }
-    });
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _fetchStatus();
     });
@@ -91,21 +86,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _clockTimer?.cancel();
+    RealtimeService.instance.removeListener(_onRealtimeChange);
     _refreshTimer?.cancel();
     _scrollController.dispose();
     _pulseCtrl.dispose();
     super.dispose();
-  }
-
-  void _updateWorked() {
-    if (_punchInTime == null) return;
-    final end = _punchOutTime ?? DateTime.now();
-    final diff = end.difference(_punchInTime!);
-    final h = diff.inHours.toString().padLeft(2, '0');
-    final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
-    _workedDisplay = '$h:$m:$s';
   }
 
   Duration? get _punchOutCountdown {
@@ -181,16 +166,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             _punchOutTime = att['punch_out_time'] != null
                 ? DateTime.tryParse(att['punch_out_time'].toString())
                 : null;
-            if (_isPunchedIn && !_isPunchedOut) {
-              _updateWorked();
-            }
-            if (_isPunchedOut && _punchInTime != null && _punchOutTime != null) {
-              final diff = _punchOutTime!.difference(_punchInTime!);
-              final h = diff.inHours.toString().padLeft(2, '0');
-              final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
-              final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
-              _workedDisplay = '$h:$m:$s';
-            }
           }
         });
       }
@@ -234,14 +209,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         _punchOutTime = att['punch_out_time'] != null
             ? DateTime.tryParse(att['punch_out_time'].toString())
             : null;
-        if (_isPunchedIn && !_isPunchedOut) _updateWorked();
-        if (_isPunchedOut && _punchInTime != null && _punchOutTime != null) {
-          final diff = _punchOutTime!.difference(_punchInTime!);
-          final h = diff.inHours.toString().padLeft(2, '0');
-          final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
-          final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
-          _workedDisplay = '$h:$m:$s';
-        }
       }
     });
   }
@@ -328,7 +295,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         _isPunchedOut = false;
         _punchOutTime = null;
         if (lm > 0) _lateUsed += lm;
-        _updateWorked();
       });
       _cacheTodayState(now.toIso8601String(), null);
       if (mounted) {
@@ -395,7 +361,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       setState(() {
         _isPunchedOut = true;
         _punchOutTime = now;
-        _updateWorked();
       });
       _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
       if (mounted) {
@@ -467,6 +432,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  void _openHelpSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _HelpSheet(),
+    );
+  }
+
   void _openNotificationSheet() {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -527,7 +501,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     final sc = Theme.of(context).colorScheme;
     final colors = Theme.of(context).extension<AppColors>()!;
 
-    final clockStr = DateFormat('hh:mm a').format(_now);
     final firstName = _workerName.split(' ').first;
     final displayName = firstName.isNotEmpty
         ? '${firstName[0].toUpperCase()}${firstName.substring(1).toLowerCase()}'
@@ -569,6 +542,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ],
                       ),
                     ),
+                    SizedBox(width: Responsive.pad(context, 8)),
                     Stack(
                       children: [
                         Container(
@@ -654,39 +628,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       ),
                     ),
                     SizedBox(height: Responsive.pad(context, 32)),
-                    Text(
-                      clockStr,
-                      style: GoogleFonts.hankenGrotesk(
-                        fontSize: Responsive.sp(context, 64),
-                        fontWeight: FontWeight.w800,
-                        height: 64 / 64,
-                        letterSpacing: -1.5,
-                        color: sc.onSurface,
-                      ),
-                    ),
-                    SizedBox(height: Responsive.pad(context, 12)),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFbfdbfe).withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(LucideIcons.clock, size: Responsive.sp(context, 18), color: const Color(0xFF1d4ed8)),
-                          SizedBox(width: Responsive.pad(context, 6)),
-                          Text(
-                            '$_workedDisplay',
-                            style: TextStyle(
-                              fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w500,
-                              color: const Color(0xFF1d4ed8),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: Responsive.pad(context, 40)),
                     if (_isPunchedOut)
                       Column(
                         children: [
@@ -714,19 +655,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                   final opacity = (1.0 - t) * 0.2;
                                   return Transform.scale(
                                     scale: scale,
-                                    child: Opacity(
-                                      opacity: opacity,
-                                      child: Container(
-                                        width: 192,
-                                        height: 192,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: _isPunchedIn
-                                                ? const Color(0xFF2563eb).withValues(alpha: 0.5)
-                                                : const Color(0xFF00152a).withValues(alpha: 0.5),
-                                            width: 2,
-                                          ),
+                                    child: Container(
+                                      width: 192,
+                                      height: 192,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: (_isPunchedIn
+                                                  ? const Color(0xFF2563eb)
+                                                  : const Color(0xFF00152a))
+                                              .withValues(alpha: opacity * 0.5),
+                                          width: 2,
                                         ),
                                       ),
                                     ),
@@ -781,10 +720,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                         color: Colors.white,
                                       ),
                                     ),
-                                    if (_punchOutCountdown != null) ...[
+                                    if (_isPunchedIn && !_isPunchedOut && _punchInTime != null) ...[
                                       SizedBox(height: Responsive.pad(context, 4)),
-                                      Text(
-                                        'Punch out in $_punchOutCountdownText',
+                                      _PunchOutCountdownText(
+                                        punchInTime: _punchInTime!,
+                                        minDelay: _minPunchOutDelay,
                                         style: TextStyle(
                                           fontSize: Responsive.sp(context, 10), fontWeight: FontWeight.w500, letterSpacing: 0.3,
                                           color: Colors.white70,
@@ -917,7 +857,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             if (RemoteConfigService.instance.featureFlag('show_requests'))
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 12)),
                   child: Container(
                     padding: EdgeInsets.all(Responsive.pad(context, 16)),
                     decoration: BoxDecoration(
@@ -959,8 +899,276 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   ),
                 ),
               ),
+            if (RemoteConfigService.instance.featureFlag('show_requests'))
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), 0, Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                  child: Container(
+                    padding: EdgeInsets.all(Responsive.pad(context, 16)),
+                    decoration: BoxDecoration(
+                      color: sc.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: colors.outline),
+                    ),
+                    child: InkWell(
+                      onTap: _openHelpSheet,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFffe4d6),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Icon(LucideIcons.circleHelp, size: Responsive.sp(context, 22), color: Color(0xFF00152a)),
+                          ),
+                          SizedBox(width: Responsive.pad(context, 16)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Help an Employee', style: GoogleFonts.hankenGrotesk(
+                                  fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                                )),
+                                Text('Search & punch in/out for others', style: TextStyle(
+                                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                                  color: sc.onSurfaceVariant,
+                                )),
+                              ],
+                            ),
+                          ),
+                          Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PunchOutCountdownText extends StatefulWidget {
+  final DateTime punchInTime;
+  final Duration minDelay;
+  final TextStyle style;
+  const _PunchOutCountdownText({required this.punchInTime, required this.minDelay, required this.style});
+
+  @override
+  State<_PunchOutCountdownText> createState() => _PunchOutCountdownTextState();
+}
+
+class _PunchOutCountdownTextState extends State<_PunchOutCountdownText> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = widget.minDelay - DateTime.now().difference(widget.punchInTime);
+    if (remaining.isNegative) return const SizedBox.shrink();
+    final total = remaining.inSeconds;
+    final m = (total ~/ 60).toString().padLeft(2, '0');
+    final s = (total % 60).toString().padLeft(2, '0');
+    return Text('Punch out in $m:$s', style: widget.style);
+  }
+}
+
+class _HelpSheet extends StatefulWidget {
+  const _HelpSheet();
+
+  @override
+  State<_HelpSheet> createState() => _HelpSheetState();
+}
+
+class _HelpSheetState extends State<_HelpSheet> {
+  final _searchCtrl = TextEditingController();
+  List<dynamic> _workers = [];
+  Map<String, dynamic> _todayByWorker = {};
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final workers = await ApiService.getWorkersScopedAll();
+      final todayList = await ApiService.getTodayAllAttendance();
+      final map = <String, dynamic>{};
+      for (final r in todayList) {
+        if (r is Map && r['worker_id'] != null) {
+          map[r['worker_id'].toString()] = r;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _workers = workers;
+          _todayByWorker = map;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  String _statusFor(Map<String, dynamic>? record) {
+    if (record == null || record['punch_in_time'] == null) return 'punch_in_pending';
+    if (record['punch_out_time'] == null) return 'punch_out_pending';
+    return 'completed';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final term = _searchCtrl.text.trim().toLowerCase();
+    final filtered = term.isEmpty
+        ? const <dynamic>[]
+        : _workers.where((w) {
+            final name = (w['name'] ?? '').toString().toLowerCase();
+            final dept = (w['department'] ?? '').toString().toLowerCase();
+            final phone = (w['phone'] ?? '').toString().toLowerCase();
+            return name.contains(term) || dept.contains(term) || phone.contains(term);
+          }).toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Row(
+              children: [
+                Text('Employee Help', style: GoogleFonts.hankenGrotesk(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                const Spacer(),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Search employees...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: const Color(0xFFf6fafe),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Text(_error!, style: const TextStyle(color: Color(0xFFba1a1a))))
+                    : term.isEmpty
+                        ? const Center(child: Text('Type a name to search employees'))
+                        : filtered.isEmpty
+                        ? const Center(child: Text('No employees found'))
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final w = filtered[i];
+                              final record = _todayByWorker[w['id']?.toString() ?? ''] as Map<String, dynamic>?;
+                              final status = _statusFor(record);
+                              final label = status == 'punch_in_pending'
+                                  ? 'Punch in pending'
+                                  : status == 'punch_out_pending'
+                                      ? 'Punch out pending'
+                                      : 'Punched in & out';
+                              final color = status == 'punch_in_pending'
+                                  ? const Color(0xFFba1a1a)
+                                  : status == 'punch_out_pending'
+                                      ? const Color(0xFFd97706)
+                                      : const Color(0xFF1D7A4F);
+                              return InkWell(
+                                onTap: () {
+                                  if (status == 'completed') {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Attendance already completed for today')),
+                                    );
+                                    return;
+                                  }
+                                  Navigator.pop(context);
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    backgroundColor: Colors.transparent,
+                                    builder: (_) => _SelfiePunchSheet(
+                                      worker: w,
+                                      action: status == 'punch_in_pending' ? 'punch_in' : 'punch_out',
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFf6fafe),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFe0e4ea)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(child: Text((w['name'] ?? '?').toString().isNotEmpty ? w['name'].toString()[0].toUpperCase() : '?')),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(w['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.w700)),
+                                          if ((w['department'] ?? '').toString().isNotEmpty)
+                                            Text(w['department'].toString(), style: const TextStyle(fontSize: 12, color: Color(0xFF74777e))),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+                                      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
+                                    ),
+                                  ],
+                                ),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ],
       ),
     );
   }
@@ -1319,6 +1527,170 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                   fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w700,
                 )),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SelfiePunchSheet extends StatefulWidget {
+  final Map<String, dynamic> worker;
+  final String action;
+  const _SelfiePunchSheet({required this.worker, required this.action});
+
+  @override
+  State<_SelfiePunchSheet> createState() => _SelfiePunchSheetState();
+}
+
+class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
+  File? _selfie;
+  double? _lat;
+  double? _lng;
+  String? _placeName;
+  bool _locating = true;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveLocation();
+  }
+
+  Future<void> _resolveLocation() async {
+    setState(() => _locating = true);
+    final pos = await LocationService.getCurrentLocation();
+    String? place;
+    if (pos != null) {
+      place = await LocationService.getPlaceName(pos.latitude, pos.longitude);
+    }
+    if (mounted) {
+      setState(() {
+        _lat = pos?.latitude;
+        _lng = pos?.longitude;
+        _placeName = place;
+        _locating = false;
+      });
+    }
+  }
+
+  Future<void> _capture() async {
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 70);
+      if (picked != null && mounted) setState(() => _selfie = File(picked.path));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open camera')));
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_selfie == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Capture a selfie first')));
+      return;
+    }
+    if (_lat == null || _lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location not available. Enable GPS and retry.')));
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final bytes = await _selfie!.readAsBytes();
+      await ApiService.hrSelfiePunch(
+        workerId: (widget.worker['id'] ?? '').toString(),
+        type: widget.action,
+        selfieBase64: base64Encode(bytes),
+        mimeType: 'image/jpeg',
+        latitude: _lat!,
+        longitude: _lng!,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(widget.action == 'punch_in' ? 'Punch-in recorded' : 'Punch-out recorded'),
+        backgroundColor: const Color(0xFF16A34A),
+      ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: const Color(0xFFDC2626),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPunchIn = widget.action == 'punch_in';
+    final name = (widget.worker['name'] ?? 'Employee').toString();
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(isPunchIn ? 'Punch In' : 'Punch Out',
+                style: GoogleFonts.hankenGrotesk(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(name, style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+            const SizedBox(height: 16),
+            if (_selfie != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(aspectRatio: 4 / 3, child: Image.file(_selfie!, fit: BoxFit.cover)),
+              )
+            else
+              Container(
+                height: 200,
+                decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(12)),
+                child: const Center(child: Icon(Icons.camera_alt_outlined, size: 40, color: Color(0xFF9CA3AF))),
+              ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _capture,
+              icon: const Icon(Icons.camera_alt_rounded),
+              label: Text(_selfie == null ? 'Capture Selfie' : 'Retake Selfie'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(_lat != null ? Icons.location_on_rounded : Icons.location_off_rounded,
+                    size: 18, color: _lat != null ? const Color(0xFF16A34A) : const Color(0xFFDC2626)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _locating
+                        ? 'Resolving location...'
+                        : _lat != null
+                            ? '${_placeName ?? ''}${_placeName != null && _placeName!.isNotEmpty ? '\n' : ''}${_lat!.toStringAsFixed(5)}, ${_lng!.toStringAsFixed(5)}'
+                            : 'Location unavailable',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                  ),
+                ),
+                IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _resolveLocation),
+              ],
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _submitting ? null : _submit,
+              style: FilledButton.styleFrom(
+                backgroundColor: isPunchIn ? const Color(0xFF2563EB) : const Color(0xFF16A34A),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _submitting
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(isPunchIn ? 'Submit Punch In' : 'Submit Punch Out'),
             ),
           ],
         ),

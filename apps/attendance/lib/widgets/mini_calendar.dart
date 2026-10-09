@@ -127,37 +127,6 @@ class MiniCalendar extends StatelessWidget {
                               color: isSelected ? Colors.white : (fg ?? const Color(0xFF171c1f)),
                             ),
                           ),
-                          if (calTypes.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: calTypes.map((t) {
-                                  Color dotColor;
-                                  switch (t) {
-                                    case 'holiday':
-                                      dotColor = const Color(0xFF7c3aed);
-                                      break;
-                                    case 'event':
-                                      dotColor = const Color(0xFF2563eb);
-                                      break;
-                                    case 'birthday':
-                                      dotColor = const Color(0xFFf43f5e);
-                                      break;
-                                    default:
-                                      dotColor = const Color(0xFF74777e);
-                                  }
-                                  return Container(
-                                    width: 5, height: 5,
-                                    margin: const EdgeInsets.symmetric(horizontal: 1),
-                                    decoration: BoxDecoration(
-                                      color: isSelected ? Colors.white : dotColor,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ),
                         ],
                       ),
                     ),

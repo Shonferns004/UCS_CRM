@@ -986,6 +986,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                         )
                       : _uploadedPhotoUrl != null
                           ? Image.network(_uploadedPhotoUrl!, fit: BoxFit.cover, width: 180, height: 180,
+                              cacheWidth: 360, cacheHeight: 360,
                               errorBuilder: (_, __, ___) => _photoPlaceholder())
                           : _selectedImage != null
                               ? Image.file(_selectedImage!, fit: BoxFit.cover, width: 180, height: 180)

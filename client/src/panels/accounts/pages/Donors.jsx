@@ -365,7 +365,7 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
                       <UserCog size={14} style={{ color: 'var(--sage)', flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0, fontSize: 12 }}>
                         <strong>{a.worker_name || 'Unassigned'}</strong>
-                        <div style={{ color: 'var(--ink-soft)', marginTop: 2 }}>{a.ngo_name || 'NGO'} · {a.station || 'No station'}</div>
+                        <div style={{ color: 'var(--ink-soft)', marginTop: 2 }}>{a.ngo_name || 'NGO'} · {a.station || 'No station'}{a.status ? ` · ${a.status.replace(/_/g, ' ')}` : ''}</div>
                       </div>
                       <button className="btn btn-sm" onClick={() => startAssignmentEdit(a)} disabled={assignmentBusy}>Replace</button>
                       <button className="btn btn-sm" onClick={() => removeAssignment(a)} disabled={assignmentBusy} title="Remove assignment" style={{ color: '#b91c1c' }}><Trash2 size={13} /></button>
