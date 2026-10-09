@@ -2181,12 +2181,12 @@ export default function Dashboard() {
           // display renders the cell, and metricCell already prefers it.
           // While a FRO is being covered by an agent, the figure here is the AGENT's idle —
 // the person actually at the keyboard — because that is what their own panel
-// shows. Without the name the cell reads as the FRO's number and the board looks
-// like it disagrees with the panel, which is exactly the confusion this closes.
+// shows. The cell stays a bare duration so it reads as a number in the column and
+// not as an aside; who it belongs to is one hover away.
 idle: {
     key: 'idle', param: 'IDLE', full: 'Idle',
     val: (p) => p.today_idle_seconds || 0,
-    display: (v, p) => (p?.idle_attributed_to ? `${formatDuration(v)} (${p.idle_attributed_to})` : formatDuration(v)),
+    display: (v) => formatDuration(v),
     title: (p) => (p?.idle_attributed_to
       ? `Idle today of ${p.idle_attributed_to}, who is covering this FRO right now`
       : 'Idle today'),
