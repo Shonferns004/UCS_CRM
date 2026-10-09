@@ -7,9 +7,20 @@ import {
   getSeenNoticeIds,
   markNoticeSeen,
 } from '../models/noticeModel.js';
+import { presignNoticeMediaUrls, presignNoticeMediaUrl } from '../services/signatureMediaLink.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const asUuidOrNull = (v) => (v && UUID_RE.test(String(v))) ? String(v) : null;
+
+// notices.media_url holds a raw, unsigned bucket URL written by POST /api/upload.
+// It 403s for an anonymous browser since the bucket's public-access block was
+// applied, so the image never loaded. Sign it on the way out, as the worker photo
+// and signature paths already do. The column is left alone - a signed URL must
+// never be persisted - and a value that cannot be signed is returned unchanged
+// rather than blanked, so one odd row cannot fail the whole list.
+const withSignedMedia = async (notice) => (
+  notice ? { ...notice, media_url: await presignNoticeMediaUrl(notice.media_url) } : notice
+);
 
 export const addNotice = async (req, res) => {
   try {
@@ -17,6 +28,9 @@ export const addNotice = async (req, res) => {
     if (!title || !content) {
       return res.status(400).json({ message: 'Title and content are required' });
     }
+    // Stored raw on purpose: the column keeps the unsigned object URL. The
+    // response is signed so the creator sees the image they just attached
+    // instead of a broken one on the next fetch.
     const notice = await createNotice({
       title,
       content,
@@ -30,7 +44,7 @@ export const addNotice = async (req, res) => {
       created_by: asUuidOrNull(req.user.id),
       created_by_name: req.user.name || null,
     });
-    return res.status(201).json({ message: 'Notice created', notice });
+    return res.status(201).json({ message: 'Notice created', notice: await withSignedMedia(notice) });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -41,7 +55,8 @@ export const listNotices = async (req, res) => {
     const ngoId = req.user.role === 'super_admin' ? req.query.ngo_id : req.user.ngo_id;
     const notices = await getAllNotices(ngoId, req.query.target_role, req.user);
     const seen = await getSeenNoticeIds(req.user.id);
-    const out = (notices || []).map(n => ({ ...n, seen: seen.has(String(n.id)) }));
+    const signed = await presignNoticeMediaUrls((notices || []).map(n => n.media_url));
+    const out = (notices || []).map((n, i) => ({ ...n, media_url: signed[i], seen: seen.has(String(n.id)) }));
     return res.json(out);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -61,7 +76,7 @@ export const getNotice = async (req, res) => {
   try {
     const notice = await getNoticeById(req.params.id);
     if (!notice) return res.status(404).json({ message: 'Notice not found' });
-    return res.json(notice);
+    return res.json(await withSignedMedia(notice));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -80,7 +95,7 @@ export const editNotice = async (req, res) => {
     if (popup !== undefined) updates.popup = popup === true;
     if (target_roles !== undefined) updates.target_roles = Array.isArray(target_roles) && target_roles.length ? target_roles : ['all'];
     const notice = await updateNotice(req.params.id, updates);
-    return res.json({ message: 'Notice updated', notice });
+    return res.json({ message: 'Notice updated', notice: await withSignedMedia(notice) });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
