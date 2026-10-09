@@ -146,33 +146,42 @@ export const isCategoryLabel = (value) => CATEGORY_LABELS.includes(normalizeAgen
  * The identity of a payment, for deduplicating the same donation arriving by
  * two routes.
  *
- * Precedence matters and is the fix for the inflated total:
- *   payment_id  - authoritative. Same payment reference means same payment.
- *   receipt_no  - a unique receipt number is one payment too.
- *   donor+amount+date - last resort, for legacy rows carrying neither. Two
- *                 genuinely separate payments that share all three stay distinct
- *                 only because the caller applies paymentDiscriminant(); see
- *                 models/froDonorLogModel.js.
+ * This is the ORIGINAL composite key, restored deliberately. An earlier version
+ * of this function treated payment_id as the authoritative identity, on the
+ * assumption that it is a unique payment reference. On real data it is not: the
+ * bank-audit import writes a free-text description into that column, so it holds
+ * values like 'NA' (320 rows), '*Transfer' (264), 'UPI' (129) and
+ * '#####################'. Treating those as identities collapsed every receipt
+ * sharing one description into a single payment, which would have hidden ~500
+ * real donations from one collector's total (Padmini alone would have lost 326).
+ *
+ * Nothing may be silently dropped from a collection total, so the key stays
+ * composite: it is loose enough that a genuine payment keeps its own identity.
+ * It can still merge two rows that agree on receipt number, donor, amount, date
+ * and payment id -- that is the duplicate-payment case worth catching, and it is
+ * visible rather than silent.
  */
 export function paymentIdentity(receipt) {
   const r = receipt || {};
-  const paymentId = String(r.payment_id ?? '').trim();
-  if (paymentId) return `P|${paymentId.toLowerCase()}`;
   const receiptNo = String(r.receipt_no ?? '').trim();
-  if (receiptNo) return `R|${receiptNo.toLowerCase()}`;
   const donorId = String(r.donor_id ?? '').trim();
+  const paymentId = String(r.payment_id ?? '').trim();
   const amount = Number(r.amount ?? 0);
   const date = String(r.receipt_date ?? '').slice(0, 10);
-  return `F|${donorId}|${amount}|${date}`;
+  return `${receiptNo}|${donorId}|${amount}|${date}|${paymentId}`;
 }
 
 /**
  * Collapses rows that are the same payment, keeping the first.
  *
- * Deduplicates by receipt id first (one row cannot be counted twice) and then
- * by payment identity (one payment cannot be counted twice even when it was
- * written twice). Rows with a non-positive amount are dropped: a receipt of zero
- * or a refund-direction value is not collection.
+ * Deduplicates by receipt id first, so the same row reached by both attribution
+ * windows is counted once. That is a hard invariant, not a judgement call: it
+ * prevents double counting rather than hiding anything.
+ *
+ * The payment-identity pass afterwards is deliberately loose (see paymentIdentity)
+ * and only collapses rows that agree on EVERY field of the composite key. A
+ * non-positive amount is dropped because a zero or negative receipt is not
+ * collection.
  */
 export function dedupeCollectionReceipts(rows) {
   const seenIds = new Set();
