@@ -29,9 +29,8 @@ INSERT INTO incentive_settings (setting_key, setting_value) VALUES
   ('champion_bonus', 250)
 ON CONFLICT (setting_key) DO NOTHING;
 
--- Seed 6 default slabs
+-- Seed default slabs
 INSERT INTO incentive_slabs (min_amount, max_amount, incentive_amount) VALUES
-  (1, 20000, 0),
   (20000, 50000, 500),
   (50000, 80000, 1000),
   (80000, 135000, 2000),
