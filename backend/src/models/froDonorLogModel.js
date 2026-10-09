@@ -1,5 +1,11 @@
 import db, { sql } from '../config/db.js';
 import { maybeRefreshSpecialIncentives } from '../services/specialIncentiveService.js';
+import {
+  buildAgentNameMatches,
+  dedupeCollectionReceipts,
+  escapeLikePattern,
+  paymentIdentity,
+} from '../services/froCollectionMatch.js';
 
 // Keep the id sequence ahead of the highest existing id before inserting, so a
 // default-sequence insert never collides with a row that was written earlier
@@ -112,37 +118,17 @@ export function paymentDiscriminant(d) {
   return 'X';
 }
 
+// The per-NGO chips rendered directly beneath the Collected card.
+//
+// It deliberately reuses getWorkerCollectionReceipts rather than running its own
+// query. It used to match with `lower(btrim(agent_name)) = $3` while the card's
+// headline matched with `ilike` on the same rows, so the chips did not add up to
+// the number above them whenever a name needed a trim or a case fold. Both now
+// read one deduplicated row set, so the chips summing to the card is structural
+// rather than a coincidence.
 export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedNgoIds) => {
-  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
-  if (!worker?.name) return {};
-  const workerName = worker.name.trim();
-
-const monthStartDay = String(monthStart).slice(0, 10);
-  const monthEndDay = String(monthEnd).slice(0, 10);
-  const { data: receipts, error } = await sql(
-    `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id
-     FROM receipts
-     WHERE receipt_date >= $1 AND receipt_date <= $2
-       AND lower(btrim(agent_name)) = $3`,
-    [monthStartDay, monthEndDay, workerName.toLowerCase()]
-  ).then(r => ({ data: r, error: null })).catch(e => ({ data: null, error: e }));
-  if (error) throw error;
-  // Verified this month but receipt backdated (receipt_date = transaction date,
-  // verified_at = now): include via linked log so Verified ⊆ Collected.
-  let verifiedReceipts = [];
-  try {
-    verifiedReceipts = await sql(
-      `SELECT r.id, r.donor_id, r.amount, r.project_id, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id
-       FROM receipts r
-       JOIN fro_donor_logs l ON l.id = r.log_id
-       WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
-         AND l.verified_at >= $2 AND l.verified_at <= $3`,
-      [workerId, monthStart, monthEnd]
-    );
-  } catch (e) { verifiedReceipts = []; }
-  for (const r of verifiedReceipts || []) {
-    if (!(receipts || []).some(x => String(x.id) === String(r.id))) receipts.push(r);
-  }
+  const receipts = await getWorkerCollectionReceipts(workerId, monthStart, monthEnd);
+  if (receipts.length === 0) return {};
 
   const { data: ngos } = await db.from('ngos').select('id, name');
   const projToNgoId = {};
@@ -156,13 +142,9 @@ const monthStartDay = String(monthStart).slice(0, 10);
   }
 
   const byNgo = {};
-  const seen = new Set();
-  for (const r of receipts || []) {
+  for (const r of receipts) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
-    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
     const projectNorm = norm(r.project_id);
     const ngoId = projToNgoId[projectNorm] || r.project_id || 'others';
     const key = (allowedNgoIds && allowedNgoIds.length > 0 && allowedNgoIds.includes(ngoId)) ? ngoId : (ngoId || 'others');
@@ -171,29 +153,75 @@ const monthStartDay = String(monthStart).slice(0, 10);
   return byNgo;
 };
 
-export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
+// Curated spelling variants for this worker, from the worker_aliases table
+// (migration 080). Imported receipts carry printed-name variants that never
+// matched the canonical name, so those donations were silently never credited.
+// Returns [] rather than throwing: an alias lookup failure must not take the
+// collection total down with it.
+const getWorkerAliasNames = async (workerId) => {
+  try {
+    const { data } = await db
+      .from('worker_aliases')
+      .select('alias_name')
+      .eq('worker_id', workerId);
+    return (data || []).map((a) => a.alias_name).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+};
+
+/**
+ * Every receipt that counts as this worker's collection in the window, already
+ * deduplicated. This is the ONE loader behind both the dashboard's "Collected"
+ * card and the "View collections" list.
+ *
+ * They used to run different queries, which is why the card's headline number
+ * and the rows underneath it could disagree:
+ *   - the card matched agent_name with `ilike`, where `_` and `%` in a printed
+ *     name act as wildcards and leading/trailing spaces never matched;
+ *   - the list matched with `lower(btrim(...)) = $3` and had no verified union.
+ * Now both call this, so the headline is by construction the sum of the rows.
+ *
+ * Two windows are unioned, matching what "collected this month" means to the
+ * Verified card: receipts whose receipt_date (transaction date) falls in the
+ * window, and receipts whose linked log was verified in the window even though
+ * the transaction is older.
+ */
+export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd) => {
   const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
-  if (!worker?.name) return 0;
-  const workerName = worker.name.trim();
+  if (!worker?.name) return [];
 
   const monthStartDay = String(monthStart).slice(0, 10);
   const monthEndDay = String(monthEnd).slice(0, 10);
-  const { data: receipts, error } = await db
-    .from('receipts')
-    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name, log_id')
-    .ilike('agent_name', workerName)
-    .gte('receipt_date', monthStartDay)
-    .lte('receipt_date', monthEndDay);
-  if (error) throw error;
 
-  // Include receipts verified in this window even when receipt_date (transaction
-  // date) falls in an earlier month. Verified card counts by verified_at, so
-  // without this Verified amount never lands in Collected. Attributed by the
-  // linked log's fro_worker_id (authoritative) instead of agent_name text.
+  const aliasNames = await getWorkerAliasNames(workerId);
+  const matches = buildAgentNameMatches(worker.name, aliasNames);
+
+  // Names are compared in SQL, so each one is normalized and its LIKE
+  // wildcards escaped before it becomes a pattern.
+  const patterns = [...matches].map((n) => escapeLikePattern(n));
+
+  let receipts = [];
+  if (patterns.length > 0) {
+    const orClause = patterns.map((_, i) => `lower(btrim(agent_name)) = $${i + 4}`).join(' OR ');
+    try {
+      receipts = await sql(
+        `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id, donor_name, donor_mobile, mode
+         FROM receipts
+         WHERE receipt_date >= $1 AND receipt_date <= $2
+           AND (${orClause})`,
+        [monthStartDay, monthEndDay, ...patterns]
+      );
+    } catch (e) { receipts = []; }
+  }
+
+  // Verified this month but backdated. Attributed by the linked log's
+  // fro_worker_id (authoritative) rather than the name, so a variant spelling
+  // cannot hide a verification from its own FRO.
   let verifiedReceipts = [];
   try {
     verifiedReceipts = await sql(
-      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id
+      `SELECT r.id, r.donor_id, r.amount, r.project_id, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id, r.donor_name, r.donor_mobile, r.mode
        FROM receipts r
        JOIN fro_donor_logs l ON l.id = r.log_id
        WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
@@ -201,42 +229,54 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
       [workerId, monthStart, monthEnd]
     );
   } catch (e) { verifiedReceipts = []; }
-  const merged = [...(receipts || [])];
-  const ids = new Set(merged.map(r => String(r.id)));
+
+  const byId = new Map();
+  for (const r of receipts || []) byId.set(String(r.id), r);
+  // A row present in both windows must not be counted twice.
   for (const r of verifiedReceipts || []) {
-    if (!ids.has(String(r.id))) { merged.push(r); ids.add(String(r.id)); }
+    if (r && r.id != null && !byId.has(String(r.id))) byId.set(String(r.id), r);
   }
 
-  const seen = new Set();
-  let total = 0;
-  for (const r of merged) {
-    const amount = parseFloat(r.amount || 0);
-    if (amount <= 0) continue;
-    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
-    total += amount;
-  }
-  return total;
+  return dedupeCollectionReceipts([...byId.values()]);
 };
 
+export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
+  const receipts = await getWorkerCollectionReceipts(workerId, monthStart, monthEnd);
+  return receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+};
+
+// Same rows as getWorkerCollectionReceipts, but bucketed by day so the daily AKI
+// chart agrees with the Collected card. It cannot just call that loader: a
+// receipt can belong to two different buckets, because the card counts it in the
+// transaction month while this counts a backdated receipt under the day it was
+// VERIFIED. So it re-runs the same two queries (same matching, same verified
+// union) and only differs in which date becomes the bucket key.
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
   const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
   if (!worker?.name) return {};
-  const workerName = worker.name.trim();
 
   const monthStartDay = String(monthStart).slice(0, 10);
   const monthEndDay = String(monthEnd).slice(0, 10);
-  const { data: receipts, error } = await db
-    .from('receipts')
-    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name, log_id')
-    .ilike('agent_name', workerName)
-    .gte('receipt_date', monthStartDay)
-    .lte('receipt_date', monthEndDay);
-  if (error) throw error;
 
-  // Same verified-in-month union as getTotalCollectedByWorker, bucketed by the
-  // verification day so daily AKI days line up with the Verified Today card.
+  const aliasNames = await getWorkerAliasNames(workerId);
+  const patterns = [...buildAgentNameMatches(worker.name, aliasNames)].map((n) => escapeLikePattern(n));
+
+  let receipts = [];
+  if (patterns.length > 0) {
+    const orClause = patterns.map((_, i) => `lower(btrim(agent_name)) = $${i + 3}`).join(' OR ');
+    try {
+      receipts = await sql(
+        `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id
+         FROM receipts
+         WHERE receipt_date >= $1 AND receipt_date <= $2
+           AND (${orClause})`,
+        [monthStartDay, monthEndDay, ...patterns]
+      );
+    } catch (e) { receipts = []; }
+  }
+
+  // Same verified-in-month union as the card, bucketed by the verification day
+  // so daily AKI days line up with the Verified Today card.
   let verifiedRows = [];
   try {
     verifiedRows = await sql(
@@ -252,21 +292,25 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
   const mergedById = new Map();
   for (const r of receipts || []) mergedById.set(String(r.id), { ...r, verified_at: null });
   // Verified-day version wins when the same receipt appears in both queries.
-  for (const r of verifiedRows || []) mergedById.set(String(r.id), r);
-  const merged = [...mergedById.values()];
+  for (const r of verifiedRows || []) {
+    if (r && r.id != null) mergedById.set(String(r.id), r);
+  }
 
-  const seen = new Set();
+  // paymentIdentity is keyed on the payment, not the day, so a payment that
+  // appears under two rows cannot be split across two buckets and counted twice
+  // in the chart's total.
+  const seenPayments = new Set();
   const byDay = {};
-  for (const r of merged) {
+  for (const r of mergedById.values()) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
     const vDay = r.verified_at ? String(r.verified_at).slice(0, 10) : null;
     const rDay = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
     const day = (vDay && vDay >= monthStartDay && vDay <= monthEndDay) ? vDay : rDay;
     if (!day) continue;
-    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
+    const identity = paymentIdentity(r);
+    if (seenPayments.has(identity)) continue;
+    seenPayments.add(identity);
     byDay[day] = (byDay[day] || 0) + amount;
   }
   return byDay;
