@@ -168,7 +168,7 @@ import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PER
 import { getActiveCoversForTargets, refreshCoverExpiry } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
-import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession } from '../services/froTimeSessions.js';
+import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession, closeSessionOpenedBeforeDay } from '../services/froTimeSessions.js';
 import { reconcileDispositionIdle } from '../services/froTimeReconcile.js';
 import { TIME_STATES, TIME_EVENTS, isHeldState } from '../utils/froTimeState.js';
 
@@ -5115,6 +5115,19 @@ export const updateLiveStatus = async (req, res) => {
     }
     payload.stats_date = roll.statsDate;
     if (roll.rolled) row = { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null };
+
+    // End-of-day cleanup for the interval ledger: a panel closed overnight leaves
+    // HIDDEN/IDLE open, and the next reader would clip that into today — billing
+    // the FRO for the hours between their shift start and their login, before they
+    // were at their desk. Close anything still open from a previous IST day at that
+    // day's end, so today starts from their first real beat.
+    if (roll.rolled) {
+      try {
+        await closeSessionOpenedBeforeDay(workerId, { nowMs });
+      } catch (ledgerDayErr) {
+        console.warn('[fro-time] day-boundary interval close skipped:', ledgerDayErr.message);
+      }
+    }
 
     // withoutStaleIdle still clears a stale idle_since/disposition_due_at, but its
     // counter zeroing is deliberately NOT honoured: the rollover above is now the
