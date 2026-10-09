@@ -1105,7 +1105,14 @@ export const getMyPerformance = async (req, res) => {
     // row one of them last overwrote.
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select(FRO_IDLE_LIVE_COLS)
+      // idle_since and today_idle_seconds are NOT in the shared column list, and
+      // this row is the input to isIdleNow() and to the legacy fallback below. With
+      // them missing they simply arrive as undefined: is_idle went false and the
+      // fallback idle silently lost the banked total, which is how this strip ended
+      // up disagreeing with the admin board's IDLE cell for the same person at the
+      // same moment. The admin board selects the same two extras for the same
+      // reason.
+      .select(`${FRO_IDLE_LIVE_COLS}, idle_since, today_idle_seconds`)
       .eq('worker_id', metricsWorkerId)
       .maybeSingle();
 
@@ -1166,6 +1173,10 @@ export const getMyPerformance = async (req, res) => {
       const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs, agentId: agentCtx?.id ?? null });
       if (ts.hasLedger) idleSeconds = ts.totals.idle_seconds;
     } catch (ledgerErr) {
+      // Must stay loud. A silent fallback here once shipped a version where every
+      // FRO's idle read 0 on their own strip while the admin board showed the
+      // truth — the strip and the board were reading the same thing and only one
+      // of them was allowed to fail quietly.
       console.error('performance strip ledger idle read failed:', ledgerErr.message);
     }
 
