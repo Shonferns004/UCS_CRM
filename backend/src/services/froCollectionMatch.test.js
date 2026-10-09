@@ -16,6 +16,7 @@ import {
   escapeLikePattern,
   isCategoryLabel,
   mergeAttributedReceipts,
+  namesAnotherWorker,
   normalizeAgentName,
   paymentIdentity,
   receiptMatchesAgentName,
@@ -160,6 +161,75 @@ test('a name naming this FRO beats a log owned by someone else', () => {
   assert.equal(merged.length, 1);
   assert.equal(merged[0].attributed_by, 'name');
   assert.equal(totalCollectionAmount(merged), 50, 'the 50 rupees stay with the named FRO');
+});
+
+// The resolvers set is every real worker's name (and alias), normalized. Passed
+// by the loader so the log fallback can ask "does this receipt name somebody?".
+const RESOLVERS = new Set([
+  'varsha tambe', 'mamta shah', 'ruchira mhatre', 'ravina joshi', 'priya tiwari',
+  'agent 13',
+]);
+
+test('the log fallback does NOT claim a receipt agent_name gave to another FRO', () => {
+  // Receipt 83746 and three BSCT siblings: stamped 'Mamta Shah', collected under
+  // a station log that belongs to Varsha Tambe. Name-first alone was not enough,
+  // because the fallback was still additive -- it added these to the station
+  // FRO's card on top of her own rows.
+  const herOwnRows = [
+    { id: 'v1', agent_name: 'Varsha Tambe', amount: 7433, receipt_date: '2026-10-01' },
+  ];
+  const logFallbackWouldOffer = [
+    { id: 'r1', agent_name: 'Mamta Shah', amount: 101, receipt_date: '2026-10-03' },
+    { id: 'r2', agent_name: 'Mamta Shah', amount: 1000, receipt_date: '2026-10-05' },
+    { id: 'r3', agent_name: 'Mamta Shah', amount: 700, receipt_date: '2026-10-05' },
+    { id: 'r4', agent_name: 'Mamta Shah', amount: 50, receipt_date: '2026-10-05' },
+  ];
+  const merged = mergeAttributedReceipts(herOwnRows, logFallbackWouldOffer, RESOLVERS);
+  assert.equal(merged.length, 1, "a colleague's rows are not added");
+  assert.equal(totalCollectionAmount(merged), 7433, 'the total is the actual 7,433, not ~10,284');
+});
+
+test('a blank, category or agent-labelled name still falls back to the log', () => {
+  // The fallback must keep working where it is the ONLY evidence, or real
+  // collections disappear. None of these name a real worker.
+  const byLog = [
+    { id: 's1', agent_name: 'Suspense', amount: 2500, receipt_date: '2026-10-05' },
+    { id: 's2', agent_name: null, amount: 700, receipt_date: '2026-10-06' },
+    { id: 's3', agent_name: 'Agent 13', amount: 300, receipt_date: '2026-10-07' },
+  ];
+  const merged = mergeAttributedReceipts([], byLog, RESOLVERS);
+  assert.equal(merged.length, 3, 'all three are recovered from the log');
+  assert.equal(totalCollectionAmount(merged), 3500);
+  merged.forEach((r) => assert.equal(r.attributed_by, 'log'));
+});
+
+test('without a resolver set the fallback still runs (fails open, never hides money)', () => {
+  // If the resolver lookup ever fails, the safe failure is to over-claim rather
+  // than to silently drop a collection someone really made.
+  const byLog = [{ id: 'x1', agent_name: 'Mamta Shah', amount: 1000, receipt_date: '2026-10-01' }];
+  const merged = mergeAttributedReceipts([], byLog, new Set());
+  assert.equal(totalCollectionAmount(merged), 1000);
+});
+
+test('namesAnotherWorker recognises a competing claim and ignores labels', () => {
+  assert.equal(namesAnotherWorker('Mamta Shah', RESOLVERS), true);
+  // Case and outer whitespace fold; INNER spacing does not, matching the resolver
+  // keys, which are built from the same normalizeAgentName over real names.
+  assert.equal(namesAnotherWorker('  mamta shah ', RESOLVERS), true);
+  assert.equal(namesAnotherWorker('Mamta   Shah', RESOLVERS), false, 'a different printed name, not a competing claim on this worker');
+  assert.equal(namesAnotherWorker('Nobody At All', RESOLVERS), false);
+  // These name no worker, so they must not block the fallback.
+  assert.equal(namesAnotherWorker('Suspense', RESOLVERS), false);
+  assert.equal(namesAnotherWorker('PG', RESOLVERS), false);
+  assert.equal(namesAnotherWorker('', RESOLVERS), false);
+  assert.equal(namesAnotherWorker(null, RESOLVERS), false);
+});
+
+test('the same receipt is counted once even when both signals see it', () => {
+  const row = { id: 'r1', agent_name: 'Varsha Tambe', amount: 7433, receipt_date: '2026-10-01' };
+  const merged = mergeAttributedReceipts([row], [row], RESOLVERS);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].attributed_by, 'name');
 });
 
 test('the same receipt linked to a different FRO log is not double-credited', () => {

@@ -4,6 +4,7 @@ import {
   CATEGORY_LABELS,
   buildAgentNameMatches,
   escapeLikePattern,
+  isCategoryLabel,
   mergeAttributedReceipts,
   paymentIdentity,
 } from '../services/froCollectionMatch.js';
@@ -177,6 +178,47 @@ const getWorkerAliasNames = async (workerId) => {
   }
 };
 
+// Which real worker each printed agent_name belongs to, for the whole FRO
+// population rather than one person.
+//
+// Needed because the log fallback must be able to ask "does this receipt's
+// agent_name already name somebody?" before claiming it. Without that question
+// the fallback stayed additive: a receipt stamped 'Mamta Shah' but linked to
+// another FRO's station log was counted on both cards, which is how one FRO's
+// total read ~10,284 against a real 7,433.
+//
+// Every FRO row is included, so the answer is "yes, it names a real person, not
+// you" for any colleague. Category labels and blanks are absent by
+// construction: they are not workers.
+const getAllWorkerNameResolvers = async () => {
+  const resolvers = new Set();
+  try {
+    const { data: workers } = await db
+      .from('workers')
+      .select('name')
+      .not('name', 'is', null);
+    for (const w of workers || []) {
+      const n = String(w.name || '').trim().toLowerCase();
+      if (n && !isCategoryLabel(n)) resolvers.add(n);
+    }
+  } catch (e) {
+    // Fail open: with no resolver set, the fallback behaves as it did before,
+    // which risks a duplicate credit but never hides a collection.
+    return new Set();
+  }
+  try {
+    const { data: aliases } = await db
+      .from('worker_aliases')
+      .select('alias_name')
+      .not('alias_name', 'is', null);
+    for (const a of aliases || []) {
+      const n = String(a.alias_name || '').trim().toLowerCase();
+      if (n && !isCategoryLabel(n)) resolvers.add(n);
+    }
+  } catch (e) { /* canonical names alone are enough to spot a competing claim */ }
+  return resolvers;
+};
+
 /**
  * Every receipt that counts as this worker's collection in the window, already
  * deduplicated. This is the ONE loader behind both the dashboard's "Collected"
@@ -254,7 +296,7 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
     }
   }
 
-  return mergeAttributedReceipts(byName, byLogId);
+  return mergeAttributedReceipts(byName, byLogId, await getAllWorkerNameResolvers());
 };
 
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
@@ -316,6 +358,7 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
   const merged = mergeAttributedReceipts(
     byName.map((r) => ({ ...r, verified_at: null })),
     byLogId.map((r) => ({ ...r, verified_at: r.verified_at || null })),
+    await getAllWorkerNameResolvers(),
   );
 
   const seenPayments = new Set();
