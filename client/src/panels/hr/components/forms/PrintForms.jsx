@@ -35,9 +35,10 @@ export default function PrintForms({ data, onClose }) {
       <style>
         @page { size: A4; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
-        .print-page { page-break-after: always; }
+        .print-page + .print-page { page-break-before: always; }
         .t1 { margin-top: 40px !important; }
         .wl { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
+        .wl.mod-frame, .wl.mod-content { height: 285mm !important; overflow: hidden !important; margin: 5mm auto 0 !important; }
         .t2 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
         .t4 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
         .t5 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
