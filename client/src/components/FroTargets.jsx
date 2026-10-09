@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx-js-style';
 import { api } from '../api/auth';
 import { toast } from './Toast';
 import { istMonthKey } from '../utils/istDate';
@@ -220,6 +221,48 @@ export default function FroTargets() {
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   }, [rows, filter, search]);
 
+  // Exports exactly what the table shows, so the search box and source filter
+  // apply to the file too - otherwise a filtered screen would silently hand over
+  // the whole roster. Target stays a number (not "₹1,00,000") so the column is
+  // still summable in Excel.
+  const exportExcel = useCallback(() => {
+    if (visible.length === 0) { toast('Nothing to export with the current filter', 'error'); return; }
+    try {
+      const data = visible.map((r) => ({
+        'FRO Name': r.name || '',
+        'Login ID': r.login_id || '',
+        'Salary': Number(r.salary) || 0,
+        'Tenure (months)': r.months_employed != null ? r.months_employed + 1 : '',
+        'Target': Number(r.target) || 0,
+        'Source': (SOURCE_LABEL[r.target_source] || SOURCE_LABEL.not_set)(r),
+        'Set for Month': fmtMonth(month),
+      }));
+
+      const header = Object.keys(data[0]);
+      const ws = XLSX.utils.json_to_sheet(data, { header });
+      ws['!cols'] = [
+        { wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 32 }, { wch: 14 },
+      ];
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'FRO Targets');
+
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `fro-targets-${month}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast(`Exported ${visible.length} FRO${visible.length === 1 ? '' : 's'}`, 'success');
+    } catch (err) {
+      toast(err.message || 'Could not export targets', 'error');
+    }
+  }, [visible, month]);
+
   const th = { padding: '8px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', borderBottom: '1px solid #e5e7eb' };
 
   return (
@@ -240,6 +283,9 @@ export default function FroTargets() {
             style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6 }}
           />
           <button className="btn btn-sm btn-outline" onClick={load}>Refresh</button>
+          <button className="btn btn-sm btn-outline" onClick={exportExcel} disabled={loading || visible.length === 0}>
+            Export Excel
+          </button>
         </div>
       </div>
 
