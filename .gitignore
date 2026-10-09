@@ -53,6 +53,24 @@ aws/main.md
 **/google-services.json
 **/GoogleService-Info.plist
 
+# Credentials & private keys (never commit)
+# Blocked by GitHub push protection on 2026-10-10: key/aws.txt (AWS access key
+# ID + secret) and scripts/aws/cred (AWS secret) were committed and had to be
+# purged from history. Keep them out from here on.
+*.pem
+*.ppk
+*.key
+*.p12
+*.pfx
+key/aws.txt
+key/*.pem
+scripts/aws/cred
+scripts/aws/cred.*
+aws.txt
+aws-credentials.txt
+credentials.txt
+creds.txt
+
 /client/windows
 /client/android
 /apps/beneficiaries/Secugen Android
