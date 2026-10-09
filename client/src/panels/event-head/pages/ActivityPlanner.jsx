@@ -1480,8 +1480,9 @@ export default function ActivityPlanner() {
       const had = cur[fk]
       const merged = { text: '', selected: false, ...(had || {}), ...patch }
       // Nothing real behind it yet (no typed text, no tick, no manual-only
-      // intent) — write nothing, so an accidental focus never pollutes state.
-      if (!had && !merged.text && !merged.selected && !merged.mode) return cur
+      // intent, no event name) — write nothing, so an accidental focus never
+      // pollutes state.
+      if (!had && !merged.text && !merged.selected && !merged.mode && !merged.name) return cur
       return { ...cur, [fk]: merged }
     })
   }
@@ -1974,10 +1975,15 @@ const pendingAll = scopedSuggestions
     /* The typed programmes: same row shape, Status always Draft, NGO/beneficiary
        read from the same row the grid shows so the file matches the screen. */
     for (const k of Object.keys(scopedManual)) {
+      const e = scopedManual[k]
       const text = manualText(k)
       if (!text) continue
       const d = k.slice(0, 10)
-      const festival = k.includes('::') ? k.slice(k.indexOf('::') + 2) : ''
+      /* The "No important day" rows are keyed "date::" (no festival), so the
+         Festival column reads the user's typed event name — or the row's own
+         "No important day" label when they never named it. */
+      const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '')
+        || e?.name || 'No important day'
       rows.push({
         date: d,
         dateLabel: shortDate(d),
@@ -2531,10 +2537,76 @@ const pendingAll = scopedSuggestions
               {festivalDates.map((date) => {
                 const obs = observancesByDate[date] || []
                 if (!obs.length) {
+                  /* No festival falls on this date — but sometimes a date still
+                     needs an event, so the row is a manual entry rather than a
+                     dead "No important day" label. Same parts as the ✍ Write
+                     Manually row: a name for the event, the programme text, the
+                     Beneficiary + Location dropdowns and the ✓ that carries the
+                     date into the download. Session-only, keyed "date::". */
+                  const key = `${date}::`
+                  const manual = scopedManual[key]
+                  const manualChecked = Boolean(manual?.selected)
+                  const on = manualExportText(key)
                   return (
-                    <tr key={date}>
+                    <tr key={date} className={`sel-row${manualChecked ? ' sel' : ''}`}>
                       <td className="dd divider">{shortDate(date)}</td>
-                      <td className="plain divider" colSpan={6}>No important day</td>
+                      <td className="ff divider" style={{ whiteSpace: 'normal' }}>
+                        <div className="sug-sec-label">No important day</div>
+                        <input
+                          className="eh-input"
+                          value={manual?.name || ''}
+                          disabled={festBusy}
+                          placeholder="Event name (e.g. Community kitchen drive)…"
+                          title="Name the event you are planning for this date — it is what the downloads call it"
+                          onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
+                          style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
+                        />
+                      </td>
+                      <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
+                      <td className="bn divider">
+                        <FestivalBeneficiarySelect
+                          value={festivalBeneficiaryFor(key)}
+                          disabled={festBusy || festGenerating !== null}
+                          title="Who this date's event is aimed at"
+                          onChange={(v) => handleFestivalBeneficiary(key, v)}
+                        />
+                      </td>
+                      <td className="ai divider">
+                        <div className="sug-sec-label">Write manually</div>
+                        <textarea
+                          className="fest-manual"
+                          rows={2}
+                          value={manual?.text || ''}
+                          disabled={festBusy}
+                          placeholder="Type your own programme for this date…"
+                          title="Your own programme for this date"
+                          onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+                        />
+                        {manualChecked && !on && (
+                          <div className="fest-manual-hint">Type your programme above — an empty box exports nothing.</div>
+                        )}
+                        {manualChecked && on && (
+                          <div className="fest-manual-hint">This date is exported with the programme you typed.</div>
+                        )}
+                      </td>
+                      <td className="lc divider">
+                        <FestivalLocationSelect
+                          value={festivalLocationFor(key)}
+                          list={ngoLocationList(ngo)}
+                          disabled={festBusy || festGenerating !== null}
+                          title="Where this date's event happens"
+                          onChange={(v) => handleFestivalLocation(key, v)}
+                        />
+                      </td>
+                      <td className="sel divider">
+                        <input
+                          type="checkbox"
+                          checked={manualChecked}
+                          disabled={festBusy}
+                          title={manualChecked ? 'This date is in the download. Untick to leave it out.' : 'Include this date’s programme in the download.'}
+                          onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
+                        />
+                      </td>
                     </tr>
                   )
                 }
@@ -2808,7 +2880,7 @@ const pendingAll = scopedSuggestions
                             </span>
                           )}
                         </td>,
-                        ...(si === 0 ? locationSharedCell() : []),
+                        ...(si === 0 ? [locationSharedCell()] : []),
                         <td key="c" className={c.sel}>
                           <input
                             type="radio"
