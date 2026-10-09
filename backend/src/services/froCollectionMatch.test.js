@@ -55,14 +55,39 @@ test('curated spelling variants are credited to the same FRO', () => {
   assert.equal(receiptMatchesAgentName('Sushma Ambokar', matches), true);
 });
 
-test('one payment recorded twice is counted once, fixing the inflated total', () => {
-  // The same payment written by the bank-audit import and again by manual
-  // receipt creation, with different receipt numbers but a shared payment_id.
+test('the same row reached twice by both attribution windows is counted once', () => {
+  // The invariant the composite key exists for, and the only one it can safely
+  // provide. The name window and the log window both return this receipt, so
+  // merging them is where a double count would genuinely come from.
+  const row = { id: 'r1', payment_id: 'PAY123', receipt_no: 'RC-1', donor_id: 'd1', amount: 5000, receipt_date: '2026-10-02' };
+  assert.equal(totalCollectionAmount([row, { ...row }]), 5000);
+});
+
+test('payments sharing a generic payment_id description are NOT collapsed', () => {
+  // The regression that made this key composite again. receipts.payment_id holds
+  // a free-text bank description, not a unique reference: live data has 'NA' on
+  // 320 rows, '*Transfer' on 264, 'UPI' on 129, '#####################' on 76.
+  // Treating those as one identity hid ~500 real donations (Padmini alone would
+  // have lost 326 receipts). Distinct donors and days must stay distinct.
   const rows = [
-    { id: 'r1', payment_id: 'PAY123', receipt_no: 'RC-1', donor_id: 'd1', amount: 5000, receipt_date: '2026-10-02' },
-    { id: 'r2', payment_id: 'PAY123', receipt_no: 'RC-9', donor_id: 'd1', amount: 5000, receipt_date: '2026-10-02' },
+    { id: 'a', payment_id: 'NA', receipt_no: 'R1', donor_id: 'd1', amount: 500, receipt_date: '2026-10-01' },
+    { id: 'b', payment_id: 'NA', receipt_no: 'R2', donor_id: 'd2', amount: 500, receipt_date: '2026-10-02' },
+    { id: 'c', payment_id: '*Transfer', receipt_no: 'R3', donor_id: 'd3', amount: 500, receipt_date: '2026-10-03' },
+    { id: 'd', payment_id: '#####################', receipt_no: 'R4', donor_id: 'd4', amount: 500, receipt_date: '2026-10-04' },
   ];
-  assert.equal(totalCollectionAmount(rows), 5000, 'one payment, one amount');
+  assert.equal(dedupeCollectionReceipts(rows).length, 4, 'four real donations, four rows');
+  assert.equal(totalCollectionAmount(rows), 2000);
+});
+
+test('two donations differing by donor or day both count even with an identical payment_id', () => {
+  // The safe direction, and the one that matters: unless EVERY field of the
+  // composite key agrees, nothing is merged.
+  const rows = [
+    { id: 'a', payment_id: 'NA', receipt_no: 'R1', donor_id: 'd1', amount: 500, receipt_date: '2026-10-01' },
+    { id: 'b', payment_id: 'NA', receipt_no: 'R2', donor_id: 'd2', amount: 500, receipt_date: '2026-10-01' },
+    { id: 'c', payment_id: 'NA', receipt_no: 'R3', donor_id: 'd1', amount: 500, receipt_date: '2026-10-02' },
+  ];
+  assert.equal(totalCollectionAmount(rows), 1500);
 });
 
 test('two genuine donations from one donor in a day both count', () => {
