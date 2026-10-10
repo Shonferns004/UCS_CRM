@@ -25,39 +25,27 @@ pg.types.setTypeParser(1114, (v) => v);                        // timestamp -> r
 pg.types.setTypeParser(1082, (v) => v);                        // date -> string
 pg.types.setTypeParser(1083, (v) => v);                        // time -> string
 
-const poolConfig = { max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 20000, maxUses: 1000 };
-
-/* WHY A MISSING CONNECTION STRING FAILS LOUDLY, HERE, AT IMPORT.
- *
- * The discrete PG* branch below defaults host to 'localhost' and leaves user and
- * password undefined. On a machine with a local PostgreSQL listening on 5432
- * (the usual dev box), pg therefore reaches a real server and asks it to
- * authenticate an undefined user with an undefined password. The server answers
- * SCRAM, and pg reports
- *   SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string
- * from inside the SCRAM exchange — a message that names neither the config nor
- * the .env line responsible. It surfaced on every scheduled job in the app
- * (reminder cycles, health checks, incentive refreshes) and on login, all with
- * the same text, so it read like a server or credential problem rather than a
- * missing variable. Silent until a query ran, and then uninformative.
- *
- * A half-configured connection string is never a valid state: there is no
- * useful fallback to 'localhost' when the password is absent. So it is rejected
- * at import, once, naming the variable to set. Anything else is a real
- * connection problem and is reported by testConnection() with the host.
- */
-const HAS_CONNECTION_STRING = Boolean(process.env.DATABASE_URL);
-const HAS_PG_VARS = Boolean(process.env.PGUSER && process.env.PGPASSWORD && process.env.PGDATABASE);
-
-if (!HAS_CONNECTION_STRING && !HAS_PG_VARS) {
-  throw new Error(
-    'Database is not configured: set DATABASE_URL in backend/.env ' +
-    '(postgres://USER:PASSWORD@HOST:5432/DBNAME), or set PGUSER, PGPASSWORD and PGDATABASE together. ' +
-    'Refusing to fall back to an unauthenticated localhost connection — see backend/.env.example.'
-  );
-}
-
-if (HAS_CONNECTION_STRING) {
+// Pool size is the number that decides what a slow query costs the rest of the
+// app: at max 5 the fifth concurrent slow query makes every OTHER request queue
+// for a free connection, which is what "the site keeps loading" looks like to a
+// user on a fast network.
+//
+// Raising it buys concurrency but costs RAM and CPU: every connection can run
+// its own sorts at work_mem each. On a 2-vCPU instance, 10 connections running
+// CPU-heavy queries can be SLOWER than 5, because they contend rather than
+// queue. Past ~10 there is usually a query that needs an index, not more slots.
+//
+// Overridable per environment so a busy box can be given headroom without a code
+// change. Watch server max_connections before going much above this -- the
+// backend, the panel and RDS internal sessions all share the same budget.
+const POOL_MAX = Math.max(1, parseInt(process.env.PG_POOL_MAX || '5', 10));
+const poolConfig = {
+  max: POOL_MAX,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 20000,
+  maxUses: 1000,
+};
+if (process.env.DATABASE_URL) {
   poolConfig.connectionString = process.env.DATABASE_URL;
   poolConfig.ssl = process.env.DATABASE_SSL !== 'false' ? { rejectUnauthorized: false } : false;
 } else {
