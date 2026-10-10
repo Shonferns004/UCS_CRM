@@ -314,9 +314,6 @@ export default function AccountsTickets() {
         priority: priorityDraft,
         resolution: statusDraft === 'resolved' ? resolutionDraft.trim() : undefined,
       });
-      if (statusDraft === 'resolved' && drawer.status !== 'resolved' && resolutionDraft.trim()) {
-        await apiPost(`/tickets/${drawer.id}/reply`, { message: resolutionDraft.trim() }).catch(() => {});
-      }
       toast('Ticket updated', 'success');
       const data = await apiGet(`/tickets/${drawer.id}`);
       setDrawer({ ...data, _source: 'regular' });

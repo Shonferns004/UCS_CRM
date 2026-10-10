@@ -8,6 +8,7 @@ import { nameMatch } from '../services/autoMatchService.js';
 import { formatModeLabel } from '../services/modeLabels.js';
 import { normalizeAgentName, resolveAgentToWorker } from '../utils/workerNameMatch.js';
 import { receiptsForDonor } from '../services/receiptLookup.js';
+import { resolveOperatorNames, resolveOperatorName } from '../services/operatorNameService.js';
 import XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -117,7 +118,7 @@ export const getLeadList = async (req, res) => {
         id, action, disposition_category, disposition_detail, amount_collected,
         payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at, verified_at,
         upi_transaction_id, transaction_datetime, payment_from, payment_mode,
-        assignment_id, fro_worker_id,
+        assignment_id, fro_worker_id, operator_id,
         workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id),
         fro_assignments!inner(
           id,
@@ -142,6 +143,11 @@ export const getLeadList = async (req, res) => {
     const { data, error } = await query;
 
     if (error) throw error;
+
+    // The claim ACTOR (Work As operator) lives in operator_id, which spans the
+    // workers / users / crm_agents id spaces, so resolve those ids to names in
+    // one batch and prefer them over the covered FRO below.
+    const operatorNames = await resolveOperatorNames((data || []).map(r => r.operator_id));
 
     const logIds = (data || []).map(r => r.id);
     const receiptMap = {};
@@ -240,18 +246,21 @@ export const getLeadList = async (req, res) => {
       audit_mop: match?.mode || null,
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
-      agent_id: r.fro_worker_id,
-      // The credited worker is fro_donor_logs.fro_worker_id — when an acting
-      // FRO "works as" another FRO and claims a lead, that is the acting FRO,
-      // while the assignment stays with the owner. Resolve the agent from the
-      // credited worker first so the Lead Verification list shows the acting
-      // FRO, falling back to the assignment owner.
-      agent_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
-      agent_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
-      claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
-      claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
+      agent_id: r.operator_id || r.fro_worker_id,
+      // Claim attribution: operator_id is the ACTOR (who was at the keyboard
+      // during a Work As / cover session), fro_worker_id is the COVERED FRO.
+      // Accounts must see the person who actually claimed, so the operator
+      // wins whenever one was recorded; rows claimed without a cover fall back
+      // to the credited worker, then the assignment owner.
+      agent_name: operatorNames.get(String(r.operator_id))?.name || r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
+      agent_login: operatorNames.get(String(r.operator_id))?.login || r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
+      claimant_name: operatorNames.get(String(r.operator_id))?.name || r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
+      claimant_login: operatorNames.get(String(r.operator_id))?.login || r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
       received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
+      // True when this lead was created by an FRO claiming an Unclaimed-tab
+      // receipt; the Accounts Leads list shows a "Suspense Claimed" tag for it.
+      suspense_claimed: r.disposition_category === 'suspense_claim',
       bank_match: match
         ? {
             entry_id: match.id,
@@ -302,16 +311,27 @@ export const verifyLead = async (req, res) => {
 
 // Credit rule for the receipt's agent_name (drives FRO collection totals):
 // while impersonating (Acting FRO), credit goes to the real operator
-// (imposter_name) — same as Audit Manual Verify; otherwise to the FRO who
-// owns the lead's assignment. Without this the receipt is created with a
-// NULL agent_name and never shows in anyone's collection.
+// (imposter_name) — same as Audit Manual Verify; then to the lead's ACTOR
+// (fro_donor_logs.operator_id, recorded when the claim was made during a Work As
+// / cover session); otherwise to the FRO who owns the lead's assignment. Without
+// this the receipt is created with a NULL agent_name and never shows in anyone's
+// collection — and a claim made from a covered account would credit the covered
+// FRO while every other claim display names the actor.
 //
 // Receipts name the FRO, never the CRM login agent working that FRO's data:
 // agent_name is what collection reports group by, so a label here would split
 // one FRO's totals across several rows.
-const agentStamp = req.user?.impersonation && req.user.imposter_name
+let agentStamp = req.user?.impersonation && req.user.imposter_name
   ? req.user.imposter_name
-  : (log.fro_assignments?.workers?.name || null);
+  : null;
+if (!agentStamp) {
+  const claimOperator = await resolveOperatorName(log.operator_id);
+  // The agent LABEL, not the human's name: receipts.agent_name is stamped from
+  // the JWT's imposter_name (the label) at claim time too, and collection
+  // reports group by agent_name — mixing the two would split one person's
+  // totals across two rows.
+  agentStamp = claimOperator?.label || claimOperator?.name || log.fro_assignments?.workers?.name || null;
+}
 
     // The NGO a lead is assigned under is the per-lead truth for which project
     // (and therefore which receipt-number sequence) its money belongs to. The
@@ -937,9 +957,19 @@ export const rejectLead = async (req, res) => {
     if (updateAsgnError) throw updateAsgnError;
 
     // Return any suspense receipt attached to the rejected lead back to the
-    // suspense pool (unclaimed) so another FRO can claim it.
+    // suspense pool (unclaimed) so another FRO can claim it. For leads that came
+    // from the FRO Unclaimed tab (marker: disposition_category='suspense_claim')
+    // the receipt's agent_name is also restored to the 'suspense' category label
+    // so it reappears in the Unclaimed pool, and its bank audit entry goes back
+    // to verified (its pre-claim state) so it leaves the regular unverified
+    // suspense pool — the money must land back where it started, not in both.
+    const wasUnclaimedClaim = log.disposition_category === 'suspense_claim';
     try {
-      await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
+      const receiptPatch = { log_id: null };
+      // Restore the category label so the receipt reappears in the FRO
+      // Unclaimed pool; the bare-state reset below still handles donor fields.
+      if (wasUnclaimedClaim) receiptPatch.agent_name = 'suspense';
+      await db.from('receipts').update(receiptPatch).eq('log_id', parseInt(logId, 10));
     } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
 
     // Fully revert the linked bank audit entry so the money leaves the matched
@@ -957,30 +987,37 @@ export const rejectLead = async (req, res) => {
     try {
       const { data: entries } = await db
         .from('bank_audit_entries')
-        .select('id, receipt_id, payer_name')
+        .select('id, receipt_id, payer_name, pre_claim_status')
         .eq('matched_lead_log_id', logId);
       rejectedEntries = entries || [];
     } catch (err) { console.error('Failed to read bank audit entries on lead rejection:', err.message); }
 
     try {
-      await db.from('bank_audit_entries').update({
-        status: 'unverified',
-        matched_lead_log_id: null,
-        match_status: null,
-        match_source: null,
-        match_no: null,
-        matched_by: null,
-        matched_at: null,
-        donor_id: null,
-        donor_mobile: null,
-        donor_email: null,
-        donor_pan: null,
-        donor_address_1: null,
-        donor_address_2: null,
-        donor_city: null,
-        donor_pin_code: null,
-        updated_at: new Date().toISOString(),
-      }).eq('matched_lead_log_id', logId);
+      // Restore each entry to the audit status it had BEFORE the claim: a
+      // manually-verified suspense entry goes back to verified; an entry that
+      // was unverified stays unverified. Falls back to unverified when the
+      // pre-claim status was never recorded.
+      for (const en of rejectedEntries) {
+        await db.from('bank_audit_entries').update({
+          status: en.pre_claim_status || 'unverified',
+          match_status: null,
+          matched_lead_log_id: null,
+          match_source: null,
+          match_no: null,
+          matched_by: null,
+          matched_at: null,
+          donor_id: null,
+          donor_mobile: null,
+          donor_email: null,
+          donor_pan: null,
+          donor_address_1: null,
+          donor_address_2: null,
+          donor_city: null,
+          donor_pin_code: null,
+          pre_claim_status: null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', en.id);
+      }
     } catch (err) { console.error('Failed to revert bank audit entry on lead rejection:', err.message); }
 
     // Restore the linked suspense receipt to its bare state so the rejected
@@ -1655,7 +1692,7 @@ export const generateReceipt = async (req, res) => {
     const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
-        id, fro_worker_id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
+        id, fro_worker_id, operator_id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
@@ -1673,17 +1710,25 @@ export const generateReceipt = async (req, res) => {
     }
     const log = logs[0];
 
-    // Stamp the receipt with whoever actually collected: the log's credited
-    // worker (the acting FRO during Work As). Falls back to the assignment
-    // owner only when they are the same person.
+    // Stamp the receipt with whoever actually collected. The claim ACTOR is
+    // the log's operator_id (recorded during a Work As / cover session);
+    // fro_worker_id is the covered FRO and is only the answer when no operator
+    // was recorded. Falls back to the assignment owner last.
     let agentName = null;
-    const creditId = log.fro_worker_id;
-    if (creditId) {
-      if (String(creditId) === String(log.fro_assignments?.fro_worker_id)) {
-        agentName = log.fro_assignments?.workers?.name || null;
-      } else {
-        const { data: cw } = await db.from('workers').select('name').eq('id', creditId).maybeSingle();
-        agentName = cw?.name || null;
+    const operatorName = await resolveOperatorName(log.operator_id);
+    // Label, not human name — receipts.agent_name is the credit key (see
+    // agentStamp in verifyLead) and is already stamped with the label at claim.
+    if (operatorName?.label || operatorName?.name) {
+      agentName = operatorName.label || operatorName.name;
+    } else {
+      const creditId = log.fro_worker_id;
+      if (creditId) {
+        if (String(creditId) === String(log.fro_assignments?.fro_worker_id)) {
+          agentName = log.fro_assignments?.workers?.name || null;
+        } else {
+          const { data: cw } = await db.from('workers').select('name').eq('id', creditId).maybeSingle();
+          agentName = cw?.name || null;
+        }
       }
     }
 
@@ -2324,22 +2369,6 @@ export const deleteQueueReceipt = async (req, res) => {
   }
 };
 
-// A closed/finished disposition is history, not an assignment: those rows stay
-// in fro_assignments for the rollover/audit trail but should never appear as an
-// "agent assignment" in Accounts — they are the source of the old station /
-// old agent chips the Donors page was showing.
-const CLOSED_ASSIGNMENT_STATUSES = new Set([
-  'reassigned', 'done', 'lead_done', 'donation_collected', 'visit_donate',
-  'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
-  'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
-  'wrong_number', 'invalid_number', 'invalid', 'rejected',
-  'temporary_network_issue', 'incoming_out', 'email_sent', 'whatsapp_sent',
-  'not_interested', 'not_interested_now', 'not_possible', 'dnd', 'wrong_person',
-  'not_interested_np', 'language_barrier', 'call_disconnected',
-  'transferred_senior', 'query_complaint', 'receipt_request', 'csr_inquiry',
-  'wants_80g_details', 'wants_trust_documents', 'others',
-]);
-
 export const getDonorHistory = async (req, res) => {
   try {
     const { donorId } = req.params;
@@ -2349,7 +2378,7 @@ export const getDonorHistory = async (req, res) => {
       .select(`
         id, action, disposition_detail, amount_collected, accounts_status,
         payment_mode, upi_transaction_id, transaction_datetime, payment_from,
-        created_at, verified_at, payment_screenshot_url,
+        created_at, verified_at, payment_screenshot_url, operator_id,
         fro_assignments!inner(donor_id, fro_worker_id, workers!inner(id, name, login_id))
       `)
       .eq('fro_assignments.donor_id', donorId)
@@ -2357,6 +2386,10 @@ export const getDonorHistory = async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+
+    // Same rule as the Lead Verification list: a claim made during a Work As /
+    // cover session names the operator (operator_id), not the covered FRO.
+    const historyOperatorNames = await resolveOperatorNames((logs || []).map((l) => l.operator_id));
 
     const logIds = (logs || []).map(l => l.id);
 
@@ -2407,8 +2440,8 @@ export const getDonorHistory = async (req, res) => {
       created_at: l.created_at,
       verified_at: l.verified_at,
       screenshot_url: l.payment_screenshot_url,
-      agent_name: l.fro_assignments?.workers?.name || 'Unknown',
-      agent_login: l.fro_assignments?.workers?.login_id || '',
+      agent_name: historyOperatorNames.get(String(l.operator_id))?.name || l.fro_assignments?.workers?.name || 'Unknown',
+      agent_login: historyOperatorNames.get(String(l.operator_id))?.login || l.fro_assignments?.workers?.login_id || '',
       type: l.action === 'donation' ? 'Donation' : 'Lead',
       receipt_no: receiptMap[l.id]?.receipt_no || null,
     }));
@@ -4095,17 +4128,14 @@ export const getDonorsList = async (req, res) => {
       const donorAssignmentMap = {};
       const donorAssignmentList = {};
       for (const a of scopedAssignments) {
-        if (CLOSED_ASSIGNMENT_STATUSES.has(a.status)) continue;
         if (!donorNgoMap[a.donor_id]) donorNgoMap[a.donor_id] = new Set();
         const ngoName = ngoMap[a.ngo_id];
         if (ngoName) donorNgoMap[a.donor_id].add(ngoName);
 
-        if (CLOSED_ASSIGNMENT_STATUSES.has(a.status)) continue;
         if (!donorAssignmentMap[a.donor_id]) donorAssignmentMap[a.donor_id] = [];
         const name = workerMap[a.fro_worker_id];
         if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
 
-        if (CLOSED_ASSIGNMENT_STATUSES.has(a.status)) continue;
         if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
         donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, ngo: ngoMap[a.ngo_id] || '', worker_id: a.fro_worker_id, name, station: a.station || '' });
       }
@@ -4431,11 +4461,7 @@ export const getDonorDetail = async (req, res) => {
         .select('id, fro_worker_id, station, ngo_id, status')
         .eq('donor_id', id)
         .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .then((r) => {
-          if (r.data) r.data = (r.data || []).filter(a => !CLOSED_ASSIGNMENT_STATUSES.has(a.status));
-          return r;
-        });
+        .order('assigned_at', { ascending: false });
 
       const workerIds = [...new Set((assignmentRows || []).map(a => a.fro_worker_id).filter(Boolean))];
       const ngoIds = [...new Set((assignmentRows || []).map(a => a.ngo_id).filter(Boolean))];

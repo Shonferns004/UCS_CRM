@@ -17,6 +17,7 @@ import {
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker, getLatestTargetBeforeMonth } from '../models/froTargetModel.js';
 import { classifyLogSide, bustTlCache } from './ngoAdminController.js';
+import { isCategoryLabel } from '../services/froCollectionMatch.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
 import {
@@ -48,6 +49,7 @@ import {
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
+  getWorkerCollectionReceipts,
   getCollectedByNgo,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
@@ -168,7 +170,7 @@ import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PER
 import { getActiveCoversForTargets, refreshCoverExpiry } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
-import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession } from '../services/froTimeSessions.js';
+import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession, closeSessionOpenedBeforeDay } from '../services/froTimeSessions.js';
 import { reconcileDispositionIdle } from '../services/froTimeReconcile.js';
 import { TIME_STATES, TIME_EVENTS, isHeldState } from '../utils/froTimeState.js';
 
@@ -477,13 +479,13 @@ function realOperatorId(user) {
   return user?.impersonation && user.imposter_id != null ? user.imposter_id : user.id;
 }
 
-async function taggedAssignmentIds(assignmentIds, workerId) {
-  if (!workerId || !Array.isArray(assignmentIds) || assignmentIds.length === 0) return new Set();
+async function taggedAssignmentIds(assignmentIds, operatorId) {
+  if (!operatorId || !Array.isArray(assignmentIds) || assignmentIds.length === 0) return new Set();
   const { data, error } = await db
     .from('fro_donor_logs')
     .select('assignment_id')
     .in('assignment_id', assignmentIds)
-    .eq('fro_worker_id', workerId);
+    .or(`operator_id.eq.${operatorId},fro_worker_id.eq.${operatorId}`);
   if (error) throw error;
   return new Set((data || []).map(l => l.assignment_id));
 }
@@ -774,10 +776,14 @@ export const getDashboard = async (req, res) => {
     const todayStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
     const todayEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
 
-    const verifiedMonth = await getVerifiedCollection(creditWorkerId, monthStart, monthEnd);
-    const unverifiedMonth = await getUnverifiedCollection(creditWorkerId, monthStart, monthEnd);
-    const verifiedToday = await getVerifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString());
-    const unverifiedToday = await getUnverifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString());
+    // 'credit' rather than the default station attribution: these cards must
+    // name whoever was at the keyboard, the same person the receipt loader
+    // credits, or the panel shows two different owners for one collection.
+    const creditOpts = { attribution: 'credit' };
+    const verifiedMonth = await getVerifiedCollection(creditWorkerId, monthStart, monthEnd, creditOpts);
+    const unverifiedMonth = await getUnverifiedCollection(creditWorkerId, monthStart, monthEnd, creditOpts);
+    const verifiedToday = await getVerifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString(), creditOpts);
+    const unverifiedToday = await getUnverifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString(), creditOpts);
 
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
@@ -1014,7 +1020,7 @@ export const getMyPerformance = async (req, res) => {
     // Riya's numbers to Priya — and because fro_donor_logs are already credited
     // to the operator during work-as, the calls she actually made were being
     // counted for nobody.
-    const { data: dataCtx, human: humanCtx, isWorkAs } = splitWorkerContext(req.user);
+    const { data: dataCtx, human: humanCtx, isWorkAs, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = dataCtx.id;
     const metricsWorkerId = humanCtx.id;
     // `identityWorkerId` is the long-standing name for "who the strip counts",
@@ -1105,7 +1111,14 @@ export const getMyPerformance = async (req, res) => {
     // row one of them last overwrote.
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select(FRO_IDLE_LIVE_COLS)
+      // idle_since and today_idle_seconds are NOT in the shared column list, and
+      // this row is the input to isIdleNow() and to the legacy fallback below. With
+      // them missing they simply arrive as undefined: is_idle went false and the
+      // fallback idle silently lost the banked total, which is how this strip ended
+      // up disagreeing with the admin board's IDLE cell for the same person at the
+      // same moment. The admin board selects the same two extras for the same
+      // reason.
+      .select(`${FRO_IDLE_LIVE_COLS}, idle_since, today_idle_seconds`)
       .eq('worker_id', metricsWorkerId)
       .maybeSingle();
 
@@ -1163,9 +1176,13 @@ export const getMyPerformance = async (req, res) => {
     }
     let idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
     try {
-      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs });
+      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs, agentId: agentCtx?.id ?? null });
       if (ts.hasLedger) idleSeconds = ts.totals.idle_seconds;
     } catch (ledgerErr) {
+      // Must stay loud. A silent fallback here once shipped a version where every
+      // FRO's idle read 0 on their own strip while the admin board showed the
+      // truth — the strip and the board were reading the same thing and only one
+      // of them was allowed to fail quietly.
       console.error('performance strip ledger idle read failed:', ledgerErr.message);
     }
 
@@ -1294,8 +1311,10 @@ export const getMyCollections = async (req, res) => {
 
     const creditWorkerName = req.user.impersonation && req.user.imposter_name ? String(req.user.imposter_name).trim() : (worker.name || '').trim();
     const workerName = creditWorkerName;
-    let monthStartDay = monthStart.slice(0, 10);
-    let monthEndDay = monthEnd.slice(0, 10);
+    // Under work-as the rows belong to the FRO being stood in for, so the total
+    // has to resolve against that worker's receipts, not the session holder's.
+    // getDashboard and getMyTarget both pick creditWorkerId this way.
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
 
     const monthParam = String(req.query.month || '').trim();
     if (monthParam && monthParam !== 'current') {
@@ -1318,19 +1337,17 @@ export const getMyCollections = async (req, res) => {
       const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
       const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
       const end = new Date(Date.UTC(y, m, lastDay, 23, 59, 59, 999));
-      monthStartDay = start.toISOString().slice(0, 10);
-      monthEndDay = end.toISOString().slice(0, 10);
       monthStart = start.toISOString();
       monthEnd = end.toISOString();
     }
 
-    const { data: receipts, error } = await db
-      .from('receipts')
-      .select('id, donor_id, amount, project_id, receipt_date, receipt_no, agent_name, payment_id, donor_name, donor_mobile, mode')
-      .ilike('agent_name', workerName)
-      .gte('receipt_date', monthStartDay)
-      .lte('receipt_date', monthEndDay);
-    if (error) throw error;
+    // The same rows the Collected card totals, from the same loader, so the
+    // number on the card is by construction the sum of the rows listed here.
+    // This used to run its own receipts query with a different name match and no
+    // verified-in-month union, so the two disagreed: backdated-but-verified
+    // receipts appeared in the total but not in the list, and a printed name
+    // needing a trim or a case fold matched one and not the other.
+    const receipts = await getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd);
 
     const { data: allNgos } = await db.from('ngos').select('id, name');
     const normProj = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
@@ -1359,15 +1376,13 @@ export const getMyCollections = async (req, res) => {
       for (const n of ngoRows || []) ngoMap[n.id] = n.name;
     }
 
-    const seen = new Set();
+    // No dedup here on purpose: getWorkerCollectionReceipts already applied the
+    // one shared rule. Re-applying the old composite key here would drop rows the
+    // card counts, re-opening the very gap this was meant to close.
     const collections = [];
     for (const r of receipts || []) {
       const amount = parseFloat(r.amount || 0);
       if (amount <= 0) continue;
-
-      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
-      if (seen.has(dedupKey)) continue;
-      seen.add(dedupKey);
 
       let tabNgoId = null;
       let tabNgoName = null;
@@ -1407,6 +1422,11 @@ export const getMyCollections = async (req, res) => {
       collections,
       ngos,
       ngoMap,
+      // The sum of exactly the rows above, before the ngo_id filter is applied.
+      // With no filter this is the same number the Collected card shows; with
+      // one it is the whole-month total, so the modal can label the filtered
+      // subtotal without re-deriving it.
+      total: (receipts || []).reduce((sum, r) => sum + parseFloat(r.amount || 0), 0),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1456,7 +1476,7 @@ export const getSuspenseReceipts = async (req, res) => {
     const workerId = req.user.id;
     // Suspense is a shared pool: every FRO sees their assigned NGO AND all
     // other NGOs' unclaimed receipts here (NGO pills on the frontend filter).
-    const { month } = currentMonthBoundsIST();
+    const { month, monthStart } = currentMonthBoundsIST();
 
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
@@ -1471,7 +1491,7 @@ export const getSuspenseReceipts = async (req, res) => {
     if (receiptIds.length > 0) {
       const { data: receipts } = await db
         .from('receipts')
-          .select('id, log_id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
+          .select('id, log_id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name')
         .in('id', receiptIds);
       for (const r of (receipts || [])) receiptMap[r.id] = r;
     }
@@ -1480,6 +1500,9 @@ export const getSuspenseReceipts = async (req, res) => {
       const r = receiptMap[e.receipt_id] || {};
       // Receipt already linked to a lead (credited to an FRO) — skip.
       if (r.log_id) return null;
+      // Receipts parked under the category label "suspense" belong only in the
+      // Unclaimed tab — keep them out of the regular All pool entirely.
+      if (isCategoryLabel(r.agent_name) || isCategoryLabel(e.agent_name)) return null;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -1503,6 +1526,8 @@ export const getSuspenseReceipts = async (req, res) => {
 
     for (const e of entries || []) {
       if (e.receipt_id) continue;
+      // Numberless entries parked under "suspense" also belong only in Unclaimed.
+      if (isCategoryLabel(e.agent_name)) continue;
       pool.push({
         id: `entry-${e.id}`,
         entry_id: e.id,
@@ -1517,6 +1542,75 @@ export const getSuspenseReceipts = async (req, res) => {
         has_receipt: false,
         waiting_receipt_no: !!e.verify_fro_worker_id,
       });
+    }
+
+    // Unclaimed pool: receipts parked under the category label "suspense" —
+    // money Accounts already verified (receipt created, number allocated) but
+    // that never got credited to a real FRO. Includes receipts still linked to
+    // the placeholder "suspense" worker's log; excludes any receipt whose log
+    // belongs to a real FRO (already owned/counted there) and any receipt the
+    // entry pool above already lists.
+    const entryPoolReceiptIds = new Set(pool.filter(r => r.has_receipt).map(r => r.id));
+    try {
+      const { data: unclaimedRows, error: uErr } = await db
+        .from('receipts')
+        .select('id, log_id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, payment_id')
+        .or('agent_name.ilike.suspense')
+        .gte('receipt_date', monthStart)
+        .order('receipt_date', { ascending: false })
+        .limit(500);
+      if (uErr) throw uErr;
+      const ucRows = (unclaimedRows || []).filter(r => !entryPoolReceiptIds.has(r.id));
+      if (ucRows.length > 0) {
+        const ucIds = ucRows.map(r => r.id);
+        const [{ data: ucEntries }, { data: ucLogs }] = await Promise.all([
+          db.from('bank_audit_entries')
+            .select('id, receipt_id, receipt_no, payer_name, payment_id, amount, status, project_id')
+            .in('receipt_id', ucIds),
+          db.from('fro_donor_logs')
+            .select('id, fro_worker_id')
+            .in('id', ucRows.map(r => r.log_id).filter(Boolean)),
+        ]);
+        // A receipt parked on the placeholder "suspense" worker (or with no log
+        // at all) is unclaimed; one whose log sits on a real FRO is owned.
+        let placeholderIds = new Set();
+        const ownerIds = [...new Set((ucLogs || []).map(l => l.fro_worker_id).filter(Boolean))];
+        if (ownerIds.length > 0) {
+          const { data: phWorkers } = await db.from('workers').select('id').in('id', ownerIds).ilike('name', 'suspense');
+          for (const w of (phWorkers || [])) placeholderIds.add(w.id);
+        }
+        const entryByReceipt = {};
+        for (const e of (ucEntries || [])) {
+          const cur = entryByReceipt[e.receipt_id];
+          // Prefer the verified bank line: it is the money's audit entry.
+          if (!cur || (e.status === 'verified' && cur.status !== 'verified')) entryByReceipt[e.receipt_id] = e;
+        }
+        const logById = {};
+        for (const l of (ucLogs || [])) logById[l.id] = l;
+        for (const r of ucRows) {
+          const parked = !r.log_id || (logById[r.log_id] && placeholderIds.has(logById[r.log_id].fro_worker_id));
+          if (!parked) continue;
+          const e = entryByReceipt[r.id] || {};
+          pool.push({
+            id: r.id,
+            entry_id: e.id || null,
+            receipt_no: e.receipt_no || null,
+            donor_name: e.payer_name || r.donor_name || null,
+            donor_mobile: r.donor_mobile || null,
+            amount: r.amount || e.amount,
+            receipt_date: r.receipt_date,
+            receipt_time: r.receipt_time,
+            project_id: r.project_id || e.project_id,
+            payment_id: e.payment_id || r.payment_id || null,
+            has_receipt: true,
+            // Receipt numbers are already allocated for these; claiming is open.
+            waiting_receipt_no: false,
+            pool: 'unclaimed',
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Suspense unclaimed pool load failed:', e.message);
     }
 
     const poolIds = pool.filter(r => r.has_receipt).map(r => r.id);
@@ -1549,7 +1643,8 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_time: r.receipt_time,
       project_id: r.project_id,
       payment_id: r.payment_id || null,
-      kind: r.has_receipt ? 'entry' : 'no_receipt',
+      kind: r.pool === 'unclaimed' ? 'unclaimed' : (r.has_receipt ? 'entry' : 'no_receipt'),
+      pool: r.pool || 'entry',
       waiting_receipt_no: r.waiting_receipt_no || false,
       _bank_audit_entry_id: r.entry_id,
       claim_count: claimCountByReceipt[r.id] || 0,
@@ -1731,6 +1826,48 @@ const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId, w
   }
 };
 
+// Unclaimed-claim counterpart of linkClaimAuditEntry: the entry was already
+// verified (Accounts parked the money on the suspense bucket), so claiming it
+// must send it BACK into the audit — status unverified, linked to the new lead
+// — so Accounts sees it with its receipt number, fills the details and credits
+// the amount. Never blocks the claim if the write fails.
+const sendClaimAuditEntryToAudit = async (entry, receiptId, logId, workerId, donorId, workerName) => {
+  if (!entry?.id) return;
+  // Already linked to a different lead — leave it alone.
+  if (entry.matched_lead_log_id != null && String(entry.matched_lead_log_id) !== String(logId)) return;
+
+  const patch = {
+    status: 'unverified',
+    // Remember the audit status the entry had BEFORE this claim so a later
+    // lead reject can restore it exactly (a manually-verified suspense entry
+    // must go back to verified, not stay unverified).
+    pre_claim_status: entry.status || null,
+    match_status: 'matched',
+    match_source: 'manual',
+    matched_lead_log_id: logId,
+    receipt_id: receiptId,
+    matched_by: workerId,
+    matched_at: new Date().toISOString(),
+    agent_name: workerName || null,
+    donor_id: donorId || entry.donor_id || null,
+    // Clear the manual-verify assignment marker so the entry does not park as
+    // "waiting for receipt number" now that a real claim exists.
+    verify_fro_worker_id: null,
+    updated_at: new Date().toISOString(),
+  };
+  if (!entry.match_no) {
+    try {
+      const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+      patch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
+    } catch (e) { console.error('Match no allocation failed:', e.message); }
+  }
+  try {
+    await db.from('bank_audit_entries').update(patch).eq('id', entry.id);
+  } catch (e) {
+    console.error('Send claim audit entry back to audit failed:', e.message);
+  }
+};
+
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -1798,14 +1935,21 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
-      .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
+      .select('id, donor_id, log_id, agent_name, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
 
+    // Unclaimed pool: receipts parked under a category label (the "suspense"
+    // bucket) — money Accounts verified but never credited to a real FRO. They
+    // carry a placeholder donor and may still point at the placeholder
+    // "suspense" worker's log, but no human owns them. Claiming one is the
+    // handover: the FRO picks the real donor and the money moves.
+    const isUnclaimed = isCategoryLabel(receipt.agent_name);
+
     // Detect "receipt_sent" entries: receipt has a donor but no log (no FRO assigned).
-    const isReceiptSent = receipt.donor_id != null && receipt.log_id == null;
-    if (!isReceiptSent) {
+    const isReceiptSent = !isUnclaimed && receipt.donor_id != null && receipt.log_id == null;
+    if (!isReceiptSent && !isUnclaimed) {
       if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
       if (receipt.log_id) return res.status(409).json({ message: 'This receipt has already been claimed' });
     }
@@ -2099,9 +2243,16 @@ export const claimSuspenseReceipt = async (req, res) => {
       .insert({
         assignment_id: assignmentId,
         donor_id: donorId,
-        fro_worker_id: creditWorkerId,
+        // Both FK columns hold the covered FRO; the operator is recorded in
+        // operator_id, which carries no FK (see createDonorLogHandler).
+        fro_worker_id: workerId,
+        operator_id: creditWorkerId === workerId ? null : creditWorkerId,
         action: 'disposition',
         disposition_detail: 'lead_done',
+        // Marks a lead created by claiming an Unclaimed-tab receipt so Accounts'
+        // reject/go-back can put the money back in the Unclaimed pool (restore
+        // receipts.agent_name = 'suspense') instead of the regular suspense pool.
+        disposition_category: isUnclaimed ? 'suspense_claim' : null,
         amount_collected: receipt.amount,
         accounts_status: 'pending',
         payment_screenshot_url: screenshot_url || null,
@@ -2111,7 +2262,7 @@ export const claimSuspenseReceipt = async (req, res) => {
         payment_from: finalFrom,
         pan_number: effectivePan,
         transaction_datetime: finalTxn,
-        created_by: creditWorkerId,
+        created_by: workerId,
       })
       .select()
       .single();
@@ -2122,6 +2273,46 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
     await linkClaimAuditEntry(auditEntry, receiptId, log.id, creditWorkerId, donorId, creditWorkerName);
+
+    // Unclaimed-claim handover: stamp the chosen donor onto the receipt (it was
+    // parked with a placeholder donor), retire the placeholder "suspense" log
+    // the money sat on so the amount is counted exactly once — on this new lead
+    // — and send the bank audit entry BACK into Accounts Bank Audit (status
+    // unverified, linked to this lead) so Accounts fills the details and credits.
+    if (isUnclaimed) {
+      try {
+        await db.from('receipts').update({
+          donor_id: donorId,
+          donor_name: claimedDonorName || donorName || null,
+          donor_mobile: donor_mobile || receipt.donor_mobile || null,
+        }).eq('id', receiptId);
+      } catch (e) { console.error('Failed to stamp donor on claimed unclaimed receipt:', e.message); }
+
+      // Retire only a log parked on the placeholder "suspense" worker — a log
+      // owned by a real FRO would be double-counted removal, and unclaimed
+      // receipts never point at one anyway (filtered out of the pool).
+      if (receipt.log_id) {
+        try {
+          const { data: oldLog } = await db
+            .from('fro_donor_logs')
+            .select('id, fro_worker_id')
+            .eq('id', receipt.log_id)
+            .maybeSingle();
+          const phWorker = oldLog?.fro_worker_id
+            ? await db.from('workers').select('id').eq('id', oldLog.fro_worker_id).ilike('name', 'suspense').maybeSingle()
+            : null;
+          if (phWorker?.data) {
+            await db.from('fro_donor_logs').update({
+              amount_collected: 0,
+              accounts_status: 'rejected',
+              rejection_reason: `Claimed by ${creditWorkerName || 'an FRO'} — moved to lead ${log.id}`,
+            }).eq('id', oldLog.id);
+          }
+        } catch (e) { console.error('Failed to retire placeholder suspense log on claim:', e.message); }
+      }
+
+      await sendClaimAuditEntryToAudit(auditEntry, receiptId, log.id, creditWorkerId, donorId, creditWorkerName);
+    }
 
     // For receipt_sent entries, transition the bank_audit_entry status from
     // "receipt_sent" → "unverified" and stamp the claiming FRO's name so
@@ -2170,7 +2361,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     // keyboard's window so it cannot time the FRO out mid-claim. Non-fatal.
     let timer = null;
     try {
-      const { human: humanCtx } = splitWorkerContext(req.user);
+      const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
       timer = await resetLiveWindow(humanCtx.id, { nowMs: Date.now(), dbg: 'claim' });
     } catch (claimTimerErr) {
       console.warn('suspense claim live window reset skipped:', claimTimerErr.message);
@@ -3384,7 +3575,11 @@ export const createDonorLogHandler = async (req, res) => {
     const logData = {
       assignment_id: assignment.id,
       donor_id: donorId,
-      fro_worker_id: creditWorkerId,
+      // fro_worker_id and created_by are both FK'd to workers(id), so they hold
+      // the covered FRO. The operator goes in operator_id, which has no FK
+      // because an agent's or admin's id does not exist in workers.
+      fro_worker_id: workerId,
+      operator_id: creditWorkerId === workerId ? null : creditWorkerId,
       action,
       notes: notes || null,
       outcome: outcome || null,
@@ -3402,7 +3597,7 @@ export const createDonorLogHandler = async (req, res) => {
         return isNaN(d.getTime()) ? null : d.toISOString();
       })(),
       accounts_status: null,
-      created_by: creditWorkerId,
+      created_by: workerId,
     };
 
     if (action === 'disposition' && disposition_detail === 'lead_done') {
@@ -3450,6 +3645,12 @@ export const createDonorLogHandler = async (req, res) => {
             remark: logData.remark,
             upi_transaction_id: logData.upi_transaction_id,
             transaction_datetime: logData.transaction_datetime,
+            // Re-attribute the refreshed row to whoever is saving now: the dedupe
+            // above can match a row an agent created earlier today, and without
+            // this the FRO's own save would inherit the agent's operator_id.
+            fro_worker_id: logData.fro_worker_id,
+            operator_id: logData.operator_id,
+            created_by: logData.created_by,
             created_at: new Date().toISOString(),
           });
         } else {
@@ -3597,7 +3798,7 @@ export const createDonorLogHandler = async (req, res) => {
     if (action === 'disposition') {
       try {
         const nowMs = Date.now();
-        const { human: humanCtx } = splitWorkerContext(req.user);
+        const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
         timer = await resetLiveWindow(humanCtx.id, { nowMs, dbg: 'disposition' });
         // Record the state-machine transition through the event resolver, not a
         // raw set. DISPOSITION_SUCCESS closes an IDLE (or WORKING) interval and
@@ -3606,7 +3807,7 @@ export const createDonorLogHandler = async (req, res) => {
         // silently end a hold an admin set. The fresh 240s deadline is written by
         // resetLiveWindow above; this only moves the ledger in step with it.
         try {
-          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition' });
+          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition', agentId: agentCtx?.id ?? null });
         } catch (_) { /* ledger absent — non-fatal */ }
       } catch (timerErr) {
         // Non-fatal: the action is already saved; the timer just keeps its
@@ -3633,7 +3834,7 @@ export const createDonorLogHandler = async (req, res) => {
       // advances rather than erroring repeatedly. Still re-arm the human's
       // window so a suppressed duplicate cannot leave them stamped idle.
       try {
-        const { human: humanCtx } = splitWorkerContext(req.user);
+        const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
         await resetLiveWindow(humanCtx.id, { nowMs: Date.now() });
       } catch (dupTimerErr) {
         console.warn('duplicate-suppressed live window reset skipped:', dupTimerErr.message);
@@ -4366,7 +4567,7 @@ export const getMyHistory = async (req, res) => {
       .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
       .eq('fro_assignments.fro_worker_id', workerId);
     if (req.user.impersonation && req.user.imposter_id != null) {
-      historyQuery = historyQuery.eq('fro_worker_id', realOperatorId(req.user));
+      historyQuery = historyQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
     }
     const { data: logs, error } = await historyQuery
       .order('created_at', { ascending: false })
@@ -4916,7 +5117,7 @@ export const updateLiveStatus = async (req, res) => {
     // The disposition save (createDonorLogHandler) re-arms through
     // resetLiveWindow on the SAME human id, so a disposition always refreshes
     // the row this heartbeat writes.
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
 
     // Force-logout enforcement: once an admin logs the FRO out (logged_out_at
@@ -5115,6 +5316,19 @@ export const updateLiveStatus = async (req, res) => {
     }
     payload.stats_date = roll.statsDate;
     if (roll.rolled) row = { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null };
+
+    // End-of-day cleanup for the interval ledger: a panel closed overnight leaves
+    // HIDDEN/IDLE open, and the next reader would clip that into today — billing
+    // the FRO for the hours between their shift start and their login, before they
+    // were at their desk. Close anything still open from a previous IST day at that
+    // day's end, so today starts from their first real beat.
+    if (roll.rolled) {
+      try {
+        await closeSessionOpenedBeforeDay(workerId, { nowMs });
+      } catch (ledgerDayErr) {
+        console.warn('[fro-time] day-boundary interval close skipped:', ledgerDayErr.message);
+      }
+    }
 
     // withoutStaleIdle still clears a stale idle_since/disposition_due_at, but its
     // counter zeroing is deliberately NOT honoured: the rollover above is now the
@@ -5351,7 +5565,7 @@ export const updateLiveStatus = async (req, res) => {
           : isIdleNow(fresh, shift, Date.now()) ? TIME_STATES.IDLE
             : TIME_STATES.WORKING;
     try {
-      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat' });
+      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat', agentId: agentCtx?.id ?? null });
     } catch (ledgerErr) {
       // Not fatal to the heartbeat, but a failure here means the authoritative
       // ledger is not being fed. Surface it instead of swallowing it: an empty
@@ -5361,7 +5575,7 @@ export const updateLiveStatus = async (req, res) => {
 
     let timeStatus = null;
     try {
-      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now() });
+      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now(), agentId: agentCtx?.id ?? null });
     } catch (_) { /* non-fatal */ }
 
     return res.json({
@@ -5403,7 +5617,7 @@ export const updateLiveStatus = async (req, res) => {
 // rather than overwriting one another on the shared row.
 export const getMyProgress = async (req, res) => {
   try {
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
@@ -5417,7 +5631,7 @@ export const getMyProgress = async (req, res) => {
 
 export const saveMyProgress = async (req, res) => {
   try {
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
     const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
     const payload = {
@@ -5504,6 +5718,18 @@ export const logoutAllFros = async (req, res) => {
       } catch (e) {
         // Non-fatal: live status row may not exist for every session.
       }
+      // Fold each session's open idle period into their day BEFORE marking them
+      // offline. This endpoint used to stop at presence: the sessions closed but
+      // the open interval and lapsed deadline stayed on the row, so the board
+      // kept deriving idle for somebody who had just been logged out — the same
+      // complaint as a manual sign-out that never stops.
+      for (const s of sessions) {
+        try {
+          await commitIdleOnExit(String(s.user_id));
+        } catch (e) {
+          // Non-fatal: continue with the rest of the batch.
+        }
+      }
     }
 
     emitRealtime('fro:force-logout', { at: nowIso });
@@ -5554,7 +5780,7 @@ export const resumeOwnPause = async (req, res) => {
     // the two. Both halves of that are gone, so this is a single-row update and
     // the "resume runs on a loop" failure (the panel re-converging to paused
     // because the other row was still paused) cannot recur.
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
     const ids = [String(humanCtx.id)];
@@ -5613,7 +5839,7 @@ export const resumeOwnPause = async (req, res) => {
 // OFF_SHIFT is derived from the shift window rather than reported by the client.
 export const applyFroTimeEvent = async (req, res) => {
   try {
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const event = String(req.body?.event || '');
     const allowed = Object.values(TIME_EVENTS);
     if (!allowed.includes(event)) {
@@ -5622,7 +5848,7 @@ export const applyFroTimeEvent = async (req, res) => {
     const nowMs = Date.now();
     let result;
     try {
-      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event });
+      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event, agentId: agentCtx?.id ?? null });
     } catch (ledgerErr) {
       // The ledger table may not be migrated yet. Fail loud so an operator sees
       // it, but do not silently drop the event onto the legacy columns either.
@@ -5661,7 +5887,7 @@ export const applyFroTimeEvent = async (req, res) => {
     } catch (_) { /* non-fatal */ }
     let timeStatus = null;
     try {
-      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs, agentId: agentCtx?.id ?? null });
     } catch (_) { /* non-fatal */ }
 
     return res.json({
@@ -5691,7 +5917,7 @@ export const getMyLiveStatus = async (req, res) => {
     // The old "merge the operator's paused flag into the target's row" hack is
     // gone for the same reason: there is only one row now, so there is nothing
     // left to merge. A pause on the operator's row is simply read directly.
-    const { human: humanCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('*')
@@ -5750,7 +5976,7 @@ export const getMyLiveStatus = async (req, res) => {
     // there is exactly one idle calculation in the system.
     let timeStatus;
     try {
-      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs, agentId: agentCtx?.id ?? null });
     } catch (timeErr) {
       console.warn('time-status compute skipped:', timeErr.message);
       timeStatus = null;
@@ -6387,7 +6613,7 @@ export const getMyDisposedLeads = async (req, res) => {
       .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
       .eq('fro_assignments.fro_worker_id', workerId);
     if (req.user.impersonation && req.user.imposter_id != null) {
-      disposedQuery = disposedQuery.eq('fro_worker_id', realOperatorId(req.user));
+      disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
     }
     const { data: disposedLogs, error: logErr } = await disposedQuery
       // History is scoped to THIS billing month's work. The daily rollover

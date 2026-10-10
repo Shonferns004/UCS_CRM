@@ -670,8 +670,8 @@ export default function Attendance() {
                         {workerAttendance.map((r, i) => (
                           <tr key={r.id} className={r.status === 'late' ? 'row-late' : ''}>
                             <td>{r.date}</td>
-                            <td>{fmtTime(r.punch_in_time)}</td>
-                            <td>{fmtTime(r.punch_out_time)}</td>
+                            <td>{fmtTime(r.punch_in_time)}{r.punch_in_selfie_url && <a href={r.punch_in_selfie_url} target="_blank" rel="noreferrer"><img src={r.punch_in_selfie_url} alt="punch in selfie" style={{width:22,height:22,borderRadius:4,objectFit:'cover',marginLeft:6,verticalAlign:'middle'}} /></a>}</td>
+                            <td>{fmtTime(r.punch_out_time)}{r.punch_out_selfie_url && r.punch_out_selfie_url !== r.punch_in_selfie_url && <a href={r.punch_out_selfie_url} target="_blank" rel="noreferrer"><img src={r.punch_out_selfie_url} alt="punch out selfie" style={{width:22,height:22,borderRadius:4,objectFit:'cover',marginLeft:6,verticalAlign:'middle'}} /></a>}</td>
                           </tr>
                         ))}
                   </tbody>
@@ -753,8 +753,8 @@ export default function Attendance() {
                                 {r.status === 'absent' && <span style={{ fontSize:10, color:'#ef4444', marginLeft:4 }}>(Absent)</span>}
                                 {r.status === 'late' && <span style={{ fontSize:10, color:'#f59e0b', marginLeft:4 }}>(Late)</span>}
                               </td>
-                              <td>{fmtTime(r.punch_in_time)}</td>
-                              <td>{fmtTime(r.punch_out_time)}</td>
+                              <td>{fmtTime(r.punch_in_time)}{r.punch_in_selfie_url && <a href={r.punch_in_selfie_url} target="_blank" rel="noreferrer"><img src={r.punch_in_selfie_url} alt="punch in selfie" style={{width:22,height:22,borderRadius:4,objectFit:'cover',marginLeft:6,verticalAlign:'middle'}} /></a>}</td>
+                              <td>{fmtTime(r.punch_out_time)}{r.punch_out_selfie_url && r.punch_out_selfie_url !== r.punch_in_selfie_url && <a href={r.punch_out_selfie_url} target="_blank" rel="noreferrer"><img src={r.punch_out_selfie_url} alt="punch out selfie" style={{width:22,height:22,borderRadius:4,objectFit:'cover',marginLeft:6,verticalAlign:'middle'}} /></a>}</td>
                             </tr>
                           );
                         })}
@@ -907,8 +907,8 @@ export default function Attendance() {
                                 {r.status === 'absent' && <span style={{ fontSize:10, color:'#ef4444', marginLeft:4 }}>(Absent)</span>}
                                 {r.status === 'late' && <span style={{ fontSize:10, color:'#f59e0b', marginLeft:4 }}>(Late)</span>}
                               </td>
-                              <td>{fmtTime(r.punch_in_time)}</td>
-                              <td>{fmtTime(r.punch_out_time)}</td>
+                              <td>{fmtTime(r.punch_in_time)}{r.punch_in_selfie_url && <a href={r.punch_in_selfie_url} target="_blank" rel="noreferrer"><img src={r.punch_in_selfie_url} alt="punch in selfie" style={{width:22,height:22,borderRadius:4,objectFit:'cover',marginLeft:6,verticalAlign:'middle'}} /></a>}</td>
+                              <td>{fmtTime(r.punch_out_time)}{r.punch_out_selfie_url && r.punch_out_selfie_url !== r.punch_in_selfie_url && <a href={r.punch_out_selfie_url} target="_blank" rel="noreferrer"><img src={r.punch_out_selfie_url} alt="punch out selfie" style={{width:22,height:22,borderRadius:4,objectFit:'cover',marginLeft:6,verticalAlign:'middle'}} /></a>}</td>
                             </tr>
                           );
                         })}

@@ -315,8 +315,14 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _checkAuth() async {
     try {
-      final token = await ApiService.getToken().timeout(const Duration(seconds: 2));
+      var token = await ApiService.getToken().timeout(const Duration(seconds: 2));
       if (token != null) {
+        // Access token may have lapsed while the app was closed; swap it for a
+        // fresh one via the stored refresh token before deciding auth state.
+        try {
+          await ApiService.ensureSession().timeout(const Duration(seconds: 6));
+          token = await ApiService.getToken();
+        } catch (_) {}
         await ApiService.isNgoAdmin();
       }
       if (token != null && firebaseInitialized) {

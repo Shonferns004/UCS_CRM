@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { api } from '../api/auth';
 import { toast } from './Toast';
 import { istMonthKey } from '../utils/istDate';
@@ -64,12 +65,31 @@ function SourcePill({ row }) {
   );
 }
 
+// Absconding flips employment_status but leaves the worker in department 'FRO', so
+// this endpoint still lists them and they render like everyone else - an ex-FRO
+// sitting among active names with a live target. Only absconded is labelled; other
+// non-active statuses deliberately stay unmarked so this page keeps one concern.
+const isAbsconded = (r) => String(r.employment_status || 'active').toLowerCase() === 'absconded';
+
+function StatusPill({ row }) {
+  if (!isAbsconded(row)) return <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>;
+  return (
+    <span style={{ background: '#fff3e0', color: '#e65100', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+      Absconded
+    </span>
+  );
+}
+
 function Row({ row, onEdit }) {
-  const needsAttention = row.target_source === 'not_set';
+  const absconded = isAbsconded(row);
+  // An orange "needs a target" row is the loudest signal on this screen, so an
+  // absconded FRO gets a muted grey row instead - they cannot collect, and the
+  // row is context, not a task.
+  const needsAttention = !absconded && row.target_source === 'not_set';
   const td = { padding: '10px 12px', borderBottom: '1px solid #eee' };
 
   return (
-    <tr style={{ background: needsAttention ? '#fff7ed' : undefined }}>
+    <tr style={{ background: needsAttention ? '#fff7ed' : undefined, opacity: absconded ? 0.65 : undefined }}>
       <td style={{ ...td, fontWeight: 600 }}>
         {row.name}
         {needsAttention && <span style={{ marginLeft: 8, fontSize: 11, color: '#b45309', fontWeight: 600 }}>needs a target</span>}
@@ -84,6 +104,7 @@ function Row({ row, onEdit }) {
         </button>
       </td>
       <td style={td}><SourcePill row={row} /></td>
+      <td style={td}><StatusPill row={row} /></td>
     </tr>
   );
 }
@@ -210,15 +231,68 @@ export default function FroTargets() {
     }
   };
 
-  const needsCount = useMemo(() => rows.filter((r) => r.target_source === 'not_set').length, [rows]);
+  // Someone who absconded cannot collect, so they are not "waiting on a decision"
+  // and counting them would bury the real gap. The row is still on screen - the
+  // number on the board must match the number of rows.
+  const needsCount = useMemo(() => rows.filter((r) => !isAbsconded(r) && r.target_source === 'not_set').length, [rows]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows
-      .filter((r) => (filter === 'all' ? true : r.target_source === filter))
+      // The 'Needs a target' filter is a worklist, so an absconded FRO is not on
+      // it - same rule as the banner count.
+      .filter((r) => (filter === 'not_set' ? (!isAbsconded(r) && r.target_source === 'not_set') : (filter === 'all' ? true : r.target_source === filter)))
       .filter((r) => !q || String(r.name || '').toLowerCase().includes(q) || String(r.login_id || '').toLowerCase().includes(q))
-      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      .sort((a, b) => {
+        // Absconded sink to the bottom as a group; each group stays alphabetical
+        // so the active block reads the same as it always did.
+        const g = Number(isAbsconded(b)) - Number(isAbsconded(a));
+        return g || String(a.name || '').localeCompare(String(b.name || ''));
+      });
   }, [rows, filter, search]);
+
+  // Exports exactly what the table shows, so the search box and source filter
+  // apply to the file too - otherwise a filtered screen would silently hand over
+  // the whole roster. Target stays a number (not "₹1,00,000") so the column is
+  // still summable in Excel.
+  const exportExcel = useCallback(() => {
+    if (visible.length === 0) { toast('Nothing to export with the current filter', 'error'); return; }
+    try {
+      const data = visible.map((r) => ({
+        'FRO Name': r.name || '',
+        'Login ID': r.login_id || '',
+        'Salary': Number(r.salary) || 0,
+        'Tenure (months)': r.months_employed != null ? r.months_employed + 1 : '',
+        'Target': Number(r.target) || 0,
+        'Source': (SOURCE_LABEL[r.target_source] || SOURCE_LABEL.not_set)(r),
+        'Status': isAbsconded(r) ? 'Absconded' : 'Active',
+        'Set for Month': fmtMonth(month),
+      }));
+
+      const header = Object.keys(data[0]);
+      const ws = XLSX.utils.json_to_sheet(data, { header });
+      ws['!cols'] = [
+        { wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 32 }, { wch: 12 }, { wch: 14 },
+      ];
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'FRO Targets');
+
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `fro-targets-${month}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast(`Exported ${visible.length} FRO${visible.length === 1 ? '' : 's'}`, 'success');
+    } catch (err) {
+      toast(err.message || 'Could not export targets', 'error');
+    }
+  }, [visible, month]);
 
   const th = { padding: '8px 12px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', borderBottom: '1px solid #e5e7eb' };
 
@@ -239,7 +313,11 @@ export default function FroTargets() {
             onChange={(e) => e.target.value && setMonth(e.target.value)}
             style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6 }}
           />
+          <button className="btn btn-sm btn-outline" onClick={exportExcel}>Download</button>
           <button className="btn btn-sm btn-outline" onClick={load}>Refresh</button>
+          <button className="btn btn-sm btn-outline" onClick={exportExcel} disabled={loading || visible.length === 0}>
+            Export Excel
+          </button>
         </div>
       </div>
 
@@ -264,7 +342,9 @@ export default function FroTargets() {
           <option value="manual">Set for this month</option>
           <option value="auto">Auto (first 3 months)</option>
         </select>
-        <span style={{ alignSelf: 'center', fontSize: 12, color: '#6b7280' }}>{visible.length} shown</span>
+        <span style={{ alignSelf: 'center', fontSize: 12, color: '#6b7280' }}>
+          {visible.length} shown{abscondedShown > 0 ? ` · ${abscondedShown} absconded at the bottom` : ''}
+        </span>
       </div>
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, overflowX: 'auto' }}>
@@ -278,13 +358,14 @@ export default function FroTargets() {
               <th style={th}>Target</th>
               <th style={th}></th>
               <th style={th}>Source</th>
+              <th style={th}>Status</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading…</td></tr>
+              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading…</td></tr>
             ) : visible.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No FROs match this filter.</td></tr>
+              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>No FROs match this filter.</td></tr>
             ) : (
               visible.map((r) => <Row key={r.id} row={r} onEdit={openEditor} />)
             )}

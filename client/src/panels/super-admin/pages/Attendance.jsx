@@ -86,6 +86,8 @@ export default function Attendance() {
     punchIn: toTimeInput(rec?.punch_in_time),
     punchOut: toTimeInput(rec?.punch_out_time),
     lateMinutes: String(rec?.late_minutes ?? 0),
+    selfieIn: rec?.punch_in_selfie_url || null,
+    selfieOut: rec?.punch_out_selfie_url || null,
   })
 
   const saveEditor = async () => {
@@ -178,6 +180,12 @@ export default function Attendance() {
             <label>Punch Out<input type="time" value={editor.punchOut} onChange={e => setEditor({ ...editor, punchOut: e.target.value })} /></label>
             <label>Late Minutes<input type="number" min="0" value={editor.lateMinutes} onChange={e => setEditor({ ...editor, lateMinutes: e.target.value })} /></label>
           </div>
+          {(editor.selfieIn || editor.selfieOut) && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+              {editor.selfieIn && <a href={editor.selfieIn} target="_blank" rel="noreferrer" title="Punch-in selfie"><img src={editor.selfieIn} alt="Punch-in selfie" style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }} /></a>}
+              {editor.selfieOut && editor.selfieOut !== editor.selfieIn && <a href={editor.selfieOut} target="_blank" rel="noreferrer" title="Punch-out selfie"><img src={editor.selfieOut} alt="Punch-out selfie" style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }} /></a>}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button className="btn btn-sm" onClick={() => setEditor({ ...editor, status: 'half-day' })}>Set Half-day</button>
             <button className="btn btn-sm" onClick={() => setEditor({ ...editor, status: 'present' })}>Remove Half-day</button>

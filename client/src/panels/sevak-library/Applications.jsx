@@ -15,7 +15,7 @@ import {
   renewApplication
 } from './api.js'
 import { pdfMemberDoc } from './MembershipFormDoc.jsx'
-import { formatINR, formatDate, formatTime, renewalPreview } from './formUtils.js'
+import { formatINR, formatDate, formatTime, computeEndDate, renewalPreview } from './formUtils.js'
 import { useToast } from './toast.jsx'
 import StatCard from './StatCard.jsx'
 
@@ -92,6 +92,7 @@ export default function Applications({
   const [rejectReason, setRejectReason] = useState('')
   const [renewFee, setRenewFee] = useState('')
   const [renewTxn, setRenewTxn] = useState('')
+  const [renewFrom, setRenewFrom] = useState('')
   const [approveEmail, setApproveEmail] = useState(true)
   const [actionBusy, setActionBusy] = useState('')
   const [bulkConfirm, setBulkConfirm] = useState(false)
@@ -123,36 +124,56 @@ export default function Applications({
     [planCounts]
   )
 
-  // Moved from the removed Dashboard tab: overall totals (all rows, unfiltered).
+  // Moved from the removed Dashboard tab: totals + revenue for the CURRENT
+  // time filter (from/to, same bounds the table uses). The delta badge compares
+  // the period against the immediately preceding equal-length window; for an
+  // unbounded period ("All applications") it falls back to this-month context.
   const hero = useMemo(() => {
-    const revenue = rows
-      .filter((r) => r.status === 'VERIFIED' || r.status === 'APPROVED')
-      .reduce((s, r) => s + (Number(r.membership_fee) || 0) + (Number(r.renewal_fees) || 0), 0)
-    const inLastDays = (iso, days) => {
-      const t = new Date(iso).getTime()
-      return Number.isFinite(t) && t >= Date.now() - days * 86400000
+    const todayIso = toLocalIso(new Date()).slice(0, 10)
+    const inRange = (iso10, startIso, endIso) => {
+      if (!iso10) return false
+      if (startIso && iso10 < startIso) return false
+      if (endIso && iso10 > endIso) return false
+      return true
     }
-    const newTotal = rows.filter((r) => r.created_at && inLastDays(r.created_at, 7)).length
+    const paidInRange = (startIso, endIso) =>
+      rows
+        .filter(
+          (r) =>
+            (r.status === 'VERIFIED' || r.status === 'APPROVED') &&
+            inRange((r.created_at || '').slice(0, 10), startIso, endIso)
+        )
+        .reduce((s, r) => s + (Number(r.membership_fee) || 0) + (Number(r.renewal_fees) || 0), 0)
+
+    const total = rows.filter((r) => inRange((r.created_at || '').slice(0, 10), from, to)).length
+    const newTotal = rows.filter((r) => {
+      const t = new Date(r.created_at || '').getTime()
+      return Number.isFinite(t) && t >= Date.now() - 7 * 86400000
+    }).length
+    const revenue = paidInRange(from, to)
+
+    // Previous equal-length window for the delta badge — only when the period
+    // has a start (pickTime sets from; custom ranges set both ends; '' = all).
+    let revDelta = null
+    if (from) {
+      const startMs = new Date(`${from}T00:00:00`).getTime()
+      const endMs = new Date(`${to || todayIso}T00:00:00`).getTime()
+      const spanDays = Math.max(1, Math.round((endMs - startMs) / 86400000) + 1)
+      const prevEndIso = toLocalIso(new Date(startMs - 86400000)).slice(0, 10)
+      const prevStartIso = toLocalIso(new Date(startMs - spanDays * 86400000)).slice(0, 10)
+      const prev = paidInRange(prevStartIso, prevEndIso)
+      if (prev > 0) revDelta = Math.round(((revenue - prev) / prev) * 100)
+    }
+
     const monthKey = (offset = 0) => {
       const d = new Date()
       d.setDate(1)
       d.setMonth(d.getMonth() + offset)
       return toLocalIso(d).slice(0, 7)
     }
-    const monthRevenue = (ym) =>
-      rows
-        .filter(
-          (r) =>
-            (r.status === 'VERIFIED' || r.status === 'APPROVED') &&
-            (r.created_at || '').slice(0, 7) === ym
-        )
-        .reduce((s, r) => s + (Number(r.membership_fee) || 0), 0)
-    const thisMonth = monthRevenue(monthKey(0))
-    const lastMonth = monthRevenue(monthKey(-1))
-    const revDelta =
-      lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : null
-    return { total: rows.length, newTotal, revenue, revDelta, thisMonth }
-  }, [rows])
+    const thisMonth = paidInRange(monthKey(0), `${monthKey(0)}-31`)
+    return { total, newTotal, revenue, revDelta, thisMonth }
+  }, [rows, from, to])
 
   // Bell-icon alerts: renewals due (expiring soon / overdue / expired) + queued work.
   const alertsData = useMemo(() => {
@@ -528,9 +549,13 @@ export default function Applications({
       toast('Enter a valid renewal fee.', 'error')
       return
     }
+    if (!renewFrom) {
+      toast('Pick the renewal start date.', 'error')
+      return
+    }
     setActionBusy('renew')
     try {
-      const data = await renewApplication(r.id, { fee: feeNum, transactionId: txn })
+      const data = await renewApplication(r.id, { fee: feeNum, transactionId: txn, startDate: renewFrom })
       toast(data && data.end_date ? `Membership renewed until ${formatDate(data.end_date)}.` : 'Membership renewed.')
       closeMenu()
       if (refresh) refresh()
@@ -673,6 +698,9 @@ export default function Applications({
         const txnOk = !!String(renewTxn || '').trim()
         const feeNum = Number(renewFee)
         const feeOk = Number.isFinite(feeNum) && feeNum >= 0
+        const from = renewFrom || (p ? p.from : '')
+        const to = from ? computeEndDate(from, r.membership_type) : ''
+        const dateOk = !!from && !!to
         return (
           <div className="row-menu row-menu-box" style={menuStyle}>
             <strong>Renew membership?</strong>
@@ -680,8 +708,16 @@ export default function Applications({
             <div className="menu-kv"><span>Plan</span><b>{r.membership_type || '—'}</b></div>
             <div className="menu-kv">
               <span>New period</span>
-              <b>{p ? `${formatDate(p.from)} → ${formatDate(p.to)}` : '—'}</b>
+              <b>{dateOk ? `${formatDate(from)} → ${formatDate(to)}` : '—'}</b>
             </div>
+            <label className="menu-field">
+              Renewal start date *
+              <input
+                type="date"
+                value={renewFrom}
+                onChange={(e) => setRenewFrom(e.target.value)}
+              />
+            </label>
             <label className="menu-field">
               Fee (₹)
               <input
@@ -705,14 +741,16 @@ export default function Applications({
               />
             </label>
             <p className="menu-hint">
-              {p && p.keeps
-                ? 'Remaining days are kept — the plan is added to the current end date.'
-                : 'Membership already expired, so the new period starts from today.'}{' '}
+              {p && from === p.from
+                ? p.keeps
+                  ? 'Remaining days are kept — the plan is added to the current end date.'
+                  : 'Membership already expired, so the new period starts from today.'
+                : 'The plan duration is added to the chosen start date.'}{' '}
               Records {feeOk ? formatINR(feeNum) : '—'} as renewal fee.
             </p>
             <div className="menu-btns">
               <button className="btn-mini" onClick={() => setMenuConfirm(null)} disabled={!!actionBusy}>Cancel</button>
-              <button className="btn-mini approve" onClick={() => doRenew(r)} disabled={!!actionBusy || !txnOk || !feeOk}>
+              <button className="btn-mini approve" onClick={() => doRenew(r)} disabled={!!actionBusy || !txnOk || !feeOk || !dateOk}>
                 {actionBusy === 'renew' ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} Renew
               </button>
             </div>
@@ -775,7 +813,7 @@ export default function Applications({
       })
     }
     if (r.status === 'APPROVED') {
-      items.push({ key: 'renew', label: 'Renew membership', icon: <RefreshCw size={14} />, onClick: () => { setRenewFee(r.membership_fee != null ? String(r.membership_fee) : ''); setRenewTxn(''); setMenuConfirm({ type: 'renew', row: r }) } })
+      items.push({ key: 'renew', label: 'Renew membership', icon: <RefreshCw size={14} />, onClick: () => { setRenewFee(r.membership_fee != null ? String(r.membership_fee) : ''); setRenewTxn(''); setRenewFrom((renewalPreview(r) || {}).from || ''); setMenuConfirm({ type: 'renew', row: r }) } })
       items.push({ key: 'resend', label: 'Resend approval email', icon: <Mail size={14} />, onClick: () => doResend(r) })
     }
     if (['SUBMITTED', 'PAYMENT_SUBMITTED', 'VERIFIED'].includes(r.status)) {
@@ -987,10 +1025,12 @@ export default function Applications({
                 hero.revDelta !== null
                   ? {
                       up: hero.revDelta >= 0,
-                      label: `${Math.abs(hero.revDelta)}% vs last month`,
+                      label: `${Math.abs(hero.revDelta)}% vs previous period`,
                       color: hero.revDelta >= 0 ? '#15803d' : '#b91c1c'
                     }
-                  : { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
+                  : from
+                    ? { label: 'No revenue in previous period', color: '#5f6368' }
+                    : { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
               }
             />
           </div>
