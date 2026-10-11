@@ -151,7 +151,7 @@ export const mailLog = async (req, res, next) => {
 export const photoUrl = async (req, res, next) => {
   try {
     const urls = await applicationService.getPhotoUrl(req.params.id, { format: req.query.format })
-    if (!urls || (!urls.passport && !urls.identity)) return res.json({ success: true, data: null })
+    if (!urls || (!urls.passport && !urls.identity && !urls.signature)) return res.json({ success: true, data: null })
     res.json({ success: true, data: urls })
   } catch (err) {
     next(err)
