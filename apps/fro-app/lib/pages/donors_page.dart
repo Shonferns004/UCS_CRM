@@ -22,7 +22,8 @@ class _DonorsPageState extends State<DonorsPage> {
   List<Donor> _donors = [];
   bool _loading = true;
   String? _error;
-  String _filter = 'all';
+  String _period = 'all';
+  String _activity = 'all';
 
   @override
   void initState() {
@@ -44,8 +45,10 @@ class _DonorsPageState extends State<DonorsPage> {
     });
     try {
       final list = await FroApi.myDonors(
-        statusGroup: _filter == 'all' ? null : _filter,
-        limit: 100,
+        verifiedOnly: true,
+        period: _period,
+        activeOnly: _activity == 'active' ? true : null,
+        inactiveOnly: _activity == 'inactive' ? true : null,
       );
       if (!mounted) return;
       setState(() {
@@ -77,7 +80,7 @@ class _DonorsPageState extends State<DonorsPage> {
           child: TextField(
             controller: _searchCtrl,
             decoration: InputDecoration(
-              hintText: 'Search by mobile number',
+              hintText: 'Search name or mobile…',
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: _searchCtrl.text.isNotEmpty
                   ? IconButton(
@@ -90,7 +93,6 @@ class _DonorsPageState extends State<DonorsPage> {
                   : null,
               contentPadding: const EdgeInsets.symmetric(vertical: 10),
             ),
-            keyboardType: TextInputType.phone,
             onChanged: (v) {
               _debounce?.cancel();
               _debounce = Timer(const Duration(milliseconds: 600), () {
@@ -104,15 +106,34 @@ class _DonorsPageState extends State<DonorsPage> {
             },
           ),
         ),
-        Padding(
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              _filterChip('All', 'all'),
-              const SizedBox(width: 8),
-              _filterChip('Pending', 'pending'),
-              const SizedBox(width: 8),
-              _filterChip('Done', 'done'),
+              _pill('All', 'all', _period == 'all', () => _setPeriod('all')),
+              const SizedBox(width: 6),
+              _pill('Today', 'today', _period == 'today', () => _setPeriod('today')),
+              const SizedBox(width: 6),
+              _pill('Monthly', 'monthly', _period == 'monthly', () => _setPeriod('monthly')),
+              const SizedBox(width: 6),
+              _pill('6 Months', 'sixmonths', _period == 'sixmonths', () => _setPeriod('sixmonths')),
+              const SizedBox(width: 6),
+              _pill('Yearly', 'yearly', _period == 'yearly', () => _setPeriod('yearly')),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              _pill('All', 'all', _activity == 'all', () => _setActivity('all')),
+              const SizedBox(width: 6),
+              _pill('Active', 'active', _activity == 'active', () => _setActivity('active')),
+              const SizedBox(width: 6),
+              _pill('Inactive', 'inactive', _activity == 'inactive', () => _setActivity('inactive')),
             ],
           ),
         ),
@@ -152,7 +173,7 @@ class _DonorsPageState extends State<DonorsPage> {
                           child: ListView.separated(
                             padding: const EdgeInsets.all(16),
                             itemCount: _donors.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (context, i) {
                               final d = _donors[i];
                               return DonorCard(
@@ -181,18 +202,37 @@ class _DonorsPageState extends State<DonorsPage> {
     );
   }
 
-  Widget _filterChip(String label, String value) {
-    final selected = _filter == value;
-    return FilterChip(
-      label: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-      selected: selected,
-      onSelected: (v) {
-        setState(() => _filter = value);
-        _load();
-      },
-      selectedColor: AppColors.activeBg,
-      checkmarkColor: AppColors.sage,
-      visualDensity: VisualDensity.compact,
+  void _setPeriod(String p) {
+    if (_period == p) return;
+    setState(() => _period = p);
+    _load();
+  }
+
+  void _setActivity(String a) {
+    if (_activity == a) return;
+    setState(() => _activity = a);
+    _load();
+  }
+
+  Widget _pill(String label, String value, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.sage : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? AppColors.sage : AppColors.line),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: selected ? Colors.white : AppColors.inkSoft,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -100,7 +100,7 @@ async function cmdStart() {
   const existing = readPid();
   if (existing) {
     console.log(`Tunnel already running (pid ${existing}).`);
-    await printStatus();
+    await cmdStatus();
     return;
   }
 
@@ -155,10 +155,26 @@ async function cmdStart() {
   }
   fs.writeFileSync(PID_FILE, String(child.pid));
 
-  const probe = await portForwarding(url);
+  // The first connection through a COLD tunnel takes longer than one probe:
+  // ssh has to establish, then the jump host dials RDS, then RDS does its
+  // auth/SSL handshake. One 6s shot reported healthy tunnels as dead, so
+  // "Start Local" failed on the first press and succeeded on the second.
+  // Retry until the deadline instead of trusting a single attempt.
+  const deadline = Date.now() + 45000;
+  let probe = { ok: false, user: '', hasPassword: false };
+  while (Date.now() < deadline) {
+    probe = await portForwarding(url);
+    if (probe.ok) break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
   if (!probe.ok) {
     console.error('Tunnel process is up but port forwarding did not answer a Postgres handshake.');
     console.error(`See ${LOG_FILE}`);
+    // Leave nothing half-started behind: a live ssh with a pid file makes the
+    // NEXT attempt print "Tunnel already running" while every probe still
+    // fails, which looks exactly like "the tunnel is up but nothing works".
+    try { process.kill(child.pid); } catch { /* already gone */ }
+    if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
     process.exit(1);
   }
 
@@ -433,6 +449,14 @@ function cmdUi() {
       }
       if (req.method === 'POST' && url.pathname === '/api/stop') {
         return res.end(JSON.stringify(await uiStop()));
+      }
+      if (req.method === 'POST' && url.pathname === '/api/clear-log') {
+        // Server-side clear, not just the DOM: the panel re-renders from
+        // uiLog every 2s, so wiping only the <pre> would bring the old
+        // lines straight back on the next poll.
+        uiLog = [];
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ ok: true }));
       }
       res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Not found' }));

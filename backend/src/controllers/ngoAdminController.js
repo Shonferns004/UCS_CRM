@@ -133,7 +133,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
     const key = `${sa.ngo_id}:${stationName}`;
     if (seenPerNgo.has(key)) continue;
     seenPerNgo.add(key);
-    if (!result.per_ngo[ngoName]) result.per_ngo[ngoName] = { total: 0, active: 0, inactive: 0 };
+    if (!result.per_ngo[ngoName]) result.per_ngo[ngoName] = { total: 0, active: 0, inactive: 0, inactive_stations: [] };
     result.per_ngo[ngoName].total++;
     if (!seenOverall.has(stationName)) {
       seenOverall.add(stationName);
@@ -143,6 +143,8 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
     if (isActive) {
       result.per_ngo[ngoName].active++;
       activeStationNames.add(stationName);
+    } else {
+      result.per_ngo[ngoName].inactive_stations.push(stationName);
     }
     if (!stationActiveByName.has(stationName)) stationActiveByName.set(stationName, false);
     if (isActive) stationActiveByName.set(stationName, true);
@@ -156,7 +158,8 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   result.summary.inactive = inactiveNames.length;
   result.summary.inactive_stations = inactiveNames;
   for (const v of Object.values(result.per_ngo)) {
-    v.inactive = Math.max(0, (Number(v.total) || 0) - (Number(v.active) || 0));
+    v.inactive_stations.sort((a, b) => a.localeCompare(b));
+    v.inactive = v.inactive_stations.length;
   }
   return result;
 }

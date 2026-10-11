@@ -903,6 +903,9 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [stationStats, setStationStats] = useState(null);
   const [stationsData, setStationsData] = useState([]);
+  // Open (unresolved) suspense entries behind the Suspense card. The endpoint
+  // returns everything still open, so this is not sliced by the date filter.
+  const [suspenseEntries, setSuspenseEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedStation, setSelectedStation] = useState(null);
@@ -1437,6 +1440,9 @@ export default function Dashboard() {
     apiGet('/ngo-admin/stations', reqOpts)
       .then(st => { if (!controller.signal.aborted) setStationsData(Array.isArray(st) ? st : []); })
       .catch(() => {});
+    apiGet('/ngo-admin/suspense', reqOpts)
+      .then(rows => { if (!controller.signal.aborted) setSuspenseEntries(Array.isArray(rows) ? rows : []); })
+      .catch(() => {});
     return controller;
   }, [selectedNgoId, activeRange]);
 
@@ -1536,6 +1542,44 @@ export default function Dashboard() {
     : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
   const stations_inactive = Math.max(0, (Number(stations_summary.inactive) || 0) || (Number(stations_summary.total) || 0) - (Number(stations_summary.active) || 0));
   const inactive_station_names = Array.isArray(stations_summary.inactive_stations) ? stations_summary.inactive_stations : [];
+  // One column per NGO for the "Not in Use" tab. Older cached payloads carry only
+  // the flat name list, in which case the tab falls back to a single chip list.
+  const inactive_by_ngo = Object.entries(stations_per_ngo)
+    .map(([name, v]) => ({
+      name,
+      stations: Array.isArray(v?.inactive_stations) ? v.inactive_stations : [],
+    }))
+    .filter((c) => c.stations.length > 0);
+  // Suspense card: money still unresolved, rolled up per NGO. An entry is filed
+  // under the NGO(s) of its donor's station; entries with no resolvable station
+  // land in their own bucket so the tiles never silently drop money.
+  const suspense_count = suspenseEntries.length;
+  const suspense_total = suspenseEntries.reduce((t, e) => t + (Number(e.amount) || 0), 0);
+  const suspense_tiles = (() => {
+    const map = new Map();
+    for (const e of suspenseEntries) {
+      const amt = Number(e.amount) || 0;
+      const station = e.donor_profiles?.station;
+      const ngos = (station && stationInfoMap[station]?.ngos) || [];
+      const keys = ngos.length > 0 ? ngos : ['Unassigned'];
+      for (const key of keys) {
+        const cur = map.get(key) || { name: key, amount: 0, count: 0 };
+        cur.amount += amt;
+        cur.count += 1;
+        map.set(key, cur);
+      }
+    }
+    if (map.size === 0) {
+      return (accessibleNgos || [])
+        .filter(n => NGO_TABS.some(([c]) => (n.name || '').toLowerCase().includes(c)))
+        .map(n => ({ name: n.name, amount: 0, count: 0 }))
+        .sort((a, b) => ngoSortRank(a.name) - ngoSortRank(b.name))
+        .slice(0, 3);
+    }
+    return [...map.values()]
+      .sort((a, b) => (ngoSortRank(a.name) - ngoSortRank(b.name)) || (b.amount - a.amount))
+      .slice(0, 3);
+  })();
   const stationTabBtn = (active) => ({
     flex: 1,
     padding: '5px 8px',
@@ -1881,7 +1925,7 @@ export default function Dashboard() {
       </div>
 
       {/* Top Summary Cards.
-          Two columns: the two money/verification cards stack on the left, and the
+          Two columns: the money and suspense cards stack on the left, and the
           team race fills the right column across both rows. The race reads the
           same `activeRange` the whole dashboard obeys, so the card sitting next to
           the Collection total cannot quote a different set of receipts.
@@ -1916,17 +1960,28 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{Number(tlData?.kpis?.received_amount ?? verified_month_amount).toLocaleString('en-IN')}</span>
+          <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 2 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 700, letterSpacing: .5, textTransform: 'uppercase', flex: 1 }}>Suspense</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: '#dc2626' }}>₹{Number(suspense_total).toLocaleString('en-IN')}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
-              <span>{tlData?.kpis?.donations ?? verified_month_count} verified donations</span>
-              <span>{PERIOD_LABELS[dashPeriod]}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginBottom: 10 }}>
+              <span>{suspense_count === 0 ? 'No open suspense entries' : `${suspense_count} unresolved ${suspense_count === 1 ? 'entry' : 'entries'}`}</span>
+              <span>Open suspense</span>
             </div>
-            <div style={{ fontSize: 10, color: '#16a34a', marginTop: 4 }}>Verified by Accounts panel</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              {suspense_tiles.map(t => {
+                const color = ngoColorOf(t.name);
+                return (
+                  <div key={t.name} style={{ padding: '10px 8px 11px', borderRadius: 10, border: '1px solid var(--line)', background: `${color}0d`, textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: .5, color, textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.name}>{t.name}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: t.amount > 0 ? '#dc2626' : 'var(--ink)', marginTop: 2 }}>₹{Number(t.amount || 0).toLocaleString('en-IN')}</div>
+                    <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 1 }}>{t.count} {t.count === 1 ? 'entry' : 'entries'}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -2080,7 +2135,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right: Stations — Total & Currently Active */}
+        {/* Right: Stations — the tab switch sits above the Total / Active tiles;
+            "Not in Use" lays the idle stations out as one column per NGO. */}
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
@@ -2088,24 +2144,26 @@ export default function Dashboard() {
               <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Stations</span>
               <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
-              <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
-              </div>
-              <div style={{ background: '#f0fdf4', borderRadius: 6, padding: '8px 6px' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
-              </div>
-            </div>
-          </div>
-          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
               <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Stations per NGO</button>
               <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
                 Not in Use{stations_inactive > 0 ? ` (${stations_inactive})` : ''}
               </button>
             </div>
+            {stationsTab === 'per_ngo' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
+                <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
+                </div>
+                <div style={{ background: '#f0fdf4', borderRadius: 6, padding: '8px 6px' }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
             {stationsTab === 'per_ngo' ? (
               Object.keys(stations_per_ngo).length > 0 ? (
                 <div>
@@ -2129,14 +2187,36 @@ export default function Dashboard() {
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0' }}>No station data for this period.</div>
               )
             ) : stations_inactive > 0 ? (
-              <div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 110, overflowY: 'auto', paddingRight: 2 }}>
-                  {inactive_station_names.map((name) => (
-                    <span key={name} title="No FRO assigned / online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
-                  ))}
+              inactive_by_ngo.length > 0 ? (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 150, overflowY: 'auto', paddingRight: 2 }}>
+                    {inactive_by_ngo.map((col) => (
+                      <div key={col.name} style={{ background: 'var(--bg)', borderRadius: 6, padding: '6px 8px', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={col.name}>{col.name}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: '#b91c1c', background: '#fef2f2', padding: '0 6px', borderRadius: 999, flexShrink: 0 }}>{col.stations.length}</span>
+                        </div>
+                        {col.stations.map((s) => (
+                          <div key={s} title="No FRO assigned / online for this station right now" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink)', padding: '2px 0', minWidth: 0 }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for these stations right now</div>
                 </div>
-                <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
-              </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 110, overflowY: 'auto', paddingRight: 2 }}>
+                    {inactive_station_names.map((name) => (
+                      <span key={name} title="No FRO assigned / online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
+                </div>
+              )
             ) : (
               <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>All stations are in use right now.</div>
             )}
