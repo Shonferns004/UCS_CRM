@@ -1603,16 +1603,19 @@ export default function Dashboard() {
       .sort((a, b) => (ngoSortRank(a.name) - ngoSortRank(b.name)) || (b.amount - a.amount))
       .slice(0, 3);
   })();
+  // Sits inline with the "Stations" label, so these size to their text rather
+  // than splitting the row evenly the way a full-width tab bar would.
   const stationTabBtn = (active) => ({
-    flex: 1,
-    padding: '5px 8px',
+    flex: '0 0 auto',
+    padding: '4px 9px',
     fontSize: 10,
     fontWeight: 700,
-    borderRadius: 6,
+    borderRadius: 999,
     border: active ? '1px solid var(--sage)' : '1px solid var(--line)',
     background: active ? 'var(--sage)' : 'transparent',
     color: active ? '#fff' : 'var(--ink-soft)',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   });
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = Number(d.assigned_pct) || 0;
@@ -2162,16 +2165,18 @@ export default function Dashboard() {
             switching tabs never resizes either card; the body scrolls inside. */}
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: pairHeight ? `${pairHeight}px` : undefined }}>
           <div style={{ flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Stations</span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Stations per NGO</button>
-              <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
-                Not in Use{stations_inactive > 0 ? ` (${stations_inactive})` : ''}
-              </button>
+            {/* Filter sits on the label's own line. The period chip that used to
+                live here was a copy of the one on the Attendance card and is what
+                left no room for the tabs, so it is gone. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', rowGap: 6 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600, flexShrink: 0 }}>Stations</span>
+              <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Per NGO</button>
+                <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
+                  Not in Use{stations_inactive > 0 ? ` (${stations_inactive})` : ''}
+                </button>
+              </div>
             </div>
             {stationsTab === 'per_ngo' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
