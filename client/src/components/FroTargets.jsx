@@ -185,6 +185,11 @@ export default function FroTargets() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState('all');
+  // Separate from the source filter above, because they answer different
+  // questions: that one asks WHERE the target came from, this one asks whether
+  // the person is still here. Defaults to 'active' because a target for someone
+  // who has absconded is not actionable, so leading with them buries the work.
+  const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
   const [editingRow, setEditingRow] = useState(null);
   const [editValue, setEditValue] = useState('');
@@ -242,6 +247,7 @@ export default function FroTargets() {
       // The 'Needs a target' filter is a worklist, so an absconded FRO is not on
       // it - same rule as the banner count.
       .filter((r) => (filter === 'not_set' ? (!isAbsconded(r) && r.target_source === 'not_set') : (filter === 'all' ? true : r.target_source === filter)))
+      .filter((r) => (status === 'all' ? true : status === 'absconded' ? isAbsconded(r) : !isAbsconded(r)))
       .filter((r) => !q || String(r.name || '').toLowerCase().includes(q) || String(r.login_id || '').toLowerCase().includes(q))
       .sort((a, b) => {
         // Absconded sink to the bottom as a group; each group stays alphabetical
@@ -249,14 +255,11 @@ export default function FroTargets() {
         const g = Number(isAbsconded(b)) - Number(isAbsconded(a));
         return g || String(a.name || '').localeCompare(String(b.name || ''));
       });
-  }, [rows, filter, search]);
+  }, [rows, filter, search, status]);
 
-  // Absconded count for the current view. Declared here rather than inline in the
-  // JSX: it was referenced but never defined, which threw ReferenceError and took
-  // the whole panel down with it. Derived from `visible` so it agrees with the
-  // rows on screen -- under 'Needs a target' the filter already excludes
-  // absconded FROs, so the count is correctly 0 there.
-  const abscondedShown = useMemo(() => visible.filter(isAbsconded).length, [visible]);
+  // The absconded count that used to sit in the filter bar was removed: it read
+  // as noise next to the status filter, which already says "Active only" and
+  // offers Absconded / All. The rows still sink to the bottom within each group.
 
   // Exports exactly what the table shows, so the search box and source filter
   // apply to the file too - otherwise a filtered screen would silently hand over
@@ -349,8 +352,13 @@ export default function FroTargets() {
           <option value="manual">Set for this month</option>
           <option value="auto">Auto (first 3 months)</option>
         </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6 }}>
+          <option value="active">Active only</option>
+          <option value="absconded">Absconded only</option>
+          <option value="all">Active and absconded</option>
+        </select>
         <span style={{ alignSelf: 'center', fontSize: 12, color: '#6b7280' }}>
-          {visible.length} shown{abscondedShown > 0 ? ` · ${abscondedShown} absconded at the bottom` : ''}
+          {visible.length} shown
         </span>
       </div>
 
