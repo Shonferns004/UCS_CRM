@@ -68,7 +68,16 @@ export default function StatCard({
           )}
           {sub && <span className="stat-sub">{sub}</span>}
           {trend && (
-            <span className="stat-trend" style={{ color: trend.color || 'var(--muted)' }}>
+            <span
+              className="stat-trend"
+              style={{
+                color: trend.color || 'var(--muted)',
+                background:
+                  trend.color && trend.color[0] === '#'
+                    ? `${trend.color}1a`
+                    : 'rgba(95, 99, 104, .1)'
+              }}
+            >
               {trend.up !== undefined && (trend.up ? '▲' : '▼')} {trend.label}
             </span>
           )}

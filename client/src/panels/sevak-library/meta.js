@@ -22,7 +22,8 @@ export const PLAN_COLORS = {
   Monthly: '#0ea5e9',
   Quarterly: '#06b6d4',
   'Half-Yearly': '#8b5cf6',
-  Annual: '#ef4444'
+  Annual: '#ef4444',
+  Yearly: '#7c3aed'
 }
 
 export function statusLabel(s) {
