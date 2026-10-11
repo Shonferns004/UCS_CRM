@@ -33,7 +33,7 @@ function mailActivityLabel(subject) {
   return 'Email sent'
 }
 
-const PLAN_OPTIONS = ['Daily', 'Half Monthly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual']
+const PLAN_OPTIONS = ['Daily', 'Half Monthly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual', 'Yearly']
 const GENDER_OPTIONS = ['Male', 'Female', 'Other']
 const ID_PROOF_OPTIONS = ['Aadhaar Card', 'PAN Card', 'Driving Licence', 'Passport', 'Student ID', 'Other']
 
