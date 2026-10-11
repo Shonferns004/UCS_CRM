@@ -7,6 +7,7 @@ class MiniCalendar extends StatelessWidget {
   final String? selectedDate;
   final ValueChanged<String>? onDateSelected;
   final Map<String, List<String>> calendarDates;
+  final Set<String> deductedSundays;
 
   const MiniCalendar({
     super.key,
@@ -16,6 +17,7 @@ class MiniCalendar extends StatelessWidget {
     this.selectedDate,
     this.onDateSelected,
     this.calendarDates = const {},
+    this.deductedSundays = const {},
   });
 
   @override
@@ -98,6 +100,15 @@ class MiniCalendar extends StatelessWidget {
                   hasBorder = true;
                 }
 
+                // A Sunday cut by the salary rules (clubbed with an absent
+                // Sat/Mon, unpaid or extra) is highlighted in red.
+                final isDeductedSunday = deductedSundays.contains(key);
+                if (isDeductedSunday) {
+                  bg = const Color(0xFFffdad6);
+                  fg = const Color(0xFFba1a1a);
+                  filled = true;
+                }
+
                 if (!filled && (wd == DateTime.sunday || isFuture)) {
                   fg = const Color(0xFF74777e).withValues(alpha: 0.3);
                 } else if (!filled && !isToday && !isFuture && wd != DateTime.sunday) {
@@ -117,17 +128,14 @@ class MiniCalendar extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                         border: hasBorder ? Border.all(color: const Color(0xFF00152a), width: 2) : null,
                       ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('$dayNum',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: filled || isToday ? FontWeight.w700 : FontWeight.w400,
-                              color: isSelected ? Colors.white : (fg ?? const Color(0xFF171c1f)),
-                            ),
+                      child: Center(
+                        child: Text('$dayNum',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: filled || isToday ? FontWeight.w700 : FontWeight.w400,
+                            color: isSelected ? Colors.white : (fg ?? const Color(0xFF171c1f)),
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

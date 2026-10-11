@@ -251,7 +251,6 @@ class _LeavePageState extends State<LeavePage> {
     final type = l['type'] ?? '';
     if (type == 'vacational') return 'From ${_formatDate(l['start_date'])} → To ${_formatDate(l['end_date'])}';
     if (type == 'holiday') return '${_formatDate(l['start_date'])} – ${_formatDate(l['end_date'])}';
-    if (type == 'emergency') return '🔴 ${_formatDate(l['leave_date'])}';
     if (type == 'half_day') {
       final st = l['half_start_time']?.toString().substring(0, 5) ?? '';
       final et = l['half_end_time']?.toString().substring(0, 5) ?? '';

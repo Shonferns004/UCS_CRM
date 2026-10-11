@@ -138,6 +138,80 @@ class _ProfilePageState extends State<ProfilePage> {
     return _salaryBreakdown;
   }
 
+  Set<String> _deductedSundayKeys() {
+    final bd = _selectedBreakdown;
+    if (bd == null || bd['hasSalary'] != true) return const {};
+    final dates = bd['deductedDates'];
+    if (dates is List) {
+      final out = <String>{};
+      for (final d in dates) {
+        final s = d?.toString();
+        if (s == null || s.isEmpty) continue;
+        final dt = DateTime.tryParse(s);
+        if (dt != null && dt.weekday == DateTime.sunday) out.add(s);
+      }
+      return out;
+    }
+    return _deriveDeductedSundays(bd);
+  }
+
+  // Older servers don't send deductedDates — rebuild the same Sunday set the
+  // salary sheet uses from the fields they do send.
+  Set<String> _deriveDeductedSundays(Map<String, dynamic> bd) {
+    final y = _calYear;
+    final m = _calMonth;
+    final daysInMonth = ((bd['daysInMonth'] as num?) ?? DateTime(y, m + 1, 0).day).toInt();
+    String keyOf(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+    final sundays = <String>[
+      for (var d = 1; d <= daysInMonth; d++)
+        if (DateTime(y, m, d).weekday == DateTime.sunday) keyOf(DateTime(y, m, d)),
+    ];
+    if (sundays.isEmpty) return const {};
+
+    final deducted = <String>{};
+    final records = bd['records'] is List ? bd['records'] as List : const [];
+    final absences = <String>{
+      for (final d in (bd['absentDates'] as List? ?? [])) d.toString(),
+    };
+    for (final r in records) {
+      final st = r['status']?.toString();
+      if (st == 'absent' || st == 'leave') absences.add(r['date'].toString());
+    }
+    // Absent/leave on Saturday clubs the next Sunday, on Monday the previous.
+    for (final d in absences) {
+      final dt = DateTime.tryParse(d);
+      if (dt == null || dt.year != y || dt.month != m) continue;
+      DateTime? sun;
+      if (dt.weekday == DateTime.saturday) sun = dt.add(const Duration(days: 1));
+      if (dt.weekday == DateTime.monday) sun = dt.subtract(const Duration(days: 1));
+      if (sun != null && sun.year == y && sun.month == m) deducted.add(keyOf(sun));
+    }
+
+    // 6+ absences (or a join after the 10th) cancels every Sunday.
+    final absentCount = ((bd['absentCount'] as num?) ?? 0).toInt();
+    final joinDay = ((bd['joinDay'] as num?) ?? 1).toInt();
+    final lateJoin = bd['joinedThisMonth'] == true && joinDay > 10;
+    if (absentCount >= 6 || lateJoin) deducted.addAll(sundays);
+
+    // Sundays beyond the free pool that were not worked are unpaid.
+    final attended = <String>{
+      for (final r in records)
+        if (['present', 'late', 'half-day'].contains(r['status']?.toString()))
+          r['date'].toString(),
+    };
+    final freeRaw =
+        (((bd['paidSundayCount'] as num?) ?? 0) - ((bd['attendedSundayCount'] as num?) ?? 0)).toInt();
+    final free = freeRaw < 0 ? 0 : freeRaw;
+    final eligibleNotWorked =
+        sundays.where((s) => !deducted.contains(s) && !attended.contains(s)).toList();
+    final unpaidCount = eligibleNotWorked.length - free;
+    if (unpaidCount > 0) deducted.addAll(eligibleNotWorked.take(unpaidCount));
+
+    return deducted;
+  }
+
   void _onRealtimeChange() {
     final event = RealtimeService.instance.lastEvent;
     if (event == null) return;
@@ -990,6 +1064,7 @@ class _ProfilePageState extends State<ProfilePage> {
             statusByDate: _statusByDate,
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
+            deductedSundays: _deductedSundayKeys(),
             onDateSelected: (key) => setState(() {
               _selectedDateKey = _selectedDateKey == key ? null : key;
             }),
