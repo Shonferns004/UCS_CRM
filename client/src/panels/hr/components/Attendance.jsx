@@ -437,6 +437,55 @@ export default function Attendance() {
     } catch (e) { alert(e.message); }
   };
 
+  const handleExportWorkerExcel = () => {
+    try {
+      if (!selectedWorker) return;
+      if (workerAttendance.length === 0) { alert('No attendance records to export for this worker.'); return; }
+      const wsData = [
+        ['Name', selectedWorker.name || ''],
+        ['Department', deptLabel(selectedWorker.department || '')],
+        [],
+        ['Date', 'Status', 'Punch In', 'Punch Out', 'Hours Worked'],
+        ...workerAttendance.map(r => [
+          r.date,
+          r.status ? (r.status.charAt(0).toUpperCase() + r.status.slice(1)) : '',
+          fmtTime12(r.punch_in_time),
+          fmtTime12(r.punch_out_time),
+          r.hours_worked || '',
+        ]),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+      for (let c = 0; c < 5; c++) {
+        const addr = XLSX.utils.encode_col(c) + '4';
+        if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };
+      }
+      const nameCell = ws['A1'];
+      if (nameCell) nameCell.s = { font: { bold: true } };
+      const deptCell = ws['A2'];
+      if (deptCell) deptCell.s = { font: { bold: true } };
+      for (let i = 0; i < workerAttendance.length; i++) {
+        const st = workerAttendance[i].status;
+        const addr = 'B' + (5 + i);
+        const c = ws[addr];
+        if (!c) continue;
+        if (st === 'absent') c.s = { fill: { fgColor: { rgb: 'FFFDE2E1' } }, font: { bold: true, color: { rgb: 'FFB91C1C' } } };
+        else if (st === 'leave') c.s = { fill: { fgColor: { rgb: 'FFFEF3C7' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
+        else if (st === 'half-day') c.s = { fill: { fgColor: { rgb: 'FFFFEDD5' } }, font: { bold: true, color: { rgb: 'FFC2410C' } } };
+        else if (st === 'late') c.s = { fill: { fgColor: { rgb: 'FFFFF3CD' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
+        else if (st === 'present') c.s = { fill: { fgColor: { rgb: 'FFE8F5E9' } }, font: { bold: true, color: { rgb: 'FF15803D' } } };
+      }
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `${String(selectedWorker.name || 'worker').trim().replace(/\s+/g, '-').toLowerCase()}-attendance.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
   const buildSummaryRows = () => {
     const startDate = dayFilter || (monthFilter ? monthFilter + '-01' : '');
     const endDate = dayFilter || (monthFilter
@@ -641,7 +690,10 @@ export default function Attendance() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
             <button className="btn btn-sm" onClick={backToOverview}>&larr; Back</button>
             <h2 style={{ margin: 0 }}>{selectedWorker.name}'s Attendance</h2>
-            <button className="btn btn-sm" style={{ marginLeft: 'auto', background:'var(--sage)', color:'#fff', border:'none' }} onClick={() => { setAddingRecord(true); setAddDate(''); setAddPunchIn(''); setAddPunchOut(''); setAddStatus('present'); }}>+ Add Attendance</button>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <button className="btn btn-sm" onClick={handleExportWorkerExcel} disabled={loading || workerAttendance.length === 0}>Export Excel</button>
+              <button className="btn btn-sm" style={{ background:'var(--sage)', color:'#fff', border:'none' }} onClick={() => { setAddingRecord(true); setAddDate(''); setAddPunchIn(''); setAddPunchOut(''); setAddStatus('present'); }}>+ Add Attendance</button>
+            </div>
           </div>
 
           <div className="card" style={{ padding: '20px 22px' }}>
@@ -814,7 +866,7 @@ export default function Attendance() {
                       <button className={'seg' + (historyView === 'detail' ? ' active' : '')} style={{ border: 'none', background: historyView === 'detail' ? 'var(--sage, #0f766e)' : 'transparent', color: historyView === 'detail' ? '#fff' : 'inherit', padding: '5px 12px', fontSize: 12, cursor: 'pointer' }} onClick={() => setHistoryView('detail')}>Detail</button>
                     </div>
                     {historyView === 'detail' && (
-                      <button className="btn btn-sm btn-primary" onClick={handleExportDetailExcel}>Detail Attendance</button>
+                      <button className="btn btn-sm btn-primary" onClick={handleExportDetailExcel}>Export Excel</button>
                     )}
                     {historyView === 'list' && (
                       <>
