@@ -83,7 +83,7 @@ export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
 // Stations per NGO with live activity: a station is "active" when its assigned FRO
 // has a fresh (<= 2 min old) live status of online / on_call / break.
 async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) {
-  const result = { per_ngo: {}, summary: { total: 0, active: 0 } };
+  const result = { per_ngo: {}, summary: { total: 0, active: 0, inactive: 0, inactive_stations: [] } };
   if (!ngoIds || ngoIds.length === 0) return result;
 
   const { data: stationAssigns } = await db
@@ -125,6 +125,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   const seenPerNgo = new Set();
   const seenOverall = new Set();
   const activeStationNames = new Set();
+  const stationActiveByName = new Map();
   for (const sa of stationAssigns || []) {
     const stationName = (sa.station || '').trim();
     if (!stationName) continue;
@@ -132,18 +133,31 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
     const key = `${sa.ngo_id}:${stationName}`;
     if (seenPerNgo.has(key)) continue;
     seenPerNgo.add(key);
-    if (!result.per_ngo[ngoName]) result.per_ngo[ngoName] = { total: 0, active: 0 };
+    if (!result.per_ngo[ngoName]) result.per_ngo[ngoName] = { total: 0, active: 0, inactive: 0 };
     result.per_ngo[ngoName].total++;
     if (!seenOverall.has(stationName)) {
       seenOverall.add(stationName);
       result.summary.total++;
     }
-    if (sa.fro_worker_id && dailyActives.has(sa.fro_worker_id)) {
+    const isActive = !!(sa.fro_worker_id && dailyActives.has(sa.fro_worker_id));
+    if (isActive) {
       result.per_ngo[ngoName].active++;
       activeStationNames.add(stationName);
     }
+    if (!stationActiveByName.has(stationName)) stationActiveByName.set(stationName, false);
+    if (isActive) stationActiveByName.set(stationName, true);
   }
   result.summary.active = activeStationNames.size;
+  // "Not in use" = a station with no live FRO behind it right now (or none assigned at all).
+  const inactiveNames = [...stationActiveByName.entries()]
+    .filter(([, act]) => !act)
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+  result.summary.inactive = inactiveNames.length;
+  result.summary.inactive_stations = inactiveNames;
+  for (const v of Object.values(result.per_ngo)) {
+    v.inactive = Math.max(0, (Number(v.total) || 0) - (Number(v.active) || 0));
+  }
   return result;
 }
 
@@ -5824,7 +5838,7 @@ export const getTLDashboard = async (req, res) => {
       top_performers: [],
       bottom_performers: [],
       stations_per_ngo: {},
-      stations_summary: { total: 0, active: 0 },
+      stations_summary: { total: 0, active: 0, inactive: 0, inactive_stations: [] },
     });
 
     // Get all FRO workers
