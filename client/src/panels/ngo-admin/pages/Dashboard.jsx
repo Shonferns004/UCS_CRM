@@ -915,7 +915,7 @@ export default function Dashboard() {
   const [ngoTab, setNgoTab] = useState('');
   const [dashPeriod, setDashPeriod] = useState('today');
   // Stations card: 'per_ngo' shows the Active/Total bars, 'inactive' lists the
-  // stations with no FRO assigned/online right now.
+  // stations no agent is allocated to.
   const [stationsTab, setStationsTab] = useState('per_ngo');
   const [customFrom, setCustomFrom] = useState(() => toIstDate());
   const [customTo, setCustomTo] = useState(() => toIstDate());
@@ -1540,8 +1540,12 @@ export default function Dashboard() {
   const stations_summary = isTodayRange
     ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] })
     : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
-  const stations_inactive = Math.max(0, (Number(stations_summary.inactive) || 0) || (Number(stations_summary.total) || 0) - (Number(stations_summary.active) || 0));
   const inactive_station_names = Array.isArray(stations_summary.inactive_stations) ? stations_summary.inactive_stations : [];
+  // "Not in use" is no longer the complement of "active" — a station can be
+  // allocated and still be quiet — so the count comes from the list itself.
+  // Deriving it as total - active would report every offline FRO as an unused
+  // station, which is exactly the bug this replaced.
+  const stations_inactive = inactive_station_names.length || Math.max(0, Number(stations_summary.inactive) || 0);
   // One column per NGO for the "Not in Use" tab. Older cached payloads carry only
   // the flat name list, in which case the tab falls back to a single chip list.
   const inactive_by_ngo = Object.entries(stations_per_ngo)
@@ -2197,7 +2201,7 @@ export default function Dashboard() {
                           <span style={{ fontSize: 9, fontWeight: 700, color: '#b91c1c', background: '#fef2f2', padding: '0 6px', borderRadius: 999, flexShrink: 0 }}>{col.stations.length}</span>
                         </div>
                         {col.stations.map((s) => (
-                          <div key={s} title="No FRO assigned / online for this station right now" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink)', padding: '2px 0', minWidth: 0 }}>
+                          <div key={s} title="No agent allocated to this station" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink)', padding: '2px 0', minWidth: 0 }}>
                             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
                           </div>
@@ -2205,20 +2209,20 @@ export default function Dashboard() {
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for these stations right now</div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No agent allocated to these stations</div>
                 </div>
               ) : (
                 <div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 110, overflowY: 'auto', paddingRight: 2 }}>
                     {inactive_station_names.map((name) => (
-                      <span key={name} title="No FRO assigned / online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
+                      <span key={name} title="No agent allocated to this station" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
                     ))}
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No agent allocated to these stations</div>
                 </div>
               )
             ) : (
-              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>All stations are in use right now.</div>
+              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>Every station has an agent allocated.</div>
             )}
           </div>
         </div>
