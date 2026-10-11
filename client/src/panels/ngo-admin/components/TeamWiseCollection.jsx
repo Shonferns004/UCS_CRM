@@ -97,7 +97,7 @@ export default function TeamWiseCollection({ from, to, ngoId, froId, periodLabel
   }, [leader, celebrating, filterKey]);
 
   const headline = useMemo(() => {
-    if (!leader || total <= 0) return 'No collections in this range yet — the first receipt starts the race.';
+    if (!leader || total <= 0) return null;
     if (!runnerUp || runnerUp.amount <= 0) return `${leader.team} is the only team on the board. Own it.`;
     if (gap === 0) return `${leader.team} and ${runnerUp.team} are neck and neck.`;
     return `${leader.team} leads ${runnerUp.team} by ${rupee(gap)} — the podium is still open.`;
@@ -111,7 +111,9 @@ export default function TeamWiseCollection({ from, to, ngoId, froId, periodLabel
     .filter(Boolean).join(' · ');
 
   const footLines = [
-    `${teams.length} teams · ${activeFros} FROs · ${receipts} receipts`,
+    // Nothing collected yet: the counts line only repeats the emptiness, so it
+    // goes away with the headline instead of sitting under an empty board.
+    total > 0 ? `${teams.length} teams · ${activeFros} FROs · ${receipts} receipts` : null,
     // Where the viewer sits, stated as a fact rather than left to be inferred from
     // the outline. Silently absent when the viewer has no team on the board: "Your
     // team is not on this board" would be a worse thing to assert than to omit.
