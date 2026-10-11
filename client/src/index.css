@@ -1994,6 +1994,16 @@
    clipped the moment the count badge changed width and the row started
    scrolling. flex-shrink:0 on the tabs stops them being squeezed in the first
    place, and the row only scrolls if the panel is genuinely too narrow. */
+/* flex-shrink:0 on everything above the list. .tw-main is a flex column and
+   .tw-list is flex:0 0 auto, so a long list (Resolved has ~182) otherwise
+   squeezes its siblings: the stats cards, toolbar and tab row all shrink below
+   their content height and the tabs disappear with nothing to click back to.
+   Open had 2 rows so it looked fine, which is why this only showed on Resolved. */
+.panel-accounts .tw-breadcrumb,
+.panel-accounts .tw-header,
+.panel-accounts .tw-stats,
+.panel-accounts .tw-toolbar,
+.panel-accounts .tw-tabs { flex-shrink:0; }
 .panel-accounts .tw-tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:12px; overflow-x:auto; overflow-y:hidden; padding-bottom:1px; }
 .panel-accounts .tw-tab { position:relative; display:inline-flex; align-items:center; gap:7px; flex-shrink:0; padding:10px 14px 11px; background:none; border:none; font-family:inherit; font-size:13px; font-weight:600; color:var(--ink-soft); cursor:pointer; white-space:nowrap; transition:color .15s; }
 .panel-accounts .tw-tab:hover { color:var(--ink); }
@@ -2004,7 +2014,10 @@
 .panel-accounts .tw-tab-count { font-size:10px; font-weight:700; background:var(--bg); border:1px solid var(--line); color:var(--ink-soft); border-radius:9px; padding:1px 7px; line-height:1.5; }
 .panel-accounts .tw-tab.active .tw-tab-count { background:var(--sage-soft); border-color:var(--sage); color:var(--sage); }
 
-.panel-accounts .tw-list { min-height:120px; flex:0 0 auto; }
+/* The list scrolls inside itself rather than pushing the header off. min-height:0
+   is what allows a flex child to shrink below its content, so the column can
+   scroll instead of growing unbounded. */
+.panel-accounts .tw-list { min-height:120px; flex:1 1 auto; overflow-y:auto; overflow-x:hidden; }
 .panel-accounts .tw-listhead { display:flex; align-items:center; gap:10px; padding:0 6px 8px; }
 .panel-accounts .tw-listhead-label { flex:1; font-size:10px; font-weight:800; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.08em; min-width:0; }
 .panel-accounts .tw-listhead-hide { width:88px; font-size:10px; font-weight:800; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.08em; }
