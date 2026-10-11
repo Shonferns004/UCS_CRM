@@ -4,7 +4,7 @@ import { useUcs } from '../../store'
 import { toast } from '../Toast'
 import { Avatar } from '../ui'
 import { chatApi, isAuthError } from './chatApi'
-import { resolveChatIdentity } from './chatIdentity'
+import { resolveChatIdentity, isChatAdmin } from './chatIdentity'
 import { useTypingIn, useUnreadCount, announceUnreadChanged } from './useChatRealtime'
 import ConversationList from './ConversationList'
 import MessageThread from './MessageThread'
@@ -12,6 +12,7 @@ import ChatComposer from './ChatComposer'
 import ChatSearch from './ChatSearch'
 import ReadOnlyBanner from './ReadOnlyBanner'
 import PeoplePicker from './PeoplePicker'
+import GroupCreateDialog from './GroupCreateDialog'
 import { ChatState, ChatThreadSkeleton } from './ChatState'
 import { ChatIcon, BackIcon, SearchIcon } from './chatIcons'
 import './chat.css'
@@ -56,12 +57,29 @@ export default function ChatWorkspace() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [highlightId, setHighlightId] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [groupOpen, setGroupOpen] = useState(false)
   const [optimistic, setOptimistic] = useState([])
   const [unreadKey, setUnreadKey] = useState(0)
 
   const active = conversations.find((c) => c.id === activeId) || null
   const typers = useTypingIn(activeId)
   const { refresh: refreshUnread } = useUnreadCount(me, unreadKey)
+
+  /**
+   * Whether the composer should render for the active room.
+   *
+   * Two independent gates: the role must be a writer at all, and if the room is
+   * an admins-only group the role must also count as an admin. Checking it here
+   * rather than in the composer keeps the read path untouched — a non-admin can
+   * still open and read the room, they just get no input box.
+   */
+  const canWriteHere = useMemo(() => {
+    if (!me.canPost || !active) return false
+    if (active.kind === 'group' && active.post_policy === 'admins_only') {
+      return isChatAdmin(me.role)
+    }
+    return true
+  }, [me, active])
 
   // ---- conversation list --------------------------------------------------
   const loadConversations = useCallback(async () => {
@@ -73,11 +91,12 @@ export default function ChatWorkspace() {
       const arr = Array.isArray(list) ? list : []
       setConversations(arr)
       setListStatus('ready')
-      // Land on Community: the one room every role can see.
+      // Land on Community: the one room every role can see. Prefer the seeded
+      // room by slug so a user-created group does not steal the landing spot.
       setActiveId((prev) => {
         if (prev && arr.some((c) => c.id === prev)) return prev
-        const community = arr.find((c) => c.kind === 'group')
-        return community?.id || arr[0]?.id || null
+        const community = arr.find((c) => c.kind === 'group' && c.slug === 'community')
+        return community?.id || arr.find((c) => c.kind === 'group')?.id || arr[0]?.id || null
       })
     } catch (e) {
       setListError(e.message || 'Could not load conversations.')
@@ -301,6 +320,27 @@ export default function ChatWorkspace() {
     [me, select]
   )
 
+  // ---- new group room -----------------------------------------------------
+  const startGroup = useCallback(
+    async ({ title, postPolicy, members }) => {
+      setGroupOpen(false)
+      try {
+        const convo = await chatApi.createGroup(me, { title, postPolicy, members })
+        setConversations((prev) => {
+          const exists = prev.find((c) => c.id === convo.id)
+          return exists ? prev.map((c) => (c.id === convo.id ? convo : c)) : [convo, ...prev]
+        })
+        select(convo)
+        // Same reason as startDirect: the room did not exist when the socket
+        // connected, so neither side would get live messages without a rejoin.
+        chatApi.rejoinRooms()
+      } catch (e) {
+        toast(e.message || 'Could not create the group.', 'error')
+      }
+    },
+    [me, select]
+  )
+
   // ---- render -------------------------------------------------------------
   if (!me?.uid) {
     return (
@@ -341,7 +381,9 @@ export default function ChatWorkspace() {
             error={listStatus === 'error' ? listError : ''}
             onRetry={loadConversations}
             canDm={me.canDm}
+            canCreateGroup={me.canCreateGroup}
             onNewMessage={() => setPickerOpen(true)}
+            onNewGroup={() => setGroupOpen(true)}
             loadingNode={<ChatThreadSkeleton rows={6} />}
           />
         </aside>
@@ -384,11 +426,13 @@ export default function ChatWorkspace() {
 
                 <div className="chat-thread-head-body">
                   <h2 className="chat-thread-title">
-                    {active.kind === 'group' ? 'Community' : active.title}
+                    {active.title || (active.kind === 'group' ? 'Group' : 'Conversation')}
                   </h2>
                   <div className="chat-thread-sub">
                     {active.kind === 'group'
-                      ? `${active.member_count || 0} members · everyone at UCS`
+                      ? `${active.member_count || 0} members${
+                          active.post_policy === 'admins_only' ? ' · admins post only' : ''
+                        }`
                       : 'Direct message'}
                   </div>
                 </div>
@@ -435,10 +479,19 @@ export default function ChatWorkspace() {
                       : `${typers.length} people are typing…`}
                   </div>
                 )}
-                {me.canPost ? (
+                {canWriteHere ? (
                   <ChatComposer conversation={active} me={me} onSend={send} />
                 ) : (
-                  <ReadOnlyBanner />
+                  <ReadOnlyBanner
+                    reason={
+                      active.kind === 'group' && active.post_policy === 'admins_only' ? (
+                        <>
+                          <strong>Admins post only.</strong> Only Super Admin, Accounts and
+                          Admin can send messages in this group.
+                        </>
+                      ) : null
+                    }
+                  />
                 )}
               </div>
             </>
@@ -453,6 +506,10 @@ export default function ChatWorkspace() {
 
       {pickerOpen && (
         <PeoplePicker me={me} onClose={() => setPickerOpen(false)} onPicked={startDirect} />
+      )}
+
+      {groupOpen && (
+        <GroupCreateDialog me={me} onClose={() => setGroupOpen(false)} onCreated={startGroup} />
       )}
     </div>
   )
