@@ -921,10 +921,12 @@ class ApiService {
 
   // ---- Salary / Expense Breakdown API ----
 
-  static Future<Map<String, dynamic>?> getMySalaryBreakdown() async {
+  static Future<Map<String, dynamic>?> getMySalaryBreakdown({int? year, int? month}) async {
     try {
+      var path = '$baseUrl/salary/my-breakdown';
+      if (year != null && month != null) path += '?year=$year&month=$month';
       final res = await _get(
-        Uri.parse('$baseUrl/salary/my-breakdown'),
+        Uri.parse(path),
         headers: await _headers(),
       );
       if (res.statusCode != 200) return null;
