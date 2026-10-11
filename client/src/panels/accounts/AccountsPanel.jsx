@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Wallet, Database, Smartphone, BookOpen, Boxes } from 'lucide-react'
+import { Users, Wallet, Smartphone, BookOpen, Boxes } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -21,7 +21,6 @@ import IncentiveVerification from './pages/IncentiveVerification'
 // the individual pages.
 import TeamsSection from './components/TeamsSection'
 import DonorSection from './components/DonorSection'
-import DataSection from './components/DataSection'
 import PageTabs from './components/PageTabs'
 import AssetRegister from './pages/AssetRegister'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
@@ -61,16 +60,12 @@ const NAV_TOP = [
 ]
 
 const DONOR_NAV = {
-  id: 'donors', path: '/accounts/donors', label: 'Donors',
+  id: 'donors', path: '/accounts/donors', label: 'Master Data',
   icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   match: (p) => p.startsWith('/accounts/donors'),
 }
 
-const DATA_NAV_ITEM = {
-  id: 'data', path: '/accounts/data', label: 'Data',
-  icon: <Database size={18} />,
-  match: (p) => p.startsWith('/accounts/data') || p === '/accounts/new-data' || p === '/accounts/old-data',
-}
+
 
 const NAV_GROUPS = [
   {
@@ -104,7 +99,6 @@ const NAV_GROUPS = [
       { id: 'asset-register', path: '/accounts/asset-register', label: 'Asset Register',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
       DONOR_NAV,
-      DATA_NAV_ITEM,
     ],
   },
   {
@@ -126,7 +120,7 @@ const NAV_GROUPS = [
 
 // Title lookup only: the Address tab is a tab, not a sidebar entry.
 const DONOR_SUB_NAV = {
-  id: 'address', path: '/accounts/donors/address', label: 'Address',
+  id: 'address', path: '/accounts/donors/address', label: 'Donor Data Update',
   icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
   match: (p) => p.startsWith('/accounts/donors/address'),
 }
@@ -152,19 +146,10 @@ const NAV_BOTTOM = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg> },
 ]
 
-// Title lookup only. Ahead of DATA_NAV_ITEM so the Old Data tab is not titled "Data".
-const DATA_SUB_NAV = [
-  {
-    id: 'old-data', path: '/accounts/data/old', label: 'Old Data',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
-    match: (p) => p === '/accounts/data/old' || p === '/accounts/old-data',
-  },
-  {
-    id: 'new-data', path: '/accounts/data', label: 'New Data',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
-    match: (p) => p === '/accounts/data' || p === '/accounts/new-data',
-  },
-]
+// Title lookup only. The Data page and its New/Old tabs were removed, so the
+// Old Data and New Data title entries went with it -- they only ever named tabs
+// that no longer exist, and every /accounts/data URL now redirects to Master Data.
+const DATA_SUB_NAV = [];
 
 // Title lookup only: FRO Targets is a tab on the Teams and Target page now.
 const FRO_TARGETS_NAV = {
@@ -530,10 +515,13 @@ export default function AccountsPanel() {
               <Route path="sir" element={<SpecialIncentives />} />
               <Route path="lead" element={<LeadIncentive />} />
             </Route>
-            <Route path="data/*" element={<DataSection />} />
-            {/* Old standalone Data URLs -> the tabs of the single Data page. */}
-            <Route path="new-data" element={<Navigate to="/accounts/data" replace />} />
-            <Route path="old-data" element={<Navigate to="/accounts/data/old" replace />} />
+            {/* The Data page was removed from this panel. The routes below now
+                redirect rather than 404: the links are plain URLs that old
+                bookmarks, exports and cross-panel links may still carry, and a
+                redirect is cheaper than a dead end for whoever follows one. */}
+            <Route path="data/*" element={<Navigate to="/accounts/donors" replace />} />
+            <Route path="new-data" element={<Navigate to="/accounts/donors" replace />} />
+            <Route path="old-data" element={<Navigate to="/accounts/donors" replace />} />
             <Route path="sim/*" element={<SimSection />} />
             <Route path="beneficiaries/*" element={<BeneficiariesPanel base="/accounts/beneficiaries" />} />
             <Route path="bill-reminder/*" element={<BillReminderPage />} />
