@@ -109,7 +109,10 @@
   </div>
 
   <div class="panel">
-    <div class="k" style="margin-bottom:10px">Output</div>
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <div class="k">Output</div>
+      <button id="btnClear" title="Clear the output shown below (does not stop anything)">Clear</button>
+    </div>
     <pre id="log">no output yet</pre>
   </div>
 </div>
@@ -162,6 +165,14 @@ async function post(path, label) {
 $('btnStart').addEventListener('click', () => post('/api/start', 'start'));
 $('btnStop').addEventListener('click', () => post('/api/stop', 'stop'));
 $('btnRefresh').addEventListener('click', refresh);
+$('btnClear').addEventListener('click', async () => {
+  try {
+    await api('/api/clear-log', { method: 'POST' });
+  } catch (err) {
+    // Panel unreachable (e.g. mid-stop): still wipe what is on screen.
+  }
+  $('log').textContent = 'no output yet';
+});
 
 refresh();
 setInterval(refresh, 2000);

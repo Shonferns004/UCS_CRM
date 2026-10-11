@@ -35,6 +35,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final Map<int, Map<String, int>> _monthlyStats = {};
   Map<String, List<String>> _calendarDates = {};
   Map<String, dynamic>? _salaryBreakdown;
+  int? _breakdownYm;
   int _calYear = DateTime.now().year;
   int _calMonth = DateTime.now().month;
   Map<String, dynamic>? _printProfile;
@@ -108,11 +109,107 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {}
   }
 
-  Future<void> _fetchSalaryBreakdown() async {
-    final data = await ApiService.getMySalaryBreakdown();
-    if (mounted) {
-      setState(() => _salaryBreakdown = data);
+  Future<void> _fetchSalaryBreakdown({int? year, int? month}) async {
+    final y = year ?? _calYear;
+    final m = month ?? _calMonth;
+    var data = await ApiService.getMySalaryBreakdown(year: y, month: m);
+    if (data != null) {
+      // The server echoes the month it computed. Older servers ignore the
+      // params and always answer with the current month, so only trust those
+      // for the current month.
+      final ry = data['year'];
+      final rm = data['month'];
+      final now = DateTime.now();
+      final ok = (ry is num && rm is num)
+          ? (ry.toInt() == y && rm.toInt() == m)
+          : (y == now.year && m == now.month);
+      if (!ok) data = null;
     }
+    if (mounted && y == _calYear && m == _calMonth) {
+      setState(() {
+        _salaryBreakdown = data;
+        _breakdownYm = y * 100 + m;
+      });
+    }
+  }
+
+  Map<String, dynamic>? get _selectedBreakdown {
+    if (_breakdownYm != _calYear * 100 + _calMonth) return null;
+    return _salaryBreakdown;
+  }
+
+  Set<String> _deductedSundayKeys() {
+    final bd = _selectedBreakdown;
+    if (bd == null || bd['hasSalary'] != true) return const {};
+    final dates = bd['deductedDates'];
+    if (dates is List) {
+      final out = <String>{};
+      for (final d in dates) {
+        final s = d?.toString();
+        if (s == null || s.isEmpty) continue;
+        final dt = DateTime.tryParse(s);
+        if (dt != null && dt.weekday == DateTime.sunday) out.add(s);
+      }
+      return out;
+    }
+    return _deriveDeductedSundays(bd);
+  }
+
+  // Older servers don't send deductedDates — rebuild the same Sunday set the
+  // salary sheet uses from the fields they do send.
+  Set<String> _deriveDeductedSundays(Map<String, dynamic> bd) {
+    final y = _calYear;
+    final m = _calMonth;
+    final daysInMonth = ((bd['daysInMonth'] as num?) ?? DateTime(y, m + 1, 0).day).toInt();
+    String keyOf(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+    final sundays = <String>[
+      for (var d = 1; d <= daysInMonth; d++)
+        if (DateTime(y, m, d).weekday == DateTime.sunday) keyOf(DateTime(y, m, d)),
+    ];
+    if (sundays.isEmpty) return const {};
+
+    final deducted = <String>{};
+    final records = bd['records'] is List ? bd['records'] as List : const [];
+    final absences = <String>{
+      for (final d in (bd['absentDates'] as List? ?? [])) d.toString(),
+    };
+    for (final r in records) {
+      final st = r['status']?.toString();
+      if (st == 'absent' || st == 'leave') absences.add(r['date'].toString());
+    }
+    // Absent/leave on Saturday clubs the next Sunday, on Monday the previous.
+    for (final d in absences) {
+      final dt = DateTime.tryParse(d);
+      if (dt == null || dt.year != y || dt.month != m) continue;
+      DateTime? sun;
+      if (dt.weekday == DateTime.saturday) sun = dt.add(const Duration(days: 1));
+      if (dt.weekday == DateTime.monday) sun = dt.subtract(const Duration(days: 1));
+      if (sun != null && sun.year == y && sun.month == m) deducted.add(keyOf(sun));
+    }
+
+    // 6+ absences (or a join after the 10th) cancels every Sunday.
+    final absentCount = ((bd['absentCount'] as num?) ?? 0).toInt();
+    final joinDay = ((bd['joinDay'] as num?) ?? 1).toInt();
+    final lateJoin = bd['joinedThisMonth'] == true && joinDay > 10;
+    if (absentCount >= 6 || lateJoin) deducted.addAll(sundays);
+
+    // Sundays beyond the free pool that were not worked are unpaid.
+    final attended = <String>{
+      for (final r in records)
+        if (['present', 'late', 'half-day'].contains(r['status']?.toString()))
+          r['date'].toString(),
+    };
+    final freeRaw =
+        (((bd['paidSundayCount'] as num?) ?? 0) - ((bd['attendedSundayCount'] as num?) ?? 0)).toInt();
+    final free = freeRaw < 0 ? 0 : freeRaw;
+    final eligibleNotWorked =
+        sundays.where((s) => !deducted.contains(s) && !attended.contains(s)).toList();
+    final unpaidCount = eligibleNotWorked.length - free;
+    if (unpaidCount > 0) deducted.addAll(eligibleNotWorked.take(unpaidCount));
+
+    return deducted;
   }
 
   void _onRealtimeChange() {
@@ -447,7 +544,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Icon(complete ? LucideIcons.badgeCheck : LucideIcons.fileWarning, size: Responsive.sp(context, 14), color: color),
           const SizedBox(width: 6),
           Text(
-            complete ? 'HR Documents: Submitted' : 'HR Documents: Missing',
+            complete ? 'Documents: Submitted' : 'Documents: Missing',
             style: TextStyle(fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w700, color: color),
           ),
         ],
@@ -476,9 +573,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   double get _lateTier {
-    if (_lateUsed <= _lateGrace) return 0;
-    if (_lateUsed <= _lateHalf) return 1;
-    if (_lateUsed <= _lateFull) return 2;
+    final used = _selectedLateMinutes;
+    if (used <= _lateGrace) return 0;
+    if (used <= _lateHalf) return 1;
+    if (used <= _lateFull) return 2;
     return 3;
   }
 
@@ -523,11 +621,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String get _lateTierDesc {
+    final used = _selectedLateMinutes;
     switch (_lateTier) {
-      case 0: return '$_lateUsed min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
-      case 1: return '$_lateUsed min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
-      case 2: return '$_lateUsed min used — exceeds half-day threshold. One full day will be deducted from expenses.';
-      case 3: return '$_lateUsed min used — exceeds $_lateFull min. Proportional deduction (total min / $_lateFull) applied to salary.';
+      case 0: return '$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
+      case 1: return '$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
+      case 2: return '$used min used — exceeds half-day threshold. One full day will be deducted from expenses.';
+      case 3: return '$used min used — exceeds $_lateFull min. Proportional deduction (total min / $_lateFull) applied to salary.';
       default: return '';
     }
   }
@@ -537,8 +636,26 @@ class _ProfilePageState extends State<ProfilePage> {
     if (created == null) return false;
     final dt = DateTime.tryParse(created.toString());
     if (dt == null) return false;
+    return dt.year == _calYear && dt.month == _calMonth;
+  }
+
+  int _lateMinutesForMonth(int ym) {
+    var minutes = 0;
+    _historyByDate.forEach((key, rec) {
+      final dt = DateTime.tryParse(key);
+      if (dt == null || dt.year * 100 + dt.month != ym) return;
+      final lm = rec['late_minutes'];
+      if (lm is num) minutes += lm.toInt();
+    });
+    return minutes;
+  }
+
+  int get _selectedLateMinutes {
+    final v = _selectedBreakdown?['totalLateMinutes'];
+    if (v is num) return v.toInt();
     final now = DateTime.now();
-    return dt.year == now.year && dt.month == now.month;
+    if (_calYear == now.year && _calMonth == now.month) return _lateUsed;
+    return _lateMinutesForMonth(_calYear * 100 + _calMonth);
   }
 
   Widget _lateDeductionCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
@@ -561,6 +678,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: const Color(0xFF171c1f),
                 ),
               ),
+              const Spacer(),
+              Text(
+                DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600, color: const Color(0xFF74777e),
+                ),
+              ),
             ],
           ),
           SizedBox(height: Responsive.pad(context, 14)),
@@ -573,7 +697,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  '${_lateUsed} min',
+                  '${_selectedLateMinutes} min',
                   style: GoogleFonts.hankenGrotesk(
                     fontSize: Responsive.sp(context, 24), fontWeight: FontWeight.w800, color: _lateTierColor,
                   ),
@@ -706,21 +830,38 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   num get _fallbackLateDeductionDays {
-    if (_lateUsed <= _lateGrace) return 0;
-    if (_lateUsed <= _lateHalf) return 0.5;
-    if (_lateUsed <= _lateFull) return 1;
-    return ((_lateUsed / _lateFull) * 2).roundToDouble() / 2;
+    final minutes = _selectedLateMinutes;
+    if (minutes <= _lateGrace) return 0;
+    if (minutes <= _lateHalf) return 0.5;
+    if (minutes <= _lateFull) return 1;
+    return ((minutes / _lateFull) * 2).roundToDouble() / 2;
   }
 
   Widget _summaryCardsGrid(AppColors colors, ColorScheme scheme) {
-    final ym = DateTime.now().year * 100 + DateTime.now().month;
+    final ym = _calYear * 100 + _calMonth;
     final monthStats = _monthlyStats[ym] ?? {};
-    final presentCount = (monthStats['present'] ?? 0) + (monthStats['late'] ?? 0);
-    final absentCount = monthStats['absent'] ?? 0;
-    final halfDay = (_salaryBreakdown?['halfDayCount'] as num?) ?? (monthStats['half-day'] ?? 0);
-    final lateDeduction = (_salaryBreakdown?['lateDeductionDays'] as num?) ?? _fallbackLateDeductionDays;
-    final sundayDeducted = (_salaryBreakdown?['extraSundayCount'] as num?) ?? 0;
-    final trainingDeduction = (_salaryBreakdown?['joiningDeduction'] as num?) ?? (_joinedThisMonth ? 1.5 : 0);
+    final bd = _selectedBreakdown;
+    final hasBd = bd != null && bd['hasSalary'] == true && bd['records'] is List;
+    final bdRecords = hasBd ? (bd['records'] as List) : const [];
+
+    // Same values the HR salary sheet prints (computePaidDays output).
+    final presentCount = hasBd
+        ? bdRecords.where((r) => r['status'] == 'present' || r['status'] == 'late').length
+        : (monthStats['present'] ?? 0) + (monthStats['late'] ?? 0);
+    final absentCount = hasBd
+        ? (((bd['absentCount'] as num?) ?? 0).toInt())
+        : (monthStats['absent'] ?? 0);
+    final halfDay = hasBd
+        ? (((bd['halfDayCount'] as num?) ?? 0) * 0.5)
+        : ((monthStats['half-day'] ?? 0) * 0.5);
+    final lateDeduction = hasBd
+        ? ((bd['lateDeductionDays'] as num?) ?? 0)
+        : _fallbackLateDeductionDays;
+    final sundayDeducted = hasBd ? ((bd['sundayDeductionDays'] as num?) ?? 0) : 0;
+    final trainingDeduction = hasBd
+        ? ((bd['joiningDeduction'] as num?) ?? 0)
+        : (_joinedThisMonth ? 1.5 : 0);
+    final netPaidDays = hasBd ? ((bd['finalPaidDays'] as num?) ?? 0) : null;
 
     final tiles = <Widget>[
       _summaryTile('Present (incl. Late)', '$presentCount', LucideIcons.calendarCheck, const Color(0xFF1D7A4F)),
@@ -729,15 +870,28 @@ class _ProfilePageState extends State<ProfilePage> {
       _summaryTile('Late Deduction Days', _fmtDays(lateDeduction), LucideIcons.clock, const Color(0xFFc28228)),
       _summaryTile('Sunday Deducted', _fmtDays(sundayDeducted), LucideIcons.calendarOff, const Color(0xFF2563eb)),
       _summaryTile('Training Deduction', _fmtDays(trainingDeduction), LucideIcons.graduationCap, const Color(0xFF8B5CF6)),
+      if (netPaidDays != null)
+        _summaryTile('Net Paid Days', _fmtDays(netPaidDays), LucideIcons.wallet, const Color(0xFF0f766e)),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('My Attendance',
-          style: GoogleFonts.hankenGrotesk(
-            fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: scheme.onSurface,
-          ),
+        Row(
+          children: [
+            Text('My Attendance',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: scheme.onSurface,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600, color: const Color(0xFF74777e),
+              ),
+            ),
+          ],
         ),
         SizedBox(height: Responsive.pad(context, 8)),
         Column(
@@ -804,6 +958,10 @@ class _ProfilePageState extends State<ProfilePage> {
     double presentFrac, double absentFrac, double leaveFrac, double lateFrac,
     double rate, AppColors colors, ColorScheme scheme, TextTheme tt,
   ) {
+    final now = DateTime.now();
+    final minMonth = DateTime(now.year, now.month - 1);
+    final atMinMonth = _calYear == minMonth.year && _calMonth == minMonth.month;
+    final atCurrentMonth = _calYear == now.year && _calMonth == now.month;
     return Container(
       padding: EdgeInsets.all(Responsive.pad(context, 16)),
       decoration: BoxDecoration(
@@ -857,18 +1015,21 @@ class _ProfilePageState extends State<ProfilePage> {
               IconButton(
                 icon: const Icon(LucideIcons.chevronLeft),
                 tooltip: 'Previous month',
-                onPressed: () {
-                  setState(() {
-                    if (_calMonth == 1) {
-                      _calMonth = 12;
-                      _calYear--;
-                    } else {
-                      _calMonth--;
-                    }
-                    _selectedDateKey = null;
-                  });
-                  _fetchCalendar(year: _calYear, month: _calMonth);
-                },
+                onPressed: atMinMonth
+                    ? null
+                    : () {
+                        setState(() {
+                          if (_calMonth == 1) {
+                            _calMonth = 12;
+                            _calYear--;
+                          } else {
+                            _calMonth--;
+                          }
+                          _selectedDateKey = null;
+                        });
+                        _fetchCalendar(year: _calYear, month: _calMonth);
+                        _fetchSalaryBreakdown(year: _calYear, month: _calMonth);
+                      },
               ),
               Text(
                 DateFormat('MMMM yyyy').format(DateTime(_calYear, _calMonth)),
@@ -879,7 +1040,7 @@ class _ProfilePageState extends State<ProfilePage> {
               IconButton(
                 icon: const Icon(LucideIcons.chevronRight),
                 tooltip: 'Next month',
-                onPressed: (_calYear == DateTime.now().year && _calMonth == DateTime.now().month)
+                onPressed: atCurrentMonth
                     ? null
                     : () {
                         setState(() {
@@ -892,6 +1053,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           _selectedDateKey = null;
                         });
                         _fetchCalendar(year: _calYear, month: _calMonth);
+                        _fetchSalaryBreakdown(year: _calYear, month: _calMonth);
                       },
               ),
             ],
@@ -902,6 +1064,7 @@ class _ProfilePageState extends State<ProfilePage> {
             statusByDate: _statusByDate,
             selectedDate: _selectedDateKey,
             calendarDates: _calendarDates,
+            deductedSundays: _deductedSundayKeys(),
             onDateSelected: (key) => setState(() {
               _selectedDateKey = _selectedDateKey == key ? null : key;
             }),
@@ -1088,7 +1251,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _dayDetailCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
     final detail = _historyByDate[_selectedDateKey];
     if (detail == null) {
-      return Container(
+    return Container(
         padding: EdgeInsets.all(Responsive.pad(context, 16)),
         decoration: BoxDecoration(
         color: Theme.of(context).extension<AppColors>()!.surfaceContainerLow,

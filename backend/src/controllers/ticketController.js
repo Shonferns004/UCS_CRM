@@ -119,7 +119,7 @@ export const getTicket = async (req, res) => {
 
 export const createTicket = async (req, res) => {
   try {
-    const { department, category, subject, description, reference_id, priority, desk_number, ngo, raised_by_panel } = req.body;
+    const { department, category, subject, description, reference_id, priority, status, desk_number, ngo, raised_by_panel } = req.body;
     if (!subject) return res.status(400).json({ message: 'Subject is required' });
     if (!desk_number || !String(desk_number).trim()) return res.status(400).json({ message: 'Desk Number is required' });
 
@@ -133,6 +133,7 @@ export const createTicket = async (req, res) => {
         description: description || null,
         reference_id: reference_id || null,
         priority: priority || 'medium',
+        status: status || 'open',
         desk_number: desk_number || null,
         ngo: ngo || null,
         raised_by_panel: raised_by_panel || null,

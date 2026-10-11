@@ -70,7 +70,7 @@ async function authorize(req, res, { writerOnly = false } = {}) {
     return null;
   }
   if (writerOnly && !me.canPost) {
-    res.status(403).json({ message: 'Only Super Admin and Accounts can post in chat.' });
+    res.status(403).json({ message: 'Only Super Admin, Accounts, Admin and FRO can post in chat.' });
     return null;
   }
   const participant = await chat.getParticipant(convo.id, me.uid);
@@ -79,6 +79,26 @@ async function authorize(req, res, { writerOnly = false } = {}) {
     return null;
   }
   return { me, convo, participant };
+}
+
+/**
+ * Rejects a post the conversation's policy forbids.
+ *
+ * Separate from `authorize` because authorize answers "may this person post at
+ * all", while this answers "may they post in this particular room". An
+ * admins-only group still lets FRO read it, so the reader path must stay open.
+ *
+ * Returns true when the caller was already refused (and the response sent).
+ */
+function policyBlocksPost(ctx) {
+  if (chat.canPostIn(ctx.convo, ctx.me)) return false;
+  res.status(403).json({
+    message:
+      (ctx.convo.post_policy || 'everyone') === 'admins_only'
+        ? 'Only admins can post in this group.'
+        : 'You cannot post in this conversation.',
+  });
+  return true;
 }
 
 async function uploadAttachment(file) {
@@ -146,6 +166,96 @@ export const listPeople = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
+// GET /directory  (group creators)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whole staff list for the group-create picker, so a creator can add a whole
+ * department or hand-pick individuals. Gated by chatGroupCreator on the route,
+ * so a read-only role never receives the roster.
+ */
+export const listDirectory = async (req, res) => {
+  try {
+    const rows = await chat.listDirectory();
+    res.json(rows);
+  } catch (err) {
+    console.error('[chat] listDirectory', err);
+    res.status(500).json({ message: 'Could not load the staff directory' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /conversations/group  (group creators)
+// ---------------------------------------------------------------------------
+
+/** Normalizes whatever the picker sent into the roster chat.createGroup wants. */
+function normalizeMembers(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const m of raw) {
+    const uid = String(m?.uid || '').trim();
+    if (!uid || seen.has(uid)) continue;
+    seen.add(uid);
+    out.push({
+      uid,
+      subject_id: m?.subject_id != null ? String(m.subject_id) : null,
+      role: m?.role,
+      name: m?.name,
+      email: m?.email,
+      ngo_id: m?.ngo_id,
+    });
+  }
+  return out;
+}
+
+/**
+ * Creates a group room.
+ *
+ * Body: { title, post_policy?: 'everyone'|'admins_only', members?: [{uid, role, ...}] }
+ *
+ * Members are resolved by the server against the directory rather than trusted
+ * wholesale: the role/name sent by the client is used to seat them, but every
+ * uid is one the creator could already see. This keeps a crafted request from
+ * dropping an arbitrary uid into a private room.
+ */
+export const createGroup = async (req, res) => {
+  try {
+    const me = identify(req, res);
+    if (!me) return;
+    if (!me.canPost) {
+      return res.status(403).json({ message: 'Only Super Admin, Accounts and Admin can create groups.' });
+    }
+    const title = String(req.body?.title || '').trim();
+    if (!title) return res.status(400).json({ message: 'Group name is required' });
+    if (title.length > 80) return res.status(400).json({ message: 'Group name is too long (max 80 characters)' });
+
+    const postPolicy = req.body?.post_policy === 'admins_only' ? 'admins_only' : 'everyone';
+
+    // Re-seat against the real directory so a forged role cannot grant can_post.
+    const directory = await chat.listDirectory();
+    const byUid = new Map(directory.map((d) => [d.uid, d]));
+    const members = normalizeMembers(req.body?.members).filter((m) => byUid.has(m.uid));
+    const roster = members.map((m) => {
+      const person = byUid.get(m.uid);
+      return { ...person, subject_id: String(person.id) };
+    });
+
+    const { convo, memberCount } = await chat.createGroup({
+      title,
+      creator: { uid: me.uid, subjectId: me.subjectId, role: me.role, canPost: me.canPost, name: me.name },
+      members: roster,
+      postPolicy,
+    });
+
+    res.status(201).json(chat.toConversationDto({ ...convo, member_count: memberCount }));
+  } catch (err) {
+    console.error('[chat] createGroup', err);
+    res.status(500).json({ message: 'Could not create the group' });
+  }
+};
+
+// ---------------------------------------------------------------------------
 // POST /conversations/direct  (writer)
 // ---------------------------------------------------------------------------
 
@@ -155,7 +265,7 @@ export const openDirect = async (req, res) => {
     const me = identify(req, res);
     if (!me) return;
     if (!me.canPost) {
-      return res.status(403).json({ message: 'Only Super Admin and Accounts can start direct messages.' });
+      return res.status(403).json({ message: 'Only Super Admin, Accounts, Admin and FRO can start direct messages.' });
     }
     // The client sends `user_id`; accept `uid` too so the two spellings cannot
     // drift into a 400 that is hard to read from the network tab.
@@ -228,6 +338,7 @@ export const sendMessage = async (req, res) => {
     const ctx = await authorize(req, res, { writerOnly: true });
     if (!ctx) return;
     const { me, convo } = ctx;
+    if (policyBlocksPost(ctx)) return;
 
     const body = String(req.body?.body || '').trim();
     if (body.length > MAX_BODY) {

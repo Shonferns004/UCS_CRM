@@ -5,9 +5,10 @@ import { HashIcon, SearchIcon, PlusIcon, LockIcon } from './chatIcons'
 /**
  * Screen 01 — conversation list.
  *
- * The Community room is pinned above the tabs and never filtered out, so a
- * read-only viewer (who has no DMs at all) sees one obvious room rather than an
- * empty list with a tab they cannot use.
+ * Every group room the viewer belongs to is pinned above the tabs and never
+ * filtered out, so a read-only viewer (who has no DMs at all) still sees the
+ * community room rather than an empty list with a tab they cannot use. The
+ * seeded Community room sorts first; user-created groups follow alphabetically.
  */
 export default function ConversationList({
   conversations,
@@ -21,11 +22,20 @@ export default function ConversationList({
   error,
   onRetry,
   canDm,
+  canCreateGroup,
   onNewMessage,
+  onNewGroup,
   title,
   loadingNode,
 }) {
-  const community = conversations.find((c) => c.kind === 'group') || null
+  const groups = conversations
+    .filter((c) => c.kind === 'group')
+    .sort((a, b) => {
+      // Community (slug 'community') always first, then alphabetical.
+      if (a.slug === 'community') return -1
+      if (b.slug === 'community') return 1
+      return String(a.title || '').localeCompare(String(b.title || ''))
+    })
   const dms = conversations.filter((c) => c.kind === 'direct')
   const term = filter.trim().toLowerCase()
 
@@ -34,6 +44,7 @@ export default function ConversationList({
     c.title.toLowerCase().includes(term) ||
     (c.last_message?.body || '').toLowerCase().includes(term)
 
+  const shownGroups = groups.filter(matches)
   const shownDms = dms.filter((c) => (tab === 'direct' ? true : matches(c)))
 
   // The header always renders. Only the row area swaps, so the rail does not
@@ -41,14 +52,25 @@ export default function ConversationList({
   return (
     <>
       <div className="chat-rail-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h2 className="chat-rail-title" style={{ flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <h2 className="chat-rail-title" style={{ flex: 1, minWidth: 0 }}>
             {title}
           </h2>
-          {canDm && (
+          {canCreateGroup && (
             <button
               type="button"
               className="chat-btn chat-btn-primary"
+              onClick={onNewGroup}
+              aria-label="Create a new group"
+            >
+              <PlusIcon size={15} />
+              New group
+            </button>
+          )}
+          {canDm && (
+            <button
+              type="button"
+              className="chat-btn"
               onClick={onNewMessage}
               aria-label="Start a new direct message"
             >
@@ -84,7 +106,7 @@ export default function ConversationList({
             <span className="chat-readonly-icon">
               <LockIcon size={14} />
             </span>
-            <span>Read-only · 1 community room</span>
+            <span>Read-only · you can follow the rooms below</span>
           </div>
         )}
 
@@ -116,13 +138,9 @@ export default function ConversationList({
         </div>
       ) : (
         <div className="chat-list">
-          {community && matches(community) && (
-            <ConvoRow
-              conversation={community}
-              active={activeId === community.id}
-              onSelect={onSelect}
-            />
-          )}
+          {shownGroups.map((c) => (
+            <ConvoRow key={c.id} conversation={c} active={activeId === c.id} onSelect={onSelect} />
+          ))}
 
           {shownDms.map((c) => (
             <ConvoRow key={c.id} conversation={c} active={activeId === c.id} onSelect={onSelect} />
@@ -139,7 +157,7 @@ export default function ConversationList({
             </div>
           )}
 
-          {conversations.length > 0 && !community && !shownDms.length && (
+          {conversations.length > 0 && !shownGroups.length && !shownDms.length && (
             <div className="chat-state" style={{ height: 'auto', padding: '28px 20px' }}>
               <p className="chat-state-sub">No conversations match “{filter.trim()}”.</p>
             </div>
@@ -154,6 +172,7 @@ function ConvoRow({ conversation, active, onSelect }) {
   const last = conversation.last_message
   const isGroup = conversation.kind === 'group'
   const unread = conversation.unread_count || 0
+  const adminsOnly = isGroup && conversation.post_policy === 'admins_only'
 
   return (
     <button
@@ -188,7 +207,17 @@ function ConvoRow({ conversation, active, onSelect }) {
       <span className="chat-convo-body">
         <span className="chat-convo-top">
           <span className="chat-convo-name">
-            {isGroup ? 'Community' : conversation.title}
+            {conversation.title || (isGroup ? 'Group' : 'Conversation')}
+            {adminsOnly && (
+              <span
+                className="chat-bubble-role"
+                style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                title="Only admins can post in this group"
+              >
+                <LockIcon size={11} />
+                Admins
+              </span>
+            )}
             {isGroup && (
               <span className="chat-bubble-role" style={{ marginLeft: 6 }}>
                 {conversation.member_count} members
@@ -218,7 +247,9 @@ function ConvoRow({ conversation, active, onSelect }) {
       </span>
 
       <span className="chat-sr">
-        {isGroup ? 'Community room' : `Direct message with ${conversation.title}`}
+        {isGroup
+          ? `${conversation.title || 'Group'}${adminsOnly ? ', admins only' : ''}`
+          : `Direct message with ${conversation.title}`}
         {unread > 0 ? `, ${unread} unread` : ''}
       </span>
     </button>
