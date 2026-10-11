@@ -80,15 +80,22 @@ export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
   });
 }
 
-// Stations per NGO with live activity: a station is "active" when its assigned FRO
-// has a fresh (<= 2 min old) live status of online / on_call / break.
+// Stations per NGO with two independent measures:
+//   active  - the station's FRO has a fresh (<= 2 min old) live status of
+//             online / on_call / break. Drives the "Active Now" tile and the
+//             per-NGO bars.
+//   unused  - no agent is allocated to the seat at all (crm_agent_id is null).
+//             Drives the "Not in Use" tab, and nothing else.
+// They deliberately do not sum to total: a station can be allocated and still
+// quiet, and the old behaviour of calling those "not in use" hid the seats that
+// were genuinely unstaffed behind whoever happened to be offline.
 async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) {
   const result = { per_ngo: {}, summary: { total: 0, active: 0, inactive: 0, inactive_stations: [] } };
   if (!ngoIds || ngoIds.length === 0) return result;
 
   const { data: stationAssigns } = await db
     .from('fro_station_assignments')
-    .select('station, ngo_id, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(is_test)')
+    .select('station, ngo_id, fro_worker_id, crm_agent_id, workers!fro_station_assignments_fro_worker_id_fkey(is_test)')
     .in('ngo_id', ngoIds);
 
   const assignedFroIds = [...new Set((stationAssigns || [])
@@ -125,7 +132,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   const seenPerNgo = new Set();
   const seenOverall = new Set();
   const activeStationNames = new Set();
-  const stationActiveByName = new Map();
+  const stationHasAgentByName = new Map();
   for (const sa of stationAssigns || []) {
     const stationName = (sa.station || '').trim();
     if (!stationName) continue;
@@ -143,16 +150,20 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
     if (isActive) {
       result.per_ngo[ngoName].active++;
       activeStationNames.add(stationName);
-    } else {
+    }
+    // Allocation, not presence: only a seat with no agent on it counts as unused.
+    const hasAgent = !!sa.crm_agent_id;
+    if (!hasAgent) {
       result.per_ngo[ngoName].inactive_stations.push(stationName);
     }
-    if (!stationActiveByName.has(stationName)) stationActiveByName.set(stationName, false);
-    if (isActive) stationActiveByName.set(stationName, true);
+    if (!stationHasAgentByName.has(stationName)) stationHasAgentByName.set(stationName, false);
+    if (hasAgent) stationHasAgentByName.set(stationName, true);
   }
   result.summary.active = activeStationNames.size;
-  // "Not in use" = a station with no live FRO behind it right now (or none assigned at all).
-  const inactiveNames = [...stationActiveByName.entries()]
-    .filter(([, act]) => !act)
+  // "Not in use" = a station no agent is allocated to. A station that appears
+  // under more than one NGO counts as used if any of its rows carries an agent.
+  const inactiveNames = [...stationHasAgentByName.entries()]
+    .filter(([, used]) => !used)
     .map(([name]) => name)
     .sort((a, b) => a.localeCompare(b));
   result.summary.inactive = inactiveNames.length;

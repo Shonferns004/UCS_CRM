@@ -915,8 +915,27 @@ export default function Dashboard() {
   const [ngoTab, setNgoTab] = useState('');
   const [dashPeriod, setDashPeriod] = useState('today');
   // Stations card: 'per_ngo' shows the Active/Total bars, 'inactive' lists the
-  // stations with no FRO assigned/online right now.
+  // stations no agent is allocated to.
   const [stationsTab, setStationsTab] = useState('per_ngo');
+  // The Stations card is pinned to the attendance card's height: grid rows grow
+  // with their tallest cell, so without this a taller tab body would stretch the
+  // attendance card beside it on every switch.
+  const attendanceCardRef = useRef(null);
+  const [pairHeight, setPairHeight] = useState(0);
+  // `alignItems: 'start'` on the grid keeps the attendance card at its natural
+  // height, so this measures content rather than a stretched row. Without that
+  // the two would chase each other: stations would be pinned to a height the
+  // grid had already inflated using stations' own taller body.
+  useEffect(() => {
+    const el = attendanceCardRef.current;
+    if (!el) return;
+    const measure = () => setPairHeight(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data, loading]);
   const [customFrom, setCustomFrom] = useState(() => toIstDate());
   const [customTo, setCustomTo] = useState(() => toIstDate());
   const [selectedFroId, setSelectedFroId] = useState('');
@@ -1540,8 +1559,12 @@ export default function Dashboard() {
   const stations_summary = isTodayRange
     ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] })
     : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
-  const stations_inactive = Math.max(0, (Number(stations_summary.inactive) || 0) || (Number(stations_summary.total) || 0) - (Number(stations_summary.active) || 0));
   const inactive_station_names = Array.isArray(stations_summary.inactive_stations) ? stations_summary.inactive_stations : [];
+  // "Not in use" is no longer the complement of "active" — a station can be
+  // allocated and still be quiet — so the count comes from the list itself.
+  // Deriving it as total - active would report every offline FRO as an unused
+  // station, which is exactly the bug this replaced.
+  const stations_inactive = inactive_station_names.length || Math.max(0, Number(stations_summary.inactive) || 0);
   // One column per NGO for the "Not in Use" tab. Older cached payloads carry only
   // the flat name list, in which case the tab falls back to a single chip list.
   const inactive_by_ngo = Object.entries(stations_per_ngo)
@@ -1580,9 +1603,11 @@ export default function Dashboard() {
       .sort((a, b) => (ngoSortRank(a.name) - ngoSortRank(b.name)) || (b.amount - a.amount))
       .slice(0, 3);
   })();
+  // Sits inline with the "Stations" label, so these size to their text rather
+  // than splitting the row evenly the way a full-width tab bar would.
   const stationTabBtn = (active) => ({
-    flex: 1,
-    padding: '5px 8px',
+    flex: '0 0 auto',
+    padding: '4px 9px',
     fontSize: 10,
     fontWeight: 700,
     borderRadius: 6,
@@ -1590,6 +1615,7 @@ export default function Dashboard() {
     background: active ? 'var(--sage)' : 'transparent',
     color: active ? '#fff' : 'var(--ink-soft)',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   });
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = Number(d.assigned_pct) || 0;
@@ -2067,9 +2093,9 @@ export default function Dashboard() {
       )}
 
       {/* REQUIREMENT 3: Workforce / Attendance (Left) & Stations (Right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16, alignItems: 'start' }}>
         {/* Left: Workforce & Attendance */}
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div ref={attendanceCardRef} className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -2135,90 +2161,111 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right: Stations — the tab switch sits above the Total / Active tiles;
-            "Not in Use" lays the idle stations out as one column per NGO. */}
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Stations</span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Stations per NGO</button>
-              <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
-                Not in Use{stations_inactive > 0 ? ` (${stations_inactive})` : ''}
-              </button>
-            </div>
-            {stationsTab === 'per_ngo' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
-                <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
-                </div>
-                <div style={{ background: '#f0fdf4', borderRadius: 6, padding: '8px 6px' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
-                </div>
+        {/* Right: Stations — pinned to the attendance card's measured height so
+            switching tabs never resizes either card; the body scrolls inside. */}
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: pairHeight ? `${pairHeight}px` : undefined }}>
+          <div style={{ flexShrink: 0 }}>
+            {/* Filter sits on the label's own line. The period chip that used to
+                live here was a copy of the one on the Attendance card and is what
+                left no room for the tabs, so it is gone. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', rowGap: 6 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600, flexShrink: 0 }}>Stations</span>
+              <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Per NGO</button>
+                <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
+                  Not in Use ({stations_inactive})
+                </button>
               </div>
-            )}
+            </div>
           </div>
-          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+          {/* No divider under the label: the card is height-pinned and tight on
+              space, so the border and its margin were pure cost. A column flex
+              container gives each tab a definite height to fill. */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2, display: 'flex', flexDirection: 'column' }}>
             {stationsTab === 'per_ngo' ? (
               Object.keys(stations_per_ngo).length > 0 ? (
-                <div>
-                  {Object.entries(stations_per_ngo).map(([name, v]) => {
-                    const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
-                    const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
-                    const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
-                    return (
-                      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, minWidth: 50, color: 'var(--ink)' }}>{name}</span>
-                        <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
-                          <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: '#16a34a', transition: 'width .3s ease' }} />
+                // Total / Active sit beside the NGO list rather than above it, so
+                // the summary stays visible while the list fills the card. `flex: 1`
+                // (in the column body above) makes the row take the whole height and
+                // let each NGO row share it; stretch makes the list column follow,
+                // and the summary opts out with alignSelf so its cards keep their
+                // own height.
+                <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0, alignItems: 'stretch' }}>
+                  <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: 2 }}>
+                    {Object.entries(stations_per_ngo).map(([name, v]) => {
+                      const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
+                      const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
+                      const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
+                      const color = ngoColorOf(name);
+                      return (
+                        <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 0 auto', minHeight: 30, marginBottom: 5, background: 'var(--bg)', borderRadius: 7, padding: '5px 8px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, minWidth: 52, color, textTransform: 'uppercase', letterSpacing: .3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+                          <div style={{ flex: 1, height: 7, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: '#16a34a', transition: 'width .3s ease' }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
-                      </div>
-                    );
-                  })}
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>Active = station's FRO is online right now</div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ flex: '0 0 108px', alignSelf: 'flex-start', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
+                    </div>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0' }}>No station data for this period.</div>
               )
             ) : stations_inactive > 0 ? (
               inactive_by_ngo.length > 0 ? (
-                <div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 150, overflowY: 'auto', paddingRight: 2 }}>
-                    {inactive_by_ngo.map((col) => (
-                      <div key={col.name} style={{ background: 'var(--bg)', borderRadius: 6, padding: '6px 8px', minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={col.name}>{col.name}</span>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: '#b91c1c', background: '#fef2f2', padding: '0 6px', borderRadius: 999, flexShrink: 0 }}>{col.stations.length}</span>
-                        </div>
-                        {col.stations.map((s) => (
-                          <div key={s} title="No FRO assigned / online for this station right now" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink)', padding: '2px 0', minWidth: 0 }}>
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                <div style={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  {/* One strip of NGO columns that scrolls sideways, each column
+                      scrolling its own station list. A wrapping grid would push
+                      the column headers off the top of this (height-pinned) card
+                      as soon as the outer body started scrolling. */}
+                  <div style={{ display: 'flex', gap: 8, overflowX: 'auto', overflowY: 'hidden', minHeight: 0, flex: 1, paddingBottom: 2 }}>
+                    {inactive_by_ngo.map((col) => {
+                      const color = ngoColorOf(col.name);
+                      return (
+                        <div key={col.name} style={{ flex: '0 0 138px', minWidth: 0, background: '#fff', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 8px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingBottom: 6, marginBottom: 6, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: .3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={col.name}>{col.name}</span>
+                            <span style={{ fontSize: 9, fontWeight: 800, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '0 6px', borderRadius: 999, flexShrink: 0 }}>{col.stations.length}</span>
                           </div>
-                        ))}
-                      </div>
-                    ))}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', minHeight: 0, flex: 1, paddingRight: 1 }}>
+                            {col.stations.map((s) => (
+                              <div key={s} title={`${s} — no agent allocated`} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 6, padding: '4px 7px', minWidth: 0, flexShrink: 0 }}>
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
+                                <span style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for these stations right now</div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6, flexShrink: 0 }}>No agent allocated to these stations</div>
                 </div>
               ) : (
                 <div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 110, overflowY: 'auto', paddingRight: 2 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingRight: 2 }}>
                     {inactive_station_names.map((name) => (
-                      <span key={name} title="No FRO assigned / online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
+                      <span key={name} title="No agent allocated to this station" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
                     ))}
                   </div>
-                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 8 }}>No agent allocated to these stations</div>
                 </div>
               )
             ) : (
-              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>All stations are in use right now.</div>
+              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>Every station has an agent allocated.</div>
             )}
           </div>
         </div>
