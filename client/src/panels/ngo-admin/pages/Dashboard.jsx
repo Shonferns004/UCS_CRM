@@ -1529,8 +1529,10 @@ export default function Dashboard() {
     ? (tlData?.stations_per_ngo || data.stations_per_ngo || {})
     : (data.stations_per_ngo || tlData?.stations_per_ngo || {});
   const stations_summary = isTodayRange
-    ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0 })
-    : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0 });
+    ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] })
+    : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
+  const stations_inactive = Math.max(0, (Number(stations_summary.inactive) || 0) || (Number(stations_summary.total) || 0) - (Number(stations_summary.active) || 0));
+  const inactive_station_names = Array.isArray(stations_summary.inactive_stations) ? stations_summary.inactive_stations : [];
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = Number(d.assigned_pct) || 0;
   const direct_donation_month = Math.max(0, month_collection - verified_month_amount - unverified_month_amount);
@@ -2072,7 +2074,7 @@ export default function Dashboard() {
               <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Stations</span>
               <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
               <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
@@ -2080,6 +2082,10 @@ export default function Dashboard() {
               <div style={{ background: '#f0fdf4', borderRadius: 6, padding: '8px 6px' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
+              </div>
+              <div style={{ background: '#fef2f2', borderRadius: 6, padding: '8px 6px' }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{stations_inactive}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Not in Use</div>
               </div>
             </div>
           </div>
@@ -2101,6 +2107,20 @@ export default function Dashboard() {
                 );
               })}
               <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>Active = station's FRO is online right now</div>
+            </div>
+          )}
+          {stations_inactive > 0 && (
+            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: Object.keys(stations_per_ngo).length > 0 ? 8 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', textTransform: 'uppercase' }}>Stations not in use</span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: '#ef4444', background: '#fef2f2', padding: '1px 7px', borderRadius: 999 }}>{stations_inactive}</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 92, overflowY: 'auto', paddingRight: 2 }}>
+                {inactive_station_names.map((name) => (
+                  <span key={name} title="No FRO online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
+                ))}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
             </div>
           )}
         </div>
