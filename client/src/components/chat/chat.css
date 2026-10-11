@@ -853,6 +853,31 @@
 .chat-person-online { font-size: 11px; color: var(--chat-muted); }
 .chat-person-online[data-online='true'] { color: var(--chat-success); font-weight: 600; }
 
+/* Group-create picker row: checkbox/radio + optional avatar + two-line body.
+   Deliberately not .chat-person — that one is a 3-column grid keyed on a fixed
+   36px avatar column, which a native checkbox cannot share. */
+.chat-pickrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: var(--chat-r-sm);
+  cursor: pointer;
+  min-height: 44px;
+}
+.chat-pickrow:hover { background: var(--chat-canvas); }
+.chat-pickrow:focus-within { outline: 2px solid var(--chat-focus); outline-offset: -2px; }
+.chat-pickrow input { flex-shrink: 0; accent-color: var(--chat-navy); }
+.chat-pickrow-body { min-width: 0; flex: 1; }
+
+.chat-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--chat-muted);
+}
+
 /* ==========================================================================
    Nav badge — used by all eight host panels
    ========================================================================== */

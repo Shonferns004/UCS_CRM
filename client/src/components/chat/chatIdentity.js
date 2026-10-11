@@ -10,7 +10,31 @@
  * courtesy — the server is the only thing that actually enforces the matrix.
  */
 
-export const CHAT_WRITER_ROLES = ['super_admin', 'accounts']
+export const CHAT_WRITER_ROLES = ['super_admin', 'accounts', 'admin', 'fro']
+
+/**
+ * Who may create a group room. Mirrors CHAT_GROUP_CREATOR_ROLES in
+ * backend/src/middleware/chatAccess.js: FRO can post and read, but cannot open
+ * a room of their own.
+ */
+export const CHAT_GROUP_CREATOR_ROLES = ['super_admin', 'accounts', 'admin']
+
+/**
+ * Who counts as an admin for an admins-only group. Mirrors CHAT_ADMIN_ROLES in
+ * the backend, so the composer is hidden for FRO in a restricted group before
+ * they can type a message the server would reject.
+ */
+export const CHAT_ADMIN_ROLES = ['super_admin', 'accounts', 'admin']
+
+/** True when this role may create a group room. */
+export function canCreateGroup(role) {
+  return CHAT_GROUP_CREATOR_ROLES.includes(normalizeChatRole(role))
+}
+
+/** True when this role counts as an admin inside an admins-only group. */
+export function isChatAdmin(role) {
+  return CHAT_ADMIN_ROLES.includes(normalizeChatRole(role))
+}
 
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
@@ -89,7 +113,7 @@ function pickUid(user) {
 
 /**
  * @param {object|null} user - session user from `useUcs()`
- * @returns {{uid:string,name:string,role:string,roleLabel:string,canPost:boolean,canDm:boolean,canModerate:boolean,isWriter:boolean,online:boolean}}
+ * @returns {{uid:string,name:string,role:string,roleLabel:string,canPost:boolean,canDm:boolean,canCreateGroup:boolean,canModerate:boolean,isWriter:boolean,online:boolean}}
  */
 export function resolveChatIdentity(user) {
   const role = normalizeChatRole(user?.role)
@@ -104,6 +128,8 @@ export function resolveChatIdentity(user) {
     canPost: isWriter,
     // Direct messages are writer-only; a read-only role has no DM targets.
     canDm: isWriter,
+    // Only Admin/Accounts/Super Admin may open a room of their own.
+    canCreateGroup: CHAT_GROUP_CREATOR_ROLES.includes(role),
     // Superadmin can delete anyone's message. Editing stays sender-only.
     canModerate: role === 'super_admin',
     isWriter,

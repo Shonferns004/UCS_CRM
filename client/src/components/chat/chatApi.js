@@ -83,6 +83,20 @@ const http = {
 
   getPeople: () => api('/chat/people', { _prefix: 'ucs' }),
 
+  getDirectory: () => api('/chat/directory', { _prefix: 'ucs' }),
+
+  createGroup: (_me, { title, postPolicy, members }) =>
+    api('/chat/conversations/group', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        // The server expects snake_case; the picker holds it camelCase.
+        post_policy: postPolicy === 'admins_only' ? 'admins_only' : 'everyone',
+        members,
+      }),
+      _prefix: 'ucs',
+    }),
+
   createDirect: (_me, userId) =>
     api('/chat/conversations/direct', {
       method: 'POST',
@@ -206,6 +220,8 @@ export const chatApi = {
   listConversations: (me) => http.listConversations(me),
   getUnreadCount: (me) => http.getUnreadCount(me),
   getPeople: (me) => http.getPeople(me),
+  getDirectory: (me) => http.getDirectory(me),
+  createGroup: (me, payload) => http.createGroup(me, payload),
   createDirect: (me, userId) => http.createDirect(me, userId),
   getMessages: (me, convoId, opts) => http.getMessages(me, convoId, opts),
   sendMessage: (me, convoId, payload) => http.sendMessage(me, convoId, payload),

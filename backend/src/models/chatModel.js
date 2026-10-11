@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { isWriterRole, CHAT_ROLES } from '../middleware/chatAccess.js';
+import { isWriterRole, CHAT_ROLES, isChatAdminRole } from '../middleware/chatAccess.js';
 
 /**
  * Community Chat data access (plan.md §3).
@@ -25,6 +25,8 @@ const PAGE_DEFAULT = 50;
 const CHAT_ROLE_LIST = [
   'super_admin', 'superadmin', 'super admin', 'super-admin', 'sa',
   'accounts', 'accountant',
+  'admin', 'ngo admin', 'ngo_admin',
+  'fro',
 ];
 
 // ---------------------------------------------------------------------------
@@ -106,8 +108,13 @@ export function toConversationDto(row) {
   return {
     id: row.id,
     kind: row.kind,
+    // Exposed so the rail can keep the seeded Community room pinned first even
+    // after a user-created group has newer activity.
+    slug: row.slug || null,
     title: row.title,
     member_count: row.member_count ?? null,
+    // Only group rooms carry a policy; a DM is always open to its two members.
+    post_policy: row.kind === 'group' ? (row.post_policy || 'everyone') : null,
     peer: row.peer
       ? {
           uid: row.peer.uid,
@@ -194,6 +201,73 @@ export async function touchConversation(id) {
   );
 }
 
+/**
+ * Whether the caller may post in this conversation.
+ *
+ * DMs are always open to their members (a read-only role can never reach one,
+ * so this is only ever asked about a writer). Groups may carry a post_policy:
+ *   - 'everyone'    any writer participant
+ *   - 'admins_only' only the three admin roles
+ *
+ * The Community room is seeded with 'everyone' and is not editable, so this is
+ * the only place the policy is consulted.
+ */
+export function canPostIn(convo, me) {
+  if (!me?.canPost) return false;
+  if (convo?.kind !== 'group') return true;
+  if ((convo.post_policy || 'everyone') !== 'admins_only') return true;
+  return isChatAdminRole(me.role);
+}
+
+/**
+ * Creates a group room and seats its members.
+ *
+ * A random slug is generated rather than deriving one from the title: titles
+ * are free text and may repeat, and `slug` is UNIQUE. The caller is always
+ * seated, so a group created with an empty roster still has exactly one member
+ * rather than being an orphan nobody can open.
+ */
+export async function createGroup({ title, creator, members, postPolicy }) {
+  const slug = `group:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const { rows } = await db._pool.query(
+    `INSERT INTO chat_conversations (kind, slug, title, created_by, post_policy)
+     VALUES ('group', $1, $2, $3, $4)
+     RETURNING *`,
+    [slug, title, creator.uid, postPolicy === 'admins_only' ? 'admins_only' : 'everyone']
+  );
+  const convo = rows[0];
+
+  // Creator first so they are always a participant even if the roster omitted
+  // them, then de-duplicated by uid so the same person in two depts seats once.
+  const roster = new Map();
+  roster.set(creator.uid, {
+    uid: creator.uid,
+    subjectId: creator.subjectId,
+    role: creator.role,
+    canPost: canPostIn(convo, creator),
+    name: creator.name,
+  });
+  for (const m of members || []) {
+    if (!m?.uid || roster.has(m.uid)) continue;
+    roster.set(m.uid, {
+      uid: m.uid,
+      subjectId: m.subject_id ?? m.subjectId,
+      role: m.role,
+      // Seated with the flag their policy grants, so the cached UI copy agrees
+      // with what sendMessage will actually allow.
+      canPost: canPostIn(convo, { canPost: isWriterRole(m.role), role: m.role }),
+      name: m.name,
+      email: m.email,
+      ngoId: m.ngo_id ?? m.ngoId,
+    });
+  }
+
+  for (const p of roster.values()) {
+    await addParticipant(convo.id, p);
+  }
+  return { convo, memberCount: roster.size };
+}
+
 // ---------------------------------------------------------------------------
 // Participants
 // ---------------------------------------------------------------------------
@@ -248,7 +322,7 @@ export async function listParticipants(conversationId) {
 export async function listConversationsFor(me) {
   const { rows } = await db._pool.query(
     `SELECT
-        c.id, c.kind, c.title, c.updated_at,
+        c.id, c.kind, c.slug, c.title, c.updated_at, c.post_policy,
         p.last_read_at, p.last_read_msg_id,
         lm.id         AS last_message_id,
         lm.sender_uid AS last_message_sender,
@@ -577,6 +651,60 @@ export async function listCommunityCandidates() {
      ORDER BY w.id`
   );
   return rows;
+}
+
+/**
+ * The whole staff directory, for the group-create picker.
+ *
+ * Wider than listCommunityCandidates on purpose: a group may legitimately pull
+ * in someone from a non-panel department (Housekeeping, Ops), so the picker
+ * must not pre-filter. The department -> role CASE is shared so a whole
+ * department can be added and each member still gets the role their panel logs
+ * in with.
+ *
+ * `can_post` is computed from the writer role here rather than read off the
+ * workers table, so the picker cannot promise someone posting rights the
+ * write gate would refuse.
+ */
+export async function listDirectory() {
+  const { rows } = await db._pool.query(
+    `SELECT w.id,
+            w.name,
+            w.email,
+            w.login_id,
+            w.ngo_id,
+            btrim(w.department) AS department,
+            CASE
+              WHEN btrim(lower(w.department)) = 'hr'                THEN 'hr'
+              WHEN btrim(lower(w.department)) LIKE '%recruit%'      THEN 'recruiter'
+              WHEN btrim(lower(w.department)) = 'admin'             THEN 'accounts'
+              WHEN btrim(lower(w.department)) = 'fro'               THEN 'fro'
+              WHEN btrim(lower(w.department)) = 'ngo admin'         THEN 'admin'
+              WHEN btrim(lower(w.department)) = 'digital'
+                OR btrim(lower(w.department)) LIKE '%develop%'      THEN 'digital'
+              WHEN btrim(lower(w.department)) LIKE '%event%'        THEN 'event_head'
+              ELSE 'worker'
+            END AS role
+     FROM workers w
+     WHERE COALESCE(w.is_active, true) = true
+       AND w.employment_status IS DISTINCT FROM 'terminated'
+     ORDER BY btrim(w.department), w.name, w.id`
+  );
+  return rows.map((r) => {
+    const role = r.role;
+    const isWriter = CHAT_ROLES.has(role);
+    return {
+      id: r.id,
+      name: r.name || r.login_id || `User ${r.id}`,
+      loginId: r.login_id,
+      email: r.email ? String(r.email).trim().toLowerCase() : null,
+      department: r.department || 'Unassigned',
+      role,
+      // Cached UI hint only; sendMessage re-derives from CHAT_ROLES.
+      canPost: isWriter,
+      uid: r.email ? `email:${String(r.email).trim().toLowerCase()}` : `login:${r.id}`,
+    };
+  });
 }
 
 /**
