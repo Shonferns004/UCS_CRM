@@ -42,6 +42,9 @@ class FroApi {
     bool? newOnly,
     bool? oldOnly,
     bool verifiedOnly = false,
+    String? period,
+    bool? activeOnly,
+    bool? inactiveOnly,
     int? limit,
     int? offset,
   }) async {
@@ -49,6 +52,9 @@ class FroApi {
     if (statusGroup != null) q['status_group'] = statusGroup;
     else if (status != null) q['status'] = status;
     if (verifiedOnly) q['verified_only'] = 'true';
+    if (period != null && period != 'all') q['period'] = period;
+    if (activeOnly == true) q['active_only'] = 'true';
+    if (inactiveOnly == true) q['inactive_only'] = 'true';
     if (newOnly == true) q['new_only'] = 'true';
     if (oldOnly == true) q['old_only'] = 'true';
     if (station != null && station.isNotEmpty && station != 'all') q['station'] = station;
