@@ -911,6 +911,9 @@ export default function Dashboard() {
   const [selectedNgoId, setSelectedNgoId] = useState('all');
   const [ngoTab, setNgoTab] = useState('');
   const [dashPeriod, setDashPeriod] = useState('today');
+  // Stations card: 'per_ngo' shows the Active/Total bars, 'inactive' lists the
+  // stations with no FRO assigned/online right now.
+  const [stationsTab, setStationsTab] = useState('per_ngo');
   const [customFrom, setCustomFrom] = useState(() => toIstDate());
   const [customTo, setCustomTo] = useState(() => toIstDate());
   const [selectedFroId, setSelectedFroId] = useState('');
@@ -1533,6 +1536,17 @@ export default function Dashboard() {
     : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
   const stations_inactive = Math.max(0, (Number(stations_summary.inactive) || 0) || (Number(stations_summary.total) || 0) - (Number(stations_summary.active) || 0));
   const inactive_station_names = Array.isArray(stations_summary.inactive_stations) ? stations_summary.inactive_stations : [];
+  const stationTabBtn = (active) => ({
+    flex: 1,
+    padding: '5px 8px',
+    fontSize: 10,
+    fontWeight: 700,
+    borderRadius: 6,
+    border: active ? '1px solid var(--sage)' : '1px solid var(--line)',
+    background: active ? 'var(--sage)' : 'transparent',
+    color: active ? '#fff' : 'var(--ink-soft)',
+    cursor: 'pointer',
+  });
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = Number(d.assigned_pct) || 0;
   const direct_donation_month = Math.max(0, month_collection - verified_month_amount - unverified_month_amount);
@@ -2074,7 +2088,7 @@ export default function Dashboard() {
               <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Stations</span>
               <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
               <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
@@ -2083,46 +2097,50 @@ export default function Dashboard() {
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
               </div>
-              <div style={{ background: '#fef2f2', borderRadius: 6, padding: '8px 6px' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{stations_inactive}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Not in Use</div>
-              </div>
             </div>
           </div>
-          {Object.keys(stations_per_ngo).length > 0 && (
-            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6, textTransform: 'uppercase' }}>Stations per NGO — Active / Total</div>
-              {Object.entries(stations_per_ngo).map(([name, v]) => {
-                const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
-                const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
-                const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
-                return (
-                  <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, minWidth: 50, color: 'var(--ink)' }}>{name}</span>
-                    <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: '#16a34a', transition: 'width .3s ease' }} />
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
-                  </div>
-                );
-              })}
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>Active = station's FRO is online right now</div>
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Stations per NGO</button>
+              <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
+                Not in Use{stations_inactive > 0 ? ` (${stations_inactive})` : ''}
+              </button>
             </div>
-          )}
-          {stations_inactive > 0 && (
-            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: Object.keys(stations_per_ngo).length > 0 ? 8 : 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', textTransform: 'uppercase' }}>Stations not in use</span>
-                <span style={{ fontSize: 9, fontWeight: 700, color: '#ef4444', background: '#fef2f2', padding: '1px 7px', borderRadius: 999 }}>{stations_inactive}</span>
+            {stationsTab === 'per_ngo' ? (
+              Object.keys(stations_per_ngo).length > 0 ? (
+                <div>
+                  {Object.entries(stations_per_ngo).map(([name, v]) => {
+                    const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
+                    const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
+                    const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
+                    return (
+                      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, minWidth: 50, color: 'var(--ink)' }}>{name}</span>
+                        <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: '#16a34a', transition: 'width .3s ease' }} />
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 600, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>Active = station's FRO is online right now</div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0' }}>No station data for this period.</div>
+              )
+            ) : stations_inactive > 0 ? (
+              <div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 110, overflowY: 'auto', paddingRight: 2 }}>
+                  {inactive_station_names.map((name) => (
+                    <span key={name} title="No FRO assigned / online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 92, overflowY: 'auto', paddingRight: 2 }}>
-                {inactive_station_names.map((name) => (
-                  <span key={name} title="No FRO online for this station right now" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
-                ))}
-              </div>
-              <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>No FRO assigned / online for this station right now</div>
-            </div>
-          )}
+            ) : (
+              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>All stations are in use right now.</div>
+            )}
+          </div>
         </div>
       </div>
 
