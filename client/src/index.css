@@ -1988,11 +1988,19 @@
 .panel-accounts .tw-reset { display:inline-flex; align-items:center; gap:5px; padding:8px 12px; border:1px solid #fecaca; border-radius:8px; background:#fef2f2; color:#dc2626; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
 .panel-accounts .tw-reset:hover { background:#fee2e2; }
 
-.panel-accounts .tw-tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:12px; overflow-x:auto; }
-.panel-accounts .tw-tab { position:relative; display:inline-flex; align-items:center; gap:7px; padding:10px 14px 11px; background:none; border:none; font-family:inherit; font-size:13px; font-weight:600; color:var(--ink-soft); cursor:pointer; white-space:nowrap; transition:color .15s; }
+/* overflow-y:hidden matters. A flex row with overflow-x:auto also gets
+   overflow-y:auto, which creates a scroll container on BOTH axes; the active
+   tab's underline sits at bottom:-1px, i.e. outside the padding box, so it was
+   clipped the moment the count badge changed width and the row started
+   scrolling. flex-shrink:0 on the tabs stops them being squeezed in the first
+   place, and the row only scrolls if the panel is genuinely too narrow. */
+.panel-accounts .tw-tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:12px; overflow-x:auto; overflow-y:hidden; padding-bottom:1px; }
+.panel-accounts .tw-tab { position:relative; display:inline-flex; align-items:center; gap:7px; flex-shrink:0; padding:10px 14px 11px; background:none; border:none; font-family:inherit; font-size:13px; font-weight:600; color:var(--ink-soft); cursor:pointer; white-space:nowrap; transition:color .15s; }
 .panel-accounts .tw-tab:hover { color:var(--ink); }
 .panel-accounts .tw-tab.active { color:var(--sage); }
-.panel-accounts .tw-tab.active::after { content:''; position:absolute; left:10px; right:10px; bottom:-1px; height:2px; border-radius:2px; background:var(--sage); }
+/* bottom:0 with the 1px padding on .tw-tabs keeps the accent inside the row's
+   box, so it can never be clipped by the scroll container. */
+.panel-accounts .tw-tab.active::after { content:''; position:absolute; left:10px; right:10px; bottom:0; height:2px; border-radius:2px; background:var(--sage); }
 .panel-accounts .tw-tab-count { font-size:10px; font-weight:700; background:var(--bg); border:1px solid var(--line); color:var(--ink-soft); border-radius:9px; padding:1px 7px; line-height:1.5; }
 .panel-accounts .tw-tab.active .tw-tab-count { background:var(--sage-soft); border-color:var(--sage); color:var(--sage); }
 
@@ -2099,6 +2107,18 @@
 .panel-accounts .tw-back-btn:hover { background:var(--bg); }
 
 .panel-accounts .tw-preview { margin-top:3px; font-size:11.5px; line-height:1.45; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+
+/* Filter popover. position:relative on the wrapper anchors it; the panel already
+   clips overflow, so it sits inside the toolbar rather than escaping the layout
+   with a fixed/portal layer that would fight the sticky header. */
+.panel-accounts .tw-filter-wrap { position:relative; flex-shrink:0; }
+.panel-accounts .tw-filter-badge { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px; margin-left:2px; font-size:10px; font-weight:700; color:#fff; background:var(--sage); border-radius:8px; }
+.panel-accounts .tw-filter-pop { position:absolute; top:calc(100% + 6px); left:0; z-index:60; width:238px; padding:12px; background:var(--card-bg); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 28px rgba(16,35,71,.14); }
+.panel-accounts .tw-filter-pop-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); }
+.panel-accounts .tw-filter-pop-head button { background:none; border:none; padding:0; font-family:inherit; font-size:11px; font-weight:600; color:var(--sage); cursor:pointer; }
+.panel-accounts .tw-filter-field { display:flex; flex-direction:column; gap:4px; margin-bottom:9px; font-size:11px; font-weight:600; color:var(--ink-soft); }
+.panel-accounts .tw-filter-field select { padding:6px 8px; font-size:12px; font-family:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:7px; }
+.panel-accounts .tw-filter-done { width:100%; margin-top:2px; }
 .panel-accounts .tw-spin { animation:tw-spin .8s linear infinite; }
 @keyframes tw-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, X, ChevronDown, ArrowUpDown, List, LayoutGrid,
   Inbox, MessageSquare, MoreHorizontal, Eye, RefreshCw, Plus, Trash2, Send,
-  CheckCircle2, Building2, ChevronLeft, ChevronRight, Circle, Paperclip, ArrowLeft,
+  CheckCircle2, Building2, ChevronLeft, ChevronRight, Circle, Paperclip, ArrowLeft, SlidersHorizontal,
 } from 'lucide-react';
 import { apiGet, apiPut, apiPost, apiDelete } from '../api/auth';
 import { toast } from '../../../components/Toast';
@@ -157,6 +157,9 @@ export default function AccountsTickets() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeTab, setActiveTab] = useState('open');
   const [sort, setSort] = useState('newest');
+  // Filters are deliberately limited to fields the ticket row actually carries.
+  const [filters, setFilters] = useState({ category: 'all', department: 'all', priority: 'all' });
+  const [filterOpen, setFilterOpen] = useState(false);
   const [view, setView] = useState('list');
   const [page, setPage] = useState(1);
   const [selectMode, setSelectMode] = useState(false);
@@ -173,6 +176,7 @@ export default function AccountsTickets() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [menuId, setMenuId] = useState(null);
   const menuRef = useRef(null);
+  const filterRef = useRef(null);
 
   const [showRaise, setShowRaise] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -229,6 +233,22 @@ export default function AccountsTickets() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Filter popover: closes on Escape and on an outside click. The listener is
+  // skipped while the popover is closed so an idle page is not paying for it.
+  useEffect(() => {
+    if (!filterOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setFilterOpen(false); };
+    const onDown = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [filterOpen]);
+
   const fetchMyAsset = async () => {
     setDeskLoading(true);
     try {
@@ -271,23 +291,43 @@ export default function AccountsTickets() {
         return hay.includes(debouncedSearch);
       });
     }
-    list = [...list].sort((a, b) =>
-      sort === 'newest'
-        ? new Date(b.created_at) - new Date(a.created_at)
-        : new Date(a.created_at) - new Date(b.created_at));
+    // Every option below maps to a field the API actually stores and returns --
+    // priority, category and department are columns on the ticket row (see
+    // ticketController create/update), so none of this is client-side invention.
+    if (filters.category !== 'all') list = list.filter(t => (t.category || 'other') === filters.category);
+    if (filters.department !== 'all') list = list.filter(t => (t.department || 'other') === filters.department);
+    if (filters.priority !== 'all') list = list.filter(t => (t.priority || 'medium') === filters.priority);
+    list = [...list].sort((a, b) => {
+      const byTime = sort === 'oldest'
+        ? new Date(a.created_at) - new Date(b.created_at)
+        : new Date(b.created_at) - new Date(a.created_at);
+      if (sort !== 'priority') return byTime;
+      // Priority tiebreak, not a reordering: highest first, created date as the
+      // stable fallback so the order does not shuffle between renders.
+      const rank = { high: 0, medium: 1, low: 2 };
+      const diff = (rank[a.priority] ?? 1) - (rank[b.priority] ?? 1);
+      return diff || byTime;
+    });
     return list;
-  }, [tickets, activeTab, debouncedSearch, sort]);
+  }, [tickets, activeTab, debouncedSearch, sort, filters]);
+
+  const activeFilterCount = Object.values(filters).filter(v => v !== 'all').length;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, activeTab, view]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, activeTab, view, filters]);
 
   const clearSearch = () => {
     setSearch('');
     setDebouncedSearch('');
     setActiveTab('open');
+    // Filters too: the empty-state button now reads "Clear search and filters",
+    // so leaving a filter applied would make the queue stay empty and the label
+    // a lie. Also resets to All sources, which is what returning to the full
+    // queue means.
+    setFilters({ category: 'all', department: 'all', priority: 'all' });
   };
 
   const rowMenuOpen = menuId;
@@ -597,11 +637,58 @@ export default function AccountsTickets() {
             </button>
           )}
           <div className="tw-toolbar-spacer" />
+          <div className="tw-filter-wrap" ref={filterRef}>
+            <button
+              className={`tw-filter-toggle${activeFilterCount ? ' active' : ''}`}
+              onClick={() => setFilterOpen(o => !o)}
+              aria-haspopup="dialog"
+              aria-expanded={filterOpen}
+              aria-label="Filter tickets"
+            >
+              <SlidersHorizontal size={15} /> Filters
+              {activeFilterCount > 0 && <span className="tw-filter-badge">{activeFilterCount}</span>}
+            </button>
+            {filterOpen && (
+              <div className="tw-filter-pop" role="dialog" aria-label="Ticket filters">
+                <div className="tw-filter-pop-head">
+                  <span>Filters</span>
+                  {activeFilterCount > 0 && (
+                    <button onClick={() => setFilters({ category: 'all', department: 'all', priority: 'all' })}>Clear all</button>
+                  )}
+                </div>
+                <label className="tw-filter-field">
+                  Category
+                  <select value={filters.category} onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}>
+                    <option value="all">All categories</option>
+                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </label>
+                <label className="tw-filter-field">
+                  Department
+                  <select value={filters.department} onChange={e => setFilters(f => ({ ...f, department: e.target.value }))}>
+                    <option value="all">All departments</option>
+                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+                  </select>
+                </label>
+                <label className="tw-filter-field">
+                  Priority
+                  <select value={filters.priority} onChange={e => setFilters(f => ({ ...f, priority: e.target.value }))}>
+                    <option value="all">All priorities</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+                <button className="btn btn-sm btn-primary tw-filter-done" onClick={() => setFilterOpen(false)}>Done</button>
+              </div>
+            )}
+          </div>
           <label className="tw-sort">
             <ArrowUpDown size={14} />
-            <select value={sort} onChange={e => setSort(e.target.value)}>
+            <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort tickets">
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
+              <option value="priority">Priority</option>
             </select>
           </label>
           <div className="tw-viewtoggle" role="group" aria-label="View">
@@ -647,11 +734,15 @@ export default function AccountsTickets() {
           ) : filtered.length === 0 ? (
             <div className="tw-empty">
               <div className="tw-empty-icon"><Inbox size={30} /></div>
-              {debouncedSearch ? (
+              {debouncedSearch || activeFilterCount > 0 ? (
                 <>
-                  <p className="tw-empty-title">No matching tickets</p>
-                  <p className="tw-empty-sub">Try adjusting your search.</p>
-                  <button className="btn btn-sm btn-primary" onClick={clearSearch}>Clear search</button>
+                  <p className="tw-empty-title">No tickets match your filters</p>
+                  <p className="tw-empty-sub">
+                    {debouncedSearch && activeFilterCount > 0
+                      ? 'Try a different search, or clear the filters.'
+                      : debouncedSearch ? 'Try adjusting your search.' : 'Try clearing the filters.'}
+                  </p>
+                  <button className="btn btn-sm btn-primary" onClick={clearSearch}>Clear search and filters</button>
                 </>
               ) : tickets.length === 0 ? (
                 <>
