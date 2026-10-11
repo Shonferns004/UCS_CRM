@@ -11,14 +11,14 @@ import FroTargets from '../../../components/FroTargets'
    /accounts/fro-targets URL redirects here rather than 404ing, since it is a
    plain route that other parts of the app and old bookmarks may still use. */
 const TABS = [
-  { label: 'Teams', path: '/accounts/teams' },
-  { label: 'FRO Targets', path: '/accounts/teams/targets' },
+  { label: 'Team Allocation', path: '/accounts/teams' },
+  { label: 'Target Settings', path: '/accounts/teams/targets' },
 ]
 
 export default function TeamsSection() {
   return (
     <div>
-      <PageTabs tabs={TABS} ariaLabel="Teams" />
+      <PageTabs tabs={TABS} ariaLabel="Teams and Target" />
       <Routes>
         <Route index element={<Teams />} />
         <Route path="targets" element={<FroTargets />} />
