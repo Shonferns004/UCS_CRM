@@ -643,6 +643,7 @@ export const getMySalaryBreakdown = async (req, res) => {
       joinedThisMonth,
       joinDay,
       deductedCount: deducted.size,
+      deductedDates: [...deducted],
       absentCount: absentDatesAfterJoin.length,
       absentDates: absentDatesAfterJoin,
       extraSundayCount: extraSundays.length,
