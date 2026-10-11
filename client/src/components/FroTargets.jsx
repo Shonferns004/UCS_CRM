@@ -251,6 +251,13 @@ export default function FroTargets() {
       });
   }, [rows, filter, search]);
 
+  // Absconded count for the current view. Declared here rather than inline in the
+  // JSX: it was referenced but never defined, which threw ReferenceError and took
+  // the whole panel down with it. Derived from `visible` so it agrees with the
+  // rows on screen -- under 'Needs a target' the filter already excludes
+  // absconded FROs, so the count is correctly 0 there.
+  const abscondedShown = useMemo(() => visible.filter(isAbsconded).length, [visible]);
+
   // Exports exactly what the table shows, so the search box and source filter
   // apply to the file too - otherwise a filtered screen would silently hand over
   // the whole roster. Target stays a number (not "₹1,00,000") so the column is
@@ -300,7 +307,7 @@ export default function FroTargets() {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>FRO Monthly Targets</h2>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Target Settings</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
             Collection targets per FRO. First three months are derived from salary; after that a target
             carries over from the last month one was set until you change it.
