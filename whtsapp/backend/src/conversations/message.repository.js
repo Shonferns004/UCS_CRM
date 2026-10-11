@@ -191,18 +191,25 @@ export async function attachOutboundMedia(id, mediaUrl) {
 }
 
 export async function confirmOutboundMessage(id, waMessageId) {
+  // A confirmed send is the only place the previous failure is genuinely
+  // resolved, so the error fields are cleared here — and nowhere earlier.
   const result = await query(
-    `UPDATE messages SET wa_message_id = $2, status = 'sent', status_updated_at = NOW()
-     WHERE id = $1 RETURNING id, wa_message_id, status`,
+    `UPDATE messages
+        SET wa_message_id = $2, status = 'sent', error_code = NULL, error_detail = NULL,
+            status_updated_at = NOW()
+      WHERE id = $1 RETURNING id, wa_message_id, status`,
     [id, waMessageId]
   );
   return result.rows[0] ?? null;
 }
 
 export async function failOutboundMessage(id, errorCode, errorDetail) {
+  // COALESCE: ek retry jo Meta code ke bina fail ho (network/timeout) purane
+  // code ko mita nahi deti — wahi failure abhi bhi asli wajah hai.
   await query(
     `UPDATE messages
-        SET status = 'failed', error_code = $2, error_detail = $3, status_updated_at = NOW()
+        SET status = 'failed', error_code = COALESCE($2, error_code),
+            error_detail = COALESCE($3, error_detail), status_updated_at = NOW()
       WHERE id = $1`,
     [id, errorCode ?? null, errorDetail ?? null]
   );
@@ -348,19 +355,27 @@ export async function findRetryableMessage(id) {
   const result = await query(
     `SELECT id, conversation_id, direction, status, type, body, media_url,
             reply_to_id, is_forwarded, template_name, template_language,
-            template_params, wa_message_id, sent_by_staff_id, created_at
+            template_params, wa_message_id, sent_by_staff_id, created_at,
+            error_code, error_detail
        FROM messages WHERE id = $1`,
     [id]
   );
   return result.rows[0] ?? null;
 }
 
-/** Puts a failed row back to 'pending' so a retry can reuse the same bubble. */
+/**
+ * Puts a failed row back to 'pending' so a retry can reuse the same bubble.
+ *
+ * `error_code` / `error_detail` jaan-boojh kar CLEAR nahi hote. Retry ka poora
+ * point yeh hai ki wahi row dobara bheji jaaye — agar naya attempt Meta ke code
+ * ke bina fail hua (network, timeout, validation) to purana 131047 pehchaan
+ * hamesha ke liye khatam ho jaata. Diagnostics tab clear hote hain jab send
+ * genuinely confirm ho jaata hai (see confirmOutboundMessage).
+ */
 export async function resetOutboundForRetry(id) {
   await query(
     `UPDATE messages
-        SET status = 'pending', error_code = NULL, error_detail = NULL,
-            status_updated_at = NOW()
+        SET status = 'pending', status_updated_at = NOW()
       WHERE id = $1`,
     [id]
   );

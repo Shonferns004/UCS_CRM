@@ -77,13 +77,21 @@ export default function MessageComposer({
   onSend,
   onSendTemplate,
   onSendMedia,
+  templatesOpen: templatesOpenProp,
+  onOpenTemplates,
+  onCloseTemplates,
 }) {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [localTemplatesOpen, setLocalTemplatesOpen] = useState(false);
+  // ChatPanel owns this state so a failed bubble can open the same library;
+  // when it is not lifted (older call sites), this stays local.
+  const isLifted = Boolean(onOpenTemplates && onCloseTemplates);
+  const templatesOpen = isLifted ? Boolean(templatesOpenProp) : localTemplatesOpen;
+  const setTemplatesOpen = isLifted ? (next) => (next ? onOpenTemplates() : onCloseTemplates()) : setLocalTemplatesOpen;
   const [quickOpen, setQuickOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState(null);
   const [pendingFileUrl, setPendingFileUrl] = useState(null);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy, Medal, Clock } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy, Medal, Clock, Settings2 } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -11,6 +11,7 @@ import DataUsageModal from './components/DataUsageModal'
 import { useRealtime } from '../../hooks/useRealtime'
 import { onFroAction, onFroBroadcast, onFroTeamBroadcast, onFroForceLogout } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
+import { apiGet } from '../accounts/api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
@@ -35,6 +36,8 @@ import History from './pages/History'
 import MyIdle from './pages/MyIdle'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
+import WhatsAppChat from './pages/WhatsAppChat'
+import WhatsAppAdmin from './pages/WhatsAppAdmin'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
 import teleWav from '../../assets/audio/tele.wav'
@@ -363,15 +366,6 @@ function FroStatusPill() {
   );
 }
 
-function WhatsAppComingSoon() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--ink-soft)' }}>
-      <MessageCircle size={40} strokeWidth={1.5} style={{ opacity: 0.4 }} />
-      <div style={{ fontSize: 14, fontWeight: 700 }}>Inbox coming soon</div>
-    </div>
-  );
-}
-
 function BirthdayPopup() {
   const { user } = useUcs()
   const [celebrants, setCelebrants] = useState([])
@@ -505,6 +499,18 @@ function WorkAnniversaryPopup() {
 
 function Sidebar({ open, onClose, waUnreadCounts, si }) {
   const location = useLocation()
+  // Whether this agent holds crm_agents.whatsapp_admin. Fetched live rather than
+  // read from the token, so revoking the flag hides the entry on the next load
+  // instead of lingering for the life of a 24h JWT.
+  const [isWaAdmin, setIsWaAdmin] = useState(false)
+  useEffect(() => {
+    let alive = true
+    api('/fro/whatsapp/admin-status')
+      .then(s => { if (alive) setIsWaAdmin(!!s?.whatsapp_admin) })
+      .catch(() => { if (alive) setIsWaAdmin(false) })
+    return () => { alive = false }
+  }, [])
+
   const nav = [...NAV_BASE]
   const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
   if (waAgents.length === 1) {
@@ -515,6 +521,9 @@ function Sidebar({ open, onClose, waUnreadCounts, si }) {
     })
   } else {
     nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'Inbox', Icon: MessageCircle })
+  }
+  if (isWaAdmin) {
+    nav.push({ id: 'whatsapp-admin', path: '/fro/whatsapp-admin', label: 'WhatsApp Admin', Icon: Settings2 })
   }
   return (
     <>
@@ -529,18 +538,10 @@ function Sidebar({ open, onClose, waUnreadCounts, si }) {
         </div>
         <nav className="sidebar-nav" style={{ flex: 1 }}>
           {nav.map(n => {
-            const waDisabled = n.id.startsWith('whatsapp');
             return (
             <NavLink key={n.id} to={n.path} end
               className={() => `snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
-              onClick={(e) => {
-                if (waDisabled) {
-                  e.preventDefault();
-                  toast('Inbox coming soon', 'info');
-                }
-                onClose?.();
-              }}
-              style={waDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
+              onClick={() => onClose?.()}>
             <n.Icon size={18} strokeWidth={2} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>{n.label}</span>
@@ -1404,8 +1405,9 @@ useEffect(() => onFroAction((action) => {
             <Route path="lead-incentive" element={<LeadIncentive />} />
             <Route path="tickets" element={<FroTickets />} />
             <Route path="chat" element={<ChatWorkspace />} />
-            <Route path="whatsapp-chat" element={<WhatsAppComingSoon />} />
-            <Route path="whatsapp-chat/:project" element={<WhatsAppComingSoon />} />
+            <Route path="whatsapp-chat" element={<WhatsAppChat />} />
+            <Route path="whatsapp-chat/:project" element={<WhatsAppChat />} />
+            <Route path="whatsapp-admin" element={<WhatsAppAdmin />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

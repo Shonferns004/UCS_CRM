@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, fetchMediaObjectUrl } from '../lib/api.js';
 import { formatMessageStamp, MESSAGE_TYPE_LABELS } from '../lib/format.js';
+import { classifyDeliveryFailure, REMEDY_TEMPLATE } from '../lib/errorCodes.js';
 
 function Attachment({ mediaUrl, type, onOpen }) {
   const [objectUrl, setObjectUrl] = useState(null);
@@ -196,9 +197,11 @@ export default function MessageBubble({
   onForward,
   onJumpToMessage,
   onRetryMessage,
+  onUseTemplate,
 }) {
   const isOutbound = message.direction === 'outbound';
   const isFailed = message.status === 'failed';
+  const failure = classifyDeliveryFailure(message.error_code);
   const hasMedia = Boolean(message.media_url);
   const isTemplateMessage = message.type === 'template';
   const definition = useTemplateDefinition(message);
@@ -391,14 +394,27 @@ export default function MessageBubble({
               Not delivered{message.error_code ? ` (code ${message.error_code})` : ''}
               {message.error_detail ? `: ${message.error_detail}` : ''}
             </p>
-            {onRetryMessage && typeof message.id === 'number' && (
-              <button
-                type="button"
-                className="bubble-retry"
-                onClick={() => onRetryMessage(message)}
-              >
-                ↻ Retry
-              </button>
+            {failure.retryable ? (
+              onRetryMessage && typeof message.id === 'number' && (
+                <button
+                  type="button"
+                  className="bubble-retry"
+                  onClick={() => onRetryMessage(message)}
+                >
+                  ↻ Retry
+                </button>
+              )
+            ) : (
+              // Retry is deliberate yahan: 131047 jaise code par wahi free-form
+              // payload Meta dobara reject karega. Sirf remedy dikhate hain.
+              <>
+                <p className="bubble-error-hint">{failure.hint}</p>
+                {failure.remedy === REMEDY_TEMPLATE && onUseTemplate && (
+                  <button type="button" className="bubble-retry" onClick={onUseTemplate}>
+                    📋 Send an approved template
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}

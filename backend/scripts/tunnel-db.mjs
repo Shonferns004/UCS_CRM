@@ -209,16 +209,31 @@ function tunnelEnv() {
     console.error('DATABASE_URL not set in backend/.env');
     process.exit(1);
   }
-  return {
-    PGHOST: '127.0.0.1',
-    PGPORT: String(LOCAL_PORT),
-    PGUSER: decodeURIComponent(url.username || ''),
-    PGPASSWORD: decodeURIComponent(url.password || ''),
-    PGDATABASE: url.pathname.replace(/^\//, ''),
-    PGSSLMODE: 'require',
-    DATABASE_URL: '',
-    DATABASE_SSL: 'false',
+  const user = url.username || '';
+  const pass = url.password || '';
+  const dbname = url.pathname.replace(/^\//, '') || 'postgres';
+
+  // A tunnel-shaped CONNECTION STRING, not PG* vars plus an emptied DATABASE_URL.
+  //
+  // The old form relied on DATABASE_URL being falsy so db.js would fall through to
+  // the PG* branch, and that does not survive contact with either end of the
+  // chain: PowerShell DELETES a variable assigned "" (so `env` output pasted into
+  // a shell left DATABASE_URL undefined), and db.js re-runs dotenv.config() on
+  // import, which repopulates it from .env with the blocked RDS host. Either way
+  // the backend dialled the blocked IP again and every query timed out.
+  //
+  // Expressing the tunnel AS the connection string removes the precedence race
+  // entirely: a real value is set, so dotenv has nothing to repopulate, and the
+  // PG* branch is never consulted.
+  const env = {
+    DATABASE_URL: `postgres://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@127.0.0.1:${LOCAL_PORT}/${dbname}`,
   };
+  // Must be absent, not 'false': RDS rejects plaintext with "no pg_hba.conf entry
+  // ... no encryption" (measured against the live instance), so db.js has to take
+  // its ssl branch, which it only does when DATABASE_SSL !== 'false'.
+  delete env.DATABASE_SSL;
+  for (const k of ['PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE', 'PGSSLMODE']) delete env[k];
+  return env;
 }
 
 // Starts the backend in the foreground with the tunnel env applied, so no secret
@@ -272,16 +287,13 @@ function cmdEnv() {
   const dbname = url.pathname.replace(/^\//, '');
   const host = url.hostname;
 
-  // Values come from the existing .env; DATABASE_URL is intentionally omitted so
-  // db.js falls through to the PG* branch instead of dialling the blocked IP.
-  console.log(`$env:PGHOST="127.0.0.1"`);
-  console.log(`$env:PGPORT="${LOCAL_PORT}"`);
-  console.log(`$env:PGUSER="${user}"`);
-  console.log(`$env:PGPASSWORD="${pass}"`);
-  console.log(`$env:PGDATABASE="${dbname}"`);
-  console.log(`$env:PGSSLMODE="require"`);
-  console.log(`$env:DATABASE_URL=""`);
-  console.log(`$env:DATABASE_SSL="false"`);
+  // Same reasoning as tunnelEnv(): one tunnel-shaped connection string beats a
+  // set of PG* vars plus an emptied DATABASE_URL, which PowerShell deletes and
+  // db.js's dotenv then repopulates with the blocked RDS host.
+  const tunnelUrl = `postgres://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@127.0.0.1:${LOCAL_PORT}/${dbname}`;
+  console.log(`$env:DATABASE_URL="${tunnelUrl}"`);
+  // RDS refuses plaintext, so this must be unset rather than set to 'false'.
+  console.log('Remove-Item Env:DATABASE_SSL -ErrorAction SilentlyContinue');
   console.log('');
   console.log('Sourced from backend/.env. Host is rewritten to the tunnel; nothing was');
   console.log('hard-coded. Do not paste this output into chat or commit it.');

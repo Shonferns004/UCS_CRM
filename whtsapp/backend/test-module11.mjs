@@ -21,6 +21,10 @@ process.env.WHATSAPP_AUTO_REPLY_ENABLED ||= 'false';
 
 let stubSeq = 0;
 let shouldFail = false;
+/** Code the stubbed Meta rejection carries. `null` simulates a network/timeout
+ *  failure that never reaches Meta's error shape — used to prove a retry that
+ *  dies that way does not erase the original diagnostic. */
+let failCode = 131026;
 /** Captures outbound `status: read` calls so the read-receipt flow can be asserted. */
 const readReceiptCalls = [];
 
@@ -41,7 +45,7 @@ globalThis.fetch = async (input, init) => {
     if (shouldFail) {
       return new Response(
         JSON.stringify({
-          error: { message: 'Simulated Meta rejection', code: 131026, type: 'OAuthException' },
+          error: { message: 'Simulated Meta rejection', code: failCode, type: 'OAuthException' },
         }),
         { status: 400, headers: { 'content-type': 'application/json' } }
       );
@@ -316,6 +320,82 @@ check('A9 the owner retries the same failed row -> sent with a fresh wamid',
 // Now the row is 'sent': the status check throws 409 before any dispatch.
 r = await call('POST', `/conversations/${c1.id}/messages/${failedId}/retry`, { token: tA1 });
 check('A10 retrying a message that is no longer failed -> 409', r.status === 409, `status=${r.status}`);
+
+/* ------------------------------------ non-retryable failure: 131047 ------ */
+// The real-world path that motivated this: Meta ACCEPTS the send (200) and only
+// reports the failure later, asynchronously, on the status webhook — 131047,
+// "more than 24 hours have passed since the recipient last replied". A free-form
+// retry re-sends the identical payload, so Meta rejects it with 131047 again.
+const reengageWamid = `wamid.M11-REENGAAGE-${Date.now()}`;
+const reengageId = (await query(
+  `INSERT INTO messages (conversation_id, direction, status, type, body,
+                         wa_message_id, sent_by_staff_id, created_at)
+   VALUES ($1, 'outbound', 'sent', 'text', $2, $3, $4, NOW()) RETURNING id`,
+  [c1.id, 'Just checking in — are you still there?', reengageWamid, a1Staff.id]
+)).rows[0]?.id;
+
+await ingest(statusPayload(reengageWamid, 'failed', {
+  error: { code: 131047, title: 'Re-engagement message' },
+}));
+let reengageRow = await messageRow(reengageId);
+check('B1 a 131047 status webhook marks the row failed and stores the code',
+  reengageRow?.status === 'failed' && reengageRow?.error_code === 131047,
+  `status=${reengageRow?.status} code=${reengageRow?.error_code}`);
+
+const metaCallsBefore = stubSeq;
+let blocked = null;
+try {
+  await retryOutboundMessage(a1Staff, c1.id, reengageId);
+} catch (error) {
+  blocked = error;
+}
+check('B2 retrying a 131047 message is refused without burning a Meta call',
+  blocked?.status === 409 && stubSeq === metaCallsBefore,
+  `status=${blocked?.status} metaCalls=${stubSeq - metaCallsBefore}`);
+check('B3 the refusal points the agent at an approved template',
+  blocked?.details?.remedy === 'template' && blocked?.details?.errorCode === 131047,
+  `remedy=${blocked?.details?.remedy} code=${blocked?.details?.errorCode}`);
+
+reengageRow = await messageRow(reengageId);
+check('B4 the refused retry leaves the row failed with its diagnostic intact',
+  reengageRow?.status === 'failed' && reengageRow?.error_code === 131047,
+  `status=${reengageRow?.status} code=${reengageRow?.error_code}`);
+
+r = await call('POST', `/conversations/${c1.id}/messages/${reengageId}/retry`, { token: tA1 });
+check('B5 the retry route returns 409 carrying the template remedy',
+  r.status === 409 && r.json?.details?.remedy === 'template',
+  `status=${r.status} remedy=${r.json?.details?.remedy}`);
+
+/* ------------------------------ a retry must not erase the diagnosis ----- */
+// The first attempt fails with a real Meta code; the retry then dies on the
+// network and never gets one. The original 131026 must survive, otherwise the
+// agent loses the only clue they had about why this message is failing.
+shouldFail = true;
+let codelessId = null;
+try {
+  await sendReply(a1Staff, c1.id, { body: 'This attempt dies on the network' });
+} catch {
+  /* the simulated rejection is the point */
+}
+codelessId = (await query(
+  `SELECT id FROM messages
+    WHERE conversation_id = $1 AND direction = 'outbound' AND status = 'failed'
+    ORDER BY id DESC LIMIT 1`,
+  [c1.id]
+)).rows[0]?.id;
+
+failCode = null;
+try {
+  await retryOutboundMessage(a1Staff, c1.id, codelessId);
+} catch {
+  /* the simulated network failure is the point */
+}
+shouldFail = false;
+failCode = 131026;
+const codelessRow = codelessId ? await messageRow(codelessId) : null;
+check('B6 a retry that fails without a Meta code keeps the original error_code',
+  codelessRow?.status === 'failed' && codelessRow?.error_code === 131026,
+  `status=${codelessRow?.status} code=${codelessRow?.error_code}`);
 
 /* ------------------------------------------------- unknown wamid reconcile -- */
 const unknownWamid = `wamid.M11-UNKNOWN-${Date.now()}`;

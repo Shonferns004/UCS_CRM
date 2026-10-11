@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import ChatHeader from './ChatHeader.jsx';
 import MessageList from './MessageList.jsx';
 import MessageComposer from './MessageComposer.jsx';
@@ -43,6 +44,11 @@ export default function ChatPanel({
   onFocusHandled,
   onBack,
 }) {
+  // Module 11 — Template Library ka open/close yahan rehta hai, composer ke
+  // andar nahi: ek failed bubble (131047) se bhi "Send an approved template"
+  // CTA usi library ko kholna chahta hai. Hooks early return se pehle — rule.
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+
   if (!conversation) {
     return (
       <section className="chat-panel">
@@ -120,6 +126,7 @@ export default function ChatPanel({
         onForward={onForward}
         onJumpToMessage={onJumpToMessage}
         onRetryMessage={onRetryMessage}
+        onUseTemplate={() => setTemplatesOpen(true)}
       />
 
       <MessageComposer
@@ -135,6 +142,9 @@ export default function ChatPanel({
         onSend={onSend}
         onSendTemplate={onSendTemplate}
         onSendMedia={onSendMedia}
+        templatesOpen={templatesOpen}
+        onOpenTemplates={() => setTemplatesOpen(true)}
+        onCloseTemplates={() => setTemplatesOpen(false)}
       />
     </section>
   );

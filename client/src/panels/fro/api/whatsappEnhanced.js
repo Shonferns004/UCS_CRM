@@ -17,9 +17,20 @@ export async function getMyAccounts(agentToken) {
   return agentApi('/fro/whatsapp/my-accounts', {}, agentToken)
 }
 
-export async function getConversations(userId, agentToken, project) {
-  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
-  return agentApi(`/fro/whatsapp/agent-conversations${qs}`, {}, agentToken)
+// `filters` adds the standalone inbox's list controls: unread-only, one or more
+// statuses, a contact search term, and a label. Each maps to a column/indexed
+// predicate on the server, so they page correctly rather than hiding rows the
+// caller was never sent.
+export async function getConversations(userId, agentToken, project, filters = {}) {
+  const qs = new URLSearchParams()
+  if (project) qs.set('project', project)
+  if (filters.unread) qs.set('unread', 'true')
+  if (filters.statuses?.length) qs.set('status', filters.statuses.join(','))
+  if (filters.search) qs.set('q', filters.search)
+  if (filters.label) qs.set('label', filters.label)
+  if (filters.limit) qs.set('limit', String(filters.limit))
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return agentApi(`/fro/whatsapp/agent-conversations${suffix}`, {}, agentToken)
 }
 
 export async function getUnreadCount(userId, agentToken) {
@@ -30,10 +41,10 @@ export async function getMessages(conversationId, agentToken) {
   return agentApi(`/fro/whatsapp/conversations/${conversationId}/messages`, {}, agentToken)
 }
 
-export async function sendMessage(conversationId, text, agentToken, mediaUrl) {
+export async function sendMessage(conversationId, text, agentToken, mediaUrl, mediaMimeType) {
   return agentApi(`/fro/whatsapp/conversations/${conversationId}/send`, {
     method: 'POST',
-    body: JSON.stringify({ text, mediaUrl }),
+    body: JSON.stringify({ text, mediaUrl, mediaMimeType }),
   }, agentToken)
 }
 
@@ -90,4 +101,36 @@ export async function uploadMedia(file, agentToken) {
     return res.json()
   }
   return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
+}
+
+// Move a thread through open -> pending -> resolved -> closed. The status column
+// has always existed on conversations; these routes just make it reachable.
+export async function updateConversationStatus(conversationId, status, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  }, agentToken)
+}
+
+// Re-send a failed outbound message in place. Only eligible while the row is
+// 'failed'; the backend rejects anything else with 409.
+export async function retryMessage(conversationId, messageId, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/messages/${messageId}/retry`, {
+    method: 'POST',
+  }, agentToken)
+}
+
+// Labels are free-text tags kept on conversations.labels (text[]). The endpoint
+// and the column both predate this UI; there was simply nothing to write them.
+export async function updateLabels(conversationId, labels, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/labels`, {
+    method: 'PUT',
+    body: JSON.stringify({ labels }),
+  }, agentToken)
+}
+
+// Every label in use across the caller's conversations, for the filter list.
+export async function getLabels(project, agentToken) {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return agentApi(`/fro/whatsapp/labels${qs}`, {}, agentToken)
 }

@@ -1,14 +1,42 @@
 import { useState, useRef, useEffect } from 'react'
+import { Mp3Encoder } from '@breezystack/lamejs'
+
+const MP3_BLOCK = 1152 * 16
+
+function floatToInt16(samples) {
+  const int16 = new Int16Array(samples.length)
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+  }
+  return int16
+}
+
+function encodeMp3(samples, sampleRate) {
+  const encoder = new Mp3Encoder(1, sampleRate, 32)
+  const int16 = floatToInt16(samples)
+  const parts = []
+  for (let i = 0; i < int16.length; i += MP3_BLOCK) {
+    const chunk = encoder.encodeBuffer(int16.subarray(i, i + MP3_BLOCK))
+    if (chunk.length) parts.push(chunk)
+  }
+  const tail = encoder.flush()
+  if (tail.length) parts.push(tail)
+  return new Blob(parts, { type: 'audio/mpeg' })
+}
 
 export default function AudioRecorder({ onSend, onClose }) {
   const [state, setState] = useState('idle')
   const [duration, setDuration] = useState(0)
   const [audioUrl, setAudioUrl] = useState(null)
   const [audioBlob, setAudioBlob] = useState(null)
-  const mediaRecorder = useRef(null)
-  const chunks = useRef([])
+  const pcmChunks = useRef([])
+  const sampleRate = useRef(44100)
   const timerRef = useRef(null)
   const streamRef = useRef(null)
+  const audioCtxRef = useRef(null)
+  const sourceRef = useRef(null)
+  const processorRef = useRef(null)
 
   useEffect(() => {
     startRecording()
@@ -17,7 +45,11 @@ export default function AudioRecorder({ onSend, onClose }) {
 
   const cleanup = () => {
     if (timerRef.current) clearInterval(timerRef.current)
-    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
+    if (processorRef.current) processorRef.current.onaudioprocess = null
+    try { processorRef.current?.disconnect() } catch { /* already closed */ }
+    try { sourceRef.current?.disconnect() } catch { /* already closed */ }
+    audioCtxRef.current?.close().catch(() => {})
+    streamRef.current?.getTracks().forEach(t => t.stop())
     if (audioUrl) URL.revokeObjectURL(audioUrl)
   }
 
@@ -25,24 +57,36 @@ export default function AudioRecorder({ onSend, onClose }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
-      const mimeType = MediaRecorder.isTypeSupported('audio/ogg; codecs=opus') ? 'audio/ogg; codecs=opus' : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm'
-const recorder = new MediaRecorder(stream, { mimeType })
-      mediaRecorder.current = recorder
-      chunks.current = []
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.current.push(e.data)
+      // Capture raw PCM and encode to MP3 ourselves rather than using
+      // MediaRecorder's container. Browsers emit audio/mp4 as a FRAGMENTED MP4
+      // (a moof box per fragment); Meta's downloader cannot parse that and
+      // rejects it with 131053 "Media upload error" -- confirmed against real
+      // sends, where every fragmented .m4a failed and every plain .mp3 was
+      // delivered. MP3 is on WhatsApp's accepted list, so encode to it directly.
+      const Ctor = window.AudioContext || window.webkitAudioContext
+      if (!Ctor) throw new Error('audio capture not supported by this browser')
+      const ctx = new Ctor({ sampleRate: 44100 })
+      await ctx.resume()
+      sampleRate.current = ctx.sampleRate || 44100
+
+      const source = ctx.createMediaStreamSource(stream)
+      const processor = ctx.createScriptProcessor(4096, 1, 1)
+      pcmChunks.current = []
+      processor.onaudioprocess = (e) => {
+        const channel = e.inputBuffer.getChannelData(0)
+        pcmChunks.current.push(new Float32Array(channel))
       }
 
-      recorder.onstop = () => {
-        const blob = new Blob(chunks.current, { type: recorder.mimeType })
-        setAudioBlob(blob)
-        setAudioUrl(URL.createObjectURL(blob))
-        setState('preview')
-        if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
-      }
+      source.connect(processor)
+      // Route to the destination so the browser keeps the graph running; the
+      // mic is not echoed back because nothing plays the node's output.
+      processor.connect(ctx.destination)
 
-      recorder.start()
+      sourceRef.current = source
+      processorRef.current = processor
+      audioCtxRef.current = ctx
+
       setState('recording')
       let sec = 0
       timerRef.current = setInterval(() => { sec++; setDuration(sec) }, 1000)
@@ -53,15 +97,46 @@ const recorder = new MediaRecorder(stream, { mimeType })
   }
 
   const stopRecording = () => {
-    if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
-      mediaRecorder.current.stop()
-      if (timerRef.current) clearInterval(timerRef.current)
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (processorRef.current) processorRef.current.onaudioprocess = null
+    try { processorRef.current?.disconnect() } catch { /* already closed */ }
+    try { sourceRef.current?.disconnect() } catch { /* already closed */ }
+    audioCtxRef.current?.close().catch(() => {})
+    sourceRef.current = null
+    processorRef.current = null
+    audioCtxRef.current = null
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+
+    const total = pcmChunks.current.reduce((n, c) => n + c.length, 0)
+    const merged = new Float32Array(total)
+    let off = 0
+    for (const c of pcmChunks.current) { merged.set(c, off); off += c.length }
+    pcmChunks.current = []
+
+    if (total === 0) {
+      alert('Nothing was recorded. Please check your microphone and try again.')
+      setState('idle')
+      setDuration(0)
+      startRecording()
+      return
+    }
+
+    try {
+      const blob = encodeMp3(merged, sampleRate.current)
+      setAudioBlob(blob)
+      setAudioUrl(URL.createObjectURL(blob))
+      setState('preview')
+    } catch (err) {
+      alert('Voice note encoding failed: ' + err.message)
+      setState('idle')
+      setDuration(0)
     }
   }
 
   const handleSend = () => {
     if (audioBlob) {
-      const file = new File([audioBlob], `audio_${Date.now()}.webm`, { type: audioBlob.type })
+      const file = new File([audioBlob], `audio_${Date.now()}.mp3`, { type: 'audio/mpeg' })
       onSend(file)
     }
     cleanup()

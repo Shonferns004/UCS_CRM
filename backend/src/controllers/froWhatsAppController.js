@@ -1,3 +1,4 @@
+import { classifyDeliveryFailure } from '../lib/whatsappErrorCodes.js';
 import {
   getFroConversations,
   getAgentConversations,
@@ -14,6 +15,7 @@ import {
   searchFroMessages,
   updateConversationLabels,
   uploadFroMedia,
+  resendMessage,
 } from '../services/froWhatsAppService.js';
 import { froActPairs } from './froController.js';
 import db from '../config/db.js';
@@ -84,11 +86,52 @@ export async function getMedia(req, res) {
   }
 }
 
+// Read the list filters off the query string. Defaults match what the inbox UI
+// asks for: unread-only off, all statuses, no search, no label, first 100 rows.
+const listFiltersFrom = (query) => ({
+  unread: query.unread === 'true' || query.unread === '1',
+  statuses: query.status ? String(query.status).split(',').map(s => s.trim()).filter(Boolean) : [],
+  search: query.q || query.search || '',
+  label: query.label || '',
+  limit: query.limit || 100,
+});
+
 export async function listAgentConversations(req, res) {
   try {
     const { project } = req.query;
-    const conversations = await getAgentConversations(req.user.id, project || null, req.user.role);
+    const conversations = await getAgentConversations(
+      req.user.id,
+      project || null,
+      req.user.role,
+      listFiltersFrom(req.query),
+    );
     return res.json(conversations);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+// Every label currently in use across the conversations this caller can see, so
+// the inbox can offer a filter list without hard-coding a tag catalogue. Derived
+// from conversations.labels, which already exists in the CRM — no new table.
+export async function listLabels(req, res) {
+  try {
+    const conversations = await getAgentConversations(req.user.id, req.query.project || null, req.user.role, { limit: 1000 });
+    const counts = new Map();
+    for (const c of conversations) {
+      const labels = c.labels;
+      if (!labels) continue;
+      const list = Array.isArray(labels) ? labels : String(labels).split(',');
+      for (const raw of list) {
+        const label = String(raw).trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        const prev = counts.get(key);
+        counts.set(key, { label, count: (prev?.count || 0) + 1 });
+      }
+    }
+    const items = Array.from(counts.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    return res.json(items);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -125,13 +168,29 @@ export async function listMessages(req, res) {
 export async function sendMessage(req, res) {
   try {
     const { id } = req.params;
-    const { text, mediaUrl } = req.body;
+    const { text, mediaUrl, mediaMimeType: reqMimeType } = req.body;
 
     if ((!text || !text.trim()) && !mediaUrl) {
       return res.status(400).json({ message: 'Message text or media URL is required' });
     }
 
-    const message = await sendFroReply(id, req.user.id, text?.trim() || '', mediaUrl);
+    // Recover the stored mime type so the bubble can pick the right renderer
+    // (<img> / <audio> / <video> / download) and so the WhatsApp payload is sent
+    // with the correct `type`. The client only passes the URL back, and that URL
+    // is presigned, so match on the object key with the query string stripped
+    // rather than on the full signed string.
+    let mediaMimeType = reqMimeType || null;
+    if (!mediaMimeType && mediaUrl) {
+      const bareUrl = String(mediaUrl).split('?')[0];
+      const { data: mlRows } = await db
+        .from('media_library')
+        .select('file_type, file_url')
+        .ilike('file_url', `${bareUrl}%`)
+        .limit(1);
+      mediaMimeType = mlRows?.[0]?.file_type || null;
+    }
+
+    const message = await sendFroReply(id, req.user.id, text?.trim() || '', mediaUrl, mediaMimeType);
     return res.json({ success: true, message });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -244,15 +303,141 @@ export async function updateLabels(req, res) {
   }
 }
 
+// The standalone inbox lets a thread move through open -> pending -> resolved ->
+// closed. `conversations.status` has always existed in the CRM (default 'open')
+// but nothing wrote it except the webhook's initial 'open', so the whole
+// lifecycle was unreachable. Reusing that column keeps this additive: no new
+// table, and rows that were never set simply read as 'open'.
+const CONVERSATION_STATUSES = ['open', 'pending', 'resolved', 'closed'];
+
+export async function updateConversationStatus(req, res) {
+  try {
+    const { id } = req.params;
+    const status = String(req.body?.status || '').trim();
+    if (!CONVERSATION_STATUSES.includes(status)) {
+      return res.status(400).json({
+        message: `status must be one of: ${CONVERSATION_STATUSES.join(', ')}`,
+      });
+    }
+    const { data: conv, error: readErr } = await db
+      .from('conversations')
+      .select('id, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!conv) return res.status(404).json({ message: 'Conversation not found' });
+
+    // Compare-and-swap on the status we just read, so two agents changing the
+    // same thread at once cannot silently overwrite each other.
+    const { data: updated, error: updErr } = await db
+      .from('conversations')
+      .update({ status })
+      .eq('id', id)
+      .eq('status', conv.status)
+      .select()
+      .maybeSingle();
+    if (updErr) throw updErr;
+    if (!updated) {
+      return res.status(409).json({ message: 'Conversation status changed elsewhere, reload and retry' });
+    }
+    return res.json({ success: true, conversation: updated });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+// Retry a failed outbound message in place, reusing the same row (and therefore
+// the same bubble) rather than creating a duplicate. messages already carries
+// status + failure_reason, so this needs no schema. Only outbound rows that are
+// actually 'failed' are eligible, matching the standalone's retry semantics.
+export async function retryFailedMessage(req, res) {
+  try {
+    const { id, messageId } = req.params;
+    const { data: msg, error: readErr } = await db
+      .from('messages')
+      .select('*')
+      .eq('id', messageId)
+      .eq('conversation_id', id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!msg) return res.status(404).json({ message: 'Message not found' });
+    if (msg.direction !== 'outbound') {
+      return res.status(422).json({ message: 'Only outbound messages can be retried' });
+    }
+    if (msg.status !== 'failed') {
+      return res.status(409).json({ message: `Message is '${msg.status}', not 'failed'` });
+    }
+
+    // Some Meta failures are permanent. Retrying one re-sends byte-identical
+    // text, so Meta rejects it with the same code again — every time. Refuse it
+    // here, before any Meta call, and hand back the remedy instead of a generic
+    // failure. `failure_reason` is the only place the CRM keeps the code.
+    const failure = classifyDeliveryFailure(msg.failure_reason);
+    if (!failure.retryable) {
+      return res.status(409).json({
+        message: failure.hint,
+        errorCode: failure.code,
+        remedy: failure.remedy,
+        title: failure.title,
+      });
+    }
+
+    const result = await resendMessage(id, messageId);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function uploadMedia(req, res) {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     const record = await uploadFroMedia(req.user.id, req.file);
-    return res.json({ url: record.file_url, name: record.name, type: record.file_type });
+    // The inbox client reads file_url / file_type, while other callers of this
+    // endpoint expect url / type. Return both so a single upload works
+    // everywhere and the send step can attach the right WhatsApp media type.
+    return res.json({
+      url: record.file_url,
+      type: record.file_type,
+      name: record.name,
+      file_url: record.file_url,
+      file_type: record.file_type,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+}
+
+/**
+ * Does the logged-in agent hold the WhatsApp admin flag?
+ *
+ * The panel needs this to decide whether to render the admin entry, but the
+ * flag must not be baked into the JWT: it can be granted or revoked at any time
+ * and a token lives 24h, so a stamped claim would leave access in place after
+ * the flag was removed. Reading it live means revocation takes effect on the
+ * next request. The backend guard already refuses the real routes either way --
+ * this only decides what the panel offers to click.
+ */
+export async function whatsappAdminStatus(req, res) {
+  try {
+    const agentId = req.user?.agent_user_id;
+    if (!agentId) return res.json({ whatsapp_admin: false, reason: 'not_an_agent_login' });
+
+    const { data, error } = await db
+      .from('crm_agents')
+      .select('whatsapp_admin, is_active, label')
+      .eq('id', agentId)
+      .maybeSingle();
+    if (error) throw error;
+
+    return res.json({
+      whatsapp_admin: Boolean(data?.is_active && data?.whatsapp_admin),
+      label: data?.label || req.user?.agent_label || null,
+    });
+  } catch (error) {
+    return res.status(503).json({ message: 'Could not verify WhatsApp admin access' });
   }
 }
 

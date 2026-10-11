@@ -1,5 +1,6 @@
 import { HttpError } from '../lib/HttpError.js';
 import { sendTextMessage } from '../lib/whatsapp/client.js';
+import { classifyDeliveryFailure } from '../lib/whatsapp/errorCodes.js';
 import { getConversationById, touchConversation } from './conversation.repository.js';
 import { assertWithin24hWindow } from './messaging.policy.js';
 import { sendTemplateMessage, uploadMedia, sendMediaMessage, downloadMedia } from '../lib/whatsapp/client.js';
@@ -308,11 +309,43 @@ export async function retryOutboundMessage(staff, conversationId, messageId) {
     throw new HttpError(409, 'Only failed messages can be retried');
   }
 
+  // Meta ne is row ko ek aise code se fail kiya tha jo doosri koshish se theek
+  // nahi hoga — 131047 (24h customer-care window band) aisa hai. Wahi free-form
+  // payload wapas bhejne se sirf wahi error dobara aayega, isliye agent ko ek
+  // Meta API call jalaane ke bajaye remedy dikhaya jaata hai.
+  const failure = classifyDeliveryFailure(message.error_code);
+  if (!failure.retryable) {
+    throw new HttpError(409, failure.hint, {
+      errorCode: failure.code,
+      remedy: failure.remedy,
+      title: failure.title,
+    });
+  }
+
   const args = await prepareRetry(conversation, message);
 
   await resetOutboundForRetry(messageId);
 
-  const confirmed = await dispatch(conversation, { id: messageId, ...args });
+  let confirmed;
+  try {
+    confirmed = await dispatch(conversation, { id: messageId, ...args });
+  } catch (error) {
+    // Retry ke beech Meta ne permanent failure bata di. Ye ho sakta hai kyunki
+    // humara local 24h check (`messaging.policy.js`) aur Meta ka apna window
+    // alag-alag source hain — humara DB kehta hai khula hai, Meta kehta hai
+    // band. dispatch ne code row me likh diya hai, so agli baar upar wala guard
+    // ise pehle hi rok dega; abhi agent ko readable remedy chahiye.
+    const inFlight = classifyDeliveryFailure(error?.code);
+    if (!inFlight.retryable) {
+      throw new HttpError(409, inFlight.hint, {
+        errorCode: inFlight.code,
+        remedy: inFlight.remedy,
+        title: inFlight.title,
+      });
+    }
+    throw error;
+  }
+
   await touchConversation(conversationId, message.body || `[${message.type}]`);
 
   return { id: messageId, status: 'sent', waMessageId: confirmed?.wa_message_id ?? null };

@@ -63,14 +63,18 @@ function AutoLoginLoader({ project, onReady, onError }) {
       // Always clear stale agents and re-fetch on page load
       localStorage.removeItem('wa_agents')
       let agent = null
+      // Tracked locally rather than read back from `error` state, which is still
+      // the previous value inside this tick and would clobber a specific
+      // message with the generic one below.
+      let failure = null
 
       // Auto-login
       try {
         const res = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
           headers: { Authorization: `Bearer ${ucsToken}` },
         })
+        const data = await res.json().catch(() => ({}))
         if (res.ok) {
-          const data = await res.json()
           const sessionList = data.sessions || data.agents || []
           if (sessionList.length) {
             const agents = sessionList.map(s => ({
@@ -83,14 +87,29 @@ function AutoLoginLoader({ project, onReady, onError }) {
             localStorage.setItem('wa_agents', JSON.stringify(agents))
             agent = project ? agents.find(a => a.project === project) : agents[0]
           }
+          // An empty session list is only one of several reasons this page can
+          // be empty. The backend names which one; report that instead of
+          // asserting that no agents are assigned, which was wrong whenever the
+          // call actually failed.
+          if (!agent) {
+            failure = data.reason === 'agent_lookup_failed'
+              ? 'Could not load your WhatsApp agent assignments (server error). Please contact admin.'
+              : 'No WhatsApp accounts are assigned to you. Contact admin to assign a WhatsApp number.'
+          }
+        } else {
+          failure = data?.message
+            ? `WhatsApp unavailable: ${data.message}`
+            : `WhatsApp auto-login failed (HTTP ${res.status}).`
         }
-      } catch { /* silent */ }
+      } catch {
+        failure = 'Could not reach the WhatsApp service. Check your connection.'
+      }
 
       if (!cancelled) {
         if (agent) {
           onReady(agent)
         } else {
-          const msg = 'No WhatsApp agents assigned. Contact admin.'
+          const msg = failure || 'No WhatsApp agents assigned. Contact admin.'
           setError(msg)
           onError?.(msg)
         }

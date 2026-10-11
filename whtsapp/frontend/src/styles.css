@@ -776,6 +776,18 @@ button:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Module 11 — non-retryable failure (131047) par Retry ke bajaye remedy. */
+.bubble-error-hint {
+  flex: 1 1 180px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #ffd9de;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
 }
 
 .bubble-retry {

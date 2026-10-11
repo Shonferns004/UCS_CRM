@@ -21,7 +21,11 @@ import {
   updateLabels,
   uploadMedia,
   listMyAccounts,
+  whatsappAdminStatus,
   getMedia,
+  listLabels,
+  updateConversationStatus,
+  retryFailedMessage,
 } from '../controllers/froWhatsAppController.js';
 import { sendInteractive } from '../controllers/whatsappEnhancementsController.js';
 
@@ -46,6 +50,8 @@ router.use(requireWhatsApp);
 router.get('/agent-conversations', listAgentConversations);
 router.get('/agent-conversations/unread-count', agentUnreadCount);
 router.get('/my-accounts', listMyAccounts);
+// Read-only: tells the FRO panel whether to render the WhatsApp admin entry.
+router.get('/admin-status', whatsappAdminStatus);
 router.post('/send-direct', sendDirect);
 router.post('/create-conversation', createConversation);
 router.get('/conversations/:id/messages', listMessages);
@@ -58,6 +64,12 @@ router.post('/upload-media', upload.single('file'), uploadMedia);
 router.post('/send-template', sendTemplate);
 router.get('/quick-replies', listQuickReplies);
 router.get('/templates', listTemplates);
+// Labels in use across the caller's conversations, for the inbox tag filter.
+router.get('/labels', listLabels);
+// Conversation lifecycle. The `:id` parameter must not shadow these, so they are
+// declared before the `/conversations/:id/...` block below.
+router.patch('/conversations/:id/status', updateConversationStatus);
+router.post('/conversations/:id/messages/:messageId/retry', retryFailedMessage);
 
 router.get('/conversations', listConversations);
 router.get('/conversations/unread-count', unreadCount);

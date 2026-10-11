@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react'
 import { MediaUploadPreview } from './MediaPreview'
 import AudioRecorder from './AudioRecorder'
+import TemplateLibrary from './TemplateLibrary'
 
-export default function MessageComposer({ onSend, onSendMedia, disabled }) {
+export default function MessageComposer({ onSend, onSendMedia, disabled, templateProps }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [files, setFiles] = useState([])
@@ -99,6 +100,7 @@ export default function MessageComposer({ onSend, onSendMedia, disabled }) {
             <line x1="8" y1="23" x2="16" y2="23"/>
           </svg>
         </button>
+        {templateProps && <TemplateLibrary {...templateProps} />}
         <textarea
           ref={inputRef}
           value={text}
