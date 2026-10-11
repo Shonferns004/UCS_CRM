@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Search, SlidersHorizontal, X, ChevronDown, ChevronUp, ArrowUpDown, List, LayoutGrid,
-  Ticket, Inbox, MessageSquare, MoreHorizontal, Eye, RefreshCw, Plus, Trash2, Send,
-  CheckCircle2, Clock, Calendar, Building2, Tag, ChevronLeft, ChevronRight, Circle,
+  Search, X, ChevronDown, ArrowUpDown, List, LayoutGrid,
+  Inbox, MessageSquare, MoreHorizontal, Eye, RefreshCw, Plus, Trash2, Send,
+  CheckCircle2, Building2, ChevronLeft, ChevronRight, Circle, Paperclip, ArrowLeft,
 } from 'lucide-react';
 import { apiGet, apiPut, apiPost, apiDelete } from '../api/auth';
 import { toast } from '../../../components/Toast';
@@ -22,24 +22,15 @@ const CATEGORIES = [
 
 const ACCOUNTS_QUEUE_CATEGORIES = ['suspense', 'payment_issue', 'receipt_issue'];
 
-const PRIORITIES = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-];
-
 const STATUS_META = {
-  open:        { label: 'Open',        bg: '#fefce8', color: '#a16207' },
-  in_progress: { label: 'In Progress', bg: '#eff6ff', color: '#1d4ed8' },
-  resolved:    { label: 'Resolved',    bg: '#f0fdf4', color: '#16a34a' },
-  closed:      { label: 'Closed',      bg: '#f3f4f6', color: '#6b7280' },
+  open:     { label: 'Open',     bg: '#fefce8', color: '#a16207' },
+  resolved: { label: 'Resolved', bg: '#f0fdf4', color: '#16a34a' },
 };
 
-const PRIORITY_META = {
-  low:    { bg: '#f3f4f6', color: '#374151' },
-  medium: { bg: '#fef3c7', color: '#92400e' },
-  high:   { bg: '#fee2e2', color: '#991b1b' },
-};
+// Older tickets were written with statuses the desk no longer uses. Fold them
+// into the two remaining ones so nothing disappears from the tabs.
+const LEGACY_STATUS = { in_progress: 'open', pending: 'open', closed: 'resolved' };
+const normalizeStatus = (s) => LEGACY_STATUS[s] || s || 'open';
 
 const PANEL_LABELS = {
   fro: 'FRO',
@@ -85,23 +76,73 @@ function StatusPill({ status }) {
   );
 }
 
-function PriorityPill({ priority }) {
-  const m = PRIORITY_META[priority] || { bg: '#f3f4f6', color: '#6b7280' };
+// The required default state of the right panel: no ticket selected on arrival.
+// Four hints are static explanatory copy, not controls -- they are deliberately
+// not buttons, because a feature hint that looks clickable but does nothing is
+// worse than plain text.
+const EMPTY_HINTS = [
+  { icon: MessageSquare, title: 'View Conversation', body: 'See all messages and replies in one place.' },
+  { icon: RefreshCw, title: 'Update Status', body: 'Change status, priority and assign team members.' },
+  { icon: Paperclip, title: 'Attachments', body: 'View and download attached files.' },
+  { icon: Send, title: 'Add Reply', body: 'Respond to the requester with notes or updates.' },
+];
+
+// Inline SVG rather than an image URL: it needs no network round-trip, cannot
+// 404, inherits currentColor, and respects reduced-motion on its own.
+function InboxIllustration() {
   return (
-    <span className="tw-pill" style={{ background: m.bg, color: m.color }}>
-      {priority || '—'}
-    </span>
+    <svg
+      width="132" height="104" viewBox="0 0 132 104" fill="none"
+      role="img" aria-label="An open inbox with message cards"
+      style={{ display: 'block', margin: '0 auto 20px' }}
+    >
+      <ellipse cx="66" cy="94" rx="42" ry="5" fill="#e8effb" />
+      {/* back card */}
+      <rect x="38" y="16" width="46" height="34" rx="5" fill="#ffffff" stroke="#d6e2f4" strokeWidth="1.5" transform="rotate(-8 61 33)" />
+      {/* middle card */}
+      <rect x="44" y="12" width="46" height="34" rx="5" fill="#ffffff" stroke="#d6e2f4" strokeWidth="1.5" transform="rotate(6 67 29)" />
+      {/* front card */}
+      <rect x="44" y="20" width="44" height="32" rx="5" fill="#f7faff" stroke="#c9d9f0" strokeWidth="1.5" />
+      <rect x="51" y="28" width="24" height="3" rx="1.5" fill="#9db9e0" />
+      <rect x="51" y="35" width="30" height="3" rx="1.5" fill="#c3d5ee" />
+      <rect x="51" y="42" width="18" height="3" rx="1.5" fill="#c3d5ee" />
+      {/* tray */}
+      <path d="M28 52h76l-7 34a6 6 0 0 1-5.9 4.8H40.9A6 6 0 0 1 35 86L28 52Z" fill="#ffffff" stroke="#c9d9f0" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M28 52h22l4 8h24l4-8h22" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
   );
 }
 
-function FilterSelect({ label, value, onChange, options }) {
+function TicketEmptyState({ onRaise }) {
   return (
-    <label className="tw-fselect">
-      <span className="tw-fkey">{label}</span>
-      <select value={value} onChange={e => onChange(e.target.value)}>
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </label>
+    <div className="tw-pane-empty">
+      <div className="tw-pane-empty-inner">
+        <InboxIllustration />
+        <h3 className="tw-pane-empty-title">Select a ticket</h3>
+        <p className="tw-pane-empty-sub">
+          Choose a ticket from the list to view the full conversation, details, attachments, and take actions.
+        </p>
+        <div className="tw-empty-features">
+          {EMPTY_HINTS.map(h => {
+            const Icon = h.icon;
+            return (
+              <div className="tw-empty-feature" key={h.title}>
+                <span className="tw-empty-feature-icon"><Icon size={15} /></span>
+                <div className="tw-empty-feature-copy">
+                  <strong>{h.title}</strong>
+                  <span>{h.body}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {onRaise && (
+          <button className="btn btn-sm btn-primary tw-empty-raise" onClick={onRaise}>
+            <Plus size={14} /> Raise Ticket
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -114,18 +155,16 @@ export default function AccountsTickets() {
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({ status: '', department: '', category: '', priority: '', dateFrom: '', dateTo: '' });
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('open');
   const [sort, setSort] = useState('newest');
   const [view, setView] = useState('list');
   const [page, setPage] = useState(1);
+  const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
 
   const [drawer, setDrawer] = useState(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [statusDraft, setStatusDraft] = useState('');
-  const [priorityDraft, setPriorityDraft] = useState('');
   const [resolutionDraft, setResolutionDraft] = useState('');
   const [drawerSaving, setDrawerSaving] = useState(false);
   const [replyText, setReplyText] = useState('');
@@ -138,7 +177,7 @@ export default function AccountsTickets() {
   const [showRaise, setShowRaise] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deskLoading, setDeskLoading] = useState(false);
-  const [form, setForm] = useState({ department: 'accounts', category: 'technical', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: '', ngo: '' });
+  const [form, setForm] = useState({ department: 'accounts', category: 'technical', subject: '', description: '', reference_id: '', desk_number: '', ngo: '' });
   const [formErrors, setFormErrors] = useState({});
 
   const load = useCallback(async (silent = false) => {
@@ -148,7 +187,7 @@ export default function AccountsTickets() {
     try {
       const regularTickets = await apiGet('/tickets');
       const allTickets = (regularTickets || [])
-        .map(t => ({ ...t, _source: 'regular' }))
+        .map(t => ({ ...t, status: normalizeStatus(t.status), _source: 'regular' }))
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setTickets(allTickets.filter(t => ACCOUNTS_QUEUE_CATEGORIES.includes(t.category)));
       setLastUpdated(new Date());
@@ -205,32 +244,22 @@ export default function AccountsTickets() {
   useEffect(() => { fetchMyAsset(); }, []);
 
   const stats = useMemo(() => {
-    const all = tickets.length;
+    const total = tickets.length;
     const open = tickets.filter(t => t.status === 'open').length;
-    const inProgress = tickets.filter(t => t.status === 'in_progress').length;
     const resolved = tickets.filter(t => t.status === 'resolved').length;
-    return { all, open, inProgress, resolved };
+    return { total, open, resolved };
   }, [tickets]);
 
   const tabCounts = useMemo(() => {
     const count = (fn) => tickets.filter(fn).length;
     return {
-      all: tickets.length,
       open: count(t => t.status === 'open'),
-      in_progress: count(t => t.status === 'in_progress'),
       resolved: count(t => t.status === 'resolved'),
     };
   }, [tickets]);
 
   const filtered = useMemo(() => {
-    let list = tickets;
-    if (activeTab !== 'all') list = list.filter(t => t.status === activeTab);
-    if (filters.status) list = list.filter(t => t.status === filters.status);
-    if (filters.department) list = list.filter(t => (t.department || '') === filters.department);
-    if (filters.category) list = list.filter(t => (t.category || '') === filters.category);
-    if (filters.priority) list = list.filter(t => (t.priority || '') === filters.priority);
-    if (filters.dateFrom) list = list.filter(t => new Date(t.created_at) >= new Date(filters.dateFrom + 'T00:00:00'));
-    if (filters.dateTo) list = list.filter(t => new Date(t.created_at) <= new Date(filters.dateTo + 'T23:59:59'));
+    let list = tickets.filter(t => t.status === activeTab);
     if (debouncedSearch) {
       list = list.filter(t => {
         const hay = [
@@ -247,27 +276,19 @@ export default function AccountsTickets() {
         ? new Date(b.created_at) - new Date(a.created_at)
         : new Date(a.created_at) - new Date(b.created_at));
     return list;
-  }, [tickets, activeTab, filters, debouncedSearch, sort]);
+  }, [tickets, activeTab, debouncedSearch, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, activeTab, filters, view]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, activeTab, view]);
 
-  const applyFilter = (key, value) => {
-    setFilters(f => ({ ...f, [key]: value }));
-    setActiveTab('all');
-  };
-
-  const resetFilters = () => {
-    setFilters({ status: '', department: '', category: '', priority: '', dateFrom: '', dateTo: '' });
-    setActiveTab('all');
+  const clearSearch = () => {
     setSearch('');
     setDebouncedSearch('');
+    setActiveTab('open');
   };
-
-  const hasActiveFilters = Object.values(filters).some(Boolean) || activeTab !== 'all' || !!debouncedSearch;
 
   const rowMenuOpen = menuId;
 
@@ -278,6 +299,15 @@ export default function AccountsTickets() {
   const toggleSelectAll = () => {
     setSelectedIds(allOnPageSelected ? selectedIds.filter(id => !pageItems.some(t => t.id === id)) : [...new Set([...selectedIds, ...pageItems.map(t => t.id)])]);
   };
+  const toggleSelectMode = () => {
+    setSelectMode(on => {
+      if (on) setSelectedIds([]);
+      return !on;
+    });
+    if (!selectMode) setView('list');
+  };
+
+  const toDrawer = (data) => ({ ...data, status: normalizeStatus(data.status), _source: 'regular' });
 
   const openDrawer = async (ticket) => {
     setMenuId(null);
@@ -285,14 +315,12 @@ export default function AccountsTickets() {
     setStatusMenuOpen(false);
     setDrawerLoading(true);
     setStatusDraft(ticket.status);
-    setPriorityDraft(ticket.priority || 'medium');
     setResolutionDraft(ticket.resolution || '');
     setReplyText('');
     try {
       const data = await apiGet(`/tickets/${ticket.id}`);
-      setDrawer({ ...data, _source: 'regular' });
-      setStatusDraft(data.status);
-      setPriorityDraft(data.priority || 'medium');
+      setDrawer(toDrawer(data));
+      setStatusDraft(normalizeStatus(data.status));
       setResolutionDraft(data.resolution || '');
     } catch (err) {
       toast(err.message, 'error');
@@ -311,14 +339,12 @@ export default function AccountsTickets() {
     try {
       await apiPut(`/tickets/${drawer.id}`, {
         status: statusDraft,
-        priority: priorityDraft,
         resolution: statusDraft === 'resolved' ? resolutionDraft.trim() : undefined,
       });
       toast('Ticket updated', 'success');
       const data = await apiGet(`/tickets/${drawer.id}`);
-      setDrawer({ ...data, _source: 'regular' });
-      setStatusDraft(data.status);
-      setPriorityDraft(data.priority || 'medium');
+      setDrawer(toDrawer(data));
+      setStatusDraft(normalizeStatus(data.status));
       setResolutionDraft(data.resolution || '');
       load(true);
     } catch (err) {
@@ -335,7 +361,7 @@ export default function AccountsTickets() {
       await apiPost(`/tickets/${drawer.id}/reply`, { message: replyText.trim() });
       setReplyText('');
       const data = await apiGet(`/tickets/${drawer.id}`);
-      setDrawer({ ...data, _source: 'regular' });
+      setDrawer(toDrawer(data));
       load(true);
     } catch (err) {
       toast(err.message, 'error');
@@ -352,32 +378,23 @@ export default function AccountsTickets() {
       load(true);
       if (drawer?.id === ticket.id) {
         const data = await apiGet(`/tickets/${ticket.id}`);
-        setDrawer({ ...data, _source: 'regular' });
-        setStatusDraft(data.status);
+        setDrawer(toDrawer(data));
+        setStatusDraft(normalizeStatus(data.status));
       }
     } catch (err) {
       toast(err.message, 'error');
     }
   };
 
-  const quickPriority = async (ticket, priority) => {
-    setMenuId(null);
-    try {
-      await apiPut(`/tickets/${ticket.id}`, { priority });
-      toast(`Priority set to ${priority}`, 'success');
-      load(true);
-      if (drawer?.id === ticket.id) setPriorityDraft(priority);
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  };
-
   const handleDelete = async () => {
-    if (!confirmDelete) return;
+    if (!confirmDelete || !confirmDelete.ids.length) return;
     try {
-      await apiDelete(`/tickets/${confirmDelete.id}`);
-      toast('Ticket deleted', 'success');
-      if (drawer?.id === confirmDelete.id) setDrawer(null);
+      for (const id of confirmDelete.ids) {
+        await apiDelete(`/tickets/${id}`);
+      }
+      toast(confirmDelete.ids.length > 1 ? `${confirmDelete.ids.length} tickets deleted` : 'Ticket deleted', 'success');
+      if (drawer && confirmDelete.ids.includes(drawer.id)) setDrawer(null);
+      setSelectedIds(ids => ids.filter(id => !confirmDelete.ids.includes(id)));
       setConfirmDelete(null);
       load(true);
     } catch (err) {
@@ -398,7 +415,6 @@ export default function AccountsTickets() {
         subject: form.subject,
         description: form.description,
         category: form.category,
-        priority: form.priority,
         reference_id: form.reference_id,
         desk_number: form.desk_number,
         ngo: form.ngo,
@@ -411,7 +427,7 @@ export default function AccountsTickets() {
       }
       toast('Ticket submitted successfully', 'success');
       setShowRaise(false);
-      setForm({ department: 'accounts', category: 'technical', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: form.desk_number, ngo: form.ngo });
+      setForm({ department: 'accounts', category: 'technical', subject: '', description: '', reference_id: '', desk_number: form.desk_number, ngo: form.ngo });
       load();
     } catch (err) { setFormErrors({ _general: err.message }); }
     finally { setSubmitting(false); }
@@ -434,19 +450,13 @@ export default function AccountsTickets() {
           <Eye size={14} /> View details
         </button>
         <div className="tw-rowmenu-label">Change status</div>
-        {['open', 'in_progress', 'resolved'].map(s => (
+        {['open', 'resolved'].map(s => (
           <button key={s} className="tw-rowmenu-item" onClick={() => quickStatus(t, s)}>
             <Circle size={12} style={{ color: STATUS_META[s]?.color }} /> {STATUS_META[s]?.label}
           </button>
         ))}
-        <div className="tw-rowmenu-label">Change priority</div>
-        {PRIORITIES.map(p => (
-          <button key={p.value} className="tw-rowmenu-item" onClick={() => quickPriority(t, p.value)}>
-            <Tag size={12} /> {p.label}
-          </button>
-        ))}
         <div className="tw-rowmenu-divider" />
-        <button className="tw-rowmenu-item danger" onClick={() => setConfirmDelete(t)}>
+        <button className="tw-rowmenu-item danger" onClick={() => setConfirmDelete({ ids: [t.id], subject: t.subject })}>
           <Trash2 size={14} /> Delete ticket
         </button>
       </div>
@@ -465,7 +475,6 @@ export default function AccountsTickets() {
             <span className="tw-card-no">{ticketNo(t)}</span>
             <div className="tw-card-pills">
               <StatusPill status={t.status} />
-              <PriorityPill priority={t.priority} />
             </div>
           </div>
           <div className="tw-card-subject">{t.subject}</div>
@@ -486,12 +495,15 @@ export default function AccountsTickets() {
 
     return (
       <div key={t.id} className={`tw-row${isSelected ? ' is-selected' : ''}${isDrawerOpen ? ' is-open' : ''}`} onClick={() => openDrawer(t)}>
-        <label className="tw-check" onClick={e => e.stopPropagation()}>
-          <input type="checkbox" checked={isSelected} onChange={() => markSelected(t)} />
-        </label>
+        {selectMode && (
+          <label className="tw-check" onClick={e => e.stopPropagation()}>
+            <input type="checkbox" checked={isSelected} onChange={() => markSelected(t)} />
+          </label>
+        )}
         <Avatar name={t.workers?.name || t.raised_by_name} size={38} />
-        <div className="tw-row-main">
-          <div className="tw-subject">{t.subject}</div>
+          <div className="tw-row-main">
+            <div className="tw-subject">{t.subject}</div>
+            <div className="tw-preview">{t.description}</div>
           <div className="tw-submeta">
             <span className="tw-owner">{t.workers?.name || t.raised_by_name || 'Unknown'}</span>
             <span className="tw-sep">·</span>
@@ -502,14 +514,16 @@ export default function AccountsTickets() {
             <span className="tw-no">{ticketNo(t)}</span>
           </div>
         </div>
-        <PriorityPill priority={t.priority} />
         <StatusPill status={t.status} />
         <div className="tw-datecol">
           <span className="tw-date">{fmtDate(t.created_at)}</span>
           <span className="tw-comments"><MessageSquare size={12} /> {count}</span>
         </div>
         <div className="tw-row-actions" onClick={e => e.stopPropagation()}>
-          <button className="tw-iconbtn" onClick={() => setMenuId(menuId === t.id ? null : t.id)}><MoreHorizontal size={16} /></button>
+          <button className="tw-iconbtn" onClick={() => setMenuId(menuId === t.id ? null : t.id)}
+            aria-label={`Actions for ${t.subject}`} aria-haspopup="menu" aria-expanded={rowMenuOpen === t.id}>
+            <MoreHorizontal size={16} />
+          </button>
           {renderRowMenu(t)}
         </div>
       </div>
@@ -531,8 +545,8 @@ export default function AccountsTickets() {
               <span className="tw-live-dot" /> {refreshing ? 'Syncing…' : 'Live'}
               {lastUpdated ? ` · ${lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}
             </span>
-            <button className="btn btn-sm" onClick={() => load()} title="Refresh">
-              <RefreshCw size={13} />
+            <button className="btn btn-sm" onClick={() => load()} title="Refresh" disabled={refreshing} aria-label="Refresh tickets">
+              <RefreshCw size={13} className={refreshing ? 'tw-spin' : undefined} />
             </button>
             <button className="btn btn-sm btn-primary" onClick={() => setShowRaise(true)}>
               <Plus size={14} /> Raise Ticket
@@ -542,17 +556,15 @@ export default function AccountsTickets() {
 
         <div className="tw-stats">
           {[
-            { key: 'all', label: 'All Tickets', value: stats.all, color: 'var(--sage)' },
             { key: 'open', label: 'Open', value: stats.open, color: '#a16207' },
-            { key: 'in_progress', label: 'In Progress', value: stats.inProgress, color: '#1d4ed8' },
             { key: 'resolved', label: 'Resolved', value: stats.resolved, color: '#16a34a' },
           ].map(s => (
             <div key={s.key} className="tw-stat" onClick={() => { setActiveTab(s.key); }}>
-              <StatRing value={s.value} total={stats.all} color={s.color} />
+              <StatRing value={s.value} total={stats.total} color={s.color} />
               <div className="tw-stat-info">
                 <div className="tw-stat-num" style={{ color: s.color }}>{s.value}</div>
                 <div className="tw-stat-lbl">{s.label}</div>
-                <div className="tw-stat-sub">{stats.all > 0 ? `${Math.round((s.value / stats.all) * 100)}% of total` : '—'}</div>
+                <div className="tw-stat-sub">{stats.total > 0 ? `${Math.round((s.value / stats.total) * 100)}% of total` : '—'}</div>
               </div>
             </div>
           ))}
@@ -568,11 +580,22 @@ export default function AccountsTickets() {
             />
             {search && <button className="tw-search-clear" onClick={() => setSearch('')}><X size={13} /></button>}
           </div>
-          <button className={`tw-filter-toggle${showFilters ? ' active' : ''}${hasActiveFilters ? ' has-filters' : ''}`} onClick={() => setShowFilters(f => !f)}>
-            {showFilters ? <SlidersHorizontal size={15} /> : <SlidersHorizontal size={15} />} Filters
-            {hasActiveFilters && <span className="tw-filter-count">{Object.values(filters).filter(Boolean).length + (activeTab !== 'all' ? 1 : 0) + (debouncedSearch ? 1 : 0)}</span>}
-            {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
+          {selectMode ? (
+            <>
+              <button className="tw-filter-toggle active" onClick={toggleSelectMode}>Cancel</button>
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={!selectedIds.length}
+                onClick={() => setConfirmDelete({ ids: selectedIds, bulk: true })}
+              >
+                <Trash2 size={13} /> Delete {selectedIds.length ? `(${selectedIds.length})` : ''}
+              </button>
+            </>
+          ) : (
+            <button className="tw-filter-toggle" onClick={toggleSelectMode}>
+              <Trash2 size={15} /> Select
+            </button>
+          )}
           <div className="tw-toolbar-spacer" />
           <label className="tw-sort">
             <ArrowUpDown size={14} />
@@ -587,31 +610,9 @@ export default function AccountsTickets() {
           </div>
         </div>
 
-        {showFilters && (
-          <div className="tw-filters">
-            <FilterSelect label="Status" value={filters.status} onChange={v => applyFilter('status', v)} options={[{ value: '', label: 'All statuses' }, ...Object.entries(STATUS_META).map(([value, m]) => ({ value, label: m.label }))]} />
-            <FilterSelect label="Department" value={filters.department} onChange={v => applyFilter('department', v)} options={[{ value: '', label: 'All departments' }, ...DEPARTMENTS.map(d => ({ value: d, label: d.charAt(0).toUpperCase() + d.slice(1) }))]} />
-            <FilterSelect label="Category" value={filters.category} onChange={v => applyFilter('category', v)} options={[{ value: '', label: 'All categories' }, ...CATEGORIES.map(c => ({ value: c.value, label: c.label }))]} />
-            <FilterSelect label="Priority" value={filters.priority} onChange={v => applyFilter('priority', v)} options={[{ value: '', label: 'All priorities' }, ...PRIORITIES]} />
-            <label className="tw-fselect">
-              <span className="tw-fkey">From date</span>
-              <input type="date" value={filters.dateFrom} onChange={e => applyFilter('dateFrom', e.target.value)} />
-            </label>
-            <label className="tw-fselect">
-              <span className="tw-fkey">To date</span>
-              <input type="date" value={filters.dateTo} onChange={e => applyFilter('dateTo', e.target.value)} />
-            </label>
-            {hasActiveFilters && (
-              <button className="tw-reset" onClick={resetFilters}>Reset <X size={13} /></button>
-            )}
-          </div>
-        )}
-
         <div className="tw-tabs" role="tablist">
           {[
-            { key: 'all', label: 'All' },
             { key: 'open', label: 'Open' },
-            { key: 'in_progress', label: 'In Progress' },
             { key: 'resolved', label: 'Resolved' },
           ].map(tab => (
             <button key={tab.key} className={`tw-tab${activeTab === tab.key ? ' active' : ''}`} onClick={() => { setActiveTab(tab.key); }}>
@@ -646,17 +647,22 @@ export default function AccountsTickets() {
           ) : filtered.length === 0 ? (
             <div className="tw-empty">
               <div className="tw-empty-icon"><Inbox size={30} /></div>
-              {hasActiveFilters ? (
+              {debouncedSearch ? (
                 <>
                   <p className="tw-empty-title">No matching tickets</p>
-                  <p className="tw-empty-sub">Try adjusting your search or filters.</p>
-                  <button className="btn btn-sm btn-primary" onClick={resetFilters}>Clear filters</button>
+                  <p className="tw-empty-sub">Try adjusting your search.</p>
+                  <button className="btn btn-sm btn-primary" onClick={clearSearch}>Clear search</button>
                 </>
-              ) : (
+              ) : tickets.length === 0 ? (
                 <>
                   <p className="tw-empty-title">No tickets yet</p>
                   <p className="tw-empty-sub">New queue tickets raised by FRO will appear here automatically.</p>
                   <button className="btn btn-sm btn-primary" onClick={() => setShowRaise(true)}><Plus size={14} /> Raise Ticket</button>
+                </>
+              ) : (
+                <>
+                  <p className="tw-empty-title">Nothing in {STATUS_META[activeTab]?.label}</p>
+                  <p className="tw-empty-sub">Tickets in this status will show up here.</p>
                 </>
               )}
             </div>
@@ -667,11 +673,12 @@ export default function AccountsTickets() {
           ) : (
             <>
               <div className="tw-listhead">
-                <label className="tw-check" onClick={e => e.stopPropagation()}>
-                  <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll} />
-                </label>
+                {selectMode && (
+                  <label className="tw-check" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll} />
+                  </label>
+                )}
                 <span className="tw-listhead-label">Ticket</span>
-                <span className="tw-listhead-hide">Priority</span>
                 <span className="tw-listhead-hide">Status</span>
                 <span className="tw-listhead-hide">Date</span>
                 <span className="tw-listhead-actions" />
@@ -699,10 +706,17 @@ export default function AccountsTickets() {
         )}
       </div>
 
-      {drawer && (
-        <div className="tw-drawer">
-          <div className="tw-drawer-inner">
+      <div className={`tw-drawer${drawer ? ' is-open' : ''}`}>
+        <div className="tw-drawer-inner">
+          {drawer && (
+          <>
             <div className="tw-drawer-head">
+              {/* Below 900px the drawer is a full-screen overlay, so it needs a way
+                  back to the queue. Hidden on desktop where both panels are visible
+                  and the queue never leaves the screen. */}
+              <button className="tw-back-btn" onClick={() => setDrawer(null)}>
+                <ArrowLeft size={15} /> Back to tickets
+              </button>
               <div className="tw-drawer-title-wrap">
                 <div className="tw-drawer-no">{drawer._source === 'developer' ? '#DEV' : ticketNo(drawer)}</div>
                 <button className="tw-iconbtn" onClick={() => setDrawer(null)} title="Close (Esc)"><X size={16} /></button>
@@ -802,11 +816,11 @@ export default function AccountsTickets() {
             </div>
 
             <div className="tw-drawer-foot">
-              <button className="btn btn-sm tw-delete-btn" onClick={() => setConfirmDelete(drawer)} disabled={drawerSaving}>
+              <button className="btn btn-sm tw-delete-btn" onClick={() => setConfirmDelete({ ids: [drawer.id], subject: drawer.subject })} disabled={drawerSaving}>
                 <Trash2 size={14} /> Delete
               </button>
               <div className="tw-drawer-foot-right">
-                {statusDraft !== drawer.status || priorityDraft !== drawer.priority || (statusDraft === 'resolved' && resolutionDraft.trim() !== drawer.resolution) ? (
+                {statusDraft !== normalizeStatus(drawer.status) || (statusDraft === 'resolved' && resolutionDraft.trim() !== drawer.resolution) ? (
                   <span className="tw-unsaved">Unsaved changes</span>
                 ) : null}
                 <div className="tw-status-control">
@@ -832,9 +846,13 @@ export default function AccountsTickets() {
                 </div>
               </div>
             </div>
-          </div>
+          </>
+          )}
+          {!drawer && (
+            <TicketEmptyState onRaise={() => setShowRaise(true)} />
+          )}
         </div>
-      )}
+      </div>
 
       {showRaise && (
         <div className="modal-overlay" onClick={() => setShowRaise(false)}>
@@ -879,12 +897,6 @@ export default function AccountsTickets() {
               </div>
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Priority
-                  <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))}>
-                    {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                  </select>
-                </label>
-                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   Reference ID (optional)
                   <input value={form.reference_id} onChange={e => setForm(p => ({ ...p, reference_id: e.target.value }))} placeholder="Payment/suspense ID" />
                 </label>
@@ -926,14 +938,18 @@ export default function AccountsTickets() {
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
-              <h3>Delete ticket?</h3>
+              <h3>{confirmDelete.bulk ? `Delete ${confirmDelete.ids.length} tickets?` : 'Delete ticket?'}</h3>
               <button className="btn btn-sm btn-icon" onClick={() => setConfirmDelete(null)} style={{ padding: 4 }}>
                 <X size={15} />
               </button>
             </div>
             <div className="modal-body">
               <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--ink)', margin: 0 }}>
-                This will permanently delete <strong>{confirmDelete.subject}</strong> along with all of its comments. This action cannot be undone.
+                {confirmDelete.bulk ? (
+                  <>This will permanently delete <strong>{confirmDelete.ids.length} tickets</strong> along with all of their comments. This action cannot be undone.</>
+                ) : (
+                  <>This will permanently delete <strong>{confirmDelete.subject}</strong> along with all of its comments. This action cannot be undone.</>
+                )}
               </p>
             </div>
             <div className="modal-foot" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
