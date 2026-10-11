@@ -97,6 +97,12 @@ aws-credentials.txt
 credentials.txt
 creds.txt
 
+# Plaintext passwords committed under `others/imp files/aws/`. The directory is
+# ignored below, but gitignore does NOT apply to a file that is already tracked --
+# and this one is, because it arrived from origin/master. It has to be untracked
+# (git rm --cached) as well as ignored, or every `git add -A` keeps shipping it.
+others/imp files/aws/
+
 /client/windows
 /client/android
 /apps/beneficiaries/Secugen Android
