@@ -1610,7 +1610,7 @@ export default function Dashboard() {
     padding: '4px 9px',
     fontSize: 10,
     fontWeight: 700,
-    borderRadius: 999,
+    borderRadius: 6,
     border: active ? '1px solid var(--sage)' : '1px solid var(--line)',
     background: active ? 'var(--sage)' : 'transparent',
     color: active ? '#fff' : 'var(--ink-soft)',
@@ -2174,50 +2174,58 @@ export default function Dashboard() {
               <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
                 <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Per NGO</button>
                 <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
-                  Not in Use{stations_inactive > 0 ? ` (${stations_inactive})` : ''}
+                  Not in Use ({stations_inactive})
                 </button>
               </div>
             </div>
-            {stationsTab === 'per_ngo' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
-                <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
-                </div>
-                <div style={{ background: '#f0fdf4', borderRadius: 6, padding: '8px 6px' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
-                </div>
-              </div>
-            )}
           </div>
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: 8, paddingRight: 2 }}>
+          {/* No divider under the label: the card is height-pinned and tight on
+              space, so the border and its margin were pure cost. A column flex
+              container gives each tab a definite height to fill. */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2, display: 'flex', flexDirection: 'column' }}>
             {stationsTab === 'per_ngo' ? (
               Object.keys(stations_per_ngo).length > 0 ? (
-                <div>
-                  {Object.entries(stations_per_ngo).map(([name, v]) => {
-                    const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
-                    const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
-                    const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
-                    const color = ngoColorOf(name);
-                    return (
-                      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, background: 'var(--bg)', borderRadius: 7, padding: '5px 8px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, minWidth: 52, color, textTransform: 'uppercase', letterSpacing: .3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
-                        <div style={{ flex: 1, height: 7, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
-                          <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: '#16a34a', transition: 'width .3s ease' }} />
+                // Total / Active sit beside the NGO list rather than above it, so
+                // the summary stays visible while the list fills the card. `flex: 1`
+                // (in the column body above) makes the row take the whole height and
+                // let each NGO row share it; stretch makes the list column follow,
+                // and the summary opts out with alignSelf so its cards keep their
+                // own height.
+                <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0, alignItems: 'stretch' }}>
+                  <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: 2 }}>
+                    {Object.entries(stations_per_ngo).map(([name, v]) => {
+                      const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
+                      const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
+                      const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
+                      const color = ngoColorOf(name);
+                      return (
+                        <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 0 auto', minHeight: 30, marginBottom: 5, background: 'var(--bg)', borderRadius: 7, padding: '5px 8px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, minWidth: 52, color, textTransform: 'uppercase', letterSpacing: .3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+                          <div style={{ flex: 1, height: 7, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: '#16a34a', transition: 'width .3s ease' }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 700, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
-                      </div>
-                    );
-                  })}
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 6 }}>Active = station's FRO is online right now</div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ flex: '0 0 108px', alignSelf: 'flex-start', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
+                    </div>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0' }}>No station data for this period.</div>
               )
             ) : stations_inactive > 0 ? (
               inactive_by_ngo.length > 0 ? (
-                <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
                   {/* One strip of NGO columns that scrolls sideways, each column
                       scrolling its own station list. A wrapping grid would push
                       the column headers off the top of this (height-pinned) card
