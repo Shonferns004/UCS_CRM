@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Inbox, FileText, Loader2,
-  SlidersHorizontal, RefreshCw, Copy, Check, MoreVertical, Eye, Pencil, ShieldCheck,
+  RefreshCw, Copy, Check, MoreVertical, Eye, Pencil, ShieldCheck,
   BadgeCheck, Mail, Ban, Trash2, Tag, ChevronDown, Clock, Users, IndianRupee,
-  Bell, AlertTriangle, CircleCheck
+  Bell, AlertTriangle, CircleCheck, CalendarDays
 } from 'lucide-react'
+import DatePicker from 'react-datepicker'
+import 'react-datepicker/dist/react-datepicker.css'
 import {
-  STATUS_ORDER, statusLabel, PLAN_COLORS, isRenewalDue, daysUntil,
-  daysRemainingForRow, membershipState, toLocalIso
+  statusLabel, PLAN_COLORS, isRenewalDue, daysUntil,
+  daysRemainingForRow, toLocalIso
 } from './meta.js'
 import {
   exportApplicationsCsv, getPhotoUrls, sendPaymentReminder, verifyApplication,
@@ -20,40 +22,6 @@ import { useToast } from './toast.jsx'
 import StatCard from './StatCard.jsx'
 
 const PAGE_SIZES = [10, 25, 50, 100]
-
-const MEMBERSHIP_FILTERS = [
-  { key: 'active', label: 'Active' },
-  { key: 'expiring', label: 'Expiring soon' },
-  { key: 'expired', label: 'Expired' }
-]
-
-const emptyDraft = () => ({
-  statuses: [], plans: [], membership: [], from: '', to: '', expiryFrom: '', expiryTo: ''
-})
-
-// Toolbar Time dropdown: filters by application date (created_at).
-const TIME_OPTIONS = [
-  { key: 'all', label: 'All applications' },
-  { key: 'm1', label: 'Last 1 month' },
-  { key: 'm3', label: 'Last 3 months' },
-  { key: 'm6', label: 'Last 6 months' },
-  { key: 'y1', label: 'Last 1 year' }
-]
-
-const timeCutoff = (key) => {
-  const d = new Date()
-  if (key === 'm1') d.setMonth(d.getMonth() - 1)
-  else if (key === 'm3') d.setMonth(d.getMonth() - 3)
-  else if (key === 'm6') d.setMonth(d.getMonth() - 6)
-  else if (key === 'y1') d.setFullYear(d.getFullYear() - 1)
-  return toLocalIso(d).slice(0, 10)
-}
-
-const keyForFrom = (val) => {
-  if (!val) return 'all'
-  for (const k of ['m1', 'm3', 'm6', 'y1']) if (val === timeCutoff(k)) return k
-  return 'custom'
-}
 
 export default function Applications({
   rows, loading = false, onOpen, initialFilters = {}, onRefresh, refreshing = false, refresh
@@ -69,10 +37,6 @@ export default function Applications({
   const [renewal, setRenewal] = useState(!!initialFilters.renewal)
   const [from, setFrom] = useState(initialFilters.from || '')
   const [to, setTo] = useState(initialFilters.to || '')
-  const [expiryFrom, setExpiryFrom] = useState(initialFilters.expiryFrom || '')
-  const [expiryTo, setExpiryTo] = useState(initialFilters.expiryTo || '')
-  const [membership, setMembership] = useState([])
-  const [timeKey, setTimeKey] = useState(() => keyForFrom(initialFilters.from || ''))
   const [sortKey, setSortKey] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
   const [page, setPage] = useState(1)
@@ -80,11 +44,8 @@ export default function Applications({
   const [pdfBusy, setPdfBusy] = useState(false)
 
   const [selected, setSelected] = useState(() => new Set())
-  const [filtersOpen, setFiltersOpen] = useState(false)
   const [openSel, setOpenSel] = useState('')
   const [alertsOpen, setAlertsOpen] = useState(false)
-  const [popPos, setPopPos] = useState(null)
-  const [draft, setDraft] = useState(null)
   const [copiedRef, setCopiedRef] = useState('')
   const [menuFor, setMenuFor] = useState(null)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
@@ -97,18 +58,10 @@ export default function Applications({
   const [actionBusy, setActionBusy] = useState('')
   const [bulkConfirm, setBulkConfirm] = useState(false)
 
-  const filterRef = useRef(null)
-  const popRef = useRef(null)
   const menuRef = useRef(null)
   const selRef = useRef(null)
   const alertsRef = useRef(null)
   const checkAllRef = useRef(null)
-
-  const counts = useMemo(() => {
-    const c = { ALL: rows.length }
-    STATUS_ORDER.forEach((s) => (c[s] = rows.filter((r) => r.status === s).length))
-    return c
-  }, [rows])
 
   const planCounts = useMemo(() => {
     const c = { ALL: rows.length }
@@ -119,10 +72,13 @@ export default function Applications({
     return c
   }, [rows])
 
-  const planList = useMemo(
-    () => Object.keys(planCounts).filter((p) => p !== 'ALL'),
-    [planCounts]
-  )
+  // Always show every known plan (including Yearly) even before an application
+  // uses it, plus any extra plan values that appear in the data.
+  const planList = useMemo(() => {
+    const known = Object.keys(PLAN_COLORS)
+    const extra = Object.keys(planCounts).filter((p) => p !== 'ALL' && !known.includes(p))
+    return [...known, ...extra]
+  }, [planCounts])
 
   // Moved from the removed Dashboard tab: totals + revenue for the CURRENT
   // time filter (from/to, same bounds the table uses). The delta badge compares
@@ -153,8 +109,10 @@ export default function Applications({
     const revenue = paidInRange(from, to)
 
     // Previous equal-length window for the delta badge — only when the period
-    // has a start (pickTime sets from; custom ranges set both ends; '' = all).
+    // has a start (the toolbar calendar sets from/to; '' = all).
     let revDelta = null
+    let revDiff = null
+    let prevRevenue = null
     if (from) {
       const startMs = new Date(`${from}T00:00:00`).getTime()
       const endMs = new Date(`${to || todayIso}T00:00:00`).getTime()
@@ -162,6 +120,8 @@ export default function Applications({
       const prevEndIso = toLocalIso(new Date(startMs - 86400000)).slice(0, 10)
       const prevStartIso = toLocalIso(new Date(startMs - spanDays * 86400000)).slice(0, 10)
       const prev = paidInRange(prevStartIso, prevEndIso)
+      prevRevenue = prev
+      revDiff = revenue - prev
       if (prev > 0) revDelta = Math.round(((revenue - prev) / prev) * 100)
     }
 
@@ -172,7 +132,21 @@ export default function Applications({
       return toLocalIso(d).slice(0, 7)
     }
     const thisMonth = paidInRange(monthKey(0), `${monthKey(0)}-31`)
-    return { total, newTotal, revenue, revDelta, thisMonth }
+
+    const ongoing = rows.filter((r) => {
+      if (r.status !== 'APPROVED') return false
+      const d = daysUntil(r.end_date)
+      return d !== null && d >= 0
+    }).length
+    const expired = rows.filter((r) => {
+      if (r.status !== 'APPROVED') return false
+      const d = daysUntil(r.end_date)
+      return d !== null && d < 0
+    }).length
+
+    return {
+      total, newTotal, revenue, revDelta, revDiff, prevRevenue, thisMonth, ongoing, expired
+    }
   }, [rows, from, to])
 
   // Bell-icon alerts: renewals due (expiring soon / overdue / expired) + queued work.
@@ -201,11 +175,8 @@ export default function Applications({
     if (statuses.length) list = list.filter((r) => statuses.includes(r.status))
     if (plans.length) list = list.filter((r) => plans.includes(r.membership_type || 'Other'))
     if (renewal) list = list.filter((r) => isRenewalDue(r))
-    if (membership.length) list = list.filter((r) => membership.includes(membershipState(r)))
     if (from) list = list.filter((r) => (r.created_at || '').slice(0, 10) >= from)
     if (to) list = list.filter((r) => (r.created_at || '').slice(0, 10) <= to)
-    if (expiryFrom) list = list.filter((r) => r.end_date && r.end_date >= expiryFrom)
-    if (expiryTo) list = list.filter((r) => r.end_date && r.end_date <= expiryTo)
 
     const dir = sortDir === 'asc' ? 1 : -1
     return [...list].sort((a, b) => {
@@ -215,7 +186,7 @@ export default function Applications({
       if (sortKey === 'membership_fee') return ((Number(a.membership_fee) || 0) - (Number(b.membership_fee) || 0)) * dir
       return String(av || '').localeCompare(String(bv || '')) * dir
     })
-  }, [rows, q, statuses, plans, renewal, membership, from, to, expiryFrom, expiryTo, sortKey, sortDir])
+  }, [rows, q, statuses, plans, renewal, from, to, sortKey, sortDir])
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pages)
@@ -224,10 +195,8 @@ export default function Applications({
   const activeFilterCount =
     (statuses.length ? 1 : 0) +
     (plans.length ? 1 : 0) +
-    (membership.length ? 1 : 0) +
     (renewal ? 1 : 0) +
-    (from || to ? 1 : 0) +
-    (expiryFrom || expiryTo ? 1 : 0)
+    (from || to ? 1 : 0)
   const hasFilters = activeFilterCount > 0 || !!q.trim()
 
   const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected])
@@ -238,7 +207,7 @@ export default function Applications({
 
   useEffect(() => {
     setPage(1)
-  }, [q, statuses, plans, renewal, membership, from, to, expiryFrom, expiryTo, pageSize])
+  }, [q, statuses, plans, renewal, from, to, pageSize])
 
   // Keep bulk selection scoped to the current view — never act on unseen rows.
   useEffect(() => {
@@ -246,7 +215,7 @@ export default function Applications({
     setMenuFor(null)
     setMenuConfirm(null)
     setBulkConfirm(false)
-  }, [q, statuses, plans, renewal, membership, from, to, expiryFrom, expiryTo, page, pageSize, sortKey, sortDir])
+  }, [q, statuses, plans, renewal, from, to, page, pageSize, sortKey, sortDir])
 
   useEffect(() => {
     const el = checkAllRef.current
@@ -255,16 +224,7 @@ export default function Applications({
     el.indeterminate = onPage > 0 && onPage < pageRows.length
   }, [selected, pageRows])
 
-  useEffect(() => {
-    if (!filtersOpen) return
-    const onDown = (e) => {
-      if (filterRef.current && !filterRef.current.contains(e.target)) setFiltersOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [filtersOpen])
-
-  // Close Plan/Time dropdown menus on outside click.
+  // Close Plan dropdown menu on outside click.
   useEffect(() => {
     if (!openSel) return
     const onDown = (e) => {
@@ -283,32 +243,6 @@ export default function Applications({
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
   }, [alertsOpen])
-
-  const positionFilters = () => {
-    const btn = filterRef.current?.querySelector('button')
-    if (!btn) return
-    const r = btn.getBoundingClientRect()
-    const pop = popRef.current
-    const w = pop ? pop.offsetWidth : Math.min(300, window.innerWidth - 40)
-    const h = pop ? pop.offsetHeight : 0
-    let left = r.left
-    if (left + w > window.innerWidth - 12) left = window.innerWidth - w - 12
-    if (left < 12) left = 12
-    let top = r.bottom + 8
-    if (h && top + h > window.innerHeight - 12) {
-      const above = r.top - 8 - h
-      top = above >= 12 ? above : Math.max(12, window.innerHeight - h - 12)
-    }
-    setPopPos({ top, left })
-  }
-
-  useEffect(() => {
-    if (!filtersOpen) return
-    positionFilters()
-    const onResize = () => positionFilters()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [filtersOpen])
 
   useEffect(() => {
     if (!menuFor) return
@@ -331,10 +265,9 @@ export default function Applications({
   }, [menuFor])
 
   useEffect(() => {
-    if (!filtersOpen && !menuFor && !openSel && !alertsOpen) return
+    if (!menuFor && !openSel && !alertsOpen) return
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        setFiltersOpen(false)
         setMenuFor(null)
         setMenuConfirm(null)
         setOpenSel('')
@@ -343,38 +276,15 @@ export default function Applications({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [filtersOpen, menuFor, openSel, alertsOpen])
+  }, [menuFor, openSel, alertsOpen])
 
   const clearFilters = () => {
     setQ('')
     setStatuses([])
     setPlans([])
     setRenewal(false)
-    setMembership([])
     setFrom('')
     setTo('')
-    setExpiryFrom('')
-    setExpiryTo('')
-    setTimeKey('all')
-  }
-
-  const openFilters = () => {
-    setDraft({ statuses, plans, membership, from, to, expiryFrom, expiryTo })
-    positionFilters()
-    setFiltersOpen(true)
-  }
-
-  const applyFilters = () => {
-    if (!draft) return
-    setStatuses(draft.statuses)
-    setPlans(draft.plans)
-    setMembership(draft.membership)
-    setFrom(draft.from)
-    setTo(draft.to)
-    setTimeKey(keyForFrom(draft.from))
-    setExpiryFrom(draft.expiryFrom)
-    setExpiryTo(draft.expiryTo)
-    setFiltersOpen(false)
   }
 
   const pickPlan = (p) => {
@@ -382,24 +292,31 @@ export default function Applications({
     setOpenSel('')
   }
 
-  const pickTime = (key) => {
-    setTimeKey(key)
-    setFrom(key === 'all' ? '' : timeCutoff(key))
-    setTo('')
-    setOpenSel('')
-  }
-
-  const timeLabel =
-    TIME_OPTIONS.find((t) => t.key === timeKey)?.label || 'Custom dates'
   const planLabel =
     plans.length === 0 ? 'All plans' : plans.length === 1 ? plans[0] : `${plans.length} plans`
+  const dateLabel =
+    from && to
+      ? `${formatDate(from)} → ${formatDate(to)}`
+      : from
+        ? `From ${formatDate(from)}`
+        : to
+          ? `Till ${formatDate(to)}`
+          : 'Application date'
 
-  const toggleDraft = (field, value) => {
-    setDraft((d) => ({
-      ...d,
-      [field]: d[field].includes(value) ? d[field].filter((x) => x !== value) : [...d[field], value]
-    }))
-  }
+  // Revenue delta: absolute difference (₹) plus percent for the picked period
+  // against the immediately preceding equal-length window.
+  const revTrend = (() => {
+    if (!from) return { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
+    if (hero.revDiff === null) return { label: 'No previous period to compare', color: '#5f6368' }
+    if (hero.revDiff === 0) return { label: 'No change vs previous period', color: '#5f6368' }
+    const up = hero.revDiff > 0
+    const pct = hero.revDelta !== null ? ` (${hero.revDelta > 0 ? '+' : ''}${hero.revDelta}%)` : ''
+    return {
+      up,
+      label: `${up ? '+' : '−'}${formatINR(Math.abs(hero.revDiff))}${pct} vs previous period`,
+      color: up ? '#15803d' : '#b91c1c'
+    }
+  })()
 
   const toggleSort = (key) => {
     if (sortKey === key) {
@@ -411,7 +328,6 @@ export default function Applications({
   }
 
   const openApp = (row, opts) => {
-    setFiltersOpen(false)
     setMenuFor(null)
     setMenuConfirm(null)
     onOpen(row, opts)
@@ -1013,25 +929,25 @@ export default function Applications({
         <>
           <div className="hero-stats">
             <StatCard
-              icon={<Users size={20} />} label="Total applications" value={hero.total}
+              icon={<Users size={20} />} label="Total membership" value={hero.total}
               color="#0ea5e9" dot
               sub={`${hero.newTotal} new this week`}
+            />
+            <StatCard
+              icon={<BadgeCheck size={20} />} label="Ongoing memberships" value={hero.ongoing}
+              color="#22c55e" dot
+              sub="Approved & not yet expired"
+            />
+            <StatCard
+              icon={<Clock size={20} />} label="Expired memberships" value={hero.expired}
+              color="#ef4444" dot
+              sub="Approved & past expiry"
             />
             <StatCard
               icon={<IndianRupee size={20} />} label="Revenue collected" value={hero.revenue}
               color="#8b5cf6"
               sub={formatINR(hero.revenue)}
-              trend={
-                hero.revDelta !== null
-                  ? {
-                      up: hero.revDelta >= 0,
-                      label: `${Math.abs(hero.revDelta)}% vs previous period`,
-                      color: hero.revDelta >= 0 ? '#15803d' : '#b91c1c'
-                    }
-                  : from
-                    ? { label: 'No revenue in previous period', color: '#5f6368' }
-                    : { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
-              }
+              trend={revTrend}
             />
           </div>
 
@@ -1071,142 +987,37 @@ export default function Applications({
                       onClick={() => pickPlan(p)}
                     >
                       <i className="sel-dot" style={{ background: PLAN_COLORS[p] || '#9aa0a6' }} />
-                      {p} <span>{planCounts[p]}</span>
+                      {p} <span>{planCounts[p] || 0}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="sel-wrap">
-              <button
-                type="button"
-                className={`sel-btn ${timeKey !== 'all' ? 'active' : ''}`}
-                onClick={() => setOpenSel(openSel === 'time' ? '' : 'time')}
-              >
-                <Clock size={14} /> {timeLabel} <ChevronDown size={14} />
-              </button>
-              {openSel === 'time' && (
-                <div className="sel-pop">
-                  {TIME_OPTIONS.map((t) => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      className={`sel-item ${timeKey === t.key ? 'active' : ''}`}
-                      onClick={() => pickTime(t.key)}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div className="sel-wrap date-filter-wrap">
+              <DatePicker
+                selectsRange
+                startDate={from ? new Date(`${from}T00:00:00`) : null}
+                endDate={to ? new Date(`${to}T00:00:00`) : null}
+                onChange={(dates) => {
+                  const [start, end] = dates
+                  setFrom(start ? toLocalIso(start).slice(0, 10) : '')
+                  setTo(end ? toLocalIso(end).slice(0, 10) : '')
+                }}
+                isClearable
+                maxDate={new Date()}
+                dateFormat="dd MMM yyyy"
+                placeholderText="Application date"
+                customInput={
+                  <button
+                    type="button"
+                    className={`sel-btn ${from || to ? 'active' : ''}`}
+                  >
+                    <CalendarDays size={14} /> {dateLabel} <ChevronDown size={14} />
+                  </button>
+                }
+              />
             </div>
-            </div>
-
-            <div className="filter-wrap" ref={filterRef}>
-              <button
-                type="button"
-                className={`btn-filter ${activeFilterCount ? 'has-filters' : ''}`}
-                onClick={() => (filtersOpen ? setFiltersOpen(false) : openFilters())}
-              >
-                <SlidersHorizontal size={15} /> Filters
-                {activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}
-              </button>
-
-              {filtersOpen && draft && (
-                <div
-                  className="filter-pop"
-                  ref={popRef}
-                  style={popPos ? { top: popPos.top, left: popPos.left } : { top: -9999, left: -9999 }}
-                >
-                  <div className="filter-group">
-                    <span className="filter-title">Status</span>
-                    {STATUS_ORDER.map((s) => (
-                      <label key={s} className="filter-check">
-                        <input
-                          type="checkbox"
-                          checked={draft.statuses.includes(s)}
-                          onChange={() => toggleDraft('statuses', s)}
-                        />
-                        {statusLabel(s)}
-                        <em>{counts[s]}</em>
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="filter-group">
-                    <span className="filter-title">Plan</span>
-                    {planList.map((p) => (
-                      <label key={p} className="filter-check">
-                        <input
-                          type="checkbox"
-                          checked={draft.plans.includes(p)}
-                          onChange={() => toggleDraft('plans', p)}
-                        />
-                        {p}
-                        <em>{planCounts[p]}</em>
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="filter-group">
-                    <span className="filter-title">Membership</span>
-                    {MEMBERSHIP_FILTERS.map((m) => (
-                      <label key={m.key} className="filter-check">
-                        <input
-                          type="checkbox"
-                          checked={draft.membership.includes(m.key)}
-                          onChange={() => toggleDraft('membership', m.key)}
-                        />
-                        {m.label}
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="filter-group">
-                    <span className="filter-title">Application date</span>
-                    <div className="date-fields">
-                      <input
-                        type="date"
-                        value={draft.from}
-                        onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
-                        aria-label="Application from date"
-                      />
-                      <span>→</span>
-                      <input
-                        type="date"
-                        value={draft.to}
-                        onChange={(e) => setDraft((d) => ({ ...d, to: e.target.value }))}
-                        aria-label="Application to date"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="filter-group">
-                    <span className="filter-title">Expiry date</span>
-                    <div className="date-fields">
-                      <input
-                        type="date"
-                        value={draft.expiryFrom}
-                        onChange={(e) => setDraft((d) => ({ ...d, expiryFrom: e.target.value }))}
-                        aria-label="Expiry from date"
-                      />
-                      <span>→</span>
-                      <input
-                        type="date"
-                        value={draft.expiryTo}
-                        onChange={(e) => setDraft((d) => ({ ...d, expiryTo: e.target.value }))}
-                        aria-label="Expiry to date"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="filter-pop-actions">
-                    <button className="btn-mini" onClick={() => setDraft(emptyDraft())}>Reset</button>
-                    <button className="btn-mini apply" onClick={applyFilters}>Apply Filters</button>
-                  </div>
-                </div>
-              )}
             </div>
 
             <button type="button" className="btn-filter" onClick={onRefresh} disabled={refreshing || !onRefresh}>

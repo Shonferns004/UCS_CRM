@@ -11,9 +11,9 @@ const LETTERHEAD_TAGLINES = {
 };
 
 const LETTERHEAD_ADDRESSES = {
-  BSCT: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.',
-  AFLF: 'Unit - 218, 2nd Floor, Auris Galleria, S.V Road, Andheri (West), Mumbai 400058.',
-  MANN: '1708 ONE WORLD, SV ROAD NEAR NL HIGH SCHOOL MALAD WEST MUMBAI 400064.',
+  BSCT: 'New Delite CHS Ltd, A Wing, 4th Floor, Office No 401, Chandavarkar Road, Borivali West, Mumbai, Maharashtra, 400067.',
+  AFLF: '218, 2nd Floor, Auris Galleria, New Link Road, Auris Serenity, Malad (West), Mumbai, Maharashtra - 400064.',
+  MANN: 'Office No: 1708, One World, S.V. Road, Near N.M. High School, Malad West, Mumbai – 400064',
 };
 
 // Paragraph indexes that carry NGO branding (name / slogan) -> left blank on
@@ -48,7 +48,7 @@ const LETTER_COPY = {
       '🤝 Welcome to the {name} Family! Together, let us empower women, inspire girls and create opportunities for a brighter tomorrow.',
       'Congratulations once again, and welcome aboard!',
     ],
-    sign: ['"Empowering Women. Inspiring Change."', 'For a Better, Equal & Empowered Society'],
+    sign: ['Empowering Women, Transforming Lives'],
   },
   AFLF: {
     paras: [
@@ -60,9 +60,24 @@ const LETTER_COPY = {
       '🤝 Welcome to the Ashray Family! Together, let us serve with compassion, work with dedication and create a better society.',
       'Congratulations once again, and welcome aboard!',
     ],
-    sign: ['Be the Ashray – Be the Support', 'Transforming Lives Through Compassion & Action', 'Building a Just, Equitable & Humane Society'],
+    sign: ['EDUCATION - HEALTH - WOMEN & CHILD DEVELOPMENT - SOCIAL WORK'],
   },
 };
+
+const EMPHASIS_RE = /support, dignity, opportunity and care/i;
+const EMPHASIS_TEXT = 'Support, Dignity, Opportunity and Care';
+
+function withEmphasis(text) {
+  const m = EMPHASIS_RE.exec(text);
+  if (!m) return text;
+  return (
+    <>
+      {text.slice(0, m.index)}
+      <strong>{EMPHASIS_TEXT}</strong>
+      {text.slice(m.index + m[0].length)}
+    </>
+  );
+}
 
 export default function WelcomeLetter({ ngoName, ngoCode, personal, mode = 'full' }) {
   const code = (ngoCode || '').toUpperCase().trim();
@@ -101,7 +116,7 @@ export default function WelcomeLetter({ ngoName, ngoCode, personal, mode = 'full
         <p className="is-gen">Dear {personal?.fullName || 'Volunteer'},</p>
 
         {copy.paras.map((line, i) => (
-          <p key={i} className={removed.includes(i) ? 'is-ngo' : 'is-gen'}>{fill(line)}</p>
+          <p key={i} className={removed.includes(i) ? 'is-ngo' : 'is-gen'}>{withEmphasis(fill(line))}</p>
         ))}
 
         <div className="sign-row">

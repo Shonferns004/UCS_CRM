@@ -15,7 +15,8 @@ export const MEMBERSHIP_PRICES = {
   Monthly: '1650',
   Quarterly: '4950',
   'Half-Yearly': '9900',
-  Annual: '19800'
+  Annual: '19800',
+  Yearly: '19800'
 }
 
 export const INDIA_STATES = [
@@ -50,7 +51,7 @@ export const SECTIONS = [
         label: 'Membership Plan',
         type: 'radio',
         required: true,
-        options: ['Daily', 'Half Monthly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual'],
+        options: ['Daily', 'Half Monthly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual', 'Yearly'],
         helpText: 'Choose your plan. Your End Date is calculated automatically from your Start Date and plan.'
       },
       {

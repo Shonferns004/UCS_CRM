@@ -3,22 +3,29 @@ import { LockIcon } from './chatIcons'
 /**
  * Screen 03 — read-only banner.
  *
- * Rendered only when there is no composer, which is the six read-only roles —
- * writers always get a composer, so this never appears for them. That matters
- * for the wording: everyone who sees this banner is also someone who cannot
- * open a Direct Message, so suggesting DMs here would point at a feature they
- * do not have. The banner just states the rule and stops.
+ * Rendered whenever the composer is hidden. There are now two distinct
+ * audiences, and they need different wording:
+ *
+ *   1. a genuinely read-only role (HR, Recruiter, Developer, Event Head) in
+ *      any room — they cannot post anywhere;
+ *   2. a writer, such as FRO, sitting in an admins-only group — they can post
+ *      everywhere else, so telling them "only Super Admin and Accounts can
+ *      post" would be both wrong and confusing.
+ *
+ * Callers pass `reason` for case 2; the default covers case 1.
  */
-export default function ReadOnlyBanner() {
+export default function ReadOnlyBanner({ reason }) {
   return (
     <div className="chat-readonly" role="status">
       <span className="chat-readonly-icon">
         <LockIcon size={16} />
       </span>
-      <span>
-        <strong>Read-only community.</strong> Only Super Admin and Accounts can post
-        messages here.
-      </span>
+      <span>{reason || (
+        <>
+          <strong>Read-only.</strong> Only Super Admin, Accounts, Admin and FRO can
+          post messages.
+        </>
+      )}</span>
     </div>
   )
 }

@@ -110,6 +110,7 @@ import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema
 import { ensureFroTimeSessionsAgentSchema } from './bootstrap/ensureFroTimeSessionsAgentSchema.js';
 import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
+import { ensureReminderPaymentSchema } from './bootstrap/ensureReminderPaymentSchema.js';
 import { ensureChatSchema } from './bootstrap/ensureChatSchema.js';
 import { ensureSimInventorySchema } from './bootstrap/ensureSimInventorySchema.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
@@ -1145,7 +1146,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.get('/api/debug', authenticate, async (req, res) => {
-  const tables = ['rejected_lead_tickets', 'alerts', 'fcm_tokens'];
+  const tables = ['rejected_lead_tickets', 'fcm_tokens'];
   const results = {};
   for (const t of tables) {
     try {
@@ -1193,6 +1194,7 @@ await ensureFroTimeSessionsAgentSchema().catch(e => console.error('ensureFroTime
     await ensureVotingSchema().catch(e => console.error('ensureVotingSchema failed:', e?.message || e));
     await ensureAudienceVotingSchema().catch(e => console.error('ensureAudienceVotingSchema failed:', e?.message || e));
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
+    await ensureReminderPaymentSchema().catch(e => console.error('ensureReminderPaymentSchema failed:', e?.message || e));
     await ensureChatSchema().catch(e => console.error('ensureChatSchema failed:', e?.message || e));
     await ensureSimInventorySchema().catch(e => console.error('ensureSimInventorySchema failed:', e?.message || e));
     await ensureSignatureSchema().catch(e => console.error('ensureSignatureSchema failed:', e?.message || e));

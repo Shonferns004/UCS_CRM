@@ -4,7 +4,9 @@ import multer from 'multer';
 import {
   listConversations,
   listPeople,
+  listDirectory,
   openDirect,
+  createGroup,
   listMessages,
   sendMessage,
   markRead,
@@ -14,7 +16,7 @@ import {
   unreadCount,
 } from '../controllers/chatController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
-import { chatWriter } from '../middleware/chatAccess.js';
+import { chatWriter, chatGroupCreator } from '../middleware/chatAccess.js';
 
 /**
  * Community Chat routes (plan.md §2.2, §6).
@@ -57,10 +59,15 @@ const sendLimiter = rateLimit({
 router.use(authenticate);
 
 router.get('/people', chatWriter, listPeople);
+router.get('/directory', chatGroupCreator, listDirectory);
 router.get('/unread-count', unreadCount);
 
 router.get('/conversations', listConversations);
 router.post('/conversations/direct', chatWriter, openDirect);
+// Group creation is a separate, narrower gate than posting: FRO may chat but
+// may not create rooms. Declared before the /:id patterns for the same reason
+// `direct` is.
+router.post('/conversations/group', chatGroupCreator, createGroup);
 router.get('/conversations/:id/messages', listMessages);
 router.get('/conversations/:id/search', searchMessages);
 router.post('/conversations/:id/read', markRead);

@@ -12,14 +12,14 @@ import AddressImport from '../pages/AddressImport'
    The old /accounts/address URL is a redirect in AccountsPanel rather than a
    route here, so existing links land on the Address tab. */
 const TABS = [
-  { label: 'Donors', path: '/accounts/donors' },
-  { label: 'Address', path: '/accounts/donors/address' },
+  { label: 'Master Data', path: '/accounts/donors' },
+  { label: 'Donor Data Update', path: '/accounts/donors/address' },
 ]
 
 export default function DonorSection() {
   return (
     <div>
-      <PageTabs tabs={TABS} ariaLabel="Donor Management" />
+      <PageTabs tabs={TABS} ariaLabel="Master Data" />
       <Routes>
         <Route index element={<Donors />} />
         <Route path="address" element={<AddressImport />} />

@@ -1,10 +1,44 @@
 import crypto from 'crypto'
+import { HeadObjectCommand } from '@aws-sdk/client-s3'
 import db from '../config/supabase.js'
 import { sql } from '../../config/db.js'
 import { AppError } from '../middleware/errorHandler.js'
 
 const S3_FOLDER = 'sevak-library'
 const S3_STORAGE = () => db.storage.from(S3_FOLDER)
+
+// The public form and this admin panel can resolve different S3 accounts for
+// the same bucket name — resolveS3() prefers 'head' whenever its credentials
+// are configured, but a submission may have been written through 'upstream' (or
+// the legacy pair). The stored path does not record which bucket it landed in,
+// so a presigned link built for the wrong one 404s and the <img> goes broken.
+// Reads therefore locate the account that actually holds the object first.
+const SEVAK_ACCOUNT_ORDER = ['head', 'upstream', 'legacy']
+
+function configuredSevakAccounts() {
+  const configured = db.storage.accounts().filter((a) => a.configured).map((a) => a.name)
+  return SEVAK_ACCOUNT_ORDER.filter((n) => configured.includes(n))
+}
+
+async function accountForPath(path) {
+  for (const account of configuredSevakAccounts()) {
+    const raw = db.storage.raw(account)
+    if (!raw) continue
+    try {
+      await raw.client.send(
+        new HeadObjectCommand({ Bucket: raw.bucket, Key: `${S3_FOLDER}/${String(path)}` })
+      )
+      return account
+    } catch {
+      // Not in this bucket — try the next configured account.
+    }
+  }
+  return null
+}
+
+function storageFor(account) {
+  return account ? db.storage.from(account, S3_FOLDER) : S3_STORAGE()
+}
 
 // Field mapping between the applicant-facing data object (what the form posts)
 // and the denormalized columns on applications — mirror of submit_application.
@@ -55,8 +89,11 @@ async function uploadPhoto(ref, key, file) {
 async function removePhotos(paths) {
   const list = (paths || []).filter(Boolean)
   if (list.length === 0) return
-  const { error } = await S3_STORAGE().remove(list)
-  if (error) throw new AppError(`Could not remove files: ${error.message}`, 500)
+  for (const path of list) {
+    const account = await accountForPath(path)
+    const { error } = await storageFor(account).remove([path])
+    if (error) throw new AppError(`Could not remove files: ${error.message}`, 500)
+  }
 }
 
 export async function submitApplication({ data = {}, passportFile, identityFile, signatureFile }) {
@@ -410,12 +447,13 @@ export async function getPhotoUrl(rowId, { format } = {}) {
   for (const key of ['passport', 'identity', 'signature']) {
     const path = app[`${key}_photo`]
     if (!path) continue
+    const store = storageFor(await accountForPath(path))
     if (format === 'data') {
-      const { data: buf, error } = await S3_STORAGE().download(path)
+      const { data: buf, error } = await store.download(path)
       if (error) throw new AppError(error.message, 500)
       if (buf) result[key] = `data:${photoMime(path)};base64,${Buffer.from(buf).toString('base64')}`
     } else {
-      const { data, error } = await S3_STORAGE().presignDownload(path, 3600)
+      const { data, error } = await store.presignDownload(path, 3600)
       if (error) throw new AppError(error.message, 500)
       result[key] = data.url
     }

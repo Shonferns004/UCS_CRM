@@ -478,12 +478,25 @@ export const updateWorkerAttendance = async (req, res) => {
   }
 };
 
-function getISTMonthBounds() {
+function getISTMonthBounds(query = {}) {
   const IST_OFFSET = 5.5 * 60 * 60 * 1000;
   const now = new Date();
   const istNow = new Date(now.getTime() + IST_OFFSET);
-  const y = istNow.getUTCFullYear();
-  const m = istNow.getUTCMonth();
+  let y = istNow.getUTCFullYear();
+  let m = istNow.getUTCMonth();
+  // Optional ?year=YYYY&month=MM (1-12) lets clients fetch a past month's
+  // breakdown (same computation the salary sheet uses). Never goes beyond
+  // the current month.
+  const qYear = parseInt(query.year, 10);
+  const qMonth = parseInt(query.month, 10);
+  if (Number.isFinite(qYear) && Number.isFinite(qMonth) && qMonth >= 1 && qMonth <= 12) {
+    const requested = qYear * 12 + (qMonth - 1);
+    const current = y * 12 + m;
+    if (requested >= 0 && requested <= current) {
+      y = Math.floor(requested / 12);
+      m = requested % 12;
+    }
+  }
   const startDate = `${y}-${String(m + 1).padStart(2, '0')}-01`;
   const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
   const endDate = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
@@ -503,7 +516,7 @@ export const getMySalaryBreakdown = async (req, res) => {
     const activeSalary = await getActiveSalaryByWorker(workerId);
     if (!activeSalary) return res.json({ hasSalary: false, message: 'No salary record found' });
 
-    const { year, month, startDate, endDate, daysInMonth } = getISTMonthBounds();
+    const { year, month, startDate, endDate, daysInMonth } = getISTMonthBounds(req.query);
     const records = await getMonthlyAttendance(workerId, startDate, endDate);
 
     let holidayDates = [];
@@ -610,6 +623,8 @@ export const getMySalaryBreakdown = async (req, res) => {
 
     return res.json({
       hasSalary: true,
+      year,
+      month: month + 1,
       salary,
       perDay: Math.round(perDay),
       daysInMonth,
@@ -628,6 +643,7 @@ export const getMySalaryBreakdown = async (req, res) => {
       joinedThisMonth,
       joinDay,
       deductedCount: deducted.size,
+      deductedDates: [...deducted],
       absentCount: absentDatesAfterJoin.length,
       absentDates: absentDatesAfterJoin,
       extraSundayCount: extraSundays.length,

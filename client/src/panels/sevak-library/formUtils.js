@@ -27,7 +27,8 @@ const PLAN_ADD = {
   Monthly: { months: 1 },
   Quarterly: { months: 3 },
   'Half-Yearly': { months: 6 },
-  Annual: { months: 12 }
+  Annual: { months: 12 },
+  Yearly: { months: 12 }
 }
 
 function toISODate(d) {

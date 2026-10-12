@@ -1045,7 +1045,6 @@ class _HelpSheetState extends State<_HelpSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final term = _searchCtrl.text.trim().toLowerCase();
     final filtered = term.isEmpty
         ? const <dynamic>[]
@@ -1057,23 +1056,14 @@ class _HelpSheetState extends State<_HelpSheet> {
           }).toList();
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
+      height: MediaQuery.of(context).size.height * 0.6,
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Row(
-              children: [
-                Text('Employee Help', style: GoogleFonts.hankenGrotesk(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface)),
-                const Spacer(),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-              ],
-            ),
-          ),
+          const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: TextField(

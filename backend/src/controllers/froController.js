@@ -17,7 +17,7 @@ import {
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker, getLatestTargetBeforeMonth } from '../models/froTargetModel.js';
 import { classifyLogSide, bustTlCache } from './ngoAdminController.js';
-import { isCategoryLabel } from '../services/froCollectionMatch.js';
+import { isCategoryLabel, froReceiptsCacheKey } from '../services/froCollectionMatch.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
 import {
@@ -48,7 +48,6 @@ import {
   updateDonorLog,
   findLogsByDonorAndWorker,
   findLogsByAssignment,
-  getTotalCollectedByWorker,
   getWorkerCollectionReceipts,
   getCollectedByNgo,
   getTotalCollectedByAssignment,
@@ -81,6 +80,27 @@ const FRO_DASHBOARD_TTL_MS = 30 * 1000;
 const FRO_TARGET_TTL_MS = 30 * 1000;
 const FRO_SEARCH_TTL_MS = 60 * 1000;
 const FRO_SEARCH_SCOPE_TTL_MS = 60 * 1000;
+// The receipts loader behind getWorkerCollectionReceipts is the single most
+// repeated query in the app (pg_stat_statements: 3.1M calls). It was cached for
+// the dashboard but NOT here, so every /fro/my-collections request re-ran the
+// full scan with nothing to collapse concurrent callers. `cached()` rather than
+// cacheGet/cacheSet because it also shares the in-flight promise: several FROs
+// refreshing at once caused one rebuild instead of one each.
+//
+// 5 MINUTES, and the number matters more than it looks. /fro/my-performance
+// polls every 30s from every open panel, so ~20 FROs generate ~40 requests a
+// minute. The first attempt used 60s, barely above the 30s poll, and that was
+// the same mistake ttlCache.js warns about in slower motion: unsynchronised polls
+// land on either side of the expiry, so entries die between requests and the
+// expensive query still ran most of the time. Live sampling confirmed it -- the
+// query was firing ~6 times a second and the database sat at 76% CPU on a
+// 4-vCPU instance. 5 minutes puts roughly 10 rebuilds per FRO down to about 1.
+//
+// Staleness is bounded by invalidation, not by the TTL: every disposition and
+// receipt write calls invalidateFroCaches(), so a donation appears immediately.
+// The TTL only governs changes that bypass that path, and 5 minutes is within
+// tolerance for a monthly Collected figure.
+const FRO_RECEIPTS_TTL_MS = 5 * 60 * 1000;
 // My Leads runs 11+ sequential queries per request, so it is the most expensive
 // read in this file and the one refetched most often - the client re-requests it
 // on every mount, on every station/NGO/tab change (up to 3x per load), and on
@@ -154,6 +174,12 @@ export function invalidateFroCaches(workerId) {
   cacheDelPrefix(`fro:target:${workerId}:`);
   cacheDelPrefix(`fro:search:${workerId}:`);
   cacheDelPrefix(`fro:donors:${workerId}:`);
+  // The receipts cache is keyed by the worker whose money is being counted, which
+  // under work-as is the COVERED worker (imposter_id), not the session holder.
+  // Callers pass that id, so clearing on it keeps a donation visible immediately
+  // instead of after the 60s TTL. Omitting this is what would have made the
+  // Collected card look stale right after a receipt was written.
+  cacheDelPrefix(`fro:receipts:${workerId}:`);
   // Upstash cannot delete a prefix cheaply, but this namespace stays small - one
   // key per live filter combination for that worker, and oversized views are
   // never written - so a bounded SCAN is a couple of round-trips, which is noise
@@ -753,8 +779,25 @@ export const getDashboard = async (req, res) => {
     const monthEnd = monthBounds.end.toISOString();
     const monthStr = monthBounds.month;
     const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
+    // Day-accurate window for receipt_date (a DATE column). monthStart as an
+    // instant is 18:30 UTC on the PREVIOUS day, so the loader must not slice it.
+    const startDay = monthBounds.startDay;
+    const endDay = monthBounds.endDay;
 
-    const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
+    // Cache the ROWS, not the total, and reduce here. getTotalCollectedByWorker is
+    // itself just a reduce over these rows, so caching its scalar under the same
+    // key the collections list uses would have the two callers fight over one
+    // entry -- whoever ran first would leave the other reading a number where it
+    // expected rows. One cache, one type.
+    //
+    // Keyed by the DAY window, not the instants: getMyCollections used to build
+    // its own UTC-midnight bounds, so it produced a different key for the same
+    // calendar month and the two never shared an entry. Worse, the two windows
+    // were genuinely different -- this one started a day early -- so the card
+    // read 8,783 against a list that summed to 8,733. One key, one window.
+    const collectedRows = await cached(froReceiptsCacheKey(creditWorkerId, startDay, endDay), FRO_RECEIPTS_TTL_MS,
+      () => getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd, { startDay, endDay }));
+    const collected = (collectedRows || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
 
     const [manualTarget, priorTarget] = await Promise.all([
       getTargetByWorker(workerId, monthStr),
@@ -1305,9 +1348,17 @@ export const getMyCollections = async (req, res) => {
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
-    let monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
-    const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
-    let monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
+    // IST calendar bounds, same source getDashboard and getMyTarget use. This
+    // used to build its own window from UTC midnight, which sliced to the right
+    // day by luck -- but it produced a DIFFERENT cache key and, because the
+    // other two sliced an istMonthBounds() instant, a genuinely different
+    // window: theirs started a day early and counted the previous month's last
+    // day. That is why the card read 8,783 against a list summing to 8,733.
+    const monthBounds = istMonthBounds(now);
+    let startDay = monthBounds.startDay;
+    let endDay = monthBounds.endDay;
+    let monthStart = monthBounds.start.toISOString();
+    let monthEnd = monthBounds.end.toISOString();
 
     const creditWorkerName = req.user.impersonation && req.user.imposter_name ? String(req.user.imposter_name).trim() : (worker.name || '').trim();
     const workerName = creditWorkerName;
@@ -1339,6 +1390,12 @@ export const getMyCollections = async (req, res) => {
       const end = new Date(Date.UTC(y, m, lastDay, 23, 59, 59, 999));
       monthStart = start.toISOString();
       monthEnd = end.toISOString();
+      // Day strings for the same month, derived as plain calendar days. Only
+      // receipt_date (a DATE column) is compared against these, so they must be
+      // IST days -- which for an explicit YYYY-MM they already are, since y/m
+      // came from the IST month the caller asked for.
+      startDay = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      endDay = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     }
 
     // The same rows the Collected card totals, from the same loader, so the
@@ -1347,7 +1404,14 @@ export const getMyCollections = async (req, res) => {
     // verified-in-month union, so the two disagreed: backdated-but-verified
     // receipts appeared in the total but not in the list, and a printed name
     // needing a trim or a case fold matched one and not the other.
-    const receipts = await getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd);
+    // Cached because this is the app's most repeated query, and this handler was
+    // re-running it on every mount and filter change with nothing to collapse
+    // concurrent callers. Keyed by the DAY window so this is the same entry
+    // getDashboard and getMyTarget read -- keying on the instants left three
+    // caches for one month, each free to hold a different window.
+    const receiptsKey = froReceiptsCacheKey(creditWorkerId, startDay, endDay);
+    const receipts = await cached(receiptsKey, FRO_RECEIPTS_TTL_MS, () =>
+      getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd, { startDay, endDay }));
 
     const { data: allNgos } = await db.from('ngos').select('id, name');
     const normProj = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
@@ -3821,7 +3885,12 @@ export const createDonorLogHandler = async (req, res) => {
     // collection, the workable stack and (for a donation) suppression. Drop the
     // cached reads so the refresh the client fires right after this response
     // already sees the new state rather than a pre-disposition payload.
+    //
+    // The receipts cache is keyed by the worker whose money is counted, which
+    // under work-as is the COVERED worker, not the session holder. Invalidate
+    // both or a donation logged while covering stays hidden for the full TTL.
     invalidateFroCaches(req.user.id);
+    if (req.user.impersonation && req.user.imposter_id) invalidateFroCaches(req.user.imposter_id);
 
     return res.json({ message: 'Log entry created', data: result, timer });
   } catch (error) {
@@ -4006,6 +4075,11 @@ export const getMyTarget = async (req, res) => {
     const monthStr = monthBounds.month;
     const monthStart = monthBounds.start.toISOString();
     const monthEnd = monthBounds.end.toISOString();
+    // Day-accurate window for receipt_date, shared with getDashboard and
+    // getMyCollections. monthStart as an instant is 18:30 UTC on the previous
+    // day, so slicing it to 10 chars names that previous day.
+    const startDay = monthBounds.startDay;
+    const endDay = monthBounds.endDay;
 
     const [manualTarget, priorTarget] = await Promise.all([
       getTargetByWorker(workerId, monthStr),
@@ -4026,8 +4100,15 @@ export const getMyTarget = async (req, res) => {
 
     const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
-    const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
-    const collectedByNgo = await getCollectedByNgo(creditWorkerId, monthStart, monthEnd, allowedNgoIds);
+    // Same rows as the dashboard and the collections list, reduced here, so all
+    // three share one scan instead of each running its own. Keyed by the DAY
+    // window (startDay/endDay, declared with monthBounds above) so this entry
+    // is the same entry getDashboard and getMyCollections use -- keying on the
+    // instants split one month across three caches.
+    const collectedRows = await cached(froReceiptsCacheKey(creditWorkerId, startDay, endDay), FRO_RECEIPTS_TTL_MS,
+      () => getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd, { startDay, endDay }));
+    const collected = (collectedRows || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    const collectedByNgo = await getCollectedByNgo(creditWorkerId, monthStart, monthEnd, allowedNgoIds, { startDay, endDay });
 
     // Resolve NGO names for the breakdown
     const collectedNgoIds = Object.keys(collectedByNgo).filter(id => id !== 'others');
@@ -4059,7 +4140,7 @@ export const getMyTarget = async (req, res) => {
       const ranges = await getAKISlabs();
       const achievements = await getAchievements(creditWorkerId, monthStart, monthEnd);
       const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-      const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd);
+      const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd, { startDay, endDay });
       const akiPerDay = Object.entries(dailyCollection || {})
         .map(([date, collection]) => ({
           date,
