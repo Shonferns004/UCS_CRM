@@ -52,6 +52,13 @@ const PHOTO_PREFIX = 'worker-documents/worker_photos/';
 // bucket and is a separate concern with a separate fix).
 const NOTICE_MEDIA_PREFIX = 'whatsapp-media/';
 
+// Attendance selfie objects live under selfies/ in the same bucket. They were
+// stored with the same getPublicUrl() string and 403 for the same reason as
+// signatures and photos, so attendance reads presign them on the way out too.
+// Scoped to this prefix so a bad column value cannot become a signed link to
+// some other part of the bucket.
+const SELFIE_PREFIX = 'worker-documents/selfies/';
+
 // Long enough to cover an HR session -- the ODAR letter is built in the browser
 // from a worker list fetched when the panel opens, and a volunteer leaving the
 // page open must not silently lose their own signature -- while still expiring
@@ -126,6 +133,10 @@ export function locatePhoto(stored) {
 
 export function locateNoticeMedia(stored) {
   return locateWithPrefix(stored, NOTICE_MEDIA_PREFIX);
+}
+
+export function locateSelfie(stored) {
+  return locateWithPrefix(stored, SELFIE_PREFIX);
 }
 
 /**
@@ -203,6 +214,53 @@ export async function presignPhotoUrl(stored) {
     console.warn(`[photo] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
     return original;
   }
+}
+
+/**
+ * The signed URL an attendance selfie should load, or `stored` unchanged when it
+ * cannot be signed. Same two invariants as above: never persisted, never throws,
+ * never blanks a value it does not recognise. Called per row while building an
+ * attendance list response, so one unresolvable row must not fail the request.
+ */
+export async function presignSelfieUrl(stored) {
+  const original = String(stored ?? '');
+  const located = locateSelfie(original);
+  if (!located) return original;
+
+  const handle = db.storage.raw(located.account);
+  if (!handle) return original;
+
+  try {
+    return await getSignedUrl(
+      handle.client,
+      new GetObjectCommand({ Bucket: handle.bucket, Key: located.key }),
+      { expiresIn: ttlSeconds() }
+    );
+  } catch (e) {
+    console.warn(`[selfie] could not presign ${located.account}/${located.key}: ${e?.message || e}`);
+    return original;
+  }
+}
+
+/**
+ * Signs both selfie columns of an attendance record in place and returns it.
+ * A record can carry a punch-in and a punch-out selfie; both were stored the same
+ * way, so both 403 without a signature. Signing is local SigV4 maths, so this
+ * costs no S3 round trips. The stored columns are left alone.
+ */
+export async function attachSignedSelfieUrls(record) {
+  if (!record || typeof record !== 'object') return record;
+  const [punchIn, punchOut] = await Promise.all([
+    presignSelfieUrl(record.punch_in_selfie_url),
+    presignSelfieUrl(record.punch_out_selfie_url),
+  ]);
+  record.punch_in_selfie_url = punchIn;
+  record.punch_out_selfie_url = punchOut;
+  return record;
+}
+
+export function attachSignedSelfieUrlsToList(list) {
+  return Promise.all((Array.isArray(list) ? list : []).map((r) => attachSignedSelfieUrls(r)));
 }
 
 /**

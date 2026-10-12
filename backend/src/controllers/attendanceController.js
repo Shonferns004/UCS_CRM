@@ -18,6 +18,7 @@ import { getAllAttendance } from '../models/attendanceModel.js';
 import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
+import { attachSignedSelfieUrls, attachSignedSelfieUrlsToList } from '../services/signatureMediaLink.js';
 
 const MAX_LATE_MINUTES = 180;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -208,6 +209,9 @@ export const punchOut = async (req, res) => {
 export const todayStatus = async (req, res) => {
   try {
     const record = await getTodayAttendance(req.user.id);
+    // Stored selfie URLs are raw and 403 now that the bucket is private; sign
+    // them on the way out. Never persisted -- the column keeps the plain URL.
+    await attachSignedSelfieUrls(record);
     const lateUsed = await getMonthlyLateMinutes(req.user.id);
     const [officeStart, officeEnd] = await Promise.all([
       getOfficeStart(req.user.id),
@@ -390,6 +394,7 @@ export const hrSelfiePunch = async (req, res) => {
           status,
           selfie_status: 'approved',
         });
+        await attachSignedSelfieUrls(updated);
         return res.json({ message: 'Punch-in recorded', attendance: updated, lateMinutes });
       }
 
@@ -404,6 +409,7 @@ export const hrSelfiePunch = async (req, res) => {
         status,
         selfie_status: 'approved',
       });
+      await attachSignedSelfieUrls(attendance);
       return res.status(201).json({ message: 'Punch-in recorded', attendance, lateMinutes });
     }
 
@@ -430,6 +436,7 @@ export const hrSelfiePunch = async (req, res) => {
         });
       }
       const updated = await updateAttendance(existing.id, updates);
+      await attachSignedSelfieUrls(updated);
       return res.json({ message: 'Punch-out recorded', attendance: updated });
     }
   } catch (error) {
@@ -498,6 +505,7 @@ export const listAll = async (req, res) => {
         r.hours_worked = null;
       }
     }
+    await attachSignedSelfieUrlsToList(records);
     return res.json(records);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -539,6 +547,7 @@ export const getWorkerMonthlyAttendance = async (req, res) => {
     }
 
     records.sort((a, b) => a.date.localeCompare(b.date));
+    await attachSignedSelfieUrlsToList(records);
     return res.json(records);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -608,6 +617,7 @@ export const myHistory = async (req, res) => {
       return 0;
     });
 
+    await attachSignedSelfieUrlsToList(records);
     return res.json(records);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -655,9 +665,11 @@ export const verifySelfie = async (req, res) => {
         });
       }
       const updated = await updateAttendance(id, updates);
+      await attachSignedSelfieUrls(updated);
       return res.json({ message: 'Selfie verified', attendance: updated });
     }
 
+    await attachSignedSelfieUrls(existing);
     await deleteAttendance(id);
     return res.json({ message: 'Selfie rejected — attendance record deleted', attendance: existing });
   } catch (error) {
@@ -668,6 +680,7 @@ export const verifySelfie = async (req, res) => {
 export const todayAll = async (req, res) => {
   try {
     const records = await getTodayAttendanceAll();
+    await attachSignedSelfieUrlsToList(records);
     return res.json(records);
   } catch (error) {
     return res.status(500).json({ message: error.message });
