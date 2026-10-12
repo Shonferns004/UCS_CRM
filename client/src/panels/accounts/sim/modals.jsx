@@ -4,7 +4,7 @@ import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandS
 import { Icon } from './components';
 import { useSim } from './store';
 import { AssignSimModal } from './SimInventory';
-import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, mobileExpiryStatus, sameMobileId, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS, liveDaysLeft, classifySims, mobileSimUsage, filterUsageByRange } from './helpers';
+import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, mobileExpiryStatus, sameMobileId, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS, liveDaysLeft, classifySims } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder, full, required }) {
   return (
@@ -59,7 +59,15 @@ function txt(v) {
   return s === null ? '\u2014' : s;
 }
 
-export function SimFormModal({ open, onClose, card, onSaved }) {
+export function SimFormModal({ open, onClose, card, inventory = [], onSaved }) {
+  /* The plan window (Issue / Auto Expiry / Days Left) and the SIM Numbers list
+     describe the SIMs the phone is carrying right now, not the card's oldest
+     slot. A number handed over by the Locker (or one that has expired out of an
+     old slot) is what the drawer's Active list shows, so this form reads from
+     the same source instead of the stale card slots. */
+  const activeSims = card ? classifySims({ card, inventory }).active : [];
+  const activeSim = activeSims[0] || null;
+
   const [form, setForm] = useState(() =>
     Object.fromEntries(FORM_FIELDS.map((f) => [f.key, card?.[f.key] || '']))
   );
@@ -70,11 +78,16 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
     ngo: card?.w1_name || card?.ngo || '',
     sim_type: card?.sim_type || '',
     gb: card?.gb || '',
-    issue_date: card?.issue_date || '',
-    expiry_date: card?.expiry_date || '',
+    issue_date: (activeSim?.activatedOn ? String(activeSim.activatedOn).slice(0, 10) : '') || card?.issue_date || '',
+    expiry_date: (activeSim?.expiresOn ? String(activeSim.expiresOn).slice(0, 10) : '') || card?.expiry_date || '',
     status: card?.status || 'Active',
   });
   const [simList, setSimList] = useState(() => {
+    /* Current active numbers first (card slots + Locker), so the list matches
+       the Active SIMs the phone shows; fall back to the raw card slots only
+       when the phone carries no live number at all. */
+    const current = activeSims.map((a) => String(a.number).trim()).filter(Boolean);
+    if (current.length) return current;
     const existing = [];
     for (let i = 1; i <= MAX_SIM_SLOTS; i++) {
       const val = card?.[`sim_${i}`];
@@ -364,7 +377,7 @@ function SimListSection({ title, icon, count, tone, rows, showNgo, expiresLabel,
   );
 }
 
-export function SimViewModal({ card, open, onClose, onEdit, onReplace, onHistory }) {
+export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
   /* The Locker list is the store's, refreshed on every open: it owns the
      per-number dates and the "does this phone still carry a live SIM" verdict.
      A snapshot taken before the last assignment would keep calling the old SIM
@@ -402,48 +415,77 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace, onHistory
 
   if (!open || !card) return null;
 
-  // The stored days_left column is a stale import snapshot, so the date wins.
-  const dl = liveDaysLeft(card);
   /* "Assigned" lives in the Locker table (sim_inventory), not in this card's
      own status word, so the drawer joins on mobile_id exactly like the All
      SIM Cards table does - otherwise the row said "Assigned" while the drawer
      opened from it still said "Active". */
   const lockerItem = (inventory || []).find((it) => sameMobileId(it.mobile_id, card.mobile_id)) || null;
   const expiryStatus = mobileExpiryStatus(card, inventory);
-  const status = lockerItem ? 'Assigned' : expiryStatus;
   const groups = classifySims({ card, inventory, replacements, history: changes });
+  /* The Issued / Expires / Days Left strip describes the SIM the phone carries
+     right now. The card's own issue/expiry dates belong to its oldest number
+     and go stale the moment a newer SIM is issued - the phone read "Expired"
+     while its Active list showed a number with weeks left. The current active
+     SIM's own dates win whenever there is one; the stale card-level dates are
+     only the fallback for a phone with no active number at all. */
+  const primaryActive = groups.active[0] || null;
+  const dl = primaryActive && primaryActive.daysLeft !== null && primaryActive.daysLeft !== undefined
+    ? primaryActive.daysLeft
+    : liveDaysLeft(card);
+  const heroIssuedOn = primaryActive?.activatedOn || card.issue_date;
+  const heroExpiresOn = primaryActive?.expiresOn || card.expiry_date;
   const showNgo = groups.active.some((r) => r.ngo) || groups.expired.some((r) => r.ngo);
+  /* Only SIM-number history: updates to a SIM slot's number (old → new) and the
+     numbers that have expired. Generic field edits (team, owner, dates, …) are
+     deliberately left out of this trail. */
+  const updatedSimRows = historyRows(changes).filter((r) => /^SIM \d+$/.test(r.field));
+  const shownOld = new Set(updatedSimRows.map((r) => String(r.old).toLowerCase()));
+  /* A replaced SIM left the slot through the replacement log, which records the
+     number it was swapped for. classifySims keeps only the old number, so the
+     "New Value" column would otherwise be blank even though the Active list
+     already shows the incoming number. */
+  const replacedBy = new Map();
+  for (const r of replacements) {
+    const oldK = raw(r?.old_sim);
+    const newV = raw(r?.new_sim);
+    if (oldK && newV) replacedBy.set(oldK.toLowerCase(), newV);
+  }
+  /* When the replacement log has no matching row, an expired slot is the phone's
+     old number with nothing recorded as its successor - yet the Active list
+     plainly shows the one number the phone carries now. Fall back to that sole
+     active number so the "New Value" is never a blank dash next to it. */
+  const activeNumbers = groups.active.map((a) => String(a.number).trim()).filter(Boolean);
+  const soleActive = activeNumbers.length === 1 ? activeNumbers[0] : '';
+  const expiredSimRows = groups.expired
+    .filter((e) => !shownOld.has(String(e.number).toLowerCase()))
+    .map((e) => {
+      const oldK = String(e.number).trim().toLowerCase();
+      const next = replacedBy.get(oldK)
+        || (soleActive && soleActive.toLowerCase() !== oldK ? soleActive : '');
+      return {
+        id: e.key,
+        changed_at: e.expiresOn,
+        field: e.slot ? `SIM ${e.slot}` : 'SIM Number',
+        old: e.number,
+        new: next || '—',
+        action: next ? 'Updated' : 'Expired',
+      };
+    });
+  const historyEntries = [...updatedSimRows, ...expiredSimRows].sort((a, b) => {
+    const ta = a.changed_at ? new Date(a.changed_at).getTime() : 0;
+    const tb = b.changed_at ? new Date(b.changed_at).getTime() : 0;
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
 
   const totalSpan = (() => {
-    if (!card.issue_date || !card.expiry_date) return null;
-    const a = new Date(`${String(card.issue_date).slice(0, 10)}T00:00:00`);
-    const b = new Date(`${String(card.expiry_date).slice(0, 10)}T00:00:00`);
+    if (!heroIssuedOn || !heroExpiresOn) return null;
+    const a = new Date(`${String(heroIssuedOn).slice(0, 10)}T00:00:00`);
+    const b = new Date(`${String(heroExpiresOn).slice(0, 10)}T00:00:00`);
     if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
     const total = Math.round((b - a) / 86400000);
     return total > 0 ? total : null;
   })();
   const pct = totalSpan && dl !== null ? Math.max(0, Math.min(100, Math.round((dl / totalSpan) * 100))) : null;
-
-  const Item = ({ k, v, wide, mono }) => {
-    const empty = v === null || v === undefined || v === '';
-    return (
-      <div className={`sv-item${wide ? ' wide' : ''}`}>
-        <div className="k">{k}</div>
-        <div className={`v${mono ? ' mono' : ''}${empty ? ' empty' : ''}`}>{empty ? 'Not set' : v}</div>
-      </div>
-    );
-  };
-
-  const Section = ({ title, icon, count, children }) => (
-    <section className="sv-sec">
-      <div className="sv-sec-head">
-        <span className="sv-sec-ic">{icon}</span>
-        <h4>{title}</h4>
-        {count ? <span className="sv-sec-count">{count}</span> : null}
-      </div>
-      <div className="sv-grid">{children}</div>
-    </section>
-  );
 
   return (
     <div className="modal-overlay sim-view-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -475,12 +517,12 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace, onHistory
             <div className="sv-hero-top">
               <div className="sv-hero-cell">
                 <span className="sv-hero-k">Issued</span>
-                <span className="sv-hero-v">{formatDate(card.issue_date)}</span>
+                <span className="sv-hero-v">{formatDate(heroIssuedOn)}</span>
               </div>
               <div className="sv-hero-sep" />
               <div className="sv-hero-cell">
                 <span className="sv-hero-k">Expires</span>
-                <span className="sv-hero-v">{formatDate(card.expiry_date)}</span>
+                <span className="sv-hero-v">{formatDate(heroExpiresOn)}</span>
               </div>
               <div className="sv-hero-sep" />
               <div className="sv-hero-cell">
@@ -521,48 +563,54 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace, onHistory
               empty="No active SIM numbers on this mobile."
             />
 
-            <SimListSection
-              title="Expired SIMs"
-              icon={<Icon name="clock" size={14} />}
-              count={`${groups.expired.length} expired`}
-              tone="tone-expired"
-              rows={groups.expired}
-              showNgo={showNgo}
-              expiresLabel="Expired On"
-              expired
-              empty="No expired or replaced numbers recorded for this mobile."
-            />
+            <section className="sv-sec">
+              <div className="sv-sec-head">
+                <span className="sv-sec-ic"><Icon name="history" size={14} /></span>
+                <h4>SIM History</h4>
+                {!loadingDates && historyEntries.length > 0 && (
+                  <span className="sv-sec-count">{historyEntries.length} entr{historyEntries.length === 1 ? 'y' : 'ies'}</span>
+                )}
+              </div>
+              {loadingDates ? (
+                <div className="sv-empty">Loading history…</div>
+              ) : historyEntries.length === 0 ? (
+                <div className="sv-empty">No SIM history recorded for this mobile.</div>
+              ) : (
+                <div className="se-log-wrap">
+                  <table className="se-log">
+                    <thead>
+                      <tr>
+                        <th className="c-when">Date &amp; Time</th>
+                        <th className="c-field">Field Changed</th>
+                        <th className="c-old">Old Value</th>
+                        <th className="c-new">New Value</th>
+                        <th className="c-act">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyEntries.map((r, idx) => (
+                        <tr key={`${r.id}-${idx}`}>
+                          <td className="c-when">{formatDateTime(r.changed_at)}</td>
+                          <td className="c-field">{r.field}</td>
+                          <td className="c-old"><s>{r.old}</s></td>
+                          <td className="c-new">{r.new}</td>
+                          <td className="c-act">
+                            <span className={`se-act ${r.action.toLowerCase()}`}>{r.action}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
-            <Section title="SIM Information" icon={<Icon name="sim" size={14} />} count={raw(card.sim_type)}>
-              <Item k="Mobile ID" v={txt(card.mobile_id)} mono wide />
-              <Item k="SIM Type" v={txt(card.sim_type)} />
-              <Item k="Data Pack" v={txt(card.gb)} />
-              <Item k="Replacement Count" v={txt(card.replacement_count)} />
-            </Section>
-
-            <Section title="Device Information" icon={<Icon name="mobile" size={14} />}>
-              <Item k="Device & Model" v={txt(card.device_model)} wide />
-              <Item k="IMEI No." v={txt(card.imei)} mono />
-              <Item k="Status" v={<span className={`pill ${pillForStatus(status)}`}>{status}</span>} />
-            </Section>
-
-            <Section title="Ownership" icon={<Icon name="report" size={14} />}>
-              <Item k="Team" v={txt(card.team)} />
-              <Item k="Owner" v={txt(card.owner)} />
-              <Item k="NGO" v={txt(card.ngo)} />
-              <Item k="Remark" v={txt(card.signature)} wide />
-            </Section>
           </div>
         </div>
 
         <div className="modal-foot sv-foot">
           <span className="sv-foot-note">Record ID {txt(card.id)}</span>
           <div className="sv-foot-btns">
-            {onHistory && (
-              <button className="sim-btn" onClick={() => { onClose(); onHistory(); }}>
-                <Icon name="history" size={15} /> History
-              </button>
-            )}
             <button className="sim-btn" onClick={() => { onClose(); onReplace(); }}>
               <Icon name="replace" size={15} /> Replace
             </button>
@@ -717,240 +765,6 @@ function historyRows(list) {
     }
   }
   return rows;
-}
-
-export function SimHistoryModal({ card, open, onClose }) {
-  const [history, setHistory] = useState([]);
-  const [replacements, setReplacements] = useState([]);
-  const [range, setRange] = useState('all');
-  const [loading, setLoading] = useState(false);
-  const { inventory } = useSim();
-
-  useEffect(() => {
-    if (open && card) {
-      setLoading(true);
-      setHistory([]);
-      setReplacements([]);
-      setRange('all');
-      const trail = (request) => request.then((r) => (Array.isArray(r) ? r : (r?.data || []))).catch(() => []);
-      Promise.all([trail(fetchSimHistory(card.id)), trail(fetchReplacementsForCard(card.id))])
-        .then(([hist, reps]) => { setHistory(hist); setReplacements(reps); })
-        .finally(() => setLoading(false));
-    }
-  }, [open, card]);
-
-  if (!open || !card) return null;
-
-  /* Two views of the same audit trail, both narrowed by the period chips:
-     the SIM-usage timeline (which numbers this mobile has carried, and when)
-     and the raw field-by-field change log underneath it. */
-  const from = historyRangeFrom(range);
-  const cutoff = from ? new Date(`${from}T00:00:00`).getTime() : null;
-  const inWindow = (at) => {
-    if (cutoff === null) return true;
-    const t = new Date(at).getTime();
-    return !Number.isFinite(t) || t >= cutoff;
-  };
-  const rows = historyRows(history.filter((h) => inWindow(h.changed_at)));
-  const usage = mobileSimUsage({ history, replacements, card });
-  const usageRows = filterUsageByRange(usage, range);
-  const uniqueOf = (list) => new Set(list.map((u) => String(u.number).toLowerCase())).size;
-  const uniqueCount = uniqueOf(usageRows);
-  const periodChips = HISTORY_PERIODS.map((p) => ({
-    ...p,
-    count: uniqueOf(filterUsageByRange(usage, p.value)),
-    from: historyRangeFrom(p.value),
-  }));
-
-  /* The summary answers "is this SIM still valid, and is it in a phone?"
-     without leaving the modal: Assigned comes from the Locker join (Android
-     phones link through their "android whatsapp N" card), the verdict from the
-     live dates - a phone whose numbers have all run out reads Expired. */
-  const lockerItem = (inventory || []).find((it) => sameMobileId(it.mobile_id, card.mobile_id)) || null;
-  const expiryStatus = mobileExpiryStatus(card, inventory);
-  const statusNode = (
-    <>
-      {lockerItem ? <span className="pill pill-assigned">Assigned</span> : null}
-      <span className={`pill ${pillForStatus(expiryStatus)}`}>{expiryStatus}</span>
-    </>
-  );
-
-  return (
-    <div className="modal-overlay sim-edit-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal sim-hist-modal">
-        <div className="se-head">
-          <div className="se-head-main">
-            <span className="se-avatar"><Icon name="history" size={18} /></span>
-            <div className="se-head-txt">
-              <h3>SIM History</h3>
-              <div className="se-head-sub">
-                <span className="se-head-id">{txt(card.mobile_id)}</span>
-                {raw(card.device_model) ? <><i className="se-dot" />{card.device_model}</> : null}
-                <i className="se-dot" />Which SIMs this mobile has used, and when
-              </div>
-            </div>
-          </div>
-          <button className="modal-x" onClick={onClose} aria-label="Close"><Icon name="close" size={17} /></button>
-        </div>
-
-        <div className="modal-body se-body">
-          <section className="se-sec">
-            <div className="se-sec-head">
-              <span className="se-sec-ic"><Icon name="mobile" size={14} /></span>
-              <div className="se-sec-txt">
-                <h4>Card Summary</h4>
-                <p>The record this history belongs to</p>
-              </div>
-            </div>
-            <div className="se-sum">
-              {[
-                ['Mobile ID', card.mobile_id],
-                ['Device & Model', card.device_model],
-                ['Team', card.team],
-                ['NGO', card.ngo],
-                ['Owner', card.owner],
-                ['Remark', card.signature],
-                ['Status', statusNode],
-                ['Auto Expiry Date', formatDate(card.expiry_date)],
-                ['Days Left', dayLabel(liveDaysLeft(card))],
-              ].map(([k, v]) => (
-                <div className="se-sum-cell" key={k}>
-                  <span className="k">{k}</span>
-                  {/* Strings go through txt() for the dash fallback; the Status
-                      cell is JSX (one or two pills) and is rendered as-is. */}
-                  <span className="v">{typeof v === 'string' || v === null || v === undefined ? txt(v) : v}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="se-sec">
-            <div className="se-sec-head">
-              <span className="se-sec-ic"><Icon name="sim" size={14} /></span>
-              <div className="se-sec-txt">
-                <h4>SIMs Used On This Mobile</h4>
-                <p>Every number this mobile has carried, newest first</p>
-              </div>
-              {!loading && uniqueCount > 0 && (
-                <span className="se-sec-count">{uniqueCount} SIM{uniqueCount === 1 ? '' : 's'}</span>
-              )}
-            </div>
-            <div className="se-sec-body">
-              <div className="se-bh-bar">
-                <div className="se-bh-chips" role="group" aria-label="Period">
-                  {periodChips.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      className={`se-bh-chip${p.value === range ? ' on' : ''}`}
-                      aria-pressed={p.value === range}
-                      title={`${p.count} SIM${p.count === 1 ? '' : 's'}${p.from ? ` · since ${formatDate(p.from)}` : ' · all recorded history'}`}
-                      onClick={() => setRange(p.value)}
-                    >{p.label}</button>
-                  ))}
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="se-empty"><span className="se-spin" /> Loading usage...</div>
-              ) : usageRows.length === 0 ? (
-                <div className="se-empty">
-                  <Icon name="sim" size={18} />
-                  <span>No SIMs used on this mobile in this period.</span>
-                </div>
-              ) : (
-                <div className="se-log-wrap">
-                  <table className="se-log">
-                    <thead>
-                      <tr>
-                        <th className="c-new">SIM Number</th>
-                        <th className="c-field">Slot</th>
-                        <th className="c-when">Used From</th>
-                        <th className="c-when">Used Till</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usageRows.map((u, idx) => (
-                        <tr key={`${u.number}-${u.slot || 'x'}-${idx}`}>
-                          <td className="c-new">{u.number}</td>
-                          <td className="c-field">{u.slot ? `SIM ${u.slot}` : '—'}</td>
-                          <td className="c-when">{formatDate(u.from)}</td>
-                          <td className="c-when">
-                            {u.current
-                              ? <span className="pill pill-assigned">Current</span>
-                              : formatDate(u.to)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="se-sec">
-            <div className="se-sec-head">
-              <span className="se-sec-ic"><Icon name="history" size={14} /></span>
-              <div className="se-sec-txt">
-                <h4>Change Log</h4>
-                <p>Old value crossed out, new value shown in green</p>
-              </div>
-              {!loading && rows.length > 0 && <span className="se-sec-count">{rows.length} changes</span>}
-            </div>
-            <div className="se-sec-body">
-              {loading ? (
-                <div className="se-empty"><span className="se-spin" /> Loading history...</div>
-              ) : rows.length === 0 ? (
-                <div className="se-empty">
-                  <Icon name="history" size={18} />
-                  <span>{range === 'all' ? 'No previous changes saved for this card.' : 'No changes recorded in this period.'}</span>
-                </div>
-              ) : (
-                <div className="se-log-wrap">
-                  <table className="se-log">
-                    <thead>
-                      <tr>
-                        <th className="c-when">Date &amp; Time</th>
-                        <th className="c-field">Field Changed</th>
-                        <th className="c-old">Old Value</th>
-                        <th className="c-new">New Value</th>
-                        <th className="c-act">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r, idx) => (
-                        <tr key={`${r.id}-${idx}`}>
-                          <td className="c-when">{formatDateTime(r.changed_at)}</td>
-                          <td className="c-field">{r.field}</td>
-                          <td className="c-old"><s>{r.old}</s></td>
-                          <td className="c-new">{r.new}</td>
-                          <td className="c-act">
-                            <span className={`se-act ${r.action.toLowerCase()}`}>{r.action}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <div className="modal-foot se-foot">
-          <span className="se-foot-hint">
-            {loading
-              ? 'Fetching change log...'
-              : `${uniqueCount} SIM${uniqueCount === 1 ? '' : 's'} used on this mobile · ${rows.length} recorded change${rows.length === 1 ? '' : 's'}`}
-          </span>
-          <div className="se-foot-btns">
-            <button className="sim-btn primary" onClick={onClose}>Close</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 const BRAND_API = { All: 'all', Nokia: 'nokia', Android: 'android' };

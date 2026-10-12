@@ -39,7 +39,8 @@ import {
   setSlabTiers,
 } from '../models/incentiveSlabTierModel.js';
 
-const TIER_KEYS = ['bronze', 'silver', 'gold'];
+// Milestone tiers are fully dynamic per range: any number of {target, prize}
+// milestones. Rows are ordered by ascending target and keyed tier_1..tier_n.
 
 // ─── Settings ──────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ export async function listSlabsHandler(req, res) {
   }
 }
 
-// ─── Slab milestone tiers (Bronze/Silver/Gold) ─────────────
+// ─── Slab milestone tiers (dynamic, numbered) ─────────────
 
 export async function getSlabTiersHandler(req, res) {
   try {
@@ -97,43 +98,35 @@ export async function setSlabTiersHandler(req, res) {
     if (!slab) return res.status(404).json({ message: 'Slab not found' });
 
     const raw = Array.isArray(req.body?.tiers) ? req.body.tiers : [];
-    const tiers = [];
+    // Keep only rows with a real target; the UI leaves blank rows behind.
+    const parsed = [];
     for (const t of raw) {
       if (!t) continue;
-      const key = String(t.tier_key || '').toLowerCase();
-      if (!TIER_KEYS.includes(key)) {
-        return res.status(400).json({ message: `tier_key must be one of ${TIER_KEYS.join(', ')}` });
-      }
       const target = numOr(t.target_amount, 0);
+      if (target <= 0) continue;
       const prize = numOr(t.prize_amount, 0);
-      if (target <= 0) continue; // skip empty rows the UI leaves blank
-      tiers.push({
-        tier_key: key,
-        label: t.label ? String(t.label) : (key.charAt(0).toUpperCase() + key.slice(1)),
-        order_index: TIER_KEYS.indexOf(key),
-        target_amount: target,
-        prize_amount: prize >= 0 ? prize : 0,
-        is_active: t.is_active !== false,
-      });
+      parsed.push({ target_amount: target, prize_amount: prize >= 0 ? prize : 0 });
     }
 
-    // No duplicates per tier.
-    const seen = new Set();
-    for (const t of tiers) {
-      if (seen.has(t.tier_key)) {
-        return res.status(400).json({ message: `Duplicate tier: ${t.tier_key}` });
+    // Milestones are ordered by target — the lowest target is "Tier 1". Targets
+    // must strictly increase, otherwise "which milestone did a collection reach"
+    // is ambiguous.
+    parsed.sort((a, b) => a.target_amount - b.target_amount);
+    for (let i = 1; i < parsed.length; i++) {
+      if (parsed[i].target_amount <= parsed[i - 1].target_amount) {
+        return res.status(400).json({ message: 'Tier targets must strictly increase' });
       }
-      seen.add(t.tier_key);
     }
 
-    // Targets must increase Bronze → Silver → Gold, otherwise the tiers are
-    // ambiguous (which one did a collection "reach").
-    const ordered = tiers.slice().sort((a, b) => a.target_amount - b.target_amount);
-    for (let i = 1; i < ordered.length; i++) {
-      if (ordered[i].target_amount <= ordered[i - 1].target_amount) {
-        return res.status(400).json({ message: 'Tier targets must strictly increase (Bronze < Silver < Gold)' });
-      }
-    }
+    // Stable, numbered identity per position (no fixed cap on the count).
+    const tiers = parsed.map((t, i) => ({
+      tier_key: `tier_${i + 1}`,
+      label: `Tier ${i + 1}`,
+      order_index: i,
+      target_amount: t.target_amount,
+      prize_amount: t.prize_amount,
+      is_active: true,
+    }));
 
     const saved = await setSlabTiers(req.params.id, tiers);
     // New/changed milestone prizes for this range → ping only its FROs.

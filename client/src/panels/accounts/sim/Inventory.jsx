@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { MoreHorizontal, Plus, Eye, PencilLine, RefreshCw, History, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Plus, Eye, PencilLine, RefreshCw, Trash2 } from 'lucide-react';
 import { useSim } from './store';
 import { Icon } from './components';
 import { mobileExpiryStatus, dayClass, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, liveDaysLeft, isPlaceholder } from './helpers';
@@ -52,7 +52,7 @@ const NOKIA_COLUMNS = [
   { key: 'replacement_count', label: 'Sim Card Repla. Count', num: true },
 ];
 
-export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, onHistory, simName: simNameProp, onSimNameChange }) {
+export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, simName: simNameProp, onSimNameChange }) {
   const { cards, refresh, inventory, refreshInventory } = useSim();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
@@ -551,7 +551,6 @@ if (simName === 'Android' && waName !== 'All') {
                                   ['View', Eye, () => onView(c)],
                                   ['Edit', PencilLine, () => onEdit(c)],
                                   ['Replace', RefreshCw, () => onReplace(c)],
-                                  ['History', History, () => onHistory && onHistory(c)],
                                   ['Delete', Trash2, () => handleDelete(c)],
                                 ].map(([label, MenuIcon, fn]) => (
                                   <button key={label} className="kebab-item" style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }} onClick={() => { setShowActions(null); fn(); }}>

@@ -716,10 +716,10 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
     slabs = slabs.filter(s => isTierSlab(s.id) || !champBySlab[s.id]);
   }
 
-  // Final tier winners keyed slab|fro -> tier_label (for member badges).
+  // Final tier winners keyed slab|fro -> { key, label } (for member badges).
   const tierWinnerByKey = {};
   for (const c of champions) {
-    if (c.tier_mode) tierWinnerByKey[`${c.slab_id}|${c.fro_id}`] = c.tier_label;
+    if (c.tier_mode) tierWinnerByKey[`${c.slab_id}|${c.fro_id}`] = { key: c.tier_key, label: c.tier_label };
   }
 
   const ranges = [];
@@ -742,7 +742,8 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
         total_incentive: f.total_incentive || 0,
         is_winner: !!((champBySlab[slab.id] && champBySlab[slab.id].fro_id === f.fro_id)
           || tierWinnerByKey[`${slab.id}|${f.fro_id}`]),
-        won_tier_label: tierWinnerByKey[`${slab.id}|${f.fro_id}`] || null,
+        won_tier_label: tierWinnerByKey[`${slab.id}|${f.fro_id}`]?.label || null,
+        won_tier_key: tierWinnerByKey[`${slab.id}|${f.fro_id}`]?.key || null,
       }));
     if (members.length === 0) continue;
 
