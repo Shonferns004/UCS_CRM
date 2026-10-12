@@ -424,19 +424,19 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       // Column indices (0-based)
       const COL = {
-        NAME: 0, NGO: 1, STATUS: 2, HOLD: 3, AC_HOLDER: 4, AC_REL: 5, BANK: 6, AC_NUM: 7, IFSC: 8, STATION: 9, DOJ: 10, SALARY: 11,
-        TARGET: 12, TOTAL_ACH: 13, BSCT_ACH: 14, AFLF_ACH: 15, MANN_ACH: 16,
-        BALANCE: 17, ACH_PCT: 18,
-        PRES_DAYS: 19, ABSENT_DAYS: 20, HALF_DAYS: 21, LATE_DED: 22, SUN_DED: 23, TRAIN_DED: 24, NET_PRES: 25,
-        MONTH_SAL: 26, INCENT_10: 27, TOTAL_AKI: 28, AKI: 29, GROSS: 30,
-        OT: 31, PENDING: 32, ADVANCE: 33, NET_PAY: 34,
-        COMP_SUN: 35, COMP_HOLIDAY: 36, REQUIRED_SUN: 37, IDLE_HRS: 38,
-        FIRST_DAY_COL: 39
+        NAME: 0, NGO: 1, STATUS: 2, HOLD: 3, DOCS: 4, AC_HOLDER: 5, AC_REL: 6, BANK: 7, AC_NUM: 8, IFSC: 9, STATION: 10, DOJ: 11, SALARY: 12,
+        TARGET: 13, TOTAL_ACH: 14, BSCT_ACH: 15, AFLF_ACH: 16, MANN_ACH: 17,
+        BALANCE: 18, ACH_PCT: 19,
+        PRES_DAYS: 20, ABSENT_DAYS: 21, HALF_DAYS: 22, LATE_DED: 23, SUN_DED: 24, TRAIN_DED: 25, NET_PRES: 26,
+        MONTH_SAL: 27, INCENT_10: 28, TOTAL_AKI: 29, AKI: 30, GROSS: 31,
+        OT: 32, PENDING: 33, ADVANCE: 34, NET_PAY: 35,
+        COMP_SUN: 36, COMP_HOLIDAY: 37, REQUIRED_SUN: 38, IDLE_HRS: 39,
+        FIRST_DAY_COL: 40
       };
       const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
 
       const headers = [
-        'Agent Name', 'NGO', 'Status', 'Hold / Released', 'Account Holder Name', 'Account Holder Relation',
+        'Agent Name', 'NGO', 'Status', 'Hold / Released', 'Documents Submitted or Missing', 'Account Holder Name', 'Account Holder Relation',
         'Bank Name', 'Bank Account Number', 'IFSC Code', 'STATION', 'Date of Joining', 'Salary',
         'New Target', 'Total Achieved', 'BSCT Achieved', 'AFLF Achieved', 'Mann Achieved',
         'Balance', 'Achieved %',
@@ -512,6 +512,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           r.ngo || '',
           r.status || '',
           (r.salary_status || 'released').toUpperCase(),
+          r.documents_status || '',
           r.account_holder_name || '',
           r.account_holder_relation || '',
           r.bank_name || '',
@@ -659,7 +660,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       // Column widths
       const colWidths = [
-        { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 22 }, { wch: 18 },
+        { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 24 }, { wch: 22 }, { wch: 18 },
         { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 10 },
         { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 12 }, { wch: 12 },

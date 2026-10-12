@@ -572,7 +572,7 @@ export const getPagarExportData = async (month) => {
   // 1. Workers with basic info
   const { data: workers, error: wErr } = await db
     .from('workers')
-    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id');
+    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id, documents_submitted');
   if (wErr) throw wErr;
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
@@ -975,6 +975,7 @@ export const getPagarExportData = async (month) => {
       department: w.department || '',
       salary_status: holdByWorker[w.id] !== undefined ? 'held' : 'released',
       hold_reason: holdByWorker[w.id] || '',
+      documents_status: w.documents_submitted ? 'Submitted' : 'Missing',
       account_holder_name: w.account_holder_name || '',
       account_holder_relation: w.father_husband_name || '', // blank or father name
       bank_name: w.bank_name || '',
@@ -1026,6 +1027,7 @@ export const getPagarExportData = async (month) => {
     ngo: '',
     status,
     department,
+    documents_status: '',
     account_holder_name: '',
     account_holder_relation: '',
     bank_name: '',
