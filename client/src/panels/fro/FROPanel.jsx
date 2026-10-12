@@ -27,6 +27,7 @@ import LeadIncentive from './pages/LeadIncentive'
 import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive, { SidebarIncentive, useSpecialIncentive } from '../../components/SpecialIncentive'
 import RangeRulePopup from '../../components/RangeRulePopup'
+import IdleNoticeHost from './components/IdleNoticeHost'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
@@ -1430,6 +1431,7 @@ useEffect(() => onFroAction((action) => {
       />
       <SpecialIncentive si={si} />
       <RangeRulePopup />
+      <IdleNoticeHost />
       <LeadChampionCelebration />
       <LeadIncentiveLeaderboard />
       <NoticePopup />

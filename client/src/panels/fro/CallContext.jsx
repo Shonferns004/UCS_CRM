@@ -46,12 +46,18 @@ export function CallProvider({ children, userId, operatorId }) {
   const [dispositionDueAt, setDispositionDueAt] = useState(null)
   const [secondsLeft, setSecondsLeft] = useState(null)
   const [isIdle, setIsIdle] = useState(false)
+  // Start of the open idle stretch, as the server stamped it (toStatusPayload
+  // already ships idle_since on /status/me and every heartbeat — the panel used
+  // to discard it). IdleNoticeHost measures the stretch from this; the server
+  // remains the only thing that ever sets or clears it.
+  const [idleSince, setIdleSince] = useState(null)
   const [inShift, setInShift] = useState(true)
   // Mirrored into a ref so the 1s countdown tick can read it without being
   // torn down and rebuilt on every shift-boundary change.
   const inShiftRef = useRef(true); inShiftRef.current = inShift
   const dispositionDueRef = useRef(null); dispositionDueRef.current = dispositionDueAt
   const isIdleRef = useRef(false); isIdleRef.current = isIdle
+  const idleSinceRef = useRef(null); idleSinceRef.current = idleSince
   // The server's own answer, "you have N seconds left", plus the local monotonic
   // reading taken when that answer arrived. The countdown is N minus locally
   // elapsed time. It is deliberately NOT deadline-minus-Date.now(): plenty of
@@ -145,6 +151,7 @@ export function CallProvider({ children, userId, operatorId }) {
         disposition_due_at: s.dispositionDueAt ?? null,
         seconds_left: s.secondsLeft ?? null,
         is_idle: !!s.isIdle,
+        idle_since: s.idleSince ?? null,
         // Wall clock, used only to discount the reload gap on the way back in.
         saved_at: Date.now(),
       }))
@@ -234,6 +241,17 @@ export function CallProvider({ children, userId, operatorId }) {
       setIsIdle(s.is_idle)
       isIdleRef.current = s.is_idle
     }
+    // idle_since rides on every normal payload (toStatusPayload). If it is
+    // absent, the response was the ledger-failure fallback — keep the last
+    // known stretch unless the server also said not-idle, which clears it.
+    if ('idle_since' in s) {
+      const next = s.idle_since || null
+      setIdleSince(next)
+      idleSinceRef.current = next
+    } else if (s.is_idle === false) {
+      setIdleSince(null)
+      idleSinceRef.current = null
+    }
     // Mirror the authoritative answer so a reload has something to show.
     persistTimer({
       dispositionDueAt: s.disposition_due_at !== undefined ? (s.disposition_due_at || null) : dispositionDueRef.current,
@@ -241,6 +259,7 @@ export function CallProvider({ children, userId, operatorId }) {
         ? s.seconds_left
         : (s.seconds_left === null ? null : serverSecondsRef.current?.seconds ?? null),
       isIdle: typeof s.is_idle === 'boolean' ? s.is_idle : isIdleRef.current,
+      idleSince: idleSinceRef.current,
     })
   }, [persistTimer])
 
@@ -525,6 +544,10 @@ export function CallProvider({ children, userId, operatorId }) {
         setIsIdle(true)
         isIdleRef.current = true
       }
+      if (saved.idle_since) {
+        setIdleSince(saved.idle_since)
+        idleSinceRef.current = saved.idle_since
+      }
       if (restored !== null) {
         serverSecondsRef.current = { seconds: restored, at: performance.now() }
         setSecondsLeft(restored)
@@ -789,7 +812,7 @@ export function CallProvider({ children, userId, operatorId }) {
       status: liveStatus,
       paused, pausedBy, resumeSelf,
       // Disposition timer / idle state (is_idle is the server's answer)
-      dispositionDueAt, secondsLeft, isIdle, inShift,
+      dispositionDueAt, secondsLeft, isIdle, idleSince, inShift,
       // Settle-in grace. Non-null only while the 3 minutes is running (or has just
       // run out on the beat before the window arms); the panel prefers the
       // disposition countdown whenever one exists.
