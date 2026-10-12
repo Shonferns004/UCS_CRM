@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchEvents, updateEventStatus, deleteEvent, cleanupEvents, EVENT_STATUSES, fetchWorkspaceNgos, fetchSectors, fetchActivities, importEventsSheet, exportEventsSheet } from '../store'
 import { EnhancedTable } from '../components/Table'
+import EventCompletionModal from '../components/EventCompletionModal'
 
 const statusColor = (s) => {
   const map = { Completed:'green', Approved:'blue', Draft:'gray', Submitted:'yellow', Rejected:'red', Cancelled:'red', Closed:'green', Postponed:'yellow' }
@@ -32,6 +33,7 @@ export default function EventsPage({ view } = {}) {
     searchParams.get('created') ? 'Event created successfully.'
       : searchParams.get('deleted') ? 'Event deleted.' : ''
   )
+  const [completionEvent, setCompletionEvent] = useState(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -147,10 +149,27 @@ export default function EventsPage({ view } = {}) {
   const shown = filteredEvents
 
   const handleStatus = async (id, status) => {
+    // Completing an event is not a plain status write: it opens the social-media
+    // tracking form, which saves the data and only then flips the status.
+    if (status === 'Completed') {
+      const ev = events.find(x => String(x.id) === String(id))
+      if (ev) setCompletionEvent(ev)
+      return
+    }
     try {
       await updateEventStatus(id, status)
       setEvents(events.map(e => e.id === id ? {...e, status} : e))
     } catch (e) { console.error('EventsPage updateEventStatus:', e) }
+  }
+
+  const handleCompleted = (updated) => {
+    setCompletionEvent(null)
+    if (updated && updated.id != null) {
+      setEvents(prev => prev.map(e => String(e.id) === String(updated.id) ? { ...e, ...updated } : e))
+    }
+    // The completion rule is met and the data is saved; navigating to the report
+    // (with autodownload) produces the Daily Event Report PDF for this event.
+    navigate('/event-head/reports?event=' + encodeURIComponent(updated?.id) + '&autodownload=1&completed=1')
   }
   const handleDelete = async (id) => {
     if (!confirm('Delete this event?')) return
@@ -270,6 +289,14 @@ export default function EventsPage({ view } = {}) {
     { header: 'Date', accessor: 'date', render: (row) => row.date?.slice(0, 10) || '—' },
     { header: 'Time', accessor: 'start_time', render: timeLabel },
     { header: 'Venue', accessor: 'venue' },
+    {
+      header: 'Social',
+      render: (row) => row.social_total ? (
+        <span style={{ fontSize: 11, fontWeight: 700, color: row.social_completed >= row.social_total ? 'var(--eh-success)' : 'var(--ink-soft)' }}>
+          {row.social_completed}/{row.social_total}
+        </span>
+      ) : <span style={{ color: 'var(--ink-soft)' }}>—</span>
+    },
     {
       header: 'Status',
       accessor: 'status',
@@ -484,6 +511,14 @@ export default function EventsPage({ view } = {}) {
             </form>
           </div>
         </div>
+      )}
+
+      {completionEvent && (
+        <EventCompletionModal
+          event={completionEvent}
+          onClose={() => setCompletionEvent(null)}
+          onCompleted={handleCompleted}
+        />
       )}
 
       {loading ? (

@@ -839,10 +839,10 @@ export default function ReceiptHistory() {
           </div>
           <div className="rx-fselect">
             <span className="rx-fkey">Amount</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input type="number" min="0" placeholder="Min" value={minAmount} onChange={e => setMinAmount(e.target.value)} style={{ width: 70 }} />
-              <span style={{ color: 'var(--ink-soft)' }}>&ndash;</span>
-              <input type="number" min="0" placeholder="Max" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} style={{ width: 70 }} />
+            <div className="rx-amt">
+              <input type="number" min="0" placeholder="Min" value={minAmount} onChange={e => setMinAmount(e.target.value)} />
+              <span className="rx-amt-sep">&ndash;</span>
+              <input type="number" min="0" placeholder="Max" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} />
             </div>
           </div>
           <div className="rx-fselect rx-filter-grow">

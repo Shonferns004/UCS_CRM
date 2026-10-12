@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl } from '../store'
 
 // Per-NGO brand theme (colors + logo) keyed by NGO code. Colors match the
@@ -135,28 +135,19 @@ const fmtTime = (t) => {
 const isImage = (u) => /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(String(u || ''))
 const safe = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-const BANNER_FALLBACK = {
-  width: '100%', height: 130,
-  background: 'linear-gradient(135deg,#2036bd,#0ea5e9)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#fff', fontSize: 14, fontWeight: 700,
-}
-
-/* Every banner/media <img> in this file used onError={e => e.currentTarget.style.display='none'}.
-   For the report header that left a black bar: the wrapper is background:#0f172a and the
-   gradient fallback only rendered when there was no URL at all, so a URL that failed to
-   load produced an empty void with no indication anything was wrong. A failed load now
-   falls back to the same branded block used for "no banner". */
+/* The event banner in the report header. When there is no banner (or it fails to
+   load) this renders nothing at all — no placeholder bar — so the report header
+   stays clean. */
 function ReportBanner({ src, alt }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => { setFailed(false) }, [src])
-  if (!src || failed) return <div style={BANNER_FALLBACK}>EVENT BANNER</div>
+  if (!src || failed) return null
   return (
     <img
       src={src}
       alt={alt || 'banner'}
       onError={() => setFailed(true)}
-      style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }}
+      style={{ width: '100%', maxHeight: 320, objectFit: 'cover', display: 'block' }}
     />
   )
 }
@@ -638,7 +629,89 @@ function computePageBreaks(intervals, totalPx, pagePx) {
   return breaks
 }
 
+/* Render a DOM node to a downloaded A4 PDF. Used by the single-event ("daily")
+   report and the all-events summary download buttons, which previously only
+   called window.print() — that produced nothing on browsers/setups where the
+   print CSS is not applied and could never save a file. This rasterises the
+   report with html2canvas and slices it into A4 pages at the gaps between
+   keep-together blocks (tables, the report header and the footer), reusing the
+   same page-break planner as the monthly export. Assets (images/fonts) are
+   awaited first so photos are not blank. */
+async function exportElementToPdf(el, filename) {
+  if (!el) throw new Error('Nothing to export — generate the report first.')
+  const { default: html2canvas } = await import('html2canvas')
+  const { default: jsPDF } = await import('jspdf')
+  const pdf = new jsPDF('p', 'mm', 'a4')
+  const pageW = 210
+  const pageH = 297
+  const margin = 8
+  const contentW = pageW - margin * 2
+  const contentH = pageH - margin * 2
+
+  await Promise.all(
+    [...el.querySelectorAll('img')].map(img =>
+      img.complete
+        ? Promise.resolve()
+        : new Promise(resolve => { img.onload = () => resolve(); img.onerror = () => resolve() })
+    )
+  )
+  await (document.fonts && document.fonts.ready)
+
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+    imageTimeout: 15000,
+  })
+
+  const pxPerMm = canvas.width / contentW
+  const pageHeightPx = contentH * pxPerMm
+
+  const elRect = el.getBoundingClientRect()
+  const sc = canvas.width / (elRect.width || el.offsetWidth || canvas.width)
+  const toPx = (r) => [(r.top - elRect.top) * sc, (r.bottom - elRect.top) * sc]
+  const keepTogether = []
+  try {
+    for (const s of el.querySelectorAll('.eh-report-body, .eh-print-brand, .eh-print-footer')) {
+      keepTogether.push(toPx(s.getBoundingClientRect()))
+    }
+    for (const t of el.querySelectorAll('table')) keepTogether.push(toPx(t.getBoundingClientRect()))
+  } catch { /* measurement is best-effort; slicing still works */ }
+
+  const breaks = computePageBreaks(keepTogether, canvas.height, pageHeightPx)
+  for (let i = 0; i < breaks.length - 1; i++) {
+    const start = Math.round(breaks[i])
+    const end = Math.round(breaks[i + 1])
+    if (end <= start) continue
+    const slice = document.createElement('canvas')
+    slice.width = canvas.width
+    slice.height = end - start
+    slice.getContext('2d').drawImage(canvas, 0, start, canvas.width, end - start, 0, 0, canvas.width, end - start)
+    const sliceData = slice.toDataURL('image/jpeg', 0.95)
+    const sliceHeightMm = (end - start) / pxPerMm
+    if (i > 0) pdf.addPage()
+    pdf.addImage(sliceData, 'JPEG', margin, margin, contentW, sliceHeightMm)
+  }
+  pdf.save(filename)
+}
+
 export default function EventReports() {
+  // Deep link from an event's "Report" button: /event-head/reports?event=<id>.
+  // The id is consumed once, right after the events list loads, so the event is
+  // selected and its report generated without the user picking it again.
+  const [searchParams] = useSearchParams()
+  const requestedEventRef = useRef(searchParams.get('event') || '')
+  const requestedHandledRef = useRef(false)
+  // Set by the completion flow (…&autodownload=1) so the freshly completed
+  // event's Daily Report PDF downloads as soon as it has rendered.
+  const requestedAutodownloadRef = useRef(searchParams.get('autodownload') === '1')
+  const autodownloadDoneRef = useRef(false)
+  // Set by the completion flow (…&completed=1) so a confirmation toast shows
+  // once when the report page opens after an event is marked Completed.
+  const completedToastRef = useRef(searchParams.get('completed') === '1')
+  const [toast, setToast] = useState('')
+
   const [events, setEvents] = useState([])
   const [selectedEvent, setSelectedEvent] = useState('')
   const [reportType, setReportType] = useState('summary')
@@ -649,6 +722,14 @@ export default function EventReports() {
   const [allLoading, setAllLoading] = useState(false)
 
   const [refreshing, setRefreshing] = useState(false)
+
+  // The report screen has exactly TWO jobs, so it shows exactly two tabs:
+  //   daily   → one event you created for a day, with a downloadable report
+  //   monthly → every event of a chosen month, grouped by NGO
+  // Keeping them behind a tab is the whole point: previously the daily picker,
+  // the all-events summary and the monthly cards were stacked on one page, which
+  // made it unclear where a single day's report came from.
+  const [mode, setMode] = useState('daily')
 
   // ── Monthly Report state ──
   const now = new Date()
@@ -676,7 +757,17 @@ export default function EventReports() {
         return { ...e, status, status_new: isNew }
       })
       setEvents(normalized)
-      setSelectedEvent(prev => prev || (normalized.find(e => e.status === 'Submitted')?.id) || '')
+      const requested = requestedEventRef.current
+      if (requested && !requestedHandledRef.current && normalized.some(e => String(e.id) === String(requested))) {
+        requestedHandledRef.current = true
+        // "All Events" so the deep-linked event is always present in the picker,
+        // whatever its status (the default filter is Submitted only).
+        setStatusFilter('')
+        setSelectedEvent(String(requested))
+        generate(requested)
+      } else {
+        setSelectedEvent(prev => prev || (normalized.find(e => e.status === 'Submitted')?.id) || '')
+      }
     }).catch(e => console.error('EventReports fetchEvents:', e))
       .finally(() => setRefreshing(false))
   }
@@ -705,14 +796,18 @@ export default function EventReports() {
   const filteredEvents = events.filter(e => !statusFilter || (statusFilter === 'Submitted' ? isSubmitted(e.status) : String(e.status) === statusFilter))
 
   const generate = async (forceId) => {
-    const id = forceId || selectedEvent
+    // Guard against a DOM/SyntheticEvent (e.g. a bare onClick={generate}
+    // handler) being passed where an event id is expected — a non-primitive
+    // id would otherwise be stringified into the URL as "[object Object]".
+    const raw = (forceId != null && typeof forceId !== 'object') ? forceId : selectedEvent
+    const id = raw == null ? '' : String(raw)
     if (!id) return
     setLoading(true)
     setReportData(null)
     try {
       const data = await generateEventReport(id, reportType)
       setReportData(data)
-    } catch (err) { alert('Failed to generate report') }
+    } catch (err) { alert('Failed to generate report: ' + (err?.message || 'Unknown error')) }
     finally { setLoading(false) }
   }
 
@@ -736,12 +831,12 @@ export default function EventReports() {
     finally { setMonthlyLoading(false) }
   }
 
-  // Auto-load the monthly report (all NGOs) when the page opens, so the
-  // report cards appear without a click. The Generate button below is kept
-  // as a manual fallback.
+  // Load the monthly report when the Monthly tab is opened, so its cards appear
+  // without a click. It is deliberately NOT loaded on the Daily tab (or on page
+  // open), so the day report is never buried under month cards.
   useEffect(() => {
-    generateMonthly() /* eslint-disable-line react-hooks/exhaustive-deps */
-  }, [])
+    if (mode === 'monthly') generateMonthly() /* eslint-disable-line react-hooks/exhaustive-deps */
+  }, [mode])
 
   const exportMonthlyCSV = () => {
     const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
@@ -873,8 +968,73 @@ export default function EventReports() {
   const ev = reportData?.event || {}
   const isCompleted = COMPLETED.includes(ev.status)
 
-  const downloadPdf = () => {
-    window.print()
+  // NGO branding for the daily report: same logo, name and colour as the NGO's
+  // monthly card. Prefer the code/logo the API resolved; fall back to matching
+  // the NGO name, then to a numeric code/id.
+  const dailyCode = ev.ngo_code || codeForName(ev.ngo_name) || (ev.ngo_id != null ? String(ev.ngo_id) : '')
+  const dailyTheme = ngoTheme({ code: dailyCode })
+  const dailyLogo = ev.ngo_logo || dailyTheme.logo
+  const dailyNgoName = ev.ngo_name || dailyTheme.fullName || 'Report'
+
+  // DOM refs for the downloadable reports. The buttons below export these nodes
+  // to a real PDF file instead of calling window.print().
+  const singleReportRef = useRef(null)
+  const allSummaryRef = useRef(null)
+  const [pdfBusy, setPdfBusy] = useState('') // '' | 'single' | 'all'
+
+  const safeFile = (s) => String(s || '').trim().replace(/[^\w\-]+/g, '_').slice(0, 60) || 'report'
+
+  const downloadSinglePdf = async () => {
+    if (pdfBusy) return
+    setPdfBusy('single')
+    try {
+      await exportElementToPdf(singleReportRef.current, `${safeFile(ev.name)}-${reportType}-report.pdf`)
+    } catch (err) {
+      console.error('single report PDF:', err)
+      alert('Failed to generate report PDF: ' + (err?.message || 'Unknown error'))
+    } finally { setPdfBusy('') }
+  }
+
+  // Auto-download the daily report once after completion. The data is already
+  // saved server-side, so if the PDF export fails the report stays on screen and
+  // the normal "Download PDF" button acts as the retry.
+  useEffect(() => {
+    if (!requestedAutodownloadRef.current || autodownloadDoneRef.current) return
+    if (!reportData) return
+    autodownloadDoneRef.current = true
+    // Drop the flag from the URL so a refresh does not re-trigger a download.
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('autodownload')
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+    } catch { /* non-browser */ }
+    const t = setTimeout(() => { downloadSinglePdf() }, 500)
+    return () => clearTimeout(t)
+  }, [reportData]) /* eslint-disable-line react-hooks/exhaustive-deps */
+
+  // One-shot confirmation toast after an event is marked Completed.
+  useEffect(() => {
+    if (!completedToastRef.current) return
+    completedToastRef.current = false
+    setToast('Event marked as Completed. Daily report generated.')
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('completed')
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+    } catch { /* non-browser */ }
+    const t = setTimeout(() => setToast(''), 4000)
+    return () => clearTimeout(t)
+  }, [])
+
+  const downloadAllPdf = async () => {
+    if (pdfBusy) return
+    setPdfBusy('all')
+    try {
+      await exportElementToPdf(allSummaryRef.current, `all-events-summary-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (err) {
+      console.error('all-events PDF:', err)
+      alert('Failed to generate PDF: ' + (err?.message || 'Unknown error'))
+    } finally { setPdfBusy('') }
   }
 
   const downloadBlob = (filename, content, mime) => {
@@ -955,6 +1115,21 @@ export default function EventReports() {
     { key: 'url', label: 'URL', render: r => r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>View</a> : '—' },
   ]
 
+  // Social-media publishing: never invent a date/time — blanks read as
+  // "Not Uploaded" / "—" so an unpublished platform is obvious in the PDF.
+  const socialPlatformLabel = { instagram: 'Instagram', facebook: 'Facebook', youtube: 'YouTube' }
+  const socialStatusLabel = (s) => s === 'Uploaded' ? 'Uploaded' : s === 'Not Applicable' ? 'N/A' : 'Not Uploaded'
+  const socialCols = [
+    { key: 'platform', label: 'Platform', render: r => socialPlatformLabel[r.platform] || r.platform },
+    { key: 'status', label: 'Status', render: r => socialStatusLabel(r.status) },
+    { key: 'upload_date', label: 'Upload Date', render: r => (r.status === 'Uploaded' && r.upload_date) ? fmtDate(r.upload_date) : '—' },
+    { key: 'upload_time', label: 'Upload Time', render: r => (r.status === 'Uploaded' && r.upload_time) ? fmtTime(r.upload_time) : '—' },
+    { key: 'not_applicable_reason', label: 'Reason (Not Applicable)', render: r => r.not_applicable_reason || '—' },
+  ]
+  const socialRows = reportData?.social || []
+  const socialResolved = socialRows.filter(s => s.status === 'Uploaded' || s.status === 'Not Applicable').length
+  const showSocial = socialRows.length > 0 && (isCompleted || socialRows.some(s => s.status !== 'Pending'))
+
   const statusBadge = (s) => {
     const color = STATUS_COLOR[s] || '#6b7280'
     const label = STATUS_LABEL[s] || s
@@ -974,84 +1149,102 @@ export default function EventReports() {
     </div>
   )
 
+  const selectStyle = { padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }
+  const labelStyle = { display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: '#6b7280', marginBottom: 4 }
+  const tabStyle = (active) => ({
+    padding: '9px 18px', borderRadius: 999, fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
+    border: `1px solid ${active ? '#2036bd' : 'var(--line)'}`,
+    background: active ? '#2036bd' : '#fff', color: active ? '#fff' : '#374151',
+  })
+
   return (
     <>
-      <div className="eh-reports-bar no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-        <h3 style={{ fontSize: 16 }}>Event Reports <span style={{ fontWeight: 500, fontSize: 12, color: '#6b7280' }}>({filteredEvents.length} shown · {events.filter(e => e.status === 'Submitted').length} submitted)</span></h3>
-        <div className="eh-reports-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setAllData(null) }} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-            <option value="Submitted">Submitted only</option>
-            <option value="Completed">Completed only</option>
-            <option value="">All Events</option>
-            <option value="Draft">Draft only</option>
-          </select>
-          <select value={selectedEvent} onChange={e => { const v = e.target.value; setSelectedEvent(v); if (v) generate(v); else setReportData(null) }} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, maxWidth: 320 }}>
-            <option value="">Select Event</option>
-            {[...filteredEvents].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || 0).map(ev => (
-              <option key={ev.id} value={ev.id}>
-                {ev.name} · {ev.status}{ev.status_new ? ' · NEW' : ''}
-              </option>
-            ))}
-          </select>
-          <select value={reportType} onChange={e => { setReportType(e.target.value); setReportData(null) }} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-            {REPORT_TYPES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-          </select>
-          <button className="btn btn-sm" onClick={loadEvents} disabled={refreshing}>
-            {refreshing ? 'Refreshing…' : '🔄 Refresh'}
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={generate} disabled={!selectedEvent || loading}>
-            {loading ? 'Generating...' : 'Generate Report'}
-          </button>
-          <button className="btn btn-sm" onClick={generateAll} disabled={allLoading}>
-            {allLoading ? 'Loading...' : 'All Events Summary'}
-          </button>
+      {toast && (
+        <div className="no-print" style={{ position: 'fixed', top: 20, right: 20, zIndex: 3000, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderRadius: 12, background: '#065f46', color: '#fff', fontSize: 13.5, fontWeight: 600, boxShadow: '0 12px 34px rgba(0,0,0,0.22)' }}>
+          <span>✓</span>{toast}
+        </div>
+      )}
+      {/* ── Reporting header: the whole screen is these two report types ── */}
+      <div className="eh-report-tabs no-print" style={{ marginBottom: 16 }}>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Reporting — Event Reports</h3>
+        <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 3 }}>
+          Choose a report:
+          <b> Daily</b> = one event you created for a single day, with its own downloadable report.
+          <b> Monthly</b> = every event in a chosen month, grouped by NGO.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Event Report</button>
+          <button type="button" onClick={() => setMode('monthly')} style={tabStyle(mode === 'monthly')}>🗓 Monthly Report</button>
         </div>
       </div>
 
-      {/* ═══ ALL-EVENTS SUMMARY ═══ */}
-      {allData && (
-        <div className="card" style={{ background: '#fff', marginBottom: 20 }} id="eh-all-summary">
-          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <h3>All Events Summary Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>({allData.total || 0} events{statusFilter ? ` · ${statusFilter}` : ''})</span></h3>
-            <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="btn btn-sm" onClick={downloadPdf}>Download PDF</button>
-              <button className="btn btn-sm" onClick={() => exportAllCSV(allData.events || [])}>Download CSV</button>
+      {/* ── DAILY EVENT controls ── */}
+      {mode === 'daily' && (
+        <div className="card no-print" style={{ marginBottom: 16 }}>
+          <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            <div>
+              <label style={labelStyle}>Show</label>
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={selectStyle}>
+                <option value="">All Events</option>
+                <option value="Submitted">Submitted only</option>
+                <option value="Completed">Completed only</option>
+                <option value="Draft">Draft only</option>
+              </select>
             </div>
-          </div>
-          <div className="card-pad" style={{ paddingTop: 4 }}>
-            <div className="eh-print-root">
-              {printHeader('All Events Summary')}
-              <div style={{ contentVisibility: 'auto' }}>
-                <Table cols={allCols} rows={allData.events || []} />
-              </div>
-              <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
-                <KeyVal label="Total Events" value={allData.total || 0} />
-                <KeyVal label="Submitted" value={(allData.events || []).filter(e => isSubmitted(e.status)).length} />
-                <KeyVal label="Completed" value={(allData.events || []).filter(e => e.status === 'Completed').length} />
-                <KeyVal label="Total Budget" value={money((allData.events || []).reduce((s, e) => s + (Number(e.budget) || 0), 0))} />
-              </div>
-              {printFooter()}
+            <div style={{ flex: '1 1 300px', minWidth: 240 }}>
+              <label style={labelStyle}>Pick the event (day) to report</label>
+              <select
+                value={selectedEvent}
+                onChange={e => { const v = e.target.value; setSelectedEvent(v); if (v) generate(v); else setReportData(null) }}
+                style={{ ...selectStyle, width: '100%' }}
+              >
+                <option value="">Select an event…</option>
+                {[...filteredEvents].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || 0).map(ev => (
+                  <option key={ev.id} value={ev.id}>
+                    {fmtDate(ev.date)} · {ev.name} · {ev.status}{ev.status_new ? ' · NEW' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
+            <div>
+              <label style={labelStyle}>Report type</label>
+              <select value={reportType} onChange={e => { setReportType(e.target.value); setReportData(null) }} style={selectStyle}>
+                {REPORT_TYPES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-sm" onClick={loadEvents} disabled={refreshing}>
+              {refreshing ? 'Refreshing…' : '🔄 Refresh'}
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => generate()} disabled={!selectedEvent || loading}>
+              {loading ? 'Generating...' : 'Generate Report'}
+            </button>
           </div>
         </div>
       )}
-      {!allData && allLoading && <div className="card"><div className="card-pad" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Loading all events summary…</div></div>}
 
-      {/* ═══ MONTHLY REPORT (per NGO) ═══ */}
-      <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
-        <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>· by NGO</span></h3>
-          <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <select value={monthlyMonth} onChange={e => setMonthlyMonth(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-              {Array.from({ length: 12 }, (_, i) => { const m = String(i + 1).padStart(2, '0'); return <option key={m} value={m}>{new Date(2000, i, 1).toLocaleString('en-IN', { month: 'long' })}</option> })}
-            </select>
-            <select value={monthlyYear} onChange={e => setMonthlyYear(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-              {Array.from({ length: 5 }, (_, i) => { const y = String(now.getFullYear() - 2 + i); return <option key={y} value={y}>{y}</option> })}
-            </select>
-            <select value={monthlyNgo} onChange={e => setMonthlyNgo(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-              <option value="">All NGOs</option>
-              {ngos.map(n => <option key={n.id ?? n.ngo_id} value={n.id ?? n.ngo_id}>{n.name || n.ngo_name || n.code || `NGO ${n.id ?? n.ngo_id}`}</option>)}
-            </select>
+      {/* ── MONTHLY controls ── */}
+      {mode === 'monthly' && (
+        <div className="card no-print" style={{ marginBottom: 16 }}>
+          <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            <div>
+              <label style={labelStyle}>Month</label>
+              <select value={monthlyMonth} onChange={e => setMonthlyMonth(e.target.value)} style={selectStyle}>
+                {Array.from({ length: 12 }, (_, i) => { const m = String(i + 1).padStart(2, '0'); return <option key={m} value={m}>{new Date(2000, i, 1).toLocaleString('en-IN', { month: 'long' })}</option> })}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Year</label>
+              <select value={monthlyYear} onChange={e => setMonthlyYear(e.target.value)} style={selectStyle}>
+                {Array.from({ length: 5 }, (_, i) => { const y = String(now.getFullYear() - 2 + i); return <option key={y} value={y}>{y}</option> })}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>NGO</label>
+              <select value={monthlyNgo} onChange={e => setMonthlyNgo(e.target.value)} style={selectStyle}>
+                <option value="">All NGOs</option>
+                {ngos.map(n => <option key={n.id ?? n.ngo_id} value={n.id ?? n.ngo_id}>{n.name || n.ngo_name || n.code || `NGO ${n.id ?? n.ngo_id}`}</option>)}
+              </select>
+            </div>
             <button className="btn btn-primary btn-sm" onClick={generateMonthly} disabled={monthlyLoading}>
               {monthlyLoading ? 'Loading…' : 'Generate Monthly Report'}
             </button>
@@ -1062,7 +1255,15 @@ export default function EventReports() {
             </>}
           </div>
         </div>
-        <div className="card-pad" style={{ paddingTop: 8 }}>
+      )}
+
+      {/* ═══ MONTHLY REPORT (per NGO) ═══ */}
+      {mode === 'monthly' && (
+        <div className="card" style={{ background: '#fff', marginBottom: 20 }}>
+          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>· by NGO</span></h3>
+          </div>
+          <div className="card-pad" style={{ paddingTop: 8 }}>
           {monthlyLoading && <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading monthly report…</div>}
           {!monthlyLoading && !monthlyData && (
             <div style={{ color: 'var(--ink-soft)', fontSize: 13, padding: 12 }}>
@@ -1121,58 +1322,86 @@ export default function EventReports() {
               </div>
             </div>
           )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ═══ SINGLE EVENT REPORT ═══ */}
-      {reportData && (
+      {/* ═══ DAILY EVENT REPORT (single event) ═══ */}
+      {mode === 'daily' && reportData && (
         <div className="card" style={{ background: '#fff' }}>
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
             <h3>{REPORT_TYPES.find(r => r.id === reportType)?.label}</h3>
             <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" onClick={downloadPdf}>Download PDF</button>
+              <button className="btn btn-primary btn-sm" onClick={() => downloadSinglePdf()} disabled={pdfBusy}>{pdfBusy ? 'Preparing…' : 'Download PDF'}</button>
               <button className="btn btn-sm" onClick={exportJSON}>Export JSON</button>
               {reportType === 'expense' && <button className="btn btn-sm" onClick={() => exportCSV(expenseCols, reportData.expenses || [], `expenses-${ev.id}.csv`)}>Export CSV</button>}
             </div>
           </div>
 
           <div className="card-pad" style={{ paddingTop: 4 }}>
-            <div className="eh-print-root">
-              {printHeader(ev.name || 'Event Report', ev.ngo_name || '')}
-
-              {/* REPORT HEADER */}
-              <div className="eh-report-body" style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 6 }}>
-                <div style={{ position: 'relative', background: '#0f172a' }}>
-                  <ReportBanner src={ev.banner} alt={ev.name} />
+            <div className="eh-print-root" ref={singleReportRef}>
+              {/* ── NGO-BRANDED REPORT CARD (letterhead + banner + facts) ── */}
+              <div
+                className="eh-report-body"
+                style={{ background: '#fff', border: '1px solid #e5e7eb', borderTop: `5px solid ${dailyTheme.color}`, borderRadius: 12, overflow: 'hidden' }}
+              >
+                {/* Letterhead: NGO identity (logo + name + colour) and report meta */}
+                <div style={{ padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+                  {dailyLogo ? (
+                    <img src={dailyLogo} alt={dailyNgoName} style={{ width: 58, height: 58, objectFit: 'contain', background: '#fff', borderRadius: 10, border: '1px solid #eef0f4', padding: 5, flexShrink: 0 }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                  ) : (
+                    <div style={{ width: 58, height: 58, borderRadius: 10, background: dailyTheme.color, color: '#fff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{String(dailyTheme.name || dailyNgoName || 'R').slice(0, 1)}</div>
+                  )}
+                  <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                    {dailyTheme.tagline && <div style={{ fontSize: 10, letterSpacing: 2.2, fontWeight: 700, textTransform: 'uppercase', color: dailyTheme.color }}>{dailyTheme.tagline}</div>}
+                    <div style={{ fontSize: 21, fontWeight: 900, color: '#1a1a2e', letterSpacing: 0.2, lineHeight: 1.2 }}>{dailyTheme.fullName || dailyNgoName}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{dailyNgoName}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', paddingLeft: 18, borderLeft: '1px solid #e5e7eb' }}>
+                    <div style={{ fontSize: 10, letterSpacing: 2, fontWeight: 800, textTransform: 'uppercase', color: dailyTheme.color }}>Daily Event Report</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#1a1a2e', marginTop: 4 }}>{fmtDate(ev.date)}</div>
+                    {ev.day && <div style={{ fontSize: 11.5, color: '#6b7280' }}>{ev.day}</div>}
+                  </div>
                 </div>
-                <div style={{ padding: 18, display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 260px' }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1a2e', marginBottom: 6 }}>{ev.name || 'Event Report'}</div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                      {ev.ngo_name && <span style={{ background: '#2036bd', color: '#fff', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{ev.ngo_name}</span>}
-                      {statusBadge(isCompleted ? 'Completed' : ev.status)}
-                    </div>
-                    <div style={{ color: '#6b7280', fontSize: 13 }}>{ev.day || fmtDate(ev.date)}</div>
+
+                <div style={{ height: 4, background: dailyTheme.color }} />
+
+                {/* Event banner (omitted cleanly when the event has none) */}
+                {ev.banner && (
+                  <div style={{ maxHeight: 320, overflow: 'hidden', lineHeight: 0 }}>
+                    <ReportBanner src={ev.banner} alt={ev.name} />
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, minWidth: 200 }}>
-                    <KeyVal label="Date" value={fmtDate(ev.date)} />
-                    <KeyVal label="Day" value={ev.day ? ev.day.split(' ')[0] : '—'} />
-                    <KeyVal label="Sector" value={ev.sector_name} />
-                    <KeyVal label="Activity" value={ev.activity_name} />
-                    <KeyVal label="Venue" value={ev.venue} />
-                    <KeyVal label="Budget" value={money(ev.budget)} />
+                )}
+
+                {/* Title + badges */}
+                <div style={{ padding: '18px 22px 0' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{ev.name || 'Event Report'}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                    {ev.category && <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '3px 11px', fontSize: 11.5, fontWeight: 600 }}>{ev.category}</span>}
+                    {ev.ngo_name && <span style={{ background: dailyTheme.color, color: '#fff', borderRadius: 999, padding: '3px 11px', fontSize: 11.5, fontWeight: 700 }}>{ev.ngo_name}</span>}
+                    {statusBadge(isCompleted ? 'Completed' : ev.status)}
                   </div>
+                </div>
+
+                {/* Key facts */}
+                <div style={{ padding: '16px 22px 22px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px 20px' }}>
+                  <KeyVal label="Date" value={fmtDate(ev.date)} />
+                  <KeyVal label="Day" value={ev.day ? ev.day.split(' ')[0] : '—'} />
+                  <KeyVal label="Start Time" value={fmtTime(ev.start_time)} />
+                  <KeyVal label="End Time" value={fmtTime(ev.end_time)} />
+                  <KeyVal label="Venue" value={ev.venue} />
+                  <KeyVal label="Sector" value={ev.sector_name} />
+                  <KeyVal label="Activity" value={ev.activity_name} />
+                  <KeyVal label="Budget" value={money(ev.budget)} />
+                  <KeyVal label="Beneficiaries" value={ev.expected_beneficiaries || '—'} />
                 </div>
               </div>
 
-              <Section title="Event Summary">
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-                  <KeyVal label="Start Time" value={fmtTime(ev.start_time)} />
-                  <KeyVal label="End Time" value={fmtTime(ev.end_time)} />
-                  <KeyVal label="Status" value={ev.status} />
-                  <KeyVal label="Expected Beneficiaries" value={ev.expected_beneficiaries || '—'} />
-                </div>
-              </Section>
+              {ev.description && (
+                <Section title="About This Event">
+                  <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{ev.description}</div>
+                </Section>
+              )}
 
               <Section title="Attendance" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{reportData.attendance?.length || 0} records</span>}>
                 <Table cols={attendanceCols} rows={reportData.attendance || []} />
@@ -1181,10 +1410,11 @@ export default function EventReports() {
               <Section title="Media / Images" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{reportData.media?.length || 0} items</span>}>
                 {(reportData.media || []).length > 0 ? (
                   <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px,1fr))', gap: 10, marginBottom: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14, marginBottom: 14 }}>
                       {(reportData.media || []).filter(m => isImage(m.url)).map((m, i) => (
-                        <a key={i} href={m.url} target="_blank" rel="noreferrer" title={m.title || m.name} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb', display: 'block' }}>
-                          <SafeImg src={m.url} alt={m.title || m.name || 'media'} height={90} />
+                        <a key={i} href={m.url} target="_blank" rel="noreferrer" title={m.title || m.name} style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb', display: 'block', background: '#f3f4f6' }}>
+                          <SafeImg src={m.url} alt={m.title || m.name || 'media'} height={200} radius={0} />
+                          {(m.title || m.name) && <div style={{ fontSize: 12, color: '#374151', fontWeight: 600, padding: '8px 10px' }}>{m.title || m.name}</div>}
                         </a>
                       ))}
                     </div>
@@ -1192,6 +1422,12 @@ export default function EventReports() {
                   </>
                 ) : <div style={{ color: '#9ca3af', fontSize: 13 }}>No media records</div>}
               </Section>
+
+              {showSocial && (
+                <Section title="Social Media Publishing Report" right={<span style={{ fontSize: 12, color: '#6b7280' }}>{socialResolved} of {socialRows.length} resolved</span>}>
+                  <Table cols={socialCols} rows={socialRows} />
+                </Section>
+              )}
 
               <Section title="Expenses" right={<span style={{ fontSize: 12, color: '#6b7280' }}>Total: {money((reportData.expenses || []).reduce((s, x) => s + (Number(x.amount) || 0), 0))}</span>}>
                 <Table cols={expenseCols} rows={reportData.expenses || []} />
@@ -1205,13 +1441,20 @@ export default function EventReports() {
                 <Table cols={checklistCols} rows={reportData.checklist || []} />
               </Section>
 
+              <ReportCardFooter theme={dailyTheme} n={{ ngo_name: dailyNgoName }} monthLabel="" yearLabel="" />
               {printFooter()}
             </div>
           </div>
         </div>
       )}
 
-      {!reportData && !allData && !loading && !allLoading && <div className="card no-print"><div className="card-pad" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>Select an event and click Generate Report, or click All Events Summary.</div></div>}
+      {mode === 'daily' && !reportData && !loading && (
+        <div className="card no-print">
+          <div className="card-pad" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>
+            Pick an event above to open its <b>daily report</b>, then use <b>Download PDF</b> to save it.
+          </div>
+        </div>
+      )}
 
       <style>{`
         @page { margin: 10mm; }

@@ -9,6 +9,7 @@ import { getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { getSetting } from '../models/settingsModel.js';
 import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
+import { attachSignedSelfieUrls } from '../services/signatureMediaLink.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const BUCKET_NAME = 'worker-documents';
@@ -127,6 +128,7 @@ export const selfiePunch = async (req, res) => {
           status,
           selfie_status: 'pending',
         });
+        await attachSignedSelfieUrls(updated);
         return res.json({ message: 'Selfie punch-in submitted for approval', attendance: updated, lateMinutes });
       }
 
@@ -141,6 +143,7 @@ export const selfiePunch = async (req, res) => {
         status,
         selfie_status: 'pending',
       });
+      await attachSignedSelfieUrls(attendance);
       return res.status(201).json({ message: 'Selfie punch-in submitted for approval', attendance, lateMinutes });
     }
 
@@ -176,6 +179,7 @@ export const selfiePunch = async (req, res) => {
          });
        }
       const updated = await updateAttendance(existing.id, updates);
+      await attachSignedSelfieUrls(updated);
       return res.json({ message: 'Selfie punch-out submitted for approval', attendance: updated });
     }
   } catch (error) {

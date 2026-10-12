@@ -20,11 +20,14 @@ process.env.UPSTREAM_S3_REGION = 'ap-south-1';
 process.env.UPSTREAM_AWS_ACCESS_KEY_ID = 'AKIAFAKEUPSTREAM0000';
 process.env.UPSTREAM_AWS_SECRET_ACCESS_KEY = 'fake-upstream-secret-key-for-unit-tests';
 
-const { locateSignature, presignSignatureUrl, presignSignatureUrls, ttlSeconds, DEFAULT_TTL_SECONDS, MAX_TTL_SECONDS } =
+const { locateSignature, presignSignatureUrl, presignSignatureUrls, locateSelfie, presignSelfieUrl, attachSignedSelfieUrls, attachSignedSelfieUrlsToList, ttlSeconds, DEFAULT_TTL_SECONDS, MAX_TTL_SECONDS } =
   await import('./signatureMediaLink.js');
 
 const STORED = 'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/worker-documents/worker_signatures/0cc1f2f6-e0eb-4a5e-ae27-9a5e03d23158_1790942419455.png';
 const KEY = 'worker-documents/worker_signatures/0cc1f2f6-e0eb-4a5e-ae27-9a5e03d23158_1790942419455.png';
+
+const STORED_SELFIE = 'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/worker-documents/selfies/42_punch_in_1790942419455.jpg';
+const SELFIE_KEY = 'worker-documents/selfies/42_punch_in_1790942419455.jpg';
 
 test('the full object URL every existing row holds resolves to account and key', () => {
   assert.deepEqual(locateSignature(STORED), { account: 'upstream', key: KEY });
@@ -140,4 +143,62 @@ test('a list signs each entry independently and leaves unsigned gaps alone', asy
   assert.ok(b.includes('X-Amz-Signature='));
   assert.equal(new URL(b).host, 'ucs-crm-head-uploads.s3.ap-south-1.amazonaws.com');
   assert.equal(c, '');
+});
+
+test('a stored attendance selfie URL resolves to account and key', () => {
+  assert.deepEqual(locateSelfie(STORED_SELFIE), { account: 'upstream', key: SELFIE_KEY });
+});
+
+test('a signature URL is never mistaken for a selfie, and vice versa', () => {
+  // Prefix checks are the scoping guard: a bad column value must not become a
+  // signed link to another part of the bucket.
+  assert.equal(locateSelfie(STORED), null);
+  assert.equal(locateSignature(STORED_SELFIE), null);
+});
+
+test('a selfie URL cannot be pointed outside the selfies prefix', () => {
+  for (const v of [
+    'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/worker-documents/selfies/../../receipts/receipts/1.pdf',
+    'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/worker-documents/worker_photos/1.png',
+    'https://someone-elses-bucket.s3.amazonaws.com/worker-documents/selfies/1.jpg',
+  ]) {
+    assert.equal(locateSelfie(v), null, `should refuse: ${v}`);
+  }
+});
+
+test('a stored selfie URL comes back signed for the right bucket and key', async () => {
+  const url = await presignSelfieUrl(STORED_SELFIE);
+  const parsed = new URL(url);
+  assert.equal(parsed.host, 'ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com');
+  assert.equal(parsed.pathname, `/${SELFIE_KEY}`);
+  assert.ok(parsed.searchParams.get('X-Amz-Signature'), 'expected a SigV4 signature');
+});
+
+test('an unsigned selfie value is handed back untouched', async () => {
+  for (const v of [null, '', 'not-a-url', STORED]) {
+    assert.equal(await presignSelfieUrl(v), v == null ? '' : v);
+  }
+});
+
+test('attachSignedSelfieUrls signs both punch selfies in place without touching other fields', async () => {
+  const record = {
+    id: 7,
+    punch_in_selfie_url: STORED_SELFIE,
+    punch_out_selfie_url: null,
+    status: 'present',
+  };
+  const out = await attachSignedSelfieUrls(record);
+  assert.equal(out, record);
+  assert.equal(out.id, 7);
+  assert.equal(out.status, 'present');
+  assert.match(out.punch_in_selfie_url, /X-Amz-Signature=/);
+  assert.equal(out.punch_out_selfie_url, '');
+});
+
+test('attachSignedSelfieUrlsToList leaves a null record alone', async () => {
+  const list = [null, { punch_in_selfie_url: STORED_SELFIE, punch_out_selfie_url: STORED_SELFIE }];
+  const out = await attachSignedSelfieUrlsToList(list);
+  assert.equal(out[0], null);
+  assert.match(out[1].punch_in_selfie_url, /X-Amz-Signature=/);
+  assert.match(out[1].punch_out_selfie_url, /X-Amz-Signature=/);
 });
