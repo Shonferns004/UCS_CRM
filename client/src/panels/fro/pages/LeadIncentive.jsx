@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../../../api/auth';
 import { useUcs } from '../../../store';
 import { useRealtime } from '../../../hooks/useRealtime';
-import { useLeadIncentiveLeaderboard, RangeLeaderboard, TierPill, tMeta } from '../../../components/LeadIncentiveLeaderboard';
+import { useLeadIncentiveLeaderboard, RangeLeaderboard, TierPill, tMeta, tierNumber } from '../../../components/LeadIncentiveLeaderboard';
 
 const fmt = (n) => {
   const v = Number(n);
@@ -157,7 +157,6 @@ function HeroLive({ summary }) {
               <div style={{ width: `${tierPct}%`, height: '100%', background: '#fde047', borderRadius: 8, transition: 'width .5s ease' }} />
               {tiers.map(t => {
                 const frac = maxTarget > 0 ? Math.min(100, Number(t.target_amount) / maxTarget * 100) : 0;
-                const m = tMeta(t.tier_key);
                 return (
                   <div key={t.tier_key} style={{ position: 'absolute', top: 0, bottom: 0, left: `${frac}%`, width: 2, background: '#fff', opacity: .85 }} />
                 );
@@ -167,8 +166,8 @@ function HeroLive({ summary }) {
               {tiers.map(t => {
                 const done = collected >= (Number(t.target_amount) || 0);
                 return (
-                  <span key={t.tier_key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 10, background: done ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.16)', color: done ? tMeta(t.tier_key).color : '#fff', fontSize: 11, fontWeight: 800 }}>
-                    {tMeta(t.tier_key).medal} {t.label} · ₹{fmt(t.target_amount)} → ₹{fmt(t.prize_amount)}
+                  <span key={t.tier_key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 10, background: done ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.16)', color: done ? tMeta(t.tier_key, t.order_index).color : '#fff', fontSize: 11, fontWeight: 800 }}>
+                    #{tierNumber(t.tier_key, t.order_index)} {t.label} · ₹{fmt(t.target_amount)} → ₹{fmt(t.prize_amount)}
                   </span>
                 );
               })}

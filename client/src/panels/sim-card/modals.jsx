@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from '../../components/Toast';
 import { addSimCard, updateSimCard, replaceSimCard } from './api';
-import { SIM_STATUSES, SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
+import { SIM_STATUSES, SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, formatDate } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder }) {
   return (
@@ -120,8 +120,6 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
 
 export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
   if (!open || !card) return null;
-  const dl = card.days_left !== undefined && card.days_left !== null ? card.days_left : daysLeft(card.expiry_date);
-  const status = effectiveStatus(card);
   const Item = ({ k, v }) => (
     <div className="detail-item">
       <div className="k">{k}</div>
@@ -137,26 +135,6 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
         </div>
         <div className="modal-body">
           <div className="detail-sections">
-            <div className="detail-sec">
-              <h4>SIM Information</h4>
-              <div className="detail-grid">
-                <Item k="Mobile ID" v={card.mobile_id} />
-                <div className="detail-item"><div className="k">SIM Status</div><div className="v"><span className={`pill ${pillForStatus(status)}`}>{status}</span></div></div>
-                <Item k="Issue Date" v={formatDate(card.issue_date)} />
-                <Item k="Expiry Date" v={formatDate(card.expiry_date)} />
-                <div className="detail-item"><div className="k">Days Left</div><div className={`v ${dl !== null ? dayClass(dl) : ''}`}>{dayLabel(dl)}</div></div>
-                <Item k="Replacement Count" v={card.replacement_count} />
-              </div>
-            </div>
-            <div className="detail-sec">
-              <h4>Device Information</h4>
-              <div className="detail-grid">
-                <Item k="Device & Model" v={card.device_model} />
-                <Item k="IMEI" v={card.imei} />
-                <Item k="Team" v={card.team} />
-                <Item k="Signature" v={card.signature} />
-              </div>
-            </div>
             <div className="detail-sec">
               <h4>SIM Details</h4>
               <div className="detail-grid">
