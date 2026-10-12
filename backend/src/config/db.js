@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { emitDbChange } from '../socket.js';
+import { emitDbChange, emitDbChangeToRooms } from '../socket.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -132,6 +132,73 @@ const BULK_EMIT_TABLES = new Set([
   'lead_champion_announcements', 'incentive_slabs', 'impersonation_codes',
 ]);
 
+// Tables whose rows are donor-private and therefore must not go out via the
+// unscoped emitDbChange io.emit.
+//
+// messages carries body_text (the donor's own words), media_url (a presigned S3
+// link) and wa_message_id; conversations carries the contact id, the donor's
+// project and assigned_agent_id. Broadcasting either to every connected tab put
+// every donor conversation in the memory of every HR / Accounts / NGO-admin
+// browser, and -- because the inbox treats db:change purely as a refetch hint
+// and reads only payload.new.conversation_id -- none of that payload was ever
+// needed. These rows now go out as a content-free hint, addressed to the thread
+// owner plus the WhatsApp admin room.
+//
+// Ownership is the rooms' basis rather than the donor allotment because it is
+// free: the row being written already carries (or one indexed lookup away from)
+// the owner, whereas resolving the allotment would mean a fro_assignments join
+// on the webhook's hot path.
+const WHATSAPP_PRIVATE_TABLES = new Set(['messages', 'conversations']);
+
+// The only fields the WhatsApp inbox reads off a realtime row.
+// client/src/panels/fro/components/enhanced/WhatsAppInbox.jsx compares
+// `payload.new.conversation_id` to decide whether to refetch the list; everything
+// else it gets from the scoped REST endpoints.
+function slimWhatsAppRealtimeRow(table, eventType, row) {
+  if (!row || typeof row !== 'object') return row;
+  const conversationId = row.conversation_id ?? row.id ?? null;
+  const hint = { conversation_id: conversationId };
+  if (eventType === 'UPDATE' && row.last_message_at) hint.last_message_at = row.last_message_at;
+  if (table === 'conversations' && typeof row.unread_count === 'number') hint.unread_count = row.unread_count;
+  if (table === 'conversations' && row.status) hint.status = row.status;
+  return hint;
+}
+
+// Which sockets may see this WhatsApp row.
+//
+// The admin room is always included, matching the admin's unbounded view in
+// whatsappScope. An owner room is added when the thread has one. A thread with
+// no owner reaches the admin only: unclaimed conversations are deliberately
+// invisible to every agent, so notifying an agent room about one would hand out
+// the existence of a donor the agent is not entitled to see.
+async function whatsappRealtimeRooms(table, row) {
+  const rooms = ['wa:admin'];
+  const owner = table === 'conversations'
+    ? row?.assigned_agent_id
+    : (await ownerOfConversation(row?.conversation_id));
+  if (owner) rooms.push(`worker:${owner}`);
+  return rooms;
+}
+
+const ownerLookupCache = new Map(); // conversation_id -> assigned_agent_id | null
+const OWNER_CACHE_MS = 5_000;
+
+async function ownerOfConversation(conversationId) {
+  if (!conversationId) return null;
+  const hit = ownerLookupCache.get(conversationId);
+  if (hit && Date.now() - hit.at < OWNER_CACHE_MS) return hit.owner;
+  const { rows } = await db._pool
+    .query(`SELECT assigned_agent_id FROM conversations WHERE id = $1`, [conversationId])
+    .catch(() => ({ rows: [] }));
+  const owner = rows?.[0]?.assigned_agent_id ?? null;
+  ownerLookupCache.set(conversationId, { at: Date.now(), owner });
+  if (ownerLookupCache.size > 500) {
+    const cutoff = Date.now() - OWNER_CACHE_MS;
+    for (const [k, v] of ownerLookupCache) if (v.at < cutoff) ownerLookupCache.delete(k);
+  }
+  return owner;
+}
+
 // Pending bulk-emission windows, keyed by `${table}:${eventType}`. Each window
 // flushes at most once per RT_BULK_FLUSH_MS (default 2s) with the last row seen.
 const pendingBulkEmits = new Map();
@@ -186,6 +253,26 @@ function emitRealtimeRows(table, eventType, rows) {
       table === 'fro_live_status' && eventType !== 'DELETE' && row && typeof row === 'object'
         ? { worker_id: row.worker_id, is_paused: row.is_paused, paused_by: row.paused_by, status: row.status, updated_at: row.updated_at }
         : row;
+
+    if (WHATSAPP_PRIVATE_TABLES.has(table)) {
+      // Addressed, not broadcast. Resolving the rooms is async, so this is
+      // deliberately fire-and-forget: a realtime hint must never delay the
+      // write that produced it, and a failed lookup degrades to "the admin
+      // gets it" rather than to "everyone gets it".
+      whatsappRealtimeRooms(table, row)
+        .then(rooms => {
+          if (rooms.length === 0) return;
+          const hint = slimWhatsAppRealtimeRow(table, eventType, row);
+          emitDbChangeToRooms(rooms, {
+            table, schema: 'public', eventType,
+            new: eventType === 'DELETE' ? null : hint,
+            old: eventType === 'DELETE' ? hint : null,
+          });
+        })
+        .catch(err => console.error('[db] whatsapp realtime emit failed:', err?.message || err));
+      continue;
+    }
+
     if (eventType === 'DELETE') emitDbChange({ table, schema: 'public', eventType, new: null, old: row });
     else emitDbChange({ table, schema: 'public', eventType, new: slim, old: null });
   }

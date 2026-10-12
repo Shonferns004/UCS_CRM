@@ -512,16 +512,17 @@ function Sidebar({ open, onClose, waUnreadCounts, si }) {
   }, [])
 
   const nav = [...NAV_BASE]
-  const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
-  if (waAgents.length === 1) {
-    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: `Inbox ${INBOX_SHORT[waAgents[0].project] || waAgents[0].project}`, Icon: MessageCircle })
-  } else if (waAgents.length > 1) {
-    waAgents.forEach(a => {
-      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `Inbox ${INBOX_SHORT[a.project] || a.project}`, Icon: MessageCircle })
-    })
-  } else {
-    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'Inbox', Icon: MessageCircle })
-  }
+  // ONE inbox entry, at the same position in the sidebar and with the same icon
+  // as the `Inbox <project>` entries it replaces.
+  //
+  // It used to emit one button per assigned WhatsApp number, all of which
+  // rendered the same screen: WhatsAppChat.jsx already picks the agent's account
+  // itself and lists every number the agent may work. So for an agent holding two
+  // numbers the sidebar showed two near-identical rows, and the unread badge
+  // (`waUnreadCounts['whatsapp-<project>']`) was never populated because the
+  // panel only ever computes a single `total`. Collapsed to one entry, labelled
+  // `WhatsApp Chat`.
+  nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp Chat', Icon: MessageCircle })
   if (isWaAdmin) {
     nav.push({ id: 'whatsapp-admin', path: '/fro/whatsapp-admin', label: 'WhatsApp Admin', Icon: Settings2 })
   }
@@ -546,17 +547,7 @@ function Sidebar({ open, onClose, waUnreadCounts, si }) {
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>{n.label}</span>
             {n.id === 'chat' && <ChatNavBadge quiet />}
-            {n.id.startsWith('whatsapp') && waUnreadCounts?.[n.id] > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
-                  {waUnreadCounts[n.id] > 9 ? '9+' : waUnreadCounts[n.id]}
-                </span>
-              )}
-              {n.id === 'whatsapp-chat' && waAgents.length === 1 && waUnreadCounts?.[`whatsapp-${waAgents[0]?.project}`] > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
-                  {waUnreadCounts[`whatsapp-${waAgents[0]?.project}`] > 9 ? '9+' : waUnreadCounts[`whatsapp-${waAgents[0]?.project}`]}
-                </span>
-              )}
-              {n.id === 'whatsapp-chat' && waUnreadCounts?.total > 0 && !waAgents.length && (
+            {n.id === 'whatsapp-chat' && (waUnreadCounts?.total || 0) > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
                   {waUnreadCounts.total > 9 ? '9+' : waUnreadCounts.total}
                 </span>

@@ -28,7 +28,9 @@ import {
   getBroadcastAnalytics,
 } from '../services/analyticsService.js';
 import { buildInteractivePayload } from '../services/whatsappService.js';
-import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { assertConversationAccessWithAllotment, resolveWaCaller, ScopeError } from '../services/whatsappScope.js';
+import { resolveOutboundAccount, OrgRoutingError } from '../services/whatsappOrgRouting.js';
+import { froActPairs } from './froController.js';
 import config from '../config/whatsappConfig.js';
 
 // ---- AI auto-reply (admin) ----
@@ -99,7 +101,10 @@ export async function aiSuggestionDecide(req, res) {
         .eq('id', suggestion.conversation_id)
         .single();
       if (!conversation) return res.status(404).json({ message: 'Conversation no longer exists' });
-      const message = await sendAiReply(conversation, conversation.contact, suggestion.suggestion_text);
+      // suggestion.account_project is the project the suggestion was GENERATED
+      // under, which came from the number the donor actually wrote in on. Passing
+      // it keeps the accepted reply on that same number.
+      const message = await sendAiReply(conversation, conversation.contact, suggestion.suggestion_text, suggestion.account_project);
       return res.json({ ok: true, sent: true, message });
     }
 
@@ -121,6 +126,9 @@ export async function aiPreview(req, res) {
       conversation,
       contact: conversation.contact,
       inboundText: req.body?.lastMessage || '',
+      // Same reason the send path resolves it: the prompt and knowledge base
+      // must come from the organisation this donor actually belongs to.
+      project: conversation.project || conversation.contact?.project || req.query?.project || null,
     });
     res.json({ suggestion: result.text, model: result.model });
   } catch (error) {
@@ -294,6 +302,14 @@ export async function sendInteractive(req, res) {
     const { id } = req.params;
     const payload = req.body || {};
 
+    // This one was worse than the plain reply path: it took the conversation id
+    // verbatim and, unlike sendFroReply, never claimed it. Agent A could push a
+    // button/list message into agent B's donor thread and leave no ownership
+    // trace at all. It also stamps messages.user_id from the caller's token
+    // rather than from the thread, which mis-attributes the author.
+    const caller = await resolveWaCaller(req);
+    const { allotment } = await assertConversationAccessWithAllotment(caller, id, froActPairs(req));
+
     const { data: conversation, error: convErr } = await db
       .from('conversations')
       .select('*, contact:contacts!inner(id, phone_normalized, phone, project)')
@@ -301,7 +317,16 @@ export async function sendInteractive(req, res) {
       .single();
     if (convErr || !conversation) return res.status(404).json({ message: 'Conversation not found' });
 
-    const project = conversation.project || conversation.contact?.project || 'bsct';
+    // Same org routing as every other outbound path. This was
+// `conversation.project || contact.project || 'bsct'` and then
+// `account?.access_token || config.accessToken`, i.e. an interactive button could
+// be pushed from the Being Sevak number to a donor of any other organisation.
+const { account } = await resolveOutboundAccount({
+      conversation,
+      contact: conversation.contact,
+      phone: conversation.contact?.phone_normalized || conversation.contact?.phone,
+      preferDonorIds: allotment?.donorIds || null,
+    });
     const recipientPhone = conversation.contact?.phone_normalized || conversation.contact?.phone;
 
     const interactive = buildInteractivePayload(payload);
@@ -324,13 +349,8 @@ export async function sendInteractive(req, res) {
       .single();
     if (msgErr) throw msgErr;
 
-    const accountProject = project;
-    const account = await getAccountByProject(accountProject);
-    const accessToken = account?.access_token || config.accessToken;
-    const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
-    if (!accessToken || !phoneNumberId) {
-      throw new Error(`WhatsApp account not configured for project "${accountProject}"`);
-    }
+    const accessToken = account.access_token;
+    const phoneNumberId = account.phone_number_id;
 
     const response = await fetch(
       `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
@@ -374,6 +394,11 @@ export async function sendInteractive(req, res) {
 
     res.json({ ok: true, message: { ...message, status: 'sent' } });
   } catch (error) {
+    // A scope failure is an authorisation answer, not a bad request: reporting
+    // 404/403 as 400 would tell the caller the conversation id was malformed.
+    if (error instanceof ScopeError || error instanceof OrgRoutingError) {
+      return res.status(error.status).json({ message: error.message });
+    }
     res.status(400).json({ message: error.message });
   }
 }

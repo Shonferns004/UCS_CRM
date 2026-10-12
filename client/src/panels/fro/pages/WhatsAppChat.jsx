@@ -85,7 +85,24 @@ function AutoLoginLoader({ project, onReady, onError }) {
               token: s.token,
             }))
             localStorage.setItem('wa_agents', JSON.stringify(agents))
-            agent = project ? agents.find(a => a.project === project) : agents[0]
+            // Prefer the account the link asked for, but do not fail the page
+            // when the stored slug and the live slug disagree.
+            //
+            // Being Sevak exists twice in whatsapp_accounts -- `bsct` (id 4) and
+            // `bsct2` (id 6) -- and every FRO assigned to the newer number only
+            // ever gets a `bsct2` session. A donor record canonicalises to `bsct`
+            // (see utils/whatsappProject.js), so `project` was routinely a slug
+            // that exists nowhere in this agent's own session list and `find`
+            // returned undefined, which then reported "No WhatsApp accounts are
+            // assigned to you" while a perfectly good session sat in the array.
+            //
+            // Every entry here came back from /fro/whatsapp/auto-login, which
+            // only ever mints sessions for accounts this caller is assigned to,
+            // so falling back to the first entry cannot widen access -- the
+            // per-request scope checks in services/whatsappScope.js still apply
+            // to everything the inbox does afterwards.
+            const exact = project ? agents.find(a => a.project === project) : null
+            agent = exact || agents[0]
           }
           // An empty session list is only one of several reasons this page can
           // be empty. The backend names which one; report that instead of
@@ -175,7 +192,21 @@ function WhatsAppChatInner() {
     )
   }
 
-  return <WhatsAppInbox waUser={{ id: agent.agentUserId, role: 'agent' }} agentToken={agent.token} activeProject={agent.project} />
+  // Pin the tab only when the URL explicitly named a project.
+  //
+  // It used to pass `agent.project`, which is the FIRST account auto-login
+  // returned -- so the single `WhatsApp Chat` sidebar entry (and the "no
+  // project in the URL" case) opened the inbox hard-filtered to one number and
+  // an agent holding two numbers could not see the other one's threads without
+  // a URL edit. Passing null instead leaves activeTab on 'all', which is the
+  // complete inbox; the per-account switcher inside the inbox is still there for
+  // anyone who wants to narrow.
+  //
+  // A deep link from a donor record still pins, because getWhatsAppChatUrl()
+  // names the project -- that path is unchanged.
+  const requestedProject = urlProject || searchParams.get('project') || null
+
+  return <WhatsAppInbox waUser={{ id: agent.agentUserId, role: 'agent' }} agentToken={agent.token} activeProject={requestedProject} />
 }
 
 export default function WhatsAppChat() {

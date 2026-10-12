@@ -59,6 +59,25 @@ export async function deleteRule(id) {
   if (error) throw error;
 }
 
+/**
+ * Is this an id that can legally sit in conversations.assigned_agent_id?
+ *
+ * The column is `uuid` on the live database (verified against RDS, 2026-10-12).
+ * `whatsapp_routing_rules.assignee_id` is free text -- an operator types an
+ * agent's name or label into an admin form -- so a rule can easily carry a value
+ * that is not a uuid.
+ *
+ * That used to fail silently and completely: the UPDATE threw `invalid input
+ * syntax for type uuid`, the throw was swallowed by applyRouting's own catch,
+ * and routing did nothing while looking configured and enabled. Worse, the rule
+ * stays matched forever, so every subsequent inbound re-entered the same dead
+ * branch. Validating up front turns that into a log line an admin can act on.
+ */
+export function isAssignableOwnerId(value) {
+  return typeof value === 'string'
+    && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value.trim());
+}
+
 export async function applyRouting(conversationId, messageText, accountProject) {
   try {
     const { data: rules } = await db
@@ -73,8 +92,21 @@ export async function applyRouting(conversationId, messageText, accountProject) 
 
     const text = String(messageText || '').toLowerCase();
 
+    // Skip a rule whose assignee cannot be stored, rather than matching it and
+    // failing the write. Skipping lets the NEXT matching rule apply instead of
+    // the highest-priority dead one swallowing every inbound.
+    const usable = rules.filter(r => {
+      if (isAssignableOwnerId(r.assignee_id)) return true;
+      console.warn(
+        `[routing] rule "${r.id}" skipped: assignee_id is not a uuid, so it cannot be stored in `
+        + `conversations.assigned_agent_id (value: ${JSON.stringify(r.assignee_id)}).`,
+      );
+      return false;
+    });
+    if (usable.length === 0) return null;
+
     let matched = null;
-    for (const rule of rules) {
+    for (const rule of usable) {
       if (rule.match_type === 'any') {
         matched = rule;
         break;

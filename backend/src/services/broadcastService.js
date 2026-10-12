@@ -142,10 +142,19 @@ function renderParam(template, contactName) {
 }
 
 async function sendBatch(broadcast, recipients) {
+  // No env fallback. A broadcast declares the organisation it runs under; if
+  // that organisation's number is missing, the batch must not go out from
+  // whichever number happens to be in the environment -- that is a bulk send to
+  // real donors, from the wrong business identity, with no way to notice.
   const account = await getAccountByProject(broadcast.account_project);
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
-  if (!accessToken || !phoneNumberId) throw new Error(`WhatsApp account not configured for project "${broadcast.account_project}"`);
+  const accessToken = account?.access_token;
+  const phoneNumberId = account?.phone_number_id;
+  if (!accessToken || !phoneNumberId) {
+    throw new Error(
+      `WhatsApp account not configured for project "${broadcast.account_project}". `
+      + 'The broadcast was NOT sent from another organisation\'s number.',
+    );
+  }
 
   const contactIds = recipients.map((r) => r.contact_id).filter(Boolean);
   const nameById = new Map();

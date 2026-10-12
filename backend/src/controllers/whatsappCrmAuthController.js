@@ -1,9 +1,13 @@
 import db from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { normalizeRole } from '../middleware/authMiddleware.js';
 import { getWorkerByLoginId } from '../models/workerModel.js';
 
-const TOKEN_EXPIRY = '100y';
+// Was '100y'. A year-long token is not revocable: neither logout nor deactivating
+// the account stops it working, so the only remedy was rotating JWT_SECRET for
+// every user at once. Matches the main CRM login.
+const TOKEN_EXPIRY = '24h';
 
 export async function whatsappCrmLogin(req, res) {
   try {
@@ -39,15 +43,19 @@ export async function whatsappCrmLogin(req, res) {
 
       authSession = authData.session;
 
-      if (userData) {
-        const emailConfirmed = !!authData.user.email_confirmed_at;
-        let role = userData.role;
-        if (emailConfirmed && (role === 'agent' || role === 'viewer')) {
-          await db.rpc('promote_to_admin', { p_id: authData.user.id });
-          role = 'admin';
-        }
-        userData.role = role;
-      }
+      // The silent agent|viewer -> admin promotion that used to sit here is gone,
+      // and it was the most serious hole on this surface.
+      //
+      // It ran on nothing but "the email address is confirmed", which any
+      // self-registered visitor can do. The effect was that visiting
+      // /auth/register, confirming an email, and logging in produced role
+      // 'admin' -- and 'admin' is one of the four roles whatsappScope treats as
+      // the WhatsApp admin, i.e. unbounded access to every donor conversation in
+      // the organisation. So the whole per-agent allotment model was one
+      // self-signup away from being pointless.
+      //
+      // Roles now come from the database and are not escalated at login.
+      userData.role = normalizeRole(userData.role) || 'agent';
     }
 
     if (!userData) {
@@ -110,9 +118,22 @@ export async function whatsappCrmLogin(req, res) {
 
 export async function whatsappCrmRegister(req, res) {
   try {
-    const { email, password } = req.body;
+    const { email, password, inviteCode } = req.body;
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
+    }
+
+    // Self-service signup used to be open to anyone who could reach the URL,
+    // which is how an unprivileged visitor could obtain a CRM login at all. It
+    // now requires an invite code the WhatsApp admin hands out. An unset
+    // WHATSAPP_SIGNUP_INVITE_CODE closes registration entirely rather than
+    // defaulting to open, so forgetting to configure it fails safe.
+    const expected = (process.env.WHATSAPP_SIGNUP_INVITE_CODE || '').trim();
+    if (!expected) {
+      return res.status(403).json({ message: 'Self-registration is disabled. Ask your WhatsApp admin for an invite.' });
+    }
+    if (!inviteCode || String(inviteCode).trim() !== expected) {
+      return res.status(403).json({ message: 'Invalid invite code' });
     }
 
     const { data, error } = await db.auth.signUp({
@@ -125,6 +146,9 @@ export async function whatsappCrmRegister(req, res) {
       return res.status(400).json({ message: error.message });
     }
 
+    // Every new signup lands as a plain agent: no role is taken from the request
+    // body, and nothing is escalated. Promotion to admin is a deliberate act by
+    // an existing admin, not a side effect of registering.
     return res.json({ message: 'Registration successful. Please check your email to verify.', user: data.user ? { id: data.user.id, email: data.user.email } : null });
   } catch (error) {
     console.error('WhatsApp CRM register error:', error?.message);

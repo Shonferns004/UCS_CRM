@@ -15,6 +15,7 @@
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { isRoutableProject } from './whatsappOrgRouting.js';
 
 const DEFAULT_WINDOW_HOURS = 24;
 
@@ -256,11 +257,18 @@ function normalizePhone(value) {
 }
 
 async function sendViaMeta({ to, project, text, template }) {
+  // An UNATTENDED send. The `|| config.accessToken` fallback meant a rule
+  // scoped to one organisation whose account was momentarily missing would
+  // dispatch from whichever number the environment held -- the Being Sevak one.
+  // Refuse instead: an automation must never answer as a different business.
   const account = await getAccountByProject(project);
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
+  const accessToken = account?.access_token;
+  const phoneNumberId = account?.phone_number_id;
   if (!accessToken || !phoneNumberId) {
-    throw new Error(`WhatsApp account not configured for project "${project}"`);
+    throw new Error(
+      `WhatsApp account not configured for project "${project}". The automatic reply was NOT sent `
+      + 'from another organisation\'s number.',
+    );
   }
 
   const body = template
@@ -324,7 +332,18 @@ export async function runAutomationForInbound({
   const to = normalizePhone(recipientPhone);
   if (!to) return { ran: false, reason: 'no_recipient_phone' };
 
-  const effectiveProject = project || 'bsct';
+  // The organisation this inbound arrived on. No 'bsct' fallback.
+  //
+  // `project || 'bsct'` meant an inbound whose phone_number_id matched no
+  // configured account was evaluated against the BEING SEVAK rule set and, on a
+  // match, answered from the Being Sevak number -- an unattended reply, from a
+  // different business identity, to somebody who never wrote to it. The webhook
+  // already resolves this to null when it cannot attribute the number; an
+  // unattributable inbound gets no automatic answer at all.
+  if (!isRoutableProject(project)) {
+    return { ran: false, reason: 'unroutable_project' };
+  }
+  const effectiveProject = project;
   const rules = await listEnabledRules(effectiveProject);
   if (!rules.length) return { ran: false, reason: 'no_rules' };
 

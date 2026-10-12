@@ -59,8 +59,12 @@ export const declineCall = (callId, agentToken) =>
 export const endCall = (callId, reason, agentToken) =>
   callApi(`/${callId}/end`, { method: 'POST', body: { reason }, agentToken })
 
-export const getActiveCalls = (project, agentToken) =>
-  callApi(`/active?project=${encodeURIComponent(project)}`, { agentToken })
+export const getActiveCalls = (project, agentToken) => {
+  // project is optional -- the inbox polls this to notice an incoming call, and
+  // the agent may be on the "all" tab with no project in the URL.
+  const q = project && project !== 'all' ? `?project=${encodeURIComponent(project)}` : ''
+  return callApi(`/active${q}`, { agentToken })
+}
 
 export const getCallHistory = ({ project, conversationId, limit = 50 }, agentToken) => {
   const q = new URLSearchParams({ project })

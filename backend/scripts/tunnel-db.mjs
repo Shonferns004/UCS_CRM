@@ -327,7 +327,14 @@ function cmdEnv() {
 // it to this machine only.
 
 const UI_PAGE = path.join(__dirname, 'tunnel-ui.html');
-const UI_PORT = parseInt(process.env.DB_TUNNEL_UI_PORT || '5173', 10);
+// 5180, NOT 5173.
+//
+// This default used to be 5173, which is Vite's. Both bind 0.0.0.0, so the panel
+// won the race, took the port, and http://localhost:5173/fro served the tunnel
+// page instead of the app -- with Vite either refusing to start or silently
+// moving to 5174, so the URL the developer was told to use never worked. Set
+// DB_TUNNEL_UI_PORT explicitly to override.
+const UI_PORT = parseInt(process.env.DB_TUNNEL_UI_PORT || '5180', 10);
 const UI_HOST = process.env.DB_TUNNEL_UI_HOST || '0.0.0.0';
 const BACKEND_PORT = parseInt(process.env.PORT || '5000', 10);
 const MAX_LOG_LINES = 400;

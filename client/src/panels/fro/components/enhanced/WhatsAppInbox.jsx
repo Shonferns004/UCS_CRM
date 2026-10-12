@@ -25,17 +25,40 @@ import { MediaUploadPreview } from './MediaPreview'
 // only when the user picks one, so the list stays unpinned by default.
 const CONVERSATION_STATUSES = ['open', 'pending', 'resolved', 'closed']
 
+// Display metadata keyed by the stored project slug. `bsct2` is the second live
+// Being Sevak number (account 6) and gets the same name and colour as `bsct`
+// (account 4) so one organisation never renders as two different NGOs. The slug
+// itself is never renamed -- it is what conversations.project stores.
 const PROJECT_TABS = [
   { id: 'all', label: 'All' },
   { id: 'bsct', label: 'Being Sevak', color: '#3b82f6' },
+  { id: 'bsct2', label: 'Being Sevak', color: '#3b82f6' },
   { id: 'aflf', label: 'Ashray Life', color: '#22c55e' },
   { id: 'mann', label: 'Mann Care', color: '#ec4899' },
 ]
 
 const PROJECT_TAB_COLORS = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' },
+  bsct2: { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' },
   aflf: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
   mann: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+}
+
+const BEING_SEVAK_SLUGS = new Set(['bsct', 'bsct2'])
+
+// Label for one authorized account.
+//
+// Being Sevak's two numbers must not read as two organisations, and the giveaway
+// that they are the same one is the shared slug prefix, not the account's `name`
+// -- account 6 is literally called "Being Sevak Charitable Trust2" because that
+// is what makes it a second number for the same body. So both Being Sevak slugs
+// take the shared label and never surface the trailing digit; every other account
+// uses the name the server sent, with the slug as the fallback.
+const projectLabel = (account) => {
+  const slug = String(account?.project || '')
+  if (BEING_SEVAK_SLUGS.has(slug)) return 'Being Sevak'
+  const fromServer = String(account?.name || '').trim()
+  return fromServer || PROJECT_TABS.find(t => t.id === slug)?.label || slug.toUpperCase()
 }
 
 // An FRO must only ever see conversations that have been explicitly assigned
@@ -160,6 +183,25 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       setActiveTab(myAccounts[0].project)
     }
   }, [myAccounts])
+
+  // Keep the selected tab inside the accounts this agent actually holds.
+  //
+  // `activeTab` can be seeded from the URL (`?project=`), which is a stored slug
+  // chosen on the donor record rather than on the caller's grants. When those
+  // disagree -- Being Sevak being live as both `bsct` and `bsct2` -- the inbox
+  // would query a project the agent has no access to: getAgentConversations()
+  // scopes by donor allotment and then filters `.eq('project', ...)`, so it comes
+  // back empty and the agent sees an inbox that looks broken. Fall back to the
+  // single held account, or to the unfiltered list.
+  //
+  // This only ever narrows TO the authorized set; it never widens it, and the
+  // server still enforces scope per request.
+  useEffect(() => {
+    if (!myAccounts.length || activeTab === 'all') return
+    if (myAccounts.some(a => a.project === activeTab)) return
+    setActiveTab(myAccounts.length === 1 ? myAccounts[0].project : 'all')
+    setActiveConv(null)
+  }, [myAccounts, activeTab])
 
   useEffect(() => {
     if (activeProject) {
@@ -428,9 +470,12 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   // Only the ids are compared so an already-seen call never re-rings.
   const seenCallIds = useRef(new Set())
   useEffect(() => {
-    const project = activeProject || searchParams.get('project')
-    if (!project) return undefined
+    // Poll for a ringing inbound call. Meta has no push channel into the tab, so
+    // a short interval is what makes an incoming call appear without a reload.
+    // "all" (or no project at all) still polls, otherwise a ringing call would
+    // stay invisible until the agent switched project tabs.
     let cancelled = false
+    const project = activeProject === 'all' ? null : (activeProject || searchParams.get('project') || null)
     const poll = async () => {
       try {
         const d = await getActiveCalls(project, agentToken)
@@ -473,15 +518,20 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
             style={{ width: '100%', marginTop: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#25D366', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
             + New Conversation
           </button>
-          {/* Project switcher. The tabs and their colour map were always defined
-              here; only the rendering was missing, so an FRO with accounts on
-              more than one project had no way to switch. */}
-          {myAccounts.length > 1 && (
+          {/* Project switcher, built from the accounts this agent is actually
+              assigned to (/fro/whatsapp/my-accounts). It is rendered even for a
+              single account so the number in use is named on screen -- a
+              one-account agent used to see no tab at all and had no way to tell
+              which Being Sevak number they were on. An agent holding both Being
+              Sevak numbers gets two tabs that both read "Being Sevak", which is
+              correct: they are two numbers for one organisation, and the slug
+              alone ("bsct" / "bsct2") is not something to show a caller. */}
+          {myAccounts.length > 0 && (
             <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
-              {myAccounts.map(a => {
+              {[{ project: 'all', name: 'All' }, ...myAccounts].map(a => {
                 const colors = PROJECT_TAB_COLORS[a.project] || { bg: '#f3f4f6', text: '#374151', border: '#d1d5db' }
                 const active = activeTab === a.project
-  return (
+                return (
                   <button
                     key={a.project}
                     onClick={() => { setActiveTab(a.project); setActiveConv(null) }}
@@ -493,7 +543,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
                       background: active ? colors.bg : '#fff',
                       color: active ? colors.text : '#6b7280',
                     }}>
-                    {PROJECT_TABS.find(t => t.id === a.project)?.label || a.project.toUpperCase()}
+                    {projectLabel(a)}
                   </button>
                 )
               })}

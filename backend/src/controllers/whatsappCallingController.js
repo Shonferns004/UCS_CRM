@@ -347,9 +347,9 @@ export async function endCall(req, res) {
 /** Calls needing attention right now, so a ringing call is not missed. */
 export async function activeCalls(req, res) {
   try {
-    const project = req.query.project;
-    if (!project) return res.status(400).json({ message: 'project is required' });
-    const calls = await listActiveCalls(project);
+    // project is optional: the inbox must still see a ringing call while the
+    // agent is on the "all" tab or has no project in the URL.
+    const calls = await listActiveCalls(req.query.project || null);
     return res.json({ calls });
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -1,6 +1,12 @@
 import db from '../config/db.js';
 import jwt from 'jsonwebtoken';
 
+// Both tokens this file mints used to be valid for 100 years, which makes
+// "log out" and "deactivate the agent" unenforceable: a leaked token stayed
+// usable until the JWT secret itself was rotated. One session length, matching
+// the main CRM login, so revocation is a real option on both paths.
+const WHATSAPP_TOKEN_TTL = '24h';
+
 export async function whatsappAutoLogin(req, res) {
   try {
     const workerId = req.user.id;
@@ -35,7 +41,24 @@ export async function whatsappAutoLogin(req, res) {
     if (agents.length > 0) {
       for (const agent of agents) {
         const token = jwt.sign(
-          { id: agent.id, email: agent.email, role: 'agent', name: agent.name },
+          // worker_id is what scopes this session to a donor allotment.
+          // fro_assignments.fro_worker_id is a workers.id, while `id` here is the
+          // agent's own id, so without this claim the agent resolved to zero
+          // allotted donors the moment per-donor scoping went in.
+          //
+          // agent_user_id rides along for the same reason as in the
+          // fro_whatsapp_assignments branch below: the WhatsApp admin flag is
+          // looked up by crm_agents.id, and `agent.id` here is whatever
+          // get_worker_agents returns, which is not guaranteed to be that.
+          {
+            id: agent.id,
+            worker_id: workerId,
+            agent_user_id: req.user.agent_user_id || null,
+            agent_label: req.user.agent_label || null,
+            email: agent.email,
+            role: 'agent',
+            name: agent.name,
+          },
           process.env.JWT_SECRET,
           { expiresIn: '24h' }
         );
@@ -93,7 +116,34 @@ export async function whatsappAutoLogin(req, res) {
           project: account.project,
           account: { id: account.id, name: account.name, project: account.project, phone_number_id: account.phone_number_id },
           token: jwt.sign(
-            { id: workerId, email: req.user.email, role: 'agent', name: req.user.name },
+            // agent_user_id MUST be carried here.
+            //
+            // This branch mints a token whose `id` is a workers.id, because the
+            // grant is keyed by workers(id). But crm_agents.whatsapp_admin is
+            // read by PROBING crm_agents.id against the token id
+            // (services/whatsappScope.js loadAgentRow), and a workers.id can
+            // never match a crm_agents.id -- the two are separate uuid
+            // sequences. So without the claim the lookup misses and the caller
+            // is silently downgraded to an ordinary agent.
+            //
+            // That downgrade is not cosmetic. An agent flagged whatsapp_admin is
+            // meant to be the one person who can reach any donor; demoted to an
+            // ordinary agent they are scoped to their own fro_assignments
+            // allotment, and every message to a donor outside it fails with
+            // "This number is not allotted to you". Agent 1 hit exactly that,
+            // because this is the branch their account takes (no
+            // worker_agent_assignments row, one fro_whatsapp_assignments row).
+            //
+            // agent_label travels with it so the inbox can still name them.
+            {
+              id: workerId,
+              worker_id: workerId,
+              agent_user_id: req.user.agent_user_id || null,
+              agent_label: req.user.agent_label || null,
+              email: req.user.email,
+              role: 'agent',
+              name: req.user.name,
+            },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
           ),
@@ -132,7 +182,7 @@ export async function whatsappLogin(req, res) {
       const token = jwt.sign(
         { id: 'master', email: masterEmail, role: 'master', name: 'Master Admin' },
         process.env.JWT_SECRET,
-        { expiresIn: '100y' }
+        { expiresIn: WHATSAPP_TOKEN_TTL }
       );
       return res.json({
         success: true,
@@ -176,11 +226,10 @@ export async function whatsappLogin(req, res) {
       }
 
       userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
-      const agentExpiry = '100y';
       token = jwt.sign(
         { id: userData.id, email: userData.email, role: 'agent', name: userData.name },
         process.env.JWT_SECRET,
-        { expiresIn: agentExpiry }
+        { expiresIn: WHATSAPP_TOKEN_TTL }
       );
     }
 

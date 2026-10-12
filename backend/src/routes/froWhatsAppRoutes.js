@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/authMiddleware.js';
+import { authenticate, requireWhatsAppAdmin } from '../middleware/authMiddleware.js';
 import multer from 'multer';
 import {
   whatsappAutoLogin,
@@ -28,6 +28,7 @@ import {
   retryFailedMessage,
 } from '../controllers/froWhatsAppController.js';
 import { sendInteractive } from '../controllers/whatsappEnhancementsController.js';
+import { testSendPreview, testSend } from '../controllers/froWhatsAppTestController.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -74,5 +75,16 @@ router.post('/conversations/:id/messages/:messageId/retry', retryFailedMessage);
 router.get('/conversations', listConversations);
 router.get('/conversations/unread-count', unreadCount);
 router.put('/conversations/:id/labels', updateLabels);
+
+// ── Controlled send test ───────────────────────────────────────────────────
+//
+// Agent 1 only, one authorised recipient, two verbs. Declared last so the path
+// can never be shadowed by the `:id` routes above.
+//
+// requireWhatsAppAdmin is the gate, not a role string: it reads
+// crm_agents.whatsapp_admin (authMiddleware.js:99) and leaves req.user.role
+// untouched, so it grants WhatsApp scope without granting CRM administration.
+router.get('/test-send/preview', requireWhatsAppAdmin, testSendPreview);
+router.post('/test-send', requireWhatsAppAdmin, testSend);
 
 export default router;

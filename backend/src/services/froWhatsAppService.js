@@ -2,6 +2,13 @@ import db from '../config/db.js';
 import { classifyDeliveryFailure } from '../lib/whatsappErrorCodes.js';
 import { checkAttachmentReachable, describeUnreachableAttachment } from './mediaReachability.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import {
+  conversationOwnershipOr,
+  loadAllotment,
+  setThreadOwner,
+  writableThreadOwner,
+} from './whatsappScope.js';
+import { resolveOutboundAccount, OrgRoutingError } from './whatsappOrgRouting.js';
 import config from '../config/whatsappConfig.js';
 
 function normalizePhone(phone) {
@@ -11,60 +18,48 @@ function normalizePhone(phone) {
   return raw;
 }
 
-export async function getFroConversations(froWorkerId, restrictPairs = null) {
-  const { data: assignments, error: assignErr } = await db
-    .from('fro_assignments')
-    .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
-    .eq('fro_worker_id', froWorkerId)
-    .not('status', 'eq', 'reassigned');
-
-  if (assignErr) throw assignErr;
-  let scoped = assignments || [];
-  // Station-scoped work-as: only donors whose assignment sits on a claimed
-  // (ngo_id, station) pair are visible.
-  if (restrictPairs && restrictPairs.length > 0) {
-    const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
-    scoped = scoped.filter(a => allowed.has(`${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`));
-  }
-  if (scoped.length === 0) return [];
-
-  const donorPhones = scoped
-    .map(a => a.donor_profiles?.mobile_number)
-    .filter(Boolean);
-
-  const phoneVariants = new Set();
-  for (const p of donorPhones) {
-    const raw = String(p).replace(/[^0-9]/g, '');
-    phoneVariants.add(raw);
-    if (raw.startsWith('91') && raw.length === 12) {
-      phoneVariants.add(raw.slice(2));
-    } else if (raw.length === 10) {
-      phoneVariants.add('91' + raw);
+/**
+ * Conversations for the donors allotted to this caller.
+ *
+ * `caller` is a resolved whatsappScope.resolveWaCaller() object, NOT a raw id.
+ * That is the whole point of the change: this used to take `froWorkerId` and
+ * scope on `.eq('fro_worker_id', froWorkerId)`, which is a workers.id, while the
+ * inbox passes a token whose `id` is a crm_agents.id. The two never matched and
+ * the endpoint silently returned an empty list for a real agent login.
+ *
+ * The visibility rule itself now lives in whatsappScope so this list and every
+ * per-conversation endpoint agree by construction.
+ */
+export async function getFroConversations(caller, restrictPairs = null, projectFilter = null) {
+  if (caller?.isWaAdmin && !restrictPairs?.length) {
+    // The admin's own inbox is the whole CRM. The project filter still applies,
+    // because it narrows rather than widens.
+    let all = db
+      .from('conversations')
+      .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+      .order('last_message_at', { ascending: false });
+    if (projectFilter) all = all.eq('project', projectFilter);
+    const { data, error } = await all;
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) return [];
+      throw error;
     }
+    return data || [];
   }
 
-  if (phoneVariants.size === 0) return [];
+  const allotment = await loadAllotment(caller?.workerId, restrictPairs);
+  if (allotment.contactIds.length === 0) return [];
 
-  const phoneList = [...phoneVariants];
-
-  const { data: contacts, error: contactErr } = await db
-    .from('contacts')
-    .select('id, phone, phone_normalized, wa_profile_name, project')
-    .in('phone_normalized', phoneList);
-
-  if (contactErr) {
-    if (contactErr.code === '42P01' || contactErr.message?.includes('does not exist')) return [];
-    throw contactErr;
-  }
-  if (!contacts || contacts.length === 0) return [];
-
-  const contactIds = contacts.map(c => c.id);
-
-  const { data: conversations, error: convErr } = await db
+  let query = db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
-    .in('contact_id', contactIds)
+    .in('contact_id', allotment.contactIds)
+    .or(conversationOwnershipOr(allotment.contactIds, caller?.userId))
     .order('last_message_at', { ascending: false });
+
+  if (projectFilter) query = query.eq('project', projectFilter);
+
+  const { data: conversations, error: convErr } = await query;
 
   if (convErr) {
     if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
@@ -222,7 +217,7 @@ export async function getConversationMessages(conversationId) {
   return refreshMediaAttachments(data || []);
 }
 
-export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType) {
+export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType, callerAllotment = null) {
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -231,53 +226,52 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 
   if (convErr || !conversation) throw new Error('Conversation not found');
 
+  // Claim-on-reply. Ownership narrows a shared-allotment thread to one agent;
+  // it is not the access control (that is the allotment, checked by the caller
+  // before it ever got here). So it is best-effort: an owner id the
+  // conversations.assigned_agent_id foreign key cannot represent is skipped
+  // rather than allowed to fail the send.
   if (!conversation.assigned_agent_id) {
-    await db
-      .from('conversations')
-      .update({ assigned_agent_id: froWorkerId })
-      .eq('id', conversationId);
-    conversation.assigned_agent_id = froWorkerId;
+    const owner = await setThreadOwner(conversationId, froWorkerId);
+    if (owner) conversation.assigned_agent_id = owner;
   }
 
   let project = conversation.project;
 
-  if (!project) {
-    console.warn('[sendFroReply] Conversation', conversationId, 'has NO project set — falling back to assignment lookup');
-    const { data: workerAssignments } = await db
-      .from('worker_agent_assignments')
-      .select('account_id, whatsapp_accounts!inner(project)')
-      .eq('user_id', froWorkerId);
-    if (workerAssignments?.length) {
-      project = workerAssignments[0].whatsapp_accounts?.project;
-    }
-  }
+  // ── Account selection (was: fall back to 'bsct') ─────────────────────────
+  //
+  // This used to end in `project = project || 'bsct'` and then
+  // `account?.access_token || config.accessToken`. Both removed.
+  //
+  // findOrCreateConversation stored `project: projectOverride || contact.project
+  // || null`, so an agent who opened a thread from the donor list -- the normal
+  // path, since the donor list does not carry a project -- created a thread with
+  // project NULL. Every reply from that thread then went out from the Being Sevak
+  // number regardless of whether the donor was MANN, AFLF or Ashray, and the
+  // donor's reply landed in a BSCT thread.
+  //
+  // resolveOutboundAccount reads the donor's own assignment instead, refuses when
+  // the organisation is missing or ambiguous, and verifies the account it returns
+  // really is that organisation's before anything is sent from it.
+  const { account, project: resolvedProject } = await resolveOutboundAccount({
+    conversation,
+    contact: conversation.contact,
+    phone: conversation.contact?.phone_normalized || conversation.contact?.phone,
+    // The caller's own donor allotment, so a shared household or business
+    // number resolves to the donor THIS agent is working rather than to every
+    // donor who happens to share the line.
+    preferDonorIds: callerAllotment?.donorIds || null,
+  });
+  project = resolvedProject;
 
-  if (!project) {
-    const { data: froAssignments } = await db
-      .from('fro_whatsapp_assignments')
-      .select('whatsapp_accounts!inner(project)')
-      .eq('fro_worker_id', froWorkerId)
-      .eq('is_active', true)
-      .maybeSingle();
-    project = froAssignments?.whatsapp_accounts?.project;
-  }
-
-  if (!project) {
-    console.warn('[sendFroReply] No project found for conversation', conversationId, '— defaulting to bsct');
-  }
-  project = project || 'bsct';
   const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
-  const account = await getAccountByProject(project);
-  console.log('[sendFroReply] project:', project, 'account:', account ? account.name : 'null', 'phone_number_id:', account?.phone_number_id);
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
+  const accessToken = account.access_token;
+  const phoneNumberId = account.phone_number_id;
 
-  if (!accessToken || !phoneNumberId) {
-    throw new Error(`WhatsApp account not configured for project "${project}"`);
-  }
+  console.log('[sendFroReply] project:', project, 'account:', account.name, 'phone_number_id:', phoneNumberId);
 
   // Store the real kind (image/audio/video/document) so the inbox renders the
   // right player instead of guessing from a generic 'media'. Same mapping the
@@ -398,7 +392,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 // SAME row rather than inserting a new one, so the thread keeps one bubble and
 // the retry stays auditable. Reuses the body_text / media_url already on the
 // row, so a retry can never drift from what was originally attempted.
-export async function resendMessage(conversationId, messageId) {
+export async function resendMessage(conversationId, messageId, callerAllotment = null) {
   const { data: message, error: msgErr } = await db
     .from('messages')
     .select('*')
@@ -416,29 +410,25 @@ export async function resendMessage(conversationId, messageId) {
   if (convErr) throw convErr;
   if (!conversation) throw new Error('Conversation not found');
 
-  let project = conversation.project;
-  if (!project) {
-    const { data: froAssignments } = await db
-      .from('fro_whatsapp_assignments')
-      .select('whatsapp_accounts!inner(project)')
-      .eq('fro_worker_id', message.user_id)
-      .eq('is_active', true)
-      .maybeSingle();
-    project = froAssignments?.whatsapp_accounts?.project;
-  }
-  project = project || 'bsct';
+  // Same rule as the original send: resolve from the donor, never from the
+  // sender's own grants and never 'bsct'. The fallback chain that used to be
+  // here read `fro_whatsapp_assignments` keyed on message.user_id -- a free-text
+  // column -- so a retry could leave from a different number than the message
+  // it was retrying had already failed to send from.
+  const { account, project } = await resolveOutboundAccount({
+    conversation,
+    contact: conversation.contact,
+    phone: conversation.contact?.phone_normalized || conversation.contact?.phone,
+    preferDonorIds: callerAllotment?.donorIds || null,
+  });
 
   const recipientPhone = normalizePhone(
     conversation.contact?.phone_normalized || conversation.contact?.phone,
   );
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
-  const account = await getAccountByProject(project);
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
-  if (!accessToken || !phoneNumberId) {
-    throw new Error(`WhatsApp account not configured for project "${project}"`);
-  }
+  const accessToken = account.access_token;
+  const phoneNumberId = account.phone_number_id;
 
   // Kept so a retry that dies without a Meta code does not erase the only clue
   // the agent had about why this message was failing in the first place.
@@ -545,42 +535,36 @@ export async function resendMessage(conversationId, messageId) {
   }
 }
 
-export async function sendDirectMessage(froWorkerId, phone, messageText, projectOverride) {
+export async function sendDirectMessage(froWorkerId, phone, messageText, projectOverride, callerAllotment = null) {
   const phoneNormalized = normalizePhone(phone);
 
   let contact = await findOrCreateContact(phoneNormalized);
   let conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
 
-  const project = projectOverride || conversation.project || 'bsct';
+  // ── Account selection (was: projectOverride || conversation.project || 'bsct'
+  // then two assignment-table lookups, then config.accessToken) ─────────────
+  //
+  // All of those fallbacks dialled a number that was not the donor's
+  // organisation's. The two assignment lookups in particular were keyed on the
+  // SENDER's grants, so "start a conversation with this MANN donor" would send
+  // from whichever number the agent happened to hold -- the exact cross-NGO send
+  // this must never do. The donor's own assignment is the only input now.
+  //
+  // `projectOverride` survives, but only as a hint for the case where the donor
+  // record says nothing at all; it can never override a resolved organisation.
+  const { account, project } = await resolveOutboundAccount({
+    conversation,
+    contact,
+    phone: phoneNormalized,
+    requestedProject: projectOverride,
+    preferDonorIds: callerAllotment?.donorIds || null,
+  });
+
   const recipientPhone = phoneNormalized;
+  const accessToken = account.access_token;
+  const phoneNumberId = account.phone_number_id;
 
-  let account = await getAccountByProject(project);
-
-  if (!account) {
-    const { data: froAcct } = await db
-      .from('fro_whatsapp_assignments')
-      .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
-      .eq('fro_worker_id', froWorkerId)
-      .eq('is_active', true)
-      .maybeSingle();
-    account = froAcct?.whatsapp_accounts;
-  }
-
-  if (!account) {
-    const { data: workerAcct } = await db
-      .from('worker_agent_assignments')
-      .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
-      .eq('user_id', froWorkerId)
-      .maybeSingle();
-    account = workerAcct?.whatsapp_accounts;
-  }
-
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
-
-  if (!accessToken || !phoneNumberId) {
-    throw new Error(`WhatsApp account not configured`);
-  }
+  console.log('[sendDirect] project:', project, 'account:', account.name, 'phone_number_id:', phoneNumberId);
 
   const { data: message, error: msgErr } = await db
     .from('messages')
@@ -729,6 +713,11 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
   }
 
   try {
+    // See writableThreadOwner: assigned_agent_id FKs users(id), which no agent
+    // id satisfies, so a blanket `assigned_agent_id: froWorkerId` aborted the
+    // whole insert. Null here just means "unowned", and an unowned thread in my
+    // allotment is exactly the one I am meant to be able to claim.
+    const owner = await writableThreadOwner(froWorkerId);
     const { data: newConv, error } = await db
       .from('conversations')
       .insert({
@@ -736,7 +725,7 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
         status: 'open',
         last_message_at: new Date().toISOString(),
         project: projectOverride || contact.project || null,
-        assigned_agent_id: froWorkerId,
+        assigned_agent_id: owner,
       })
       .select()
       .single();
@@ -781,57 +770,33 @@ export async function markConversationRead(conversationId, froWorkerId) {
 // express it without touching that shared file. The filter therefore applies to
 // the returned page only. That is honest for a per-agent inbox page and is the
 // one filter here that is not server-side total.
-export async function getAgentConversations(agentUserId, projectFilter, role, opts = {}) {
-  const isAdmin = ['admin', 'master', 'super_admin'].includes(role);
+export async function getAgentConversations(caller, projectFilter, opts = {}) {
+  // The WhatsApp admin sees every thread on every number. Everyone else sees
+  // only the donors in their own fro_assignments allotment, minus threads
+  // another agent already owns.
+  //
+  // What replaced this, and why it was wrong: the old predicate was
+  // `assigned_agent_id.eq.<me>` OR `and(project.eq.<myNumber>, assigned_agent_id
+  // .is.null)`. A `project` is one shared WhatsApp business number shared by
+  // several agents, so the second clause handed every agent every other agent's
+  // unclaimed threads -- full donor phone and profile name -- and a reply then
+  // silently claimed them (see sendFroReply). `isAdmin` was also a hardcoded
+  // role list that never consulted crm_agents.whatsapp_admin, so the real
+  // WhatsApp admin was an ordinary agent while any broadly-privileged CRM role
+  // got the whole unassigned universe.
+  const isAdmin = Boolean(caller?.isWaAdmin);
 
   let query = db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .order('last_message_at', { ascending: false });
 
-  if (isAdmin) {
-    query = query.or(`assigned_agent_id.eq.${agentUserId},assigned_agent_id.is.null`);
-  } else {
-    const { data: myAcctAssigns } = await db
-      .from('worker_agent_assignments')
-      .select('account_id')
-      .eq('user_id', agentUserId);
-    const { data: myFroAssigns } = await db
-      .from('fro_whatsapp_assignments')
-      .select('whatsapp_account_id')
-      .eq('fro_worker_id', agentUserId)
-      .eq('is_active', true);
-    const { data: myAgentAssigns } = await db
-      .from('agent_phone_assignments')
-      .select('account_id')
-      .eq('user_id', agentUserId);
-
-    const acctIds = new Set();
-    // fro_whatsapp_assignments names the account column `whatsapp_account_id`;
-    // the other two tables name it `account_id`. Reading only `a.account_id`
-    // here silently dropped every FRO direct-assignment row, so an FRO's own
-    // WhatsApp project never reached myProjects and their unassigned
-    // conversations were filtered out of the inbox entirely.
-    for (const a of [...(myAcctAssigns || []), ...(myFroAssigns || []), ...(myAgentAssigns || [])]) {
-      const acctId = a.account_id || a.whatsapp_account_id;
-      if (acctId) acctIds.add(acctId);
-    }
-
-    let myProjects = [];
-    if (acctIds.size > 0) {
-      const { data: accts } = await db
-        .from('whatsapp_accounts')
-        .select('project')
-        .in('id', Array.from(acctIds));
-      myProjects = (accts || []).map(a => a.project).filter(Boolean);
-    }
-
-    const orParts = [`assigned_agent_id.eq.${agentUserId}`];
-    if (myProjects.length > 0) {
-      const projectOr = myProjects.map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
-      orParts.push(projectOr);
-    }
-    query = query.or(orParts.join(','));
+  if (!isAdmin) {
+    const allotment = await loadAllotment(caller?.workerId);
+    if (allotment.contactIds.length === 0) return [];
+    query = query
+      .in('contact_id', allotment.contactIds)
+      .or(conversationOwnershipOr(allotment.contactIds, caller?.userId));
   }
 
   if (projectFilter) {
@@ -857,7 +822,12 @@ export async function getAgentConversations(agentUserId, projectFilter, role, op
   if (search) {
     const like = `%${search}%`;
     const digits = search.replace(/\D/g, '');
-    const { data: matched, error: matchErr } = await db
+    // A name search runs against every contact in the CRM, so the results are
+    // intersected with the caller's own donors before they touch a conversation
+    // query. Intersecting afterwards would still be correct -- the ownership
+    // predicate below applies either way -- but doing it here keeps the
+    // intermediate id list small.
+    let contactQuery = db
       .from('contacts')
       .select('id')
       .or([
@@ -869,6 +839,11 @@ export async function getAgentConversations(agentUserId, projectFilter, role, op
         `company.ilike.${like}`,
         digits ? `phone_normalized.ilike.%${digits}%` : null,
       ].filter(Boolean).join(','));
+    if (!isAdmin) {
+      const allotment = await loadAllotment(caller?.workerId);
+      contactQuery = contactQuery.in('id', allotment.contactIds);
+    }
+    const { data: matched, error: matchErr } = await contactQuery;
     if (matchErr) throw matchErr;
     searchContactIds = (matched || []).map(c => c.id);
     // An empty result must match nothing. `in ()` degrades to `1 = 0` in the
@@ -909,9 +884,9 @@ export async function getAgentConversations(agentUserId, projectFilter, role, op
   return rows;
 }
 
-export async function getAgentUnreadCount(agentUserId, role) {
+export async function getAgentUnreadCount(caller, projectFilter = null) {
   try {
-    const conversations = await getAgentConversations(agentUserId, null, role);
+    const conversations = await getAgentConversations(caller, projectFilter);
     return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
   } catch (err) {
     console.error('[getAgentUnreadCount] error:', err.message);
@@ -919,9 +894,9 @@ export async function getAgentUnreadCount(agentUserId, role) {
   }
 }
 
-export async function getFroUnreadCount(froWorkerId) {
+export async function getFroUnreadCount(caller, restrictPairs = null) {
   try {
-    const conversations = await getFroConversations(froWorkerId);
+    const conversations = await getFroConversations(caller, restrictPairs);
     return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
   } catch (err) {
     console.error('[getFroUnreadCount] WhatsApp tables may not exist:', err.message);
@@ -1306,7 +1281,7 @@ async function getLiveTemplateDefinition(account, templateName) {
   }
 }
 
-export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues, headerMediaUrl, headerMediaName) {
+export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues, headerMediaUrl, headerMediaName, callerAllotment = null) {
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -1314,20 +1289,22 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     .single();
   if (convErr || !conversation) throw new Error('Conversation not found');
 
-  let project = conversation.project;
-  if (!project) {
-    console.warn('[sendTemplateReply] Conversation', conversationId, 'has NO project set — falling back to contact project');
-    project = conversation.contact?.project || 'bsct';
-  }
+  // An approved template is the highest-trust outbound path there is, so it gets
+  // the same org routing as a free-text reply. This used to fall back to
+  // `contact.project || 'bsct'`, which meant the approved AFLF template could be
+  // dispatched from the BSCT number with the BSCT access token -- a template
+  // Meta had approved for one business identity sent from another.
+  const { account, project } = await resolveOutboundAccount({
+    conversation,
+    contact: conversation.contact,
+    phone: conversation.contact?.phone_normalized || conversation.contact?.phone,
+    preferDonorIds: callerAllotment?.donorIds || null,
+  });
   const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
-  const account = await getAccountByProject(project);
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
-  if (!accessToken || !phoneNumberId) {
-    throw new Error(`WhatsApp account not configured for project "${project}"`);
-  }
+  const accessToken = account.access_token;
+  const phoneNumberId = account.phone_number_id;
 
   const { data: storedTemplate } = await db
     .from('whatsapp_templates')
@@ -1540,8 +1517,8 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
   return message;
 }
 
-export async function searchFroMessages(froWorkerId, query) {
-  const conversations = await getFroConversations(froWorkerId);
+export async function searchFroMessages(caller, query, restrictPairs = null) {
+  const conversations = await getFroConversations(caller, restrictPairs);
   const convIds = conversations.map(c => c.id);
   if (convIds.length === 0) return [];
 

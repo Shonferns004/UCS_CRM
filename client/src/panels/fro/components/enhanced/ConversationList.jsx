@@ -1,11 +1,16 @@
+// `bsct` and `bsct2` are two WhatsApp numbers for the same organisation (Being
+// Sevak). Both render under one name; the slug is what identifies the number,
+// not what a caller should see next to a donor's name.
 const PROJECT_LABELS = {
   bsct: 'Being Sevak',
+  bsct2: 'Being Sevak',
   aflf: 'Ashray Life',
   mann: 'Mann Care',
 }
 
 const PROJECT_BADGES = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8' },
+  bsct2: { bg: '#dbeafe', text: '#1d4ed8' },
   aflf: { bg: '#dcfce7', text: '#16a34a' },
   mann: { bg: '#fce7f3', text: '#db2777' },
 }

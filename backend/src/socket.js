@@ -6,9 +6,14 @@ let io = null;
 
 // Live-socket presence: worker ids holding at least one authenticated socket
 // right now. This is the source of truth for "panel open", replacing timer
-// heartbeats. Same-process only (single PM2 fork) — do NOT rely on this if
-// the backend ever moves to multi-process cluster mode (would need redis).
+// heartbeats. Same-process only (single PM2 fork) — do NOT rely on this if the
+// backend ever moves to multi-process cluster mode (would need redis).
 const workerSockets = new Map(); // workerId (string) -> Set<socket.id>
+
+// Roles that receive every WhatsApp realtime row. Mirrors WA_STAFF_ROLES in
+// services/whatsappScope.js — the same people who may see every donor there get
+// every row here, so the live inbox and the scoped inbox never disagree.
+const WA_ADMIN_SOCKET_ROLES = new Set(['master', 'super_admin', 'accounts', 'admin']);
 
 export function isWorkerOnline(workerId) {
   if (workerId == null) return false;
@@ -69,6 +74,15 @@ export function initRealtime(server) {
     // Without this, pause/resume emits silently go nowhere.
     const wid = socket.user && (socket.user.workerId || socket.user.id);
     if (wid) socket.join(`worker:${wid}`);
+    // An agent session's own uuid lives in `agent_user_id`, never in `id` -- `id`
+    // is the FRO the agent covers (authController.js:176). WhatsApp thread
+    // ownership is recorded against that agent uuid, so without this room a
+    // scoped emit for "this agent's conversation" has nowhere to land and the
+    // owner's inbox silently stops going live.
+    const agentUid = socket.user && socket.user.agent_user_id;
+    if (agentUid) socket.join(`worker:${agentUid}`);
+    // Staff roles keep the WhatsApp admin room so an admin's inbox stays live.
+    if (WA_ADMIN_SOCKET_ROLES.has(String(role).toLowerCase())) socket.join('wa:admin');
     // Work-as: the token's `id` is the COVERED FRO, so this socket's presence
     // lands in the covered worker's room and isWorkerOnline() reports the person
     // who is not at the keyboard as the one online. Join the operator's room too
@@ -163,6 +177,28 @@ function chatUidOf(user) {
 export function emitDbChange(payload) {
   if (!io) return;
   io.emit('db:change', payload);
+}
+
+/**
+ * Room-scoped db:change, for tables that must not reach every socket.
+ *
+ * The WhatsApp tables (messages, conversations) used to go through the plain
+ * io.emit above, which pushed every donor's message body, every attachment URL
+ * and every conversation UUID to every authenticated browser tab -- including
+ * HR, Accounts and NGO-admin panels that never open the inbox. That payload was
+ * also the practical way to obtain a foreign conversation id, which every `:id`
+ * route then accepted.
+ *
+ * The rooms are derived from `conversations.assigned_agent_id`, so a row only
+ * reaches the agent who owns the thread plus the WhatsApp admin room. Callers
+ * are expected to have already stripped the payload down to a refetch hint --
+ * see slimWhatsAppRealtimeRow in config/db.js.
+ */
+export function emitDbChangeToRooms(rooms, payload) {
+  if (!io) return;
+  const list = (Array.isArray(rooms) ? rooms : [rooms]).filter(Boolean);
+  if (list.length === 0) return;
+  io.to(list).emit('db:change', payload);
 }
 
 /**

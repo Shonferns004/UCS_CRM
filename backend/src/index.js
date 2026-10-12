@@ -1210,6 +1210,16 @@ await ensureFroTimeSessionsAgentSchema().catch(e => console.error('ensureFroTime
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
     await ensureStationAgentOfRecordSchema().catch(e => console.error('ensureStationAgentOfRecordSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
+    // resetStaleWhatsAppOwners() deliberately NOT called here.
+    //
+    // It ran `UPDATE conversations SET assigned_agent_id = NULL` over every
+    // row, once, on first boot after deploy, guarded only by a row in
+    // backend_one_shot_tasks. That is a production mass-update of live donor
+    // ownership and it is out of scope: conversation ownership is now read
+    // defensively instead (see services/whatsappScope.js, which treats an
+    // unrecognised owner as "not mine" rather than relying on the column having
+    // been wiped). The file is left on disk, unreferenced, so the decision stays
+    // reversible -- but nothing invokes it.
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

@@ -1,10 +1,33 @@
 import db from '../config/db.js';
 import { getAccountByPhoneNumberId } from '../models/whatsappAccountModel.js';
+import { isRoutableProject } from '../services/whatsappOrgRouting.js';
 import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { runAutomationForInbound } from '../services/whatsappAutomationService.js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
+
+// Short-lived memory of wamids this process has already ingested.
+//
+// The durable guard is the read-before-insert on messages.wa_message_id in
+// whatsappWebhookEntry; this only avoids repeating that read for Meta's rapid
+// retries of the same delivery. Bounded and self-expiring so it cannot grow
+// without limit on a long-lived process.
+const RECENTLY_INGESTED = new Map();
+const RECENTLY_INGESTED_TTL_MS = 5 * 60 * 1000;
+const RECENTLY_INGESTED_MAX = 2000;
+
+function addRecentlyIngested(key) {
+  const now = Date.now();
+  for (const [k, at] of RECENTLY_INGESTED) {
+    if (now - at > RECENTLY_INGESTED_TTL_MS) RECENTLY_INGESTED.delete(k);
+  }
+  if (RECENTLY_INGESTED.size >= RECENTLY_INGESTED_MAX) {
+    const oldest = RECENTLY_INGESTED.keys().next().value;
+    RECENTLY_INGESTED.delete(oldest);
+  }
+  RECENTLY_INGESTED.set(key, now);
+}
 
 // Delivery states only ever move forward through this list. Mirrors
 // WA_STATUS_RANK in whatsappController.js, which already guards the send path;
@@ -17,6 +40,36 @@ const WA_STATUS_RANK = {
   delivered: 3,
   read: 4,
 };
+
+/**
+ * May this delivery receipt change the message's stored status?
+ *
+ * Extracted purely so the ordering rule is testable without a database. Meta
+ * delivers status frames out of order and redelivers them, so "last write wins"
+ * loses read receipts permanently: a redelivered 'sent' after a 'read' walks the
+ * bubble back to a single tick.
+ *
+ * The two refusals that matter:
+ *   - a receipt for a message already `failed` is ignored, because `failed` is
+ *     terminal and a later success frame would erase the reason the agent sees;
+ *   - a `failed` frame never overwrites `read`, because a message the donor
+ *     demonstrably read cannot have failed to be delivered.
+ *
+ * An unknown incoming status is allowed through rather than refused: Meta adds
+ * statuses over time and a new one must not silently stop being recorded.
+ */
+export function shouldApplyStatus(current, incoming) {
+  const from = current || 'queued';
+  if (from === 'failed') return false;
+  if (incoming === 'failed') {
+    if (from === 'read') return false;
+    return true;
+  }
+  const to = WA_STATUS_RANK[incoming];
+  const rank = WA_STATUS_RANK[from];
+  if (to === undefined || rank === undefined) return true;
+  return to >= rank;
+}
 
 /**
  * Map one `calls` webhook event onto our whatsapp_calls row.
@@ -208,18 +261,54 @@ export async function whatsappWebhookEntry(req, res) {
       if (account?.project) accountProject = account.project;
     }
 
-    await db.from('whatsapp_webhook_logs').insert({
-      direction: 'inbound',
-      event_type: changes?.field || 'unknown',
-      payload: body,
-      processed: false,
-      account_project: accountProject,
-    });
+    const { data: logRow, error: logErr } = await db
+      .from('whatsapp_webhook_logs')
+      .insert({
+        direction: 'inbound',
+        event_type: changes?.field || 'unknown',
+        payload: body,
+        processed: false,
+        account_project: accountProject,
+      })
+      .select('id')
+      .single();
+    if (logErr) console.error('[webhook] could not write webhook log:', logErr.message);
 
     if (changes?.field === 'messages' && value?.messages) {
       for (const message of value.messages) {
         const from = message.from;
         let bodyText = message.text?.body || null;
+
+        // ── Idempotency ─────────────────────────────────────────────────────
+        //
+        // Meta redelivers a webhook that it did not get a 2xx for, and this
+        // handler used to have nothing to stop the second pass: the same
+        // wamid was inserted as a second `messages` row, the media was
+        // re-downloaded and re-uploaded, and the AI auto-reply path was
+        // re-entered -- so one donor could be auto-answered twice for a single
+        // message.
+        //
+        // `messages.wa_message_id` has no unique index, so the database cannot
+        // reject the duplicate. (Adding one is unsafe: duplicates very likely
+        // already exist in production and CREATE UNIQUE INDEX would abort.) The
+        // read-before-insert below is therefore the guard. It is a SELECT on an
+        // indexed-by-nothing column, so it is not free -- which is the other
+        // reason the short-lived cache is here: Meta's retries of one delivery
+        // arrive in a burst, and the burst is the case that matters.
+        if (message.id) {
+          const dedupeKey = `${from}|${message.id}`;
+          if (RECENTLY_INGESTED.has(dedupeKey)) continue;
+          const { data: alreadyStored } = await db
+            .from('messages')
+            .select('id')
+            .eq('wa_message_id', message.id)
+            .limit(1);
+          if (alreadyStored && alreadyStored.length > 0) {
+            RECENTLY_INGESTED.add(dedupeKey);
+            console.warn('[webhook] duplicate inbound ignored:', message.id);
+            continue;
+          }
+        }
 
         if (message.type === 'image') bodyText = message.image?.caption || '[Image]';
         else if (message.type === 'video') bodyText = message.video?.caption || '[Video]';
@@ -262,7 +351,16 @@ export async function whatsappWebhookEntry(req, res) {
           .eq('status', 'open');
         if (projectFilter) query = query.eq('project', projectFilter);
         else query = query.is('project', null);
-        const { data: conversation } = await query.maybeSingle();
+        // `.maybeSingle()` rather than `.limit(1)`: when a donor has two open
+        // threads on the same number -- which the pre-existing data already
+        // contains, since findOrCreateConversation raced before the catch was
+        // added -- maybeSingle throws PGRST116, the handler returned 500, Meta
+        // treated it as a delivery failure and redelivered forever. Bounded
+        // query, newest thread wins, request always completes.
+        const { data: matches } = await query
+          .order('last_message_at', { ascending: false })
+          .limit(1);
+        const conversation = (matches || [])[0] || null;
 
         let activeConversation = conversation;
         if (!activeConversation) {
@@ -298,6 +396,10 @@ export async function whatsappWebhookEntry(req, res) {
         }).select().single();
 
         if (msgError) throw msgError;
+
+        // Only now, once the row exists, is it safe to cache -- caching before
+        // the insert would swallow the message if the insert then failed.
+        if (message.id) addRecentlyIngested(`${from}|${message.id}`);
 
         if (mediaId && ['image', 'video', 'audio', 'document', 'sticker'].includes(message.type)) {
           try {
@@ -356,8 +458,30 @@ export async function whatsappWebhookEntry(req, res) {
           })
           .eq('id', activeConversation.id);
 
-        const routingProject = accountProject !== 'unknown' ? accountProject : (contact.project || 'bsct');
-        if (!activeConversation.assigned_agent_id) {
+        // Which number this thread belongs to.
+        //
+        // Previously `accountProject !== 'unknown' ? accountProject : (contact.project || 'bsct')`.
+        // The 'bsct' arm is gone: an inbound whose metadata phone_number_id
+        // matched no configured account used to be filed under BSCT, and the AI
+        // auto-reply (aiReplyService.sendAiReply -> resolveAccount(project)) then
+        // went out from the Being Sevak number for a message that arrived on an
+        // unregistered number. Routing on an unknown number is not a reason to
+        // answer from another organisation's identity.
+        //
+        // The caller is deliberate: the message is still stored and the
+        // conversation is still created, so an operator can see it, but no
+        // unattended send is attempted under a guessed organisation.
+        const routingProject = isRoutableProject(accountProject)
+          ? accountProject
+          : (isRoutableProject(contact.project) ? contact.project : null);
+        if (!routingProject) {
+          console.error(
+            '[webhook] inbound message from', from,
+            'on phone_number_id', phoneNumberId,
+            'which matches no active whatsapp_accounts row. Stored, but NOT auto-answered.',
+          );
+        }
+        if (!activeConversation.assigned_agent_id && routingProject) {
           await applyRouting(activeConversation.id, bodyText, routingProject);
           if (bodyText && !bodyText.startsWith('[')) {
             const { data: refreshed } = await db
@@ -369,7 +493,15 @@ export async function whatsappWebhookEntry(req, res) {
           }
         }
 
-        await handleInboundForAi({ conversation: activeConversation, contact, inboundMessage: newMessage });
+        await handleInboundForAi({
+          conversation: activeConversation,
+          contact,
+          inboundMessage: newMessage,
+          // Suppresses the unattended auto-reply for an unroutable number. The
+          // AI service defaulted an absent project to 'bsct' and dialled the
+          // Being Sevak number.
+          project: routingProject,
+        });
 
         // Keyword automations. This is an UNATTENDED send, so it is deliberately
         // placed after persistence and behind a service that checks its own
@@ -378,7 +510,7 @@ export async function whatsappWebhookEntry(req, res) {
         // Wrapped in its own try/catch: a failed auto-reply must never turn a
         // successfully delivered inbound into a 500, because Meta would then
         // redeliver it and the customer could be messaged again.
-        if (message.type === 'text' && bodyText) {
+        if (message.type === 'text' && bodyText && routingProject) {
           try {
             await runAutomationForInbound({
               conversationId: activeConversation.id,
@@ -419,15 +551,7 @@ export async function whatsappWebhookEntry(req, res) {
 
         for (const row of targets || []) {
           const current = row.status || 'queued';
-          const incoming = WA_STATUS_RANK[status.status];
-          const currentRank = WA_STATUS_RANK[current];
-
-          if (current === 'failed') continue;                       // terminal
-          if (status.status === 'failed') {
-            if (current === 'read') continue;                       // read beats failure
-          } else if (incoming !== undefined && currentRank !== undefined && currentRank > incoming) {
-            continue;                                               // never move backwards
-          }
+          if (!shouldApplyStatus(current, status.status)) continue;
 
           const update = {
             status: status.status,
@@ -493,9 +617,12 @@ export async function whatsappWebhookEntry(req, res) {
     await db
       .from('whatsapp_webhook_logs')
       .update({ processed: true, processed_at: new Date().toISOString() })
-      .eq('processed', false)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      // By the id we just wrote. The previous form was
+      // `.eq('processed', false).order('created_at', desc).limit(1)`, which marks
+      // whichever unprocessed row happens to be newest -- under concurrent
+      // deliveries that is a different request's row, leaving this one stuck at
+      // processed=false forever and stamping somebody else's as handled.
+      .eq('id', logRow?.id || '__none__');
 
     res.json({ success: true });
   } catch (error) {

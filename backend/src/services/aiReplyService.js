@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { isRoutableProject } from './whatsappOrgRouting.js';
 import config from '../config/whatsappConfig.js';
 
 const AI_MODEL = GROQ_CHAT_MODEL;
@@ -100,8 +101,12 @@ async function buildTranscript(conversationId) {
     .join('\n');
 }
 
-export async function generateSuggestion({ conversation, contact, inboundText }) {
-  const project = conversation.project || contact?.project || 'bsct';
+export async function generateSuggestion({ conversation, contact, inboundText, project: projectOverride }) {
+  // The project the inbound actually arrived on, not a default. Reading BSCT's
+  // system_prompt and knowledge_base while answering a MANN donor is the same
+  // cross-organisation mistake as sending from the wrong number -- it just does
+  // not show up as a delivery error, it shows up as the wrong answer.
+  const project = projectOverride || conversation.project || contact?.project || null;
   const settings = await getSettings(project);
 
   const transcript = await buildTranscript(conversation.id);
@@ -132,9 +137,24 @@ export async function generateSuggestion({ conversation, contact, inboundText })
   };
 }
 
-export async function handleInboundForAi({ conversation, contact, inboundMessage }) {
+export async function handleInboundForAi({ conversation, contact, inboundMessage, project: projectOverride }) {
   try {
-    const project = conversation.project || contact?.project || 'bsct';
+    // `projectOverride` is the number the inbound actually arrived on, resolved
+    // by the webhook from metadata.phone_number_id. It wins over the stored
+    // columns because those can be stale: contacts.project is written once, at
+    // first contact, and conversations.project can be NULL.
+    //
+    // The 'bsct' default is gone. An unattended reply that could not be
+    // attributed to an organisation used to be dispatched from the Being Sevak
+    // number, which is a different business identity answering a stranger.
+    const project = projectOverride || conversation.project || contact?.project || null;
+    if (!isRoutableProject(project)) {
+      console.error(
+        '[aiReply] no routable project for conversation', conversation.id,
+        '- skipping unattended reply rather than sending from a default number',
+      );
+      return;
+    }
     const settings = await getSettings(project);
     if (!settings.enabled) return;
 
@@ -147,7 +167,7 @@ export async function handleInboundForAi({ conversation, contact, inboundMessage
     const aiCount = await countConsecutiveAiReplies(conversation.id);
     if (aiCount >= (settings.max_auto_replies ?? 3)) return;
 
-    const { text, model } = await generateSuggestion({ conversation, contact, inboundText });
+    const { text, model } = await generateSuggestion({ conversation, contact, inboundText, project });
     if (!text) return;
 
     if (settings.mode === 'suggest') {
@@ -162,20 +182,23 @@ export async function handleInboundForAi({ conversation, contact, inboundMessage
       return;
     }
 
-    await sendAiReply(conversation, contact, text);
+    await sendAiReply(conversation, contact, text, project);
   } catch (err) {
     console.error('[aiReply] failed:', err.message);
   }
 }
 
-export async function sendAiReply(conversation, contact, text) {
-  const project = conversation.project || contact?.project || 'bsct';
+export async function sendAiReply(conversation, contact, text, projectOverride) {
+  const project = projectOverride || conversation.project || contact?.project || null;
   const recipientPhone = normalizePhone(contact?.phone_normalized || contact?.phone);
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
-  let account = await getAccountByProject(project);
-  const accessToken = account?.access_token || config.accessToken;
-  const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
+  // An unattended send. It must resolve an account or send nothing; the
+  // config.accessToken fallback would answer from whichever number happened to
+  // be in the environment, regardless of which organisation was being replied to.
+  const account = await getAccountByProject(project);
+  const accessToken = account?.access_token;
+  const phoneNumberId = account?.phone_number_id;
   if (!accessToken || !phoneNumberId) {
     throw new Error(`WhatsApp account not configured for project "${project}"`);
   }

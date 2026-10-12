@@ -16,6 +16,10 @@ export default defineConfig({
     },
   },
   server: {
+    // Bind every interface so the dev server is reachable over the LAN. Without
+    // this Vite binds to ::1 only, and hitting the machine's LAN IP gives
+    // ERR_CONNECTION_REFUSED.
+    host: true,
     // The alias above points outside the client root, so the dev server must be
     // allowed to serve that file.
     fs: { allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.')] },

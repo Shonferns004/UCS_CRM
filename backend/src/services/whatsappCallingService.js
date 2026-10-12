@@ -272,13 +272,21 @@ export async function terminateCall({ account, providerCallId, clientRef }) {
   });
 }
 
-/** Calls that still need an agent's attention (ringing, waiting for answer). */
+/**
+ * Calls that still need an agent's attention (ringing, waiting for answer).
+ *
+ * `project` is optional on purpose: the inbox polls this to notice an incoming
+ * call, and the agent may be on the "all" tab or have no project in the URL.
+ * Filtering by a project the agent happens to be viewing meant a ringing call
+ * was silently invisible until they switched tabs.
+ */
 export async function listActiveCalls(project) {
-  const { data, error } = await db
+  let query = db
     .from('whatsapp_calls')
     .select('*')
-    .eq('project', project)
-    .in('status', ['queued', 'ringing', 'offered', 'accepted', 'connected'])
+    .in('status', ['queued', 'ringing', 'offered', 'accepted', 'connected']);
+  if (project && project !== 'all') query = query.eq('project', project);
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) throw error;

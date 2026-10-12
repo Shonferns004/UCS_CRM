@@ -28,17 +28,19 @@ export async function resolveAccount(project) {
     }
     throw new Error(`No active WhatsApp account is configured for project "${project}". Add it under Accounts > WhatsApp before sending.`);
   }
-  if (config.enabled) {
-    return {
-      phone_number_id: config.phoneNumberId,
-      access_token: config.accessToken,
-      waba_id: config.wabaId,
-      template_name: config.receiptTemplate,
-      template_language: config.templateLanguage,
-      project: project || 'bsct',
-    };
-  }
-  return null;
+  // No project, no account. This used to hand back the environment's BSCT
+  // credentials under the label `project: 'bsct'`, so any caller that reached it
+  // without naming an organisation sent from the Being Sevak number while
+  // believing it had chosen. Refusing is the only safe answer: a send has to
+  // say which organisation it is acting for.
+  //
+  // The one legitimate caller with no project -- testConnection() probing the
+  // configured default number from the settings screen -- passes 'bsct'
+  // explicitly, so it keeps working and keeps meaning what it meant.
+  throw new Error(
+    'A WhatsApp project is required to resolve an account (bsct, aflf or mann). '
+    + 'Nothing was sent from a default number.',
+  );
 }
 
 export async function sendTextMessage(to, text, account) {
@@ -219,7 +221,10 @@ async function sendViaFacebook(to, type, payload, account) {
 }
 
 export async function testConnection(account) {
-  const resolved = account || await resolveAccount();
+  // Probes one configured number; it sends nothing. 'bsct' is named explicitly
+  // because resolveAccount() no longer guesses a default, and this call site
+  // wants "the primary number" rather than "some organisation's number".
+  const resolved = account || await resolveAccount('bsct').catch(() => null);
   if (!resolved) return { success: false, message: 'WhatsApp not configured' };
 
   const apiBase = getApiBase(resolved);

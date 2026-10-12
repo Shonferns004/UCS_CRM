@@ -380,6 +380,16 @@ export async function sendNgoInfo(req, res) {
     const { to, name, project } = req.body;
     if (!to) return res.status(400).json({ message: 'Phone number is required' });
 
+    // `project` was optional here, and resolveAccount(undefined) then returns the
+    // environment's BSCT credentials. So "send NGO info" without naming an
+    // organisation sent from the Being Sevak number while claiming to be
+    // whichever the sender had in mind. An outbound must name its organisation.
+    if (!project) {
+      return res.status(400).json({
+        message: 'project is required (bsct, aflf or mann). The message was not sent from a default number.',
+      });
+    }
+
     const account = await resolveAccount(project);
     const result = await sendNgoInfoTemplate(to, name || 'Donor', account);
     return res.json({ success: true, message: 'NGO info sent', data: result });
@@ -393,6 +403,14 @@ export async function sendCustomTemplate(req, res) {
     const { to, templateName, parameters, project } = req.body;
     if (!to || !templateName || !parameters) {
       return res.status(400).json({ message: 'to, templateName, and parameters are required' });
+    }
+    // Same reason as sendNgoInfo: an unnamed organisation must not resolve to
+    // the environment default. A template approved on one WABA dispatched from
+    // another business identity is rejected by Meta or, worse, delivered.
+    if (!project) {
+      return res.status(400).json({
+        message: 'project is required (bsct, aflf or mann). The template was not sent from a default number.',
+      });
     }
 
     const account = await resolveAccount(project);

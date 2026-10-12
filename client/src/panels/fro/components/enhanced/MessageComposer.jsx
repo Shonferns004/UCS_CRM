@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { MediaUploadPreview } from './MediaPreview'
 import AudioRecorder from './AudioRecorder'
 import TemplateLibrary from './TemplateLibrary'
+import EmojiPicker from './EmojiPicker'
 
 export default function MessageComposer({ onSend, onSendMedia, disabled, templateProps }) {
   const [text, setText] = useState('')
@@ -101,6 +102,11 @@ export default function MessageComposer({ onSend, onSendMedia, disabled, templat
           </svg>
         </button>
         {templateProps && <TemplateLibrary {...templateProps} />}
+        <EmojiPicker
+          textareaRef={inputRef}
+          disabled={sending || disabled}
+          onInsert={(next) => setText(next)}
+        />
         <textarea
           ref={inputRef}
           value={text}
