@@ -28,11 +28,25 @@ import { isWriterRole } from '../middleware/chatAccess.js';
  */
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION = path.resolve(here, '../../migrations/151_chat.sql');
+const MIGRATIONS_DIR = path.resolve(here, '../../migrations');
 
-async function applyMigration() {
-  const sql = fs.readFileSync(MIGRATION, 'utf8');
-  await db._pool.query(sql);
+/**
+ * Replays every migration in lexical order on every boot.
+ *
+ * Not a one-shot runner: these files are written idempotently (IF NOT EXISTS,
+ * DROP + ADD constraints) precisely so they can be re-applied, which is what
+ * lets a column added in a later file reach a database created before it
+ * without a manual step. Sorting matters - 152 builds on tables created in 151.
+ */
+async function applyMigrations() {
+  const files = fs
+    .readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.toLowerCase().endsWith('.sql'))
+    .sort();
+  for (const f of files) {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8');
+    await db._pool.query(sql);
+  }
 }
 
 async function ensureConversation() {
@@ -116,7 +130,7 @@ async function syncCommunityParticipants(conversationId) {
 
 export async function ensureChatSchema() {
   try {
-    await applyMigration();
+    await applyMigrations();
     const convo = await ensureConversation();
     const { seated, dropped } = await syncCommunityParticipants(convo.id);
     const note = dropped ? `, dropped ${dropped} stale` : '';

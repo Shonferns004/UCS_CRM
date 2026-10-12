@@ -2,10 +2,12 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   CHAT_MAX_BODY,
   validateChatFile,
+  isChatAdmin,
 } from './chatIdentity'
 import { chatApi } from './chatApi'
-import { SendIcon, PaperclipIcon, AlertIcon } from './chatIcons'
+import { SendIcon, PaperclipIcon, AlertIcon, MegaphoneIcon } from './chatIcons'
 import { AttachmentDraft } from './AttachmentPreview'
+import NoticeComposerDialog from './NoticeComposerDialog'
 
 /**
  * Screen 04 — composer.
@@ -22,6 +24,7 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
   const [fileError, setFileError] = useState('')
   const [sending, setSending] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [noticeOpen, setNoticeOpen] = useState(false)
 
   const areaRef = useRef(null)
   const fileRef = useRef(null)
@@ -29,11 +32,19 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
   const lastTypingAt = useRef(0)
   const typingIdle = useRef(null)
 
+  /**
+   * Notices are a group-only broadcast from the three admin roles. The server
+   * enforces the same pair (isChatAdminRole + kind==='group') on every send —
+   * this only decides whether the megaphone is drawn at all.
+   */
+  const canNotice = conversation?.kind === 'group' && isChatAdmin(me?.role)
+
   // A new conversation starts from a clean composer.
   useEffect(() => {
     setBody('')
     setFile(null)
     setFileError('')
+    setNoticeOpen(false)
     if (areaRef.current) areaRef.current.style.height = 'auto'
   }, [convoId])
 
@@ -113,6 +124,21 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
     }
   }
 
+  // The notice dialog funnels into the same onSend as the normal composer, so
+  // the optimistic bubble, retry and socket reconciliation all come for free —
+  // `isNotice`/`noticeTitle`/`files` are the only things that differ.
+  const sendNotice = useCallback(
+    async ({ title, body: noticeBody, files: noticeFiles }) => {
+      await onSend({
+        body: noticeBody,
+        files: noticeFiles,
+        noticeTitle: title || null,
+        isNotice: true,
+      })
+    },
+    [onSend]
+  )
+
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
@@ -187,6 +213,18 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
           tabIndex={-1}
         />
 
+        {canNotice && (
+          <button
+            type="button"
+            className="chat-iconbtn"
+            onClick={() => setNoticeOpen(true)}
+            aria-label="Post a notice"
+            title="Post a notice — everyone in this group gets it as a popup"
+          >
+            <MegaphoneIcon size={18} />
+          </button>
+        )}
+
         <textarea
           ref={areaRef}
           rows={1}
@@ -234,6 +272,14 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
           {body.length > CHAT_MAX_BODY - 200 ? `${body.length}/${CHAT_MAX_BODY}` : ''}
         </span>
       </div>
+
+      {noticeOpen && (
+        <NoticeComposerDialog
+          conversation={conversation}
+          onClose={() => setNoticeOpen(false)}
+          onSend={sendNotice}
+        />
+      )}
     </div>
   )
 }

@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
+import { enrichDonorProfileFromReceipt, isBlankSuspenseValue } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -1564,9 +1564,13 @@ export const getSuspenseReceipts = async (req, res) => {
       const r = receiptMap[e.receipt_id] || {};
       // Receipt already linked to a lead (credited to an FRO) — skip.
       if (r.log_id) return null;
-      // Receipts parked under the category label "suspense" belong only in the
-      // Unclaimed tab — keep them out of the regular All pool entirely.
-      if (isCategoryLabel(r.agent_name) || isCategoryLabel(e.agent_name)) return null;
+      // A receipt parked under the category label "suspense" belongs only in
+      // the Unclaimed tab (the pool below lists exactly those). PG / Library
+      // rows are known non-donation categories and stay out entirely. The
+      // ENTRY's own agent label must never hide a fresh audit row: fresh
+      // audits show in All, grouped by NGO, with or without a receipt.
+      const parked = isCategoryLabel(r.agent_name);
+      if (parked && !isBlankSuspenseValue(r.agent_name)) return null;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -1585,13 +1589,16 @@ export const getSuspenseReceipts = async (req, res) => {
         // imports create numberless suspense receipts, and numbers are allocated
         // automatically at claim/verify time.
         waiting_receipt_no: !!e.verify_fro_worker_id,
+        ...(parked ? { pool: 'unclaimed' } : {}),
       };
     }).filter(Boolean);
 
     for (const e of entries || []) {
       if (e.receipt_id) continue;
-      // Numberless entries parked under "suspense" also belong only in Unclaimed.
-      if (isCategoryLabel(e.agent_name)) continue;
+      // Fresh bank audits with no receipt yet always show in All, grouped by
+      // their NGO — including the ones stamped "suspense". Skipping them on
+      // the agent label (what the Unclaimed split did) hid them from this page
+      // completely, because the Unclaimed pool below is built from receipts.
       pool.push({
         id: `entry-${e.id}`,
         entry_id: e.id,

@@ -26,6 +26,7 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
   const [deptSel, setDeptSel] = useState(() => new Set())
   const [personSel, setPersonSel] = useState(() => new Set())
   const [postPolicy, setPostPolicy] = useState('everyone')
+  const [writeMode, setWriteMode] = useState('everyone')
   const [saving, setSaving] = useState(false)
 
   const dialogRef = useRef(null)
@@ -137,6 +138,7 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
     onCreated({
       title: title.trim(),
       postPolicy,
+      writeMode,
       members: finalMembers.map((p) => ({
         uid: p.uid,
         subject_id: String(p.id),
@@ -144,6 +146,9 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
         name: p.name,
         email: p.email,
         ngo_id: p.ngo_id,
+        // In 'selected' mode every initially-picked person is ticked; the
+        // admin can un-tick via the settings dialog later.
+        can_post: writeMode === 'selected' ? true : undefined,
       })),
     })
   }
@@ -327,6 +332,41 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                     <br />
                     <span className="chat-person-role">
                       Super Admin, Accounts and Admin can post; others read
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
+                Individual chat permission
+              </label>
+              <div style={{ marginBottom: 12 }}>
+                <label className="chat-pickrow">
+                  <input
+                    type="radio"
+                    name="write_mode"
+                    checked={writeMode === 'everyone'}
+                    onChange={() => setWriteMode('everyone')}
+                  />
+                  <span className="chat-pickrow-body">
+                    <span className="chat-person-name">All members</span>
+                    <br />
+                    <span className="chat-person-role">Everyone above the role gate may post</span>
+                  </span>
+                </label>
+                <label className="chat-pickrow">
+                  <input
+                    type="radio"
+                    name="write_mode"
+                    checked={writeMode === 'selected'}
+                    onChange={() => setWriteMode('selected')}
+                  />
+                  <span className="chat-pickrow-body">
+                    <span className="chat-person-name">Only selected members</span>
+                    <br />
+                    <span className="chat-person-role">
+                      Everyone you picked above can chat; others read-only. Manage
+                      per-person later via Group settings.
                     </span>
                   </span>
                 </label>
