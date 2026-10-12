@@ -96,10 +96,63 @@ function readPid() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tunnel watchdog
+//
+// ssh to the jump host dies whenever the local network drops for longer than
+// the keepalive budget: a VPN reconnect, a Wi-Fi roam, the laptop waking from
+// sleep. On this machine those events happen several times an hour. Once ssh
+// is gone nothing else brings the tunnel back -- the backend process stays up
+// but every query fails, which looks exactly like "the backend stopped
+// working". While a tunnel is wanted (started, and not explicitly stopped),
+// this restarts it automatically. `stop` and the panel's Stop button clear
+// the flag, so an intentional stop is never overridden.
+// ---------------------------------------------------------------------------
+let tunnelWanted = false;
+let tunnelRestarting = false;
+let lastTunnelRestartAt = 0;
+
+function watchTunnel(log) {
+  if (!tunnelWanted || tunnelRestarting) return;
+  if (readPid()) return;
+  const now = Date.now();
+  // Cooldown so a start that fails immediately (no key, blocked port) does not
+  // respawn every tick.
+  if (now - lastTunnelRestartAt < 20000) return;
+  tunnelRestarting = true;
+  lastTunnelRestartAt = now;
+  log('[tunnel] connection lost -- restarting');
+
+  // Run `start` as a child rather than in-process: cmdStart exits(1) on
+  // failure, which must not take the panel down with it.
+  const child = uiRunSelf(['start']);
+  const relay = stream => {
+    let buf = '';
+    stream.setEncoding('utf8');
+    stream.on('data', chunk => {
+      buf += chunk;
+      const parts = buf.split(/\r?\n/);
+      buf = parts.pop() ?? '';
+      for (const line of parts) if (line.trim()) log(line);
+    });
+    stream.on('end', () => { if (buf.trim()) log(buf); });
+  };
+  relay(child.stdout);
+  relay(child.stderr);
+  child.on('error', err => { log(`[tunnel] restart failed: ${err.message}`); tunnelRestarting = false; });
+  child.on('exit', code => {
+    if (code !== 0) log(`[tunnel] restart exited with code ${code} -- see ${LOG_FILE}`);
+    tunnelRestarting = false;
+  });
+}
+
 async function cmdStart() {
   const existing = readPid();
   if (existing) {
     console.log(`Tunnel already running (pid ${existing}).`);
+    // Asking for `start` means the tunnel should be up, alive or not -- the
+    // watchdog takes over from here.
+    tunnelWanted = true;
     await cmdStatus();
     return;
   }
@@ -126,7 +179,11 @@ async function cmdStart() {
     '-N', '-T',
     '-o', 'BatchMode=yes',
     '-o', 'ExitOnForwardFailure=yes',
-    '-o', 'ServerAliveInterval=30',
+    // 15s keepalives: this machine's network drops several times an hour (VPN
+    // reconnects, Wi-Fi roams) and each drop kills the ssh TCP session. With a
+    // 30s interval ssh took up to 90s to notice; 15s cuts that to ~45s, which
+    // is what the watchdog below then reacts to.
+    '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',
     '-o', 'StrictHostKeyChecking=accept-new',
     '-i', KEY,
@@ -134,7 +191,16 @@ async function cmdStart() {
     JUMP_HOST,
   ];
 
-  fs.writeFileSync(LOG_FILE, `[${new Date().toISOString()}] starting: ssh ${args.join(' ')}\n`);
+  // Append, never truncate: ssh's own death message ("Connection closed by
+  // remote host", "Connection reset by peer", "kex_exchange_identification")
+  // arrives on stderr AFTER the start line, and wiping the file on every start
+  // threw that away -- which is exactly the evidence needed to tell a network
+  // drop from an auth failure. Rotate only past 512KB so it cannot grow
+  // forever.
+  if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 512 * 1024) {
+    fs.writeFileSync(LOG_FILE, '');
+  }
+  fs.appendFileSync(LOG_FILE, `\n[${new Date().toISOString()}] starting: ssh ${args.join(' ')}\n`);
   const child = spawn('ssh', args, { detached: true, stdio: ['ignore', fs.openSync(LOG_FILE, 'a'), fs.openSync(LOG_FILE, 'a')] });
   child.unref();
 
@@ -180,6 +246,7 @@ async function cmdStart() {
 
   console.log(`Tunnel up. 127.0.0.1:${LOCAL_PORT} -> ${JUMP_HOST} -> ${HOST}:${REMOTE_PORT}`);
   console.log(`Database user: ${probe.user} (password ${probe.hasPassword ? 'present' : 'MISSING'})`);
+  tunnelWanted = true;
   console.log('');
   console.log('Next, in the shell you start the backend from:');
   console.log(`  node scripts/tunnel-db.mjs env`);
@@ -189,6 +256,9 @@ async function cmdStart() {
 }
 
 function cmdStop() {
+  // An explicit stop must stay stopped: clear the flag BEFORE killing ssh so
+  // the watchdog cannot race and bring it straight back.
+  tunnelWanted = false;
   const pid = readPid();
   if (!pid) {
     console.log('No tunnel running.');
@@ -234,6 +304,17 @@ function tunnelEnv() {
     PGSSLMODE: 'require',
     DATABASE_URL: '',
     DATABASE_SSL: 'false',
+    // Local-only pool tuning. A query through this tunnel costs ~80-200ms and
+    // a FRESH connection ~650ms (TCP+TLS+auth via the jump host), versus
+    // single-digit ms when the backend sits next to RDS. With the production
+    // default of 5 connections that idle out after 10s, the NGO admin
+    // dashboard -- which fires ~10 parallel requests, each running dozens of
+    // queries -- drains the pool, queues, and pg aborts with "timeout
+    // exceeded when trying to connect", so the page never renders. Keep
+    // connections warm and widen the pool for this dev path only; anything
+    // started without this script keeps the production defaults.
+    PG_POOL_MAX: process.env.PG_POOL_MAX || '15',
+    PG_IDLE_TIMEOUT_MS: process.env.PG_IDLE_TIMEOUT_MS || '300000',
   };
 }
 
@@ -244,6 +325,16 @@ async function cmdBackend() {
   if (!readPid()) {
     console.log('No tunnel running -- starting one first.');
     await cmdStart();
+  }
+  // We are now the thing that needs the tunnel: keep it up. `stop` (or the
+  // panel's Stop button) clears this flag and ends the watchdog. When the
+  // panel spawned us it owns the watchdog instead -- two of them would race
+  // ssh onto the same forward port, so only the standalone CLI path runs one.
+  tunnelWanted = true;
+  let watchdog = null;
+  if (process.env.DB_TUNNEL_UI_CHILD !== '1') {
+    watchdog = setInterval(() => watchTunnel(line => console.log(line)), 15000);
+    watchdog.unref();
   }
 
   const env = { ...process.env, ...tunnelEnv() };
@@ -298,6 +389,9 @@ function cmdEnv() {
   console.log(`$env:PGSSLMODE="require"`);
   console.log(`$env:DATABASE_URL=""`);
   console.log(`$env:DATABASE_SSL="false"`);
+  // Same local-only pool tuning tunnelEnv() applies (see there for why).
+  console.log(`$env:PG_POOL_MAX="15"`);
+  console.log(`$env:PG_IDLE_TIMEOUT_MS="300000"`);
   console.log('');
   console.log('Sourced from backend/.env. Host is rewritten to the tunnel; nothing was');
   console.log('hard-coded. Do not paste this output into chat or commit it.');
@@ -330,12 +424,12 @@ function uiPush(line) {
   if (uiLog.length > MAX_LOG_LINES) uiLog = uiLog.slice(-MAX_LOG_LINES);
 }
 
-function uiRunSelf(args) {
+function uiRunSelf(args, extraEnv = {}) {
   return spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], {
     cwd: path.join(__dirname, '..'),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    env: { ...process.env, ...extraEnv },
   });
 }
 
@@ -354,11 +448,14 @@ function backendAlive() {
 
 async function uiStart() {
   if (uiBackend) return { ok: true, already: true };
+  // The Start button means "keep this running" from now on: the watchdog owns
+  // the tunnel until Stop (or closing the panel) says otherwise.
+  tunnelWanted = true;
   if (await backendAlive()) {
     uiPush(`[ui] something is already listening on port ${BACKEND_PORT}; leaving it alone.`);
     return { ok: true, already: true };
   }
-  const child = uiRunSelf(['backend']);
+  const child = uiRunSelf(['backend'], { DB_TUNNEL_UI_CHILD: '1' });
   uiBackend = child;
   uiPush(`\n[ui] starting ${new Date().toLocaleTimeString()}`);
 
@@ -389,6 +486,7 @@ async function uiStart() {
 
 async function uiStop() {
   uiPush('\n[ui] stopping');
+  tunnelWanted = false;
   const child = uiBackend;
   uiBackend = null;
   if (child) {
@@ -474,6 +572,24 @@ function cmdUi() {
     }
     console.log('The panel and the backend are unauthenticated -- trusted networks only.');
     console.log('Ctrl-C to close the panel (it will stop the tunnel too).');
+
+    // Watchdog. This machine's network drops several times an hour and each
+    // drop kills the ssh session; nodemon can lose the backend too. The panel
+    // is the long-lived process, so while the user has things started it
+    // brings them back and reports it in the Output panel.
+    let backendDownPolls = 0;
+    setInterval(async () => {
+      watchTunnel(uiPush);
+      if (!tunnelWanted || uiBackend) { backendDownPolls = 0; return; }
+      if (await backendAlive()) { backendDownPolls = 0; return; }
+      backendDownPolls += 1;
+      // Two consecutive misses (~30s): a nodemon reload takes a few seconds,
+      // and racing a second backend onto port 5000 would fail anyway.
+      if (backendDownPolls === 2) {
+        uiPush('[ui] backend is down -- restarting');
+        await uiStart();
+      }
+    }, 15000).unref();
   });
 
   for (const sig of ['SIGINT', 'SIGTERM']) {

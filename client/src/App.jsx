@@ -7,6 +7,8 @@ import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
 import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
 import ChatFabHost from './components/chat/ChatFabHost'
+import NoticePopupHost from './components/chat/NoticePopupHost'
+import TicketPopupHost from './components/TicketPopupHost'
 
 // Each panel is a separate download. A user only ever pays for the panel they
 // are routed into instead of every panel on every login.
@@ -101,6 +103,13 @@ function PanelWrapper({ roleKey }) {
         </Suspense>
         <NoticesBar />
         {chatPath && <ChatFabHost chatPath={chatPath} />}
+        {/* Notices reach people wherever they are in the panel, not only on the
+            chat route, so this one is mounted unconditionally. */}
+        <NoticePopupHost />
+        {/* A ticket raised for this panel pops up once per person, wherever
+            they are in the panel. Server keeps the seen set (ticket_popup_seen),
+            so a reload or a second device never re-shows it. */}
+        <TicketPopupHost />
       </div>
     </ChatUnreadProvider>
   )

@@ -26,7 +26,7 @@ const NAV = [
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
   { id:'daily-report', path:'/recruiter/daily-report', label:'Daily Report', icon:FileTxt, eyebrow:'Daily', sub:'Your hiring report for the day' },
   { id:'tickets',    path:'/recruiter/tickets',    label:'Tickets',    icon:FileTxt, eyebrow:'Support',   sub:'Raise and track your tickets' },
-  { id:'chat',       path:'/recruiter/chat',       label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
+  { id:'chat',       path:'/recruiter/chat',       label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 
 function Sidebar({ open, onClose }) {

@@ -135,7 +135,7 @@ const NAV_BASE = [
   { id: 'my-idle', path: '/fro/my-idle', label: 'My Idle', Icon: Clock },
   { id: 'lead-incentive', path: '/fro/lead-incentive', label: 'Lead Incentive', Icon: Trophy },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
-  { id: 'chat', path: '/fro/chat', label: 'Community', Icon: MessagesSquare },
+  { id: 'chat', path: '/fro/chat', label: 'UCS Chat', Icon: MessagesSquare },
 ]
 
 const formatTeamName = (name) => String(name || '').replace(/^UFS\s*(\d+)$/i, 'UFS $1');

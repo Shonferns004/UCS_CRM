@@ -753,6 +753,7 @@
 .panel-accounts .sim-scope .se-act.added { background: var(--sim-green-soft); color: var(--sim-green); }
 .panel-accounts .sim-scope .se-act.removed { background: var(--sim-red-soft); color: var(--sim-red); }
 .panel-accounts .sim-scope .se-act.updated { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .se-act.expired { background: var(--sim-red-soft); color: var(--sim-red); }
 
 /* brand-wide number history (Nokia / Android toolbar option) */
 /* Needs .modal.sim-hist-modal in the selector to outrank the 860px cap set for

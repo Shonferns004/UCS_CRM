@@ -8,7 +8,7 @@ import NotificationDrawer from '../../components/NotificationDrawer'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { useRealtime } from '../../hooks/useRealtime'
-import ToastContainer, { toast } from '../../components/Toast'
+import ToastContainer from '../../components/Toast'
 import SpecialIncentive from '../../components/SpecialIncentive'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
@@ -142,7 +142,7 @@ const NAV_BOTTOM = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
   { id: 'tickets', path: '/accounts/tickets', label: 'Tickets',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 5H3v14h12"/><path d="M21 12l-6-6v4H9v4h6v4l6-6z"/></svg> },
-  { id: 'chat', path: '/accounts/chat', label: 'Community',
+  { id: 'chat', path: '/accounts/chat', label: 'UCS Chat',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg> },
 ]
 
@@ -372,35 +372,6 @@ export default function AccountsPanel() {
     loadNotifications();
     requestNotifPermission();
   }, [user?.id]);
-
-  const seenAccountTicketsRef = useRef(null);
-  useEffect(() => {
-    const checkNewTickets = async () => {
-      try {
-        const data = await api('/tickets', { _prefix: 'ucs' });
-        if (!Array.isArray(data)) return;
-        const queue = data.filter(t => ['suspense', 'payment_issue', 'receipt_issue'].includes(t.category));
-        const keys = queue.map(t => `regular:${t.id}`);
-        if (seenAccountTicketsRef.current === null) {
-          seenAccountTicketsRef.current = new Set(keys);
-          return;
-        }
-        const fresh = queue.filter(t => !seenAccountTicketsRef.current.has(`regular:${t.id}`));
-        fresh.forEach(t => seenAccountTicketsRef.current.add(`regular:${t.id}`));
-        if (fresh.length === 0) return;
-        const others = fresh.filter(t => t.raised_by_panel !== 'accounts');
-        if (others.length === 1) {
-          const t = others[0];
-          toast(`New ticket raised by ${t.workers?.name || t.raised_by_name || 'Someone'}: ${t.subject}`, 'info');
-        } else if (others.length > 1) {
-          toast(`${others.length} new tickets received`, 'info');
-        }
-      } catch (err) { console.error('Ticket watcher:', err.message); }
-    };
-    checkNewTickets();
-    const id = setInterval(checkNewTickets, 30000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     if (themes[themeName]) {

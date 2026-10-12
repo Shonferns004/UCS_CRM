@@ -143,7 +143,7 @@ export default function ChatFab({
   }, [chatPath, navigate])
 
   const style = pos ? { left: `${pos.x}px`, top: `${pos.y}px` } : undefined
-  const label = count > 0 ? `Open Community chat, ${count} unread` : 'Open Community chat'
+  const label = count > 0 ? `Open UCS Chat, ${count} unread` : 'Open UCS Chat'
   const className = [
     'chat-fab',
     pos ? 'is-placed' : '',

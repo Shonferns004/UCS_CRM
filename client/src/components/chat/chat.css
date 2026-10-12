@@ -1072,3 +1072,220 @@
   .chat-fab:active,
   .chat-fab.is-dragging { transition: none; transform: none; }
 }
+
+/* ==========================================================================
+   Notices � group broadcasts posted by Admin/Accounts/Super Admin
+
+   Two surfaces share one vocabulary: the in-thread card (a bubble that reads
+   as an announcement) and the one-time popup (which appears on every member's
+   screen until they dismiss it, tracked server-side in chat_notice_views).
+   ========================================================================== */
+
+/* In-thread card ---------------------------------------------------------- */
+
+/* Notices sit centred regardless of who posted them: they are announcements
+   addressed to the room, not one side of a conversation. The own-row rule
+   above has the same specificity, so this has to come later to win. */
+.chat-row[data-notice='true'] { justify-content: center; }
+
+.chat-bubble[data-notice='true'] {
+  width: 100%;
+  max-width: min(88%, 720px);
+  background: linear-gradient(180deg, #FDFEFF 0%, #F3F8FF 100%);
+  border: 1px solid #CFE0FF;
+  border-left: 4px solid var(--chat-primary);
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.08);
+  /* The card lays out its own lines; the plain-bubble pre-wrap would double up. */
+  white-space: normal;
+}
+.chat-row[data-own='true'] .chat-bubble[data-notice='true'] {
+  /* Deliberately NOT the own-bubble tint � a notice is not "my message". */
+  background: linear-gradient(180deg, #FDFEFF 0%, #F3F8FF 100%);
+}
+
+.chat-notice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-notice-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--chat-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.chat-notice-badge-lg { font-size: 11px; padding: 4px 11px; }
+
+.chat-notice-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--chat-navy);
+}
+.chat-notice-body { margin: 0; white-space: pre-wrap; }
+
+/* Up to eight images, laid out as a poster grid. data-count is capped at 4 so
+   four columns is the widest grid; extra images wrap inside it. */
+.chat-notice-gallery {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+.chat-notice-gallery[data-count='1'] { grid-template-columns: 1fr; }
+.chat-notice-gallery[data-count='2'] { grid-template-columns: 1fr 1fr; }
+.chat-notice-gallery[data-count='3'] { grid-template-columns: repeat(3, 1fr); }
+.chat-notice-gallery[data-count='4'] { grid-template-columns: 1fr 1fr; }
+.chat-notice-gallery-item {
+  display: block;
+  border-radius: var(--chat-r-sm);
+  overflow: hidden;
+  border: 1px solid var(--chat-border);
+  background: #fff;
+  line-height: 0;
+}
+.chat-notice-gallery-item:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
+.chat-notice-gallery-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.chat-notice-gallery-lg { margin-top: 12px; }
+.chat-notice-gallery-lg .chat-notice-gallery-item img {
+  aspect-ratio: 16 / 10;
+  max-height: 320px;
+}
+
+/* Notice composer dialog -------------------------------------------------- */
+
+.chat-notice-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #E7F0FF;
+  color: var(--chat-primary);
+  flex-shrink: 0;
+}
+
+.chat-notice-textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-r-sm);
+  background: var(--chat-surface);
+  color: var(--chat-text);
+  font: inherit;
+}
+.chat-notice-textarea:focus-visible {
+  outline: 2px solid var(--chat-focus);
+  outline-offset: 1px;
+  border-color: var(--chat-primary);
+}
+
+.chat-notice-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.chat-notice-draft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-r-sm);
+  background: var(--chat-canvas);
+}
+.chat-notice-draft-img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.chat-notice-draft-meta { flex: 1; min-width: 0; overflow: hidden; }
+
+/* One-time popup ---------------------------------------------------------- */
+
+/* Above the chat overlay (1000) and the FAB (2500 is a circle in a corner, not
+   a layer this needs to respect); below the 9000 in-app alert overlays so an
+   alert is never trapped underneath a notice. */
+.chat-notice-overlay { z-index: 1600; align-items: center; }
+
+.chat-notice-popup { position: relative; max-width: 460px; }
+
+.chat-notice-popup-banner {
+  height: 64px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--chat-navy) 0%, var(--chat-primary) 100%);
+  border-radius: var(--chat-r-lg) var(--chat-r-lg) 0 0;
+}
+.chat-notice-popup-body { padding-top: 14px; }
+.chat-notice-popup-title {
+  margin: 8px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--chat-navy);
+}
+.chat-notice-popup-from { margin-top: 4px; font-size: 12px; color: var(--chat-muted); }
+.chat-notice-popup-text {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.chat-notice-popup-foot .chat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 128px;
+}
+
+.chat-notice-popup-x {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.chat-notice-popup-x:hover { background: rgba(255, 255, 255, 0.32); }
+.chat-notice-popup-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+@media (max-width: 767px) {
+  .chat-notice-overlay { align-items: flex-end; padding: 0; }
+  .chat-notice-popup {
+    max-width: 100%;
+    max-height: 90dvh;
+    border-radius: var(--chat-r-lg) var(--chat-r-lg) 0 0;
+  }
+  .chat-notice-popup-banner { border-radius: var(--chat-r-lg) var(--chat-r-lg) 0 0; }
+}

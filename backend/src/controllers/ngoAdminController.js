@@ -80,6 +80,13 @@ export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
   });
 }
 
+// Placeholder seat codes that are not real, assignable stations. They exist as
+// unallocated rows and would otherwise fill the Dashboard's "Not in Use" list
+// with seats nobody can staff, crowding out the genuine AFD-/AOD-/BFD- seats.
+// Matched case-insensitively against the trimmed station name.
+const SPECIAL_STATIONS = new Set(['A', 'L', 'PG', 'PS', 'S']);
+const isSpecialStation = (name) => SPECIAL_STATIONS.has((name || '').trim().toUpperCase());
+
 // Stations per NGO with two independent measures:
 //   active  - the station's FRO has a fresh (<= 2 min old) live status of
 //             online / on_call / break. Drives the "Active Now" tile and the
@@ -153,7 +160,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
     }
     // Allocation, not presence: only a seat with no agent on it counts as unused.
     const hasAgent = !!sa.crm_agent_id;
-    if (!hasAgent) {
+    if (!hasAgent && !isSpecialStation(stationName)) {
       result.per_ngo[ngoName].inactive_stations.push(stationName);
     }
     if (!stationHasAgentByName.has(stationName)) stationHasAgentByName.set(stationName, false);
@@ -163,7 +170,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   // "Not in use" = a station no agent is allocated to. A station that appears
   // under more than one NGO counts as used if any of its rows carries an agent.
   const inactiveNames = [...stationHasAgentByName.entries()]
-    .filter(([, used]) => !used)
+    .filter(([name, used]) => !used && !isSpecialStation(name))
     .map(([name]) => name)
     .sort((a, b) => a.localeCompare(b));
   result.summary.inactive = inactiveNames.length;

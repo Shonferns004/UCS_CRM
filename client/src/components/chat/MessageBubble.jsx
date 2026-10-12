@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Avatar } from '../ui'
 import { roleLabel } from './chatIdentity'
 import { formatTime, fullStamp } from './chatTime'
-import { EditIcon, TrashIcon, CheckIcon, AlertIcon, RetryIcon } from './chatIcons'
+import { EditIcon, TrashIcon, CheckIcon, AlertIcon, RetryIcon, MegaphoneIcon } from './chatIcons'
 import MessageAttachment from './AttachmentPreview'
 
 /**
@@ -35,6 +35,10 @@ export default function MessageBubble({
   const pending = !!message.pending
   const failed = !!message.failed
   const sent = !pending && !failed
+  // A notice renders as a poster-style card instead of a plain bubble. It keeps
+  // the same row, actions and foot as any other message, so edit/delete/pending
+  // all still behave — only the content inside the bubble changes.
+  const isNotice = !!message.is_notice && !deleted
 
   // Editing is always sender-only, even for a moderator.
   const canEdit = own && sent && !deleted
@@ -93,6 +97,7 @@ export default function MessageBubble({
       className="chat-row"
       data-own={own ? 'true' : 'false'}
       data-first={showSender ? 'true' : 'false'}
+      data-notice={isNotice ? 'true' : undefined}
     >
       {isGroup && !own && (
         <div className="chat-row-avatar">
@@ -106,6 +111,7 @@ export default function MessageBubble({
         data-deleted={deleted ? 'true' : undefined}
         data-status={pending ? 'pending' : undefined}
         data-highlight={highlighted ? 'true' : undefined}
+        data-notice={isNotice ? 'true' : undefined}
       >
         {(canEdit || canDelete) && !editing && !confirming && (
           <div className="chat-bubble-actions">
@@ -189,6 +195,8 @@ export default function MessageBubble({
             onCancel={() => setConfirming(false)}
             onConfirm={commitDelete}
           />
+        ) : isNotice ? (
+          <NoticeCard message={message} />
         ) : (
           <>
             {message.attachment && !message.body && (
@@ -263,6 +271,56 @@ function ConfirmDelete({ senderName, moderating, busy, onCancel, onConfirm }) {
           {busy ? 'Deleting…' : 'Delete'}
         </button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Notice content inside a bubble: an optional headline, the body and the
+ * poster images, tagged so it reads as an announcement rather than a chat
+ * line. The time foot and hover actions stay outside this component, in
+ * MessageBubble.
+ *
+ * `gallery` is the server's array; a single image arrives as the flat
+ * `attachment` with an equivalent one-entry gallery, and an optimistic
+ * (still-sending) notice carries its own local gallery, so all three shapes
+ * render through the same grid.
+ */
+function NoticeCard({ message }) {
+  const gallery =
+    Array.isArray(message.gallery) && message.gallery.length
+      ? message.gallery
+      : message.attachment
+        ? [message.attachment]
+        : []
+  return (
+    <div className="chat-notice-card">
+      <div className="chat-notice-badge">
+        <MegaphoneIcon size={13} />
+        <span>Notice</span>
+      </div>
+      {message.notice_title && <h4 className="chat-notice-title">{message.notice_title}</h4>}
+      {message.body && <p className="chat-notice-body">{message.body}</p>}
+      {gallery.length > 0 && (
+        <div className="chat-notice-gallery" data-count={Math.min(gallery.length, 4)}>
+          {gallery.map((img, i) => (
+            <a
+              key={img.url || i}
+              className="chat-notice-gallery-item"
+              href={img.url}
+              target="_blank"
+              rel="noreferrer"
+              title={img.name || 'Open image'}
+            >
+              <img
+                src={img.url}
+                alt={img.name || `${message.notice_title || 'Notice'} image ${i + 1}`}
+                loading="lazy"
+              />
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

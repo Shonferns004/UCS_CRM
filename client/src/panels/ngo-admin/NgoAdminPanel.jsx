@@ -30,7 +30,7 @@ const NAV = [
   { id: 'agents', path: '/ngo-admin/agents', label: 'Agents', icon: 'agents' },
   { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
-  { id: 'chat', path: '/ngo-admin/chat', label: 'Community', icon: 'chat' },
+  { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
 ]
 
 const ICONS = {

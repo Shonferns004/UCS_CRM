@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X, Bell } from 'lucide-react';
-import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection, listCrmAgents } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import TeamWiseCollection from '../components/TeamWiseCollection';
@@ -203,6 +203,82 @@ const ngoSortRank = (name) => {
   const hit = NGO_TABS.find(([c]) => c && (name || '').toLowerCase().includes(c));
   return hit ? NGO_TABS.indexOf(hit) : 99;
 };
+
+// Below this card width the two Stations columns stop fitting side by side, so
+// they stack — progress rows first, assignment rows second. Measured against the
+// card's own box, not the viewport, because this grid cell is what gets tight.
+const STATIONS_NARROW_W = 440;
+
+// Light tint of an accent hex, for the selected-row wash. Done in JS rather than
+// color-mix() so it works without checking browser support on every render.
+const hexA = (hex, a) => {
+  const h = String(hex || '').replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  if (Number.isNaN(n)) return `rgba(99, 102, 241, ${a})`;
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
+// Agent option label for the assign picker: "Agent 1 — Maya Jadhao". The roster
+// row carries `label` (the agent handle) and `worker_name` (the FRO it covers) —
+// note it is NOT `agent_label`/`fro_name`, which is what the Agents page's own
+// dropdown reads after reshaping. Getting these names wrong made every option
+// render as a bare login id.
+const agentOptionLabel = (a) => {
+  if (!a) return '';
+  const fro = a.worker_name || a.fro_name || a.name;
+  const handle = a.label || a.agent_label || 'Agent';
+  return fro ? `${handle} — ${fro}` : handle;
+};
+
+// Inline agent menu behind a station's Assign button. Deliberately NOT a floating
+// popup: every ancestor of this card clips overflow, so an absolutely-positioned
+// menu would be cut off. Instead the menu expands in place and scrolls inside
+// itself, which stays inside the card's own scroll region.
+function StationAgentMenu({ agents, saving, onPick }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? agents.filter((a) => agentOptionLabel(a).toLowerCase().includes(q) || String(a.login_id || '').toLowerCase().includes(q))
+    : agents;
+  const searchable = agents.length > 6;
+
+  return (
+    <div className="stations-agent-menu" style={{ marginTop: 6, minWidth: 0, boxSizing: 'border-box', border: '1px solid var(--stations-border, #DCE7F5)', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
+      {searchable && (
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search agents…"
+          aria-label="Search agents"
+          style={{ display: 'block', width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: '1px solid var(--stations-border, #DCE7F5)', padding: '6px 8px', fontSize: 11, font: 'inherit', color: 'var(--stations-text, #14233D)', outline: 'none', background: '#fff' }}
+        />
+      )}
+      <div style={{ maxHeight: 138, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {filtered.length === 0 ? (
+          <div style={{ fontSize: 10, color: 'var(--stations-muted, #496487)', padding: '7px 6px' }}>
+            {agents.length === 0 ? 'No agents available' : 'No agents match'}
+          </div>
+        ) : filtered.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className="stations-agent-opt"
+            disabled={saving}
+            onClick={() => onPick(a.id)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box', textAlign: 'left', padding: '6px 7px', borderRadius: 6, border: 'none', background: 'transparent', font: 'inherit', fontSize: 11, fontWeight: 600, cursor: saving ? 'default' : 'pointer', color: 'var(--stations-text, #14233D)', minWidth: 0, opacity: saving ? 0.6 : 1 }}
+          >
+            <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 6, background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }} aria-hidden="true">
+              {(a.label || a.agent_label || '?').charAt(0).toUpperCase()}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agentOptionLabel(a)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
   const [donors, setDonors] = useState([]);
@@ -914,9 +990,20 @@ export default function Dashboard() {
   const [selectedNgoId, setSelectedNgoId] = useState('all');
   const [ngoTab, setNgoTab] = useState('');
   const [dashPeriod, setDashPeriod] = useState('today');
-  // Stations card: 'per_ngo' shows the Active/Total bars, 'inactive' lists the
-  // stations no agent is allocated to.
-  const [stationsTab, setStationsTab] = useState('per_ngo');
+  // Stations card: an NGO row drives the integrated details panel on the right
+  // (selectedNgoKey), which lists that NGO's unused station codes. This replaced
+  // the Per NGO / Not in Use tabs — the rows are the navigation now.
+  const [selectedNgoKey, setSelectedNgoKey] = useState(null);
+  const stationsCardRef = useRef(null);
+  const [stationsNarrow, setStationsNarrow] = useState(false);
+  // Unused stations in the details panel are assignable: clicking one opens an
+  // agent picker in place. `assigningStation` is the station code in assign mode
+  // (null = none), `savingStation` is the one mid-write so the picker can't fire
+  // twice. The agent roster is loaded once — assigning is rare, and the roster is
+  // too small to be worth caching anywhere else.
+  const [assigningStation, setAssigningStation] = useState(null);
+  const [savingStation, setSavingStation] = useState(null);
+  const [stationAgents, setStationAgents] = useState([]);
   // The Stations card is pinned to the attendance card's height: grid rows grow
   // with their tallest cell, so without this a taller tab body would stretch the
   // attendance card beside it on every switch.
@@ -936,6 +1023,18 @@ export default function Dashboard() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [data, loading]);
+  // The card is always mounted on this code path (loading bails out above), so a
+  // one-shot measure is enough; the observer then just tracks resizes.
+  useEffect(() => {
+    const el = stationsCardRef.current;
+    if (!el) return;
+    const measure = () => setStationsNarrow(el.offsetWidth < STATIONS_NARROW_W);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [customFrom, setCustomFrom] = useState(() => toIstDate());
   const [customTo, setCustomTo] = useState(() => toIstDate());
   const [selectedFroId, setSelectedFroId] = useState('');
@@ -1470,6 +1569,45 @@ export default function Dashboard() {
     return () => controller.abort();
   }, [fetchDashboard]);
 
+  // The agent roster behind the assign picker. Loaded once on mount; a failure is
+  // swallowed so the picker just shows no options instead of breaking the card.
+  useEffect(() => {
+    let alive = true;
+    listCrmAgents()
+      .then((a) => { if (alive) setStationAgents(Array.isArray(a?.agents) ? a.agents : []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // A station code can legitimately exist under more than one NGO, so an open
+  // picker could otherwise survive an NGO switch and write to the wrong seat.
+  useEffect(() => { setAssigningStation(null); }, [selectedNgoKey]);
+
+  // Assign an agent to an unused station. ngo_id is passed explicitly: the server
+  // upserts on (station, ngo_id), and omitting it makes the lookup fall back to a
+  // station-only read that 500s the moment that station exists under a second NGO.
+  // One write also re-points the station's donors to the agent's FRO.
+  const handleAssignStationAgent = async (station, agentId, ngoId) => {
+    if (!agentId || savingStation) return;
+    setSavingStation(station);
+    try {
+      await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, {
+        ngo_id: ngoId || null,
+        crm_agent_id: agentId,
+      });
+      setAssigningStation(null);
+      // Both feeds carry the per-NGO station split, so refresh the pair — the
+      // live one is what "Today" actually reads.
+      fetchDashboard();
+      setTlRefreshNonce((v) => v + 1);
+      toast(`${station} assigned`, 'success');
+    } catch (err) {
+      toast(err.message || 'Could not assign agent', 'error');
+    } finally {
+      setSavingStation(null);
+    }
+  };
+
   const handleNgoFilter = (ngoId) => {
     if (ngoId === selectedNgoId) return;
     const ngo = (accessibleNgos || []).find(n => n.id === ngoId);
@@ -1556,23 +1694,31 @@ export default function Dashboard() {
   const stations_per_ngo = isTodayRange
     ? (tlData?.stations_per_ngo || data.stations_per_ngo || {})
     : (data.stations_per_ngo || tlData?.stations_per_ngo || {});
-  const stations_summary = isTodayRange
-    ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] })
-    : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
-  const inactive_station_names = Array.isArray(stations_summary.inactive_stations) ? stations_summary.inactive_stations : [];
-  // "Not in use" is no longer the complement of "active" — a station can be
-  // allocated and still be quiet — so the count comes from the list itself.
-  // Deriving it as total - active would report every offline FRO as an unused
-  // station, which is exactly the bug this replaced.
-  const stations_inactive = inactive_station_names.length || Math.max(0, Number(stations_summary.inactive) || 0);
-  // One column per NGO for the "Not in Use" tab. Older cached payloads carry only
-  // the flat name list, in which case the tab falls back to a single chip list.
-  const inactive_by_ngo = Object.entries(stations_per_ngo)
-    .map(([name, v]) => ({
+  // One row per NGO for the Stations card. "Unused" is the backend's own list
+  // of stations with no agent allocated (NOT total - active, which would call
+  // every offline FRO an unused station). The row's red pill and the details
+  // panel read this same array, so the count can never disagree with the list.
+  // `ngoId` is resolved from the accessible-NGO roster because the assign write
+  // needs it: the station upsert keys on (station, ngo_id), and a station that
+  // exists under two NGOs makes an id-less lookup ambiguous.
+  const ngo_rows = Object.entries(stations_per_ngo).map(([name, v]) => {
+    const unused = Array.isArray(v?.inactive_stations) ? v.inactive_stations : [];
+    return {
+      key: name,
       name,
-      stations: Array.isArray(v?.inactive_stations) ? v.inactive_stations : [],
-    }))
-    .filter((c) => c.stations.length > 0);
+      ngoId: (accessibleNgos || []).find((n) => n && n.name === name)?.id || null,
+      color: ngoColorOf(name),
+      total: typeof v === 'number' ? v : (Number(v?.total) || 0),
+      active: v && typeof v === 'object' ? (Number(v.active) || 0) : 0,
+      unused,
+    };
+  }).sort((a, b) => ngoSortRank(a.name) - ngoSortRank(b.name));
+  // The panel defaults to the first NGO (matching the reference layout). Keying
+  // off a derived value rather than seeding state means a refresh that drops the
+  // selected NGO simply falls through to the next surviving row — no effect, no
+  // extra render, and no chance of pointing the panel at nothing.
+  const effectiveNgoKey = selectedNgoKey ?? ngo_rows[0]?.key ?? null;
+  const selectedNgo = ngo_rows.find((r) => r.key === effectiveNgoKey) || null;
   // Suspense card: money still unresolved, rolled up per NGO. An entry is filed
   // under the NGO(s) of its donor's station; entries with no resolvable station
   // land in their own bucket so the tiles never silently drop money.
@@ -1603,20 +1749,6 @@ export default function Dashboard() {
       .sort((a, b) => (ngoSortRank(a.name) - ngoSortRank(b.name)) || (b.amount - a.amount))
       .slice(0, 3);
   })();
-  // Sits inline with the "Stations" label, so these size to their text rather
-  // than splitting the row evenly the way a full-width tab bar would.
-  const stationTabBtn = (active) => ({
-    flex: '0 0 auto',
-    padding: '4px 9px',
-    fontSize: 10,
-    fontWeight: 700,
-    borderRadius: 6,
-    border: active ? '1px solid var(--sage)' : '1px solid var(--line)',
-    background: active ? 'var(--sage)' : 'transparent',
-    color: active ? '#fff' : 'var(--ink-soft)',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  });
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = Number(d.assigned_pct) || 0;
   const direct_donation_month = Math.max(0, month_collection - verified_month_amount - unverified_month_amount);
@@ -2161,112 +2293,117 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right: Stations — pinned to the attendance card's measured height so
-            switching tabs never resizes either card; the body scrolls inside. */}
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: pairHeight ? `${pairHeight}px` : undefined }}>
-          <div style={{ flexShrink: 0 }}>
-            {/* Filter sits on the label's own line. The period chip that used to
-                live here was a copy of the one on the Attendance card and is what
-                left no room for the tabs, so it is gone. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', rowGap: 6 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600, flexShrink: 0 }}>Stations</span>
-              <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-                <button type="button" style={stationTabBtn(stationsTab === 'per_ngo')} onClick={() => setStationsTab('per_ngo')}>Per NGO</button>
-                <button type="button" style={stationTabBtn(stationsTab === 'inactive')} onClick={() => setStationsTab('inactive')}>
-                  Not in Use ({stations_inactive})
-                </button>
-              </div>
+        {/* Right: Stations — pinned to the attendance card's measured height so the
+            dashboard row never shifts. Progress rows and assignment rows share this
+            one card as ordinary grid children, split by a pale divider — never an
+            overlay, portal, or drawer, so nothing is covered and no close button is
+            needed. Below STATIONS_NARROW_W the columns stack instead. */}
+        <div ref={stationsCardRef} className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: pairHeight ? `${pairHeight}px` : undefined, boxSizing: 'border-box', minWidth: 0 }}>
+          {/* Body. Wide: two columns (progress | assignments) split by a pale
+              divider. Narrow: the same two sections stack — progress first,
+              assignments second — and the divider turns horizontal, so nothing is
+              hidden and no in-card view switch is needed. */}
+          <div className="stations-card__body" style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'grid', gridTemplateColumns: stationsNarrow ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: stationsNarrow ? 'auto minmax(0, 1fr)' : undefined, columnGap: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
+
+            {/* Left: one button per NGO. The count pill sits inside that same button,
+                so a click can never select the row twice. */}
+            <div style={{ minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden', paddingRight: stationsNarrow ? 0 : 12, paddingBottom: stationsNarrow ? 10 : 0, boxSizing: 'border-box' }}>
+              {ngo_rows.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--stations-muted, #496487)', padding: '6px 0' }}>No station data for this period.</div>
+              ) : ngo_rows.map((r) => {
+                // Progress is completed/total, clamped to 0-100 and guarded against a
+                // zero total so the track never renders a NaN width.
+                const pct = r.total > 0 ? Math.min(100, Math.max(0, (r.active / r.total) * 100)) : 0;
+                const selected = r.key === effectiveNgoKey;
+                return (
+                  <button
+                    type="button"
+                    key={r.key}
+                    className="stations-ngo-row"
+                    onClick={() => setSelectedNgoKey(r.key)}
+                    aria-pressed={selected}
+                    aria-label={`${r.name} progress: ${r.active} of ${r.total}, ${r.unused.length} not in use`}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box',
+                      flex: '1 0 auto', minHeight: 30, marginBottom: 4, textAlign: 'left', font: 'inherit',
+                      background: selected ? hexA(r.color, 0.07) : '#fff',
+                      border: selected ? `1px solid ${hexA(r.color, 0.45)}` : '1px solid var(--stations-border, #DCE7F5)',
+                      borderRadius: 11, padding: '4px 8px', cursor: 'pointer', minWidth: 0,
+                    }}
+                  >
+                    <span style={{ width: 19, height: 19, flexShrink: 0, borderRadius: 6, background: r.color, color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} aria-hidden="true">
+                      {r.name.charAt(0).toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--stations-text, #14233D)', flexShrink: 0, maxWidth: 42, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name}>{r.name}</span>
+                    <span
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={r.total || 0}
+                      aria-valuenow={r.active || 0}
+                      aria-label={`${r.name} progress: ${r.active} of ${r.total}`}
+                      style={{ flex: 1, minWidth: 0, height: 5, borderRadius: 3, background: 'var(--stations-track, #E5EAF2)', overflow: 'hidden' }}
+                    >
+                      <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 3, background: r.color }} />
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--stations-muted, #496487)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{r.active}/{r.total}</span>
+                    <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 800, color: 'var(--stations-assign, #E52336)', background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', borderRadius: 999, padding: '0 6px', lineHeight: 1.5, minWidth: 22, justifyContent: 'center' }}>
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} aria-hidden="true" />
+                      {r.unused.length}
+                    </span>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--stations-muted, #496487)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                );
+              })}
             </div>
-          </div>
-          {/* No divider under the label: the card is height-pinned and tight on
-              space, so the border and its margin were pure cost. A column flex
-              container gives each tab a definite height to fill. */}
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2, display: 'flex', flexDirection: 'column' }}>
-            {stationsTab === 'per_ngo' ? (
-              Object.keys(stations_per_ngo).length > 0 ? (
-                // Total / Active sit beside the NGO list rather than above it, so
-                // the summary stays visible while the list fills the card. `flex: 1`
-                // (in the column body above) makes the row take the whole height and
-                // let each NGO row share it; stretch makes the list column follow,
-                // and the summary opts out with alignSelf so its cards keep their
-                // own height.
-                <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0, alignItems: 'stretch' }}>
-                  <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingRight: 2 }}>
-                    {Object.entries(stations_per_ngo).map(([name, v]) => {
-                      const total = typeof v === 'number' ? v : (Number(v?.total) || 0);
-                      const active = v && typeof v === 'object' ? (Number(v.active) || 0) : 0;
-                      const pct = total > 0 ? Math.min(100, (active / total) * 100) : 0;
-                      const color = ngoColorOf(name);
-                      return (
-                        <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 0 auto', minHeight: 30, marginBottom: 5, background: 'var(--bg)', borderRadius: 7, padding: '5px 8px' }}>
-                          <span style={{ fontSize: 11, fontWeight: 800, minWidth: 52, color, textTransform: 'uppercase', letterSpacing: .3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
-                          <div style={{ flex: 1, height: 7, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: '#16a34a', transition: 'width .3s ease' }} />
-                          </div>
-                          <span style={{ fontSize: 11, fontWeight: 700, minWidth: 40, textAlign: 'right', color: 'var(--ink)' }}>{active}/{total}</span>
+
+            {/* Right: assignment rows. A plain grid child behind a pale divider — never
+                an overlay, portal, or elevated panel. Each row leads with a file tile
+                where the old status dot used to be. */}
+            <div style={{ minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box', borderLeft: stationsNarrow ? 'none' : '1px solid var(--stations-border, #DCE7F5)', paddingLeft: stationsNarrow ? 0 : 12, marginTop: stationsNarrow ? 10 : 0, paddingTop: stationsNarrow ? 10 : 0 }}>
+              {!selectedNgo ? (
+                <div style={{ fontSize: 11, color: 'var(--stations-muted, #496487)' }}>Select an NGO to see its stations.</div>
+              ) : selectedNgo.unused.length > 0 ? (
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: 5, paddingRight: 2, boxSizing: 'border-box' }}>
+                  {selectedNgo.unused.map((s) => {
+                    const open = assigningStation === s;
+                    const saving = savingStation === s;
+                    return (
+                      <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: open ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${open ? 'var(--stations-assign, #E52336)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                          <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                          <button
+                            type="button"
+                            className="stations-assign-row"
+                            onClick={() => setAssigningStation(open ? null : s)}
+                            disabled={saving}
+                            aria-expanded={open}
+                            aria-label={open ? `Close the agent picker for ${s}` : `Assign an agent to station ${s}`}
+                            style={{ flexShrink: 0, minWidth: 68, minHeight: 30, padding: '5px 11px', borderRadius: 8, font: 'inherit', fontSize: 11, fontWeight: 700, cursor: saving ? 'default' : 'pointer', color: saving ? 'var(--stations-muted, #496487)' : 'var(--stations-assign, #E52336)', background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', opacity: saving ? 0.7 : 1, whiteSpace: 'nowrap' }}
+                          >
+                            {saving ? 'Saving…' : (open ? 'Close' : 'Assign')}
+                          </button>
                         </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ flex: '0 0 108px', alignSelf: 'flex-start', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{stations_summary.total}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total Stations</div>
-                    </div>
-                    <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{stations_summary.active}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active Now</div>
-                    </div>
-                  </div>
+                        {open && (
+                          <StationAgentMenu
+                            agents={stationAgents}
+                            saving={saving}
+                            onPick={(agentId) => handleAssignStationAgent(s, agentId, selectedNgo.ngoId)}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0' }}>No station data for this period.</div>
-              )
-            ) : stations_inactive > 0 ? (
-              inactive_by_ngo.length > 0 ? (
-                <div style={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  {/* One strip of NGO columns that scrolls sideways, each column
-                      scrolling its own station list. A wrapping grid would push
-                      the column headers off the top of this (height-pinned) card
-                      as soon as the outer body started scrolling. */}
-                  <div style={{ display: 'flex', gap: 8, overflowX: 'auto', overflowY: 'hidden', minHeight: 0, flex: 1, paddingBottom: 2 }}>
-                    {inactive_by_ngo.map((col) => {
-                      const color = ngoColorOf(col.name);
-                      return (
-                        <div key={col.name} style={{ flex: '0 0 138px', minWidth: 0, background: '#fff', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 8px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingBottom: 6, marginBottom: 6, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                            <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: .3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={col.name}>{col.name}</span>
-                            <span style={{ fontSize: 9, fontWeight: 800, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '0 6px', borderRadius: 999, flexShrink: 0 }}>{col.stations.length}</span>
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', minHeight: 0, flex: 1, paddingRight: 1 }}>
-                            {col.stations.map((s) => (
-                              <div key={s} title={`${s} — no agent allocated`} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 6, padding: '4px 7px', minWidth: 0, flexShrink: 0 }}>
-                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
-                                <span style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6, flexShrink: 0 }}>No agent allocated to these stations</div>
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, background: 'var(--stations-success-soft, #ecfbf2)', border: '1px solid #cdf3e1', borderRadius: 10, padding: '10px 12px', boxSizing: 'border-box' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-success, #16a765)' }}>All stations are in use</div>
+                  <div style={{ fontSize: 10, color: 'var(--stations-muted, #496487)' }}>Nothing to assign for this NGO.</div>
                 </div>
-              ) : (
-                <div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingRight: 2 }}>
-                    {inactive_station_names.map((name) => (
-                      <span key={name} title="No agent allocated to this station" style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{name}</span>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 8 }}>No agent allocated to these stations</div>
-                </div>
-              )
-            ) : (
-              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, padding: '6px 0' }}>Every station has an agent allocated.</div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>

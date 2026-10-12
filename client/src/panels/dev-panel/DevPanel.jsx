@@ -20,7 +20,7 @@ const NAV = [
   { id: 'my-tickets', path: '/dev-panel/my-tickets', label: 'My Tickets', icon: 'person' },
   { id: 'unassigned', path: '/dev-panel/unassigned', label: 'Unassigned', icon: 'assignment_late' },
   { id: 'daily-report', path: '/dev-panel/daily-report', label: 'Daily Report', icon: 'description' },
-  { id: 'chat', path: '/dev-panel/chat', label: 'Community', icon: 'chat' },
+  { id: 'chat', path: '/dev-panel/chat', label: 'UCS Chat', icon: 'chat' },
 ];
 
 const ICONS = {

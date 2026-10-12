@@ -39,9 +39,14 @@ pg.types.setTypeParser(1083, (v) => v);                        // time -> string
 // change. Watch server max_connections before going much above this -- the
 // backend, the panel and RDS internal sessions all share the same budget.
 const POOL_MAX = Math.max(1, parseInt(process.env.PG_POOL_MAX || '5', 10));
+// How long a connection may sit idle before pg closes it. Reopening one is
+// cheap next to RDS (~10ms) but expensive through the local SSH tunnel
+// (~650ms for TCP+TLS+auth), so the tunnel script raises this for dev runs;
+// unset elsewhere keeps the original 10s behaviour.
+const IDLE_TIMEOUT_MS = Math.max(1000, parseInt(process.env.PG_IDLE_TIMEOUT_MS || '10000', 10));
 const poolConfig = {
   max: POOL_MAX,
-  idleTimeoutMillis: 10000,
+  idleTimeoutMillis: IDLE_TIMEOUT_MS,
   connectionTimeoutMillis: 20000,
   maxUses: 1000,
   query_timeout: 30000,
@@ -119,7 +124,9 @@ const REALTIME_TABLES = new Set([
   'lead_champion_announcements', 'incentive_slabs',
   // Ticket threads: without these a team reply only reaches the raising FRO on
   // the next 30s poll. Low write volume, so no bulk coalescing is needed.
-  'support_tickets', 'ticket_replies',
+  // developer_tickets rides along so the "ticket raised" popup fires the
+  // moment one is raised, not on the next poll.
+  'support_tickets', 'ticket_replies', 'developer_tickets',
 ]);
 
 // High-volume tables whose rows are written in bulk (imports, scrapes, donor

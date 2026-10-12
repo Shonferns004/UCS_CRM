@@ -58,7 +58,7 @@ const NAV = [
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
-  { id:'chat',       path:'/hr/chat',        label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
+  { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
   { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
 ]
 

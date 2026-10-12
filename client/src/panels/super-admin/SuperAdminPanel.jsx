@@ -60,7 +60,7 @@ const NAV = [
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
   { id: 'late-policy', path: '/sa/late-policy', label: 'Late Policy', eyebrow: 'HR', icon: Clock },
-  { id: 'chat', path: '/sa/chat', label: 'Community', eyebrow: 'Team', icon: ChatIcon },
+  { id: 'chat', path: '/sa/chat', label: 'UCS Chat', eyebrow: 'Team', icon: ChatIcon },
   // { id: 'hr-report', path: '/sa/hr-report', label: 'HR & Recruitment Report', eyebrow: 'Reports', icon: Clipboard },
   { id: 'daily-reports', path: '/sa/daily-reports', label: 'Daily Reports', eyebrow: 'Reports', icon: Clipboard },
 ]

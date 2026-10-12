@@ -28,19 +28,38 @@ const LEAD_CSS = `
 @keyframes lil-bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 `;
 
-// Bronze/Silver/Gold milestone tiers (per range). Same hues as the admin board.
-const T_META = {
-  bronze: { key: 'bronze', label: 'Bronze', medal: '🥉', color: '#c2410c', bg: '#ffedd5', border: '#fdba74' },
-  silver: { key: 'silver', label: 'Silver', medal: '🥈', color: '#475569', bg: '#f1f5f9', border: '#cbd5e1' },
-  gold: { key: 'gold', label: 'Gold', medal: '🥇', color: '#a16207', bg: '#fef3c7', border: '#fcd34d' },
-};
-export const tMeta = (key) => T_META[String(key || '').toLowerCase()] || T_META.bronze;
+// Dynamic numbered milestone tiers (per range). Colors cycle by position so any
+// number of tiers stays distinct; the count is whatever the admin configured.
+const T_PALETTE = [
+  { color: '#c2410c', bg: '#ffedd5', border: '#fdba74' }, // 1
+  { color: '#475569', bg: '#f1f5f9', border: '#cbd5e1' }, // 2
+  { color: '#a16207', bg: '#fef3c7', border: '#fcd34d' }, // 3
+  { color: '#1d4ed8', bg: '#e0edff', border: '#a9c8f7' }, // 4
+  { color: '#7c3aed', bg: '#f0e9fe', border: '#cbb6f5' }, // 5
+  { color: '#0f766e', bg: '#dcf7f1', border: '#a6e3d8' }, // 6
+  { color: '#be185d', bg: '#fde7f1', border: '#f6bcd9' }, // 7
+  { color: '#3f6212', bg: '#eef7dc', border: '#c9e6a1' }, // 8
+  { color: '#b45309', bg: '#fef0df', border: '#f3cfa0' }, // 9
+  { color: '#334155', bg: '#eef1f5', border: '#c7d0db' }, // 10
+];
 
-export function TierPill({ tierKey, label, size = 10.5 }) {
-  const m = tMeta(tierKey);
+const tierIndexOf = (tierKey, orderIndex) => {
+  if (Number.isFinite(Number(orderIndex))) return Number(orderIndex);
+  const m = /tier_(\d+)/i.exec(String(tierKey || ''));
+  if (m) return Number(m[1]) - 1;
+  const legacy = { bronze: 0, silver: 1, gold: 2 };
+  const l = legacy[String(tierKey || '').toLowerCase()];
+  return Number.isFinite(l) ? l : 0;
+};
+export const tMeta = (key, orderIndex) => T_PALETTE[tierIndexOf(key, orderIndex) % T_PALETTE.length];
+export const tierNumber = (key, orderIndex) => tierIndexOf(key, orderIndex) + 1;
+
+export function TierPill({ tierKey, orderIndex, label, size = 10.5 }) {
+  const m = tMeta(tierKey, orderIndex);
+  const n = tierNumber(tierKey, orderIndex);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 999, background: m.bg, border: `1px solid ${m.border}`, fontSize: size, fontWeight: 800, color: m.color, whiteSpace: 'nowrap' }}>
-      {m.medal} {label || m.label}
+      <span style={{ fontWeight: 900 }}>#{n}</span>{label || `Tier ${n}`}
     </span>
   );
 }
@@ -165,7 +184,7 @@ export function RangeLeaderboard({ data, you, spread = false }) {
               <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
                 {tierMode ? (
                   tiers.map(t => (
-                    <TierPill key={t.tier_key} tierKey={t.tier_key} label={`${t.label} · reach ₹${fmt(t.target_amount)} → win ₹${fmt(t.prize_amount)}`} />
+                    <TierPill key={t.tier_key} tierKey={t.tier_key} orderIndex={t.order_index} label={`${t.label} · reach ₹${fmt(t.target_amount)} → win ₹${fmt(t.prize_amount)}`} />
                   ))
                 ) : (
                   <>
@@ -186,14 +205,14 @@ export function RangeLeaderboard({ data, you, spread = false }) {
                 {/* Target line(s): one per tier in milestone mode, else the Win On line */}
                 {tierMode ? (
                   tiers.map(t => {
-                    const m = tMeta(t.tier_key);
+                    const m = tMeta(t.tier_key, t.order_index);
                     return (
                       <div key={t.tier_key} style={{
                         position: 'absolute', left: 8, right: 8, bottom: lineBottomFor(t.target_amount),
                         borderTop: `1.5px dashed ${m.color}`, opacity: .75, pointerEvents: 'none',
                       }}>
                         <span style={{ position: 'absolute', left: 0, top: -9, fontSize: 9, fontWeight: 800, color: m.color, background: '#fff', padding: '0 4px', whiteSpace: 'nowrap' }}>
-                          {m.medal} {t.label} ₹{fmt(t.target_amount)}
+                          #{tierNumber(t.tier_key, t.order_index)} {t.label} ₹{fmt(t.target_amount)}
                         </span>
                       </div>
                     );
@@ -259,11 +278,11 @@ export function RangeLeaderboard({ data, you, spread = false }) {
                   {tiers.map(t => {
                     const info = leaderByKey[t.tier_key];
                     const ldr = info?.leader;
-                    const m = tMeta(t.tier_key);
+                    const m = tMeta(t.tier_key, t.order_index);
                     const isFinal = r.tiers_final;
                     return (
                       <div key={t.tier_key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <TierPill tierKey={t.tier_key} label={t.label} size={10} />
+                        <TierPill tierKey={t.tier_key} orderIndex={t.order_index} label={t.label} size={10} />
                         <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹{fmt(t.target_amount)} → <b style={{ color: 'var(--ink)' }}>₹{fmt(t.prize_amount)}</b></span>
                         <span style={{ flex: 1, borderBottom: '1px dashed #fcd34d', opacity: .4 }} />
                         {ldr ? (
@@ -503,7 +522,7 @@ export default function LeadIncentiveLeaderboard() {
                             ₹{fmt(me.total_amount)} <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>collected</span>
                           </div>
                           <div style={{ marginTop: 4, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {myReached ? <TierPill tierKey={myReached.tier_key} label={`Reached ${myReached.label}`} size={9.5} /> : <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 700 }}>No tier yet</span>}
+                            {myReached ? <TierPill tierKey={myReached.tier_key} orderIndex={myReached.order_index} label={`Reached ${myReached.label}`} size={9.5} /> : <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 700 }}>No tier yet</span>}
                             {myNext && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#b45309' }}>₹{fmt(Math.max(0, Number(myNext.target_amount) - (Number(me.total_amount) || 0)))} to {myNext.label}</span>}
                           </div>
                           <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: '#b45309', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -541,7 +560,7 @@ export default function LeadIncentiveLeaderboard() {
                       return (
                         <div key={r.slab_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink)' }}>
                           <span style={{ fontWeight: 700, color: '#b45309', flexShrink: 0 }}>{r.slab_label}</span>
-                          <TierPill tierKey={gold?.tier_key} label={gold ? `top ${gold.label}` : 'tier'} size={9} />
+                          <TierPill tierKey={gold?.tier_key} orderIndex={gold?.order_index} label={gold ? `top ${gold.label}` : 'tier'} size={9} />
                           <span style={{ flex: 1, borderBottom: '1px dashed #fcd34d', opacity: .4 }} />
                           {goldLeader ? (
                             <span style={{ fontSize: 11, fontWeight: String(goldLeader.fro_id) === String(you) ? 800 : 600, color: String(goldLeader.fro_id) === String(you) ? '#b45309' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 92 }}>
