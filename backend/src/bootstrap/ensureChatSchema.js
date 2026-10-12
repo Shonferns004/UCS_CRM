@@ -52,9 +52,14 @@ async function applyMigrations() {
 async function ensureConversation() {
   const existing = await getCommunityConversation();
   if (existing) return existing;
+  // Do NOT re-create a room the user deleted. This seeder used to re-insert
+  // on every boot, so a UI delete survived exactly until the next nodemon
+  // restart and everyone was re-seated into it. Set SEED_COMMUNITY_ROOM=1 to
+  // bring the seeded room back deliberately.
+  if (process.env.SEED_COMMUNITY_ROOM !== '1') return null;
   const { rows } = await db._pool.query(
     `INSERT INTO chat_conversations (kind, slug, title, created_by)
-     VALUES ('group', $1, 'UCS Chat', 'system')
+     VALUES ('group', $1, 'Community', 'system')
      ON CONFLICT (slug) DO NOTHING
      RETURNING *`,
     [COMMUNITY_SLUG]
@@ -67,13 +72,11 @@ async function ensureConversation() {
 function toParticipant(w) {
   const email = w.email ? String(w.email).trim().toLowerCase() : null;
   return {
-    // An explicit uid wins. Workers authenticate with login_id and carry no
-    // email in their JWT, so `login:<id>` is their key (and must match
-    // chatUidFor). The Super Admin is the exception: their JWT does carry
-    // email, so chatUidFor derives `email:<address>` and the row has to agree,
-    // or isParticipant() fails and the Super Admin cannot read the room they
-    // moderate.
-    uid: w.uid || `login:${w.id}`,
+    // Must mirror chatUidFor exactly: email wins when present, otherwise the
+    // login id. Worker-panel JWTs carry no email so they resolve to login:<id>;
+    // HR-panel JWTs carry email so they resolve to email:<address>. Seating
+    // only one spelling leaves the other login path unable to see the room.
+    uid: email ? `email:${email}` : `login:${w.id}`,
     subjectId: String(w.id),
     role: w.role,
     canPost: isWriterRole(w.role),
@@ -81,6 +84,21 @@ function toParticipant(w) {
     email,
     ngoId: w.ngo_id,
   };
+}
+
+/**
+ * Worker-panel logins (authController workerByLogin / workerByEmail) put no
+ * email in the JWT, so chatUidFor resolves them to `login:<id>`. HR-panel
+ * logins put email in the JWT, resolving to `email:<address>`. A worker who
+ * might sign in through either path needs BOTH participant rows, or the other
+ * path cannot see the room. Returns the primary plus an optional secondary.
+ */
+function toParticipants(w) {
+  const primary = toParticipant(w);
+  const email = w.email ? String(w.email).trim().toLowerCase() : null;
+  if (!email) return [primary];
+  const secondary = { ...primary, uid: `login:${w.id}` };
+  return [primary, secondary];
 }
 
 /**
@@ -117,21 +135,32 @@ async function syncCommunityParticipants(conversationId) {
   const extra = superAdminParticipant();
   const all = extra ? [...candidates, { ...extra, id: '0' }] : candidates;
 
+  const keepUids = new Set();
   for (const w of all) {
-    await addParticipant(conversationId, toParticipant(w));
+    for (const p of toParticipants(w)) {
+      await addParticipant(conversationId, p);
+      keepUids.add(p.uid);
+    }
   }
 
-  const dropped = await removeStaleParticipants(
-    conversationId,
-    all.map((w) => w.uid || `login:${w.id}`)
+  const dropped = await removeStaleParticipants(conversationId, [...keepUids]);
+  // Count distinct people, not rows: a worker with an email has two participant
+  // rows (login:<id> and email:<address>) so either login path matches.
+  const { rows } = await db._pool.query(
+    `SELECT count(DISTINCT subject_id)::int AS n FROM chat_participants WHERE conversation_id = $1`,
+    [conversationId]
   );
-  return { seated: all.length, dropped: dropped.length };
+  return { seated: rows[0]?.n ?? all.length, dropped: dropped.length };
 }
 
 export async function ensureChatSchema() {
   try {
     await applyMigrations();
     const convo = await ensureConversation();
+    if (!convo) {
+      console.log('community room absent (deleted; re-seed disabled) — skipping participant sync');
+      return;
+    }
     const { seated, dropped } = await syncCommunityParticipants(convo.id);
     const note = dropped ? `, dropped ${dropped} stale` : '';
     console.log(`chat schema ready; community room "${convo.slug}" has ${seated} participants${note}`);

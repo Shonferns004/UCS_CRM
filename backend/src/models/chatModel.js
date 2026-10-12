@@ -390,8 +390,14 @@ export async function isParticipant(conversationId, uid) {
 }
 
 export async function listParticipants(conversationId) {
+  // DISTINCT ON: a worker with an email has two rows (login:<id> and
+  // email:<address) so either login path matches, but the roster must show
+  // each person once. subject_id is the shared key.
   const { rows } = await db._pool.query(
-    `SELECT * FROM chat_participants WHERE conversation_id = $1 ORDER BY display_name`,
+    `SELECT DISTINCT ON (subject_id) *
+       FROM chat_participants
+      WHERE conversation_id = $1
+      ORDER BY subject_id, display_name`,
     [conversationId]
   );
   return rows;
@@ -427,7 +433,7 @@ export async function listConversationsFor(me) {
             AND m.sender_uid <> $1
             AND m.deleted_at IS NULL
         )::int AS unread,
-        (SELECT count(*) FROM chat_participants cp
+        (SELECT count(DISTINCT cp.subject_id) FROM chat_participants cp
          WHERE cp.conversation_id = c.id)::int AS member_count
      FROM chat_conversations c
      JOIN chat_participants p
@@ -453,7 +459,7 @@ export async function listConversationsFor(me) {
       const peer = await getDirectPeer(row.id, me.uid);
       out.push({ ...row, title: peer?.display_name || 'Direct message', peer });
     } else {
-      out.push({ ...row, title: row.title || 'UCS Chat' });
+      out.push({ ...row, title: row.title || 'Community' });
     }
   }
   return out;
