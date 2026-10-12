@@ -126,6 +126,7 @@ import { ensureStationAgentOfRecordSchema } from './bootstrap/ensureStationAgent
 import { ensureFroDonorLogOperatorSchema } from './bootstrap/ensureFroDonorLogOperatorSchema.js';
 import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSchema.js';
 import { ensureTaskAssignmentSchema } from './bootstrap/ensureTaskAssignmentSchema.js';
+import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config();
@@ -1208,6 +1209,7 @@ await ensureFroTimeSessionsAgentSchema().catch(e => console.error('ensureFroTime
     await ensureStationAgentOfRecordSchema().catch(e => console.error('ensureStationAgentOfRecordSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
     await ensureTaskAssignmentSchema().catch(e => console.error('ensureTaskAssignmentSchema failed:', e?.message || e));
+    await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
