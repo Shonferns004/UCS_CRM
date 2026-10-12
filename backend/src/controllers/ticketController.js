@@ -363,16 +363,40 @@ const readSeenIds = async (userId) => {
   }
 };
 
+// The moment this person's panel first asked for popups. One upsert: the
+// first call stamps `since = now()` (so every ticket already open is old for
+// them and never pops), later calls just read the same stamp back. A missing
+// table returns null and the caller answers [] — never fall back to "pop
+// everything old".
+const readBaseline = async (userId) => {
+  try {
+    const { rows } = await db._pool.query(
+      `INSERT INTO ticket_popup_baseline (user_id) VALUES ($1)
+       ON CONFLICT (user_id) DO UPDATE SET user_id = ticket_popup_baseline.user_id
+       RETURNING since`,
+      [String(userId)]
+    );
+    return rows[0]?.since || null;
+  } catch (e) {
+    console.warn('[tickets] popup baseline lookup failed:', e?.message || String(e));
+    return null;
+  }
+};
+
 export const getPendingTicketPopups = async (req, res) => {
   try {
     const department = targetDepartment(req.user);
     if (!department) return res.json([]);
 
+    // Popups start at each person's baseline (first ever poll = "now", so
+    // everything already sitting in the queue is old and never pops), capped
+    // at 24h so returning after a long absence cannot parade a backlog.
+    const baseline = await readBaseline(req.user.id);
+    if (!baseline) return res.json([]);
+    const floorMs = Math.max(new Date(baseline).getTime(), Date.now() - 24 * 3600 * 1000);
+    const since = new Date(floorMs).toISOString();
+
     let tickets = [];
-    // Only recent tickets pop. Without this window, the first poll after a
-    // login would parade every open ticket the person never acked — including
-    // ones raised weeks ago — across their screen.
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     if (department === 'developers') {
       const { data, error } = await db
         .from('developer_tickets')

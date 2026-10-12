@@ -52,6 +52,23 @@ const fmtTime = (iso) => {
   } catch { return ''; }
 };
 
+// Browser-local copy of the server's ack set. The server ack fires the moment
+// a popup goes on screen; this backs it up so even a dropped ack cannot bring
+// the same popup back on refresh. Keyed per user like NoticePopup's set.
+const SEEN_KEY_BASE = 'tp_seen_v1';
+const seenKeyFor = (user) => (user?.id ? `${SEEN_KEY_BASE}_${user.id}` : SEEN_KEY_BASE);
+const readSeenLocal = (key) => {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch { return new Set(); }
+};
+const addSeenLocal = (key, id) => {
+  try {
+    const s = readSeenLocal(key);
+    if (s.has(String(id))) return;
+    s.add(String(id));
+    localStorage.setItem(key, JSON.stringify([...s]));
+  } catch { /* ignore */ }
+};
+
 const TH_CSS = `
 @keyframes th-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
 `;
@@ -64,7 +81,21 @@ export default function TicketPopupHost() {
   const gapTimerRef = useRef(null);
   const navigate = useNavigate();
   const user = getUser('ucs');
+  const seenKey = seenKeyFor(user);
   const queuePath = queuePathFor(user, window.location.pathname);
+
+  // Claim a ticket the instant it goes on screen. Waiting for the Dismiss
+  // click meant refreshing (or just walking away) skipped the ack entirely
+  // and the same popup came back — "once" has to survive an F5.
+  const ackTicket = useCallback((t) => {
+    if (!t) return;
+    addSeenLocal(seenKey, t.id);
+    api(`/tickets/${t.id}/popup-seen?source=${t.source === 'dev' ? 'dev' : 'sup'}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      _prefix: 'ucs',
+    }).catch(() => { /* local set still blocks it here; dismiss retries */ });
+  }, [seenKey]);
 
   const load = useCallback(async () => {
     if (inflightRef.current || currentRef.current) return;
@@ -75,15 +106,17 @@ export default function TicketPopupHost() {
       if (currentRef.current) return;
       // A queue of several new tickets shows one at a time, not all at once.
       if (Date.now() - lastDismissRef.current < NEXT_GAP_MS) return;
-      const next = arr[0];
+      const local = readSeenLocal(seenKey);
+      const next = arr.find(t => !local.has(String(t.id)));
       if (next) {
         currentRef.current = next;
         setCurrent(next);
+        ackTicket(next);
       }
     } catch { /* 401 / offline — the next poll retries */ } finally {
       inflightRef.current = false;
     }
-  }, []);
+  }, [seenKey, ackTicket]);
 
   useEffect(() => {
     load();
@@ -103,15 +136,15 @@ export default function TicketPopupHost() {
     setCurrent(null);
     lastDismissRef.current = Date.now();
     if (t) {
-      // Ack first: a reload between dismiss and ack must not resurrect the
-      // same popup — "once" means once.
+      // Already acked on show; this is an idempotent second chance in case
+      // that first POST got dropped.
       try {
         await api(`/tickets/${t.id}/popup-seen?source=${t.source === 'dev' ? 'dev' : 'sup'}`, {
           method: 'POST',
           body: JSON.stringify({}),
           _prefix: 'ucs',
         });
-      } catch { /* best-effort; localStorage-free server ack */ }
+      } catch { /* best-effort */ }
     }
     if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
     gapTimerRef.current = setTimeout(() => {

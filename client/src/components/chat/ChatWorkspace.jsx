@@ -99,12 +99,12 @@ export default function ChatWorkspace() {
       const arr = Array.isArray(list) ? list : []
       setConversations(arr)
       setListStatus('ready')
-      // Land on Community: the one room every role can see. Prefer the seeded
-      // room by slug so a user-created group does not steal the landing spot.
+      // Land on the first group the user is actually in. The old slug-based
+      // preference for a seeded "community" room meant anyone not in that room
+      // (e.g. an HR user added only to a Notices group) saw an empty rail.
       setActiveId((prev) => {
         if (prev && arr.some((c) => c.id === prev)) return prev
-        const community = arr.find((c) => c.kind === 'group' && c.slug === 'community')
-        return community?.id || arr.find((c) => c.kind === 'group')?.id || arr[0]?.id || null
+        return arr.find((c) => c.kind === 'group')?.id || arr[0]?.id || null
       })
     } catch (e) {
       setListError(e.message || 'Could not load conversations.')
@@ -583,7 +583,7 @@ export default function ChatWorkspace() {
           ) : (
             <ChatState
               title="Select a conversation"
-              sub="Pick the Community room to read the latest updates."
+              sub="Pick a group or person from the list to start reading."
             />
           )}
         </section>
