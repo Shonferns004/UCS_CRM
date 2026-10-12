@@ -3658,13 +3658,19 @@
 .panel-accounts .rx-pageinfo strong { color:var(--ink); }
 
 /* reorganized history filter bar */
-.panel-accounts .rx-filters { display:flex; align-items:flex-end; gap:9px; padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; background:var(--card-bg); }
-.panel-accounts .rx-fselect { display:flex; flex-direction:column; gap:4px; }
-.panel-accounts .rx-fkey { font-size:9px; font-weight:800; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.07em; }
-.panel-accounts .rx-fselect select, .panel-accounts .rx-fselect input { padding:7px 9px; border:1px solid var(--line); border-radius:8px; background:var(--card-bg); color:var(--ink); font-family:inherit; font-size:12px; outline:none; transition:border-color .15s; }
+.panel-accounts .rx-filters { display:flex; align-items:flex-end; gap:10px; row-gap:10px; padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; background:var(--card-bg); }
+.panel-accounts .rx-fselect { display:flex; flex-direction:column; gap:5px; }
+.panel-accounts .rx-fkey { font-size:9px; font-weight:800; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.07em; white-space:nowrap; }
+.panel-accounts .rx-fselect select, .panel-accounts .rx-fselect input { height:32px; box-sizing:border-box; padding:0 9px; border:1px solid var(--line); border-radius:8px; background:var(--card-bg); color:var(--ink); font-family:inherit; font-size:12px; outline:none; transition:border-color .15s; }
 .panel-accounts .rx-fselect select:focus, .panel-accounts .rx-fselect input:focus { border-color:var(--sage); }
-.panel-accounts .rx-filter-grow { flex:1; min-width:160px; max-width:340px; }
-.panel-accounts .rx-filters .tw-search input { font-size:12px; }
+.panel-accounts .rx-fselect input[type="date"] { width:142px; }
+.panel-accounts .rx-fselect select { min-width:126px; }
+.panel-accounts .rx-amt { display:flex; align-items:center; gap:6px; }
+.panel-accounts .rx-amt-sep { color:var(--ink-soft); font-size:12px; }
+.panel-accounts .rx-amt input { width:68px; }
+.panel-accounts .rx-filter-grow { flex:1 1 220px; min-width:200px; max-width:360px; }
+.panel-accounts .rx-filters .tw-search { flex:1; max-width:none; }
+.panel-accounts .rx-filters .tw-search input { font-size:12px; height:32px; box-sizing:border-box; }
 
 /* action buttons */
 .panel-accounts .rx-iconbtn { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:8px; background:var(--card-bg); color:var(--ink-soft); cursor:pointer; flex-shrink:0; transition:all .12s; }
