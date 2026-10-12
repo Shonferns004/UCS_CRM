@@ -392,7 +392,7 @@ export default function ChatWorkspace() {
   if (!me?.uid) {
     return (
       <div className="chat-page chat-scope">
-        <ChatState kind="locked" title="Sign in to use UCS Chat" sub="Your session has expired." />
+        <ChatState kind="locked" title="Sign in to use Community" sub="Your session has expired." />
       </div>
     )
   }
@@ -402,8 +402,8 @@ export default function ChatWorkspace() {
       <div className="chat-page chat-scope">
         <ChatState
           kind="locked"
-          title="UCS Chat is not available for your account"
-          sub={listError || 'Ask a Super Admin to add you to UCS Chat.'}
+          title="Community is not available for your account"
+          sub={listError || 'Ask a Super Admin to add you to the community room.'}
         />
       </div>
     )
@@ -416,7 +416,7 @@ export default function ChatWorkspace() {
       <div className="chat-workspace" data-view={view}>
         <aside className="chat-rail" aria-label="Conversations">
           <ConversationList
-            title="UCS Chat"
+            title="Community"
             conversations={conversations}
             activeId={activeId}
             onSelect={select}
