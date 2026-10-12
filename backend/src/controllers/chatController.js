@@ -1,6 +1,9 @@
 import db from '../config/db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as chat from '../models/chatModel.js';
-import { emitChat } from '../socket.js';
+import { emitChat, emitChatBroadcast } from '../socket.js';
 import { notFound, isChatAdminRole } from '../middleware/chatAccess.js';
 import { notifyParticipantsOfMessage } from '../services/chatNotificationService.js';
 
@@ -106,18 +109,46 @@ function policyBlocksPost(ctx) {
   return true;
 }
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Key is "chat/<file>"; the static mount serves backend/uploads at /uploads,
+// so writing to uploads/ + key yields /uploads/chat/<file> — one prefix, no
+// duplication.
+const LOCAL_UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
+
 async function uploadAttachment(file) {
   const key = `${CHAT_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
   const { error } = await db.storage
     .from(CHAT_BUCKET)
     .upload(key, file.buffer, { contentType: file.mimetype, upsert: false });
   if (error) {
+    // Local-disk fallback: when S3 is not configured (no S3_BUCKET), write to
+    // backend/uploads/chat/ which is already served statically at /uploads.
+    // This keeps image notices and attachments working in dev without
+    // requiring AWS credentials.
+    if (error.code === 'STORAGE_NOT_CONFIGURED') {
+      try {
+        fs.mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true });
+        const filePath = path.join(LOCAL_UPLOAD_DIR, key);
+        fs.writeFileSync(filePath, file.buffer);
+        return {
+          url: `/uploads/${key}`,
+          name: file.originalname,
+          type: file.mimetype,
+          size: file.size,
+        };
+      } catch (e) {
+        const err = new Error(e.message || 'File save failed');
+        err.upload = true;
+        err.status = 500;
+        throw err;
+      }
+    }
     // Surfaced as its own status so a machine without S3 credentials says so
     // instead of a blanket 500 - "could not send" sends people hunting for a
     // chat bug when the real answer is a missing S3_BUCKET.
     const e = new Error(error.message || 'File upload failed');
     e.upload = true;
-    e.status = error.code === 'STORAGE_NOT_CONFIGURED' ? 503 : 500;
+    e.status = 500;
     throw e;
   }
   const { data } = db.storage.from(CHAT_BUCKET).getPublicUrl(key);
@@ -784,8 +815,12 @@ export const deleteGroup = async (req, res) => {
     const ctx = await authorizeGroupAdmin(req, res);
     if (!ctx) return;
     const { convo } = ctx;
-    emitChat(convo.id, { type: 'conversation:deleted', conversation_id: convo.id });
+    // Delete first so a failed write never announces a phantom removal.
     await db._pool.query(`DELETE FROM chat_conversations WHERE id = $1`, [convo.id]);
+    // Broadcast globally, not room-scoped: people who never joined this room's
+    // socket still have it in their rail from an earlier list fetch, and a
+    // room-scoped frame would never reach them. The payload is only an id.
+    emitChatBroadcast({ type: 'conversation:deleted', conversation_id: convo.id });
     res.json({ ok: true });
   } catch (err) {
     console.error('[chat] deleteGroup', err);

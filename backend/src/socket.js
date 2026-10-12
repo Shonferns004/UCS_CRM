@@ -179,6 +179,20 @@ export function emitChat(conversationId, payload) {
   io.to(`chat:${conversationId}`).emit('chat:message', payload);
 }
 
+/**
+ * Broadcasts a chat event to EVERY connected socket.
+ *
+ * Only used for conversation-level lifecycle events (creation, deletion) whose
+ * payload is an id — never a message body. A DM message must stay room-scoped;
+ * a "this room is gone" frame carries no content and every online client needs
+ * it, including people who never joined the room's socket (they still have the
+ * room in their rail from an earlier list fetch).
+ */
+export function emitChatBroadcast(payload) {
+  if (!io) return;
+  io.emit('chat:message', payload);
+}
+
 export function emitRealtime(event, payload, room) {
   if (!io) return;
   const target = room ? io.to(room) : io;
