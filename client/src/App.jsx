@@ -145,7 +145,13 @@ function panelPathFor(user) {
   const dept = String(user.department || '').toLowerCase().trim()
   if (dept.includes('develop')) return ROLE_PATHS.developers
   if (dept.includes('digital')) return ROLE_PATHS.digital
-  return ROLE_PATHS[dept] || ROLE_PATHS[user.role] || null
+  // Role wins over department: a department string does not always name the
+  // panel. An accounts worker is department 'Admin' but role 'accounts', and
+  // ROLE_PATHS['admin'] points at /ngo-admin — so department-first sent them to
+  // a panel whose route only admits role 'admin', ending in AccessDenied right
+  // after a successful login. The token's role is the authoritative panel key.
+  const role = String(user.role || '').toLowerCase().trim()
+  return ROLE_PATHS[role] || ROLE_PATHS[dept] || null
 }
 
 function RootRedirect() {
@@ -163,8 +169,12 @@ function LoginWrapper() {
     const path = panelPathFor(user)
     if (path) return <Navigate to={path} replace />
   }
-  return <Login onLogin={(role) => {
-    navigate(ROLE_PATHS[role] || '/', { replace: true })
+  return <Login onLogin={(loggedInUser) => {
+    // Same resolver the route guards use, so the landing panel can never be a
+    // different one than panelPathFor() would pick (role-first, department only
+    // for the digital/develop split).
+    const path = panelPathFor(loggedInUser)
+    if (path) navigate(path, { replace: true })
   }} />
 }
 
