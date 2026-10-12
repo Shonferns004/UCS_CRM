@@ -57,6 +57,19 @@ export default function Attendance() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [attendanceFilter, setAttendanceFilter] = useState('all');
   const [previewImg, setPreviewImg] = useState(null);
+  // Selfie URLs are presigned server-side and expire; if one still fails to load
+  // (expired link, object gone) it is remembered here so the row can fall back to
+  // the QR/placeholder instead of rendering a broken image.
+  const [brokenSelfies, setBrokenSelfies] = useState(() => new Set());
+  const markSelfieBroken = (url) => {
+    if (!url) return;
+    setBrokenSelfies((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  };
 
   // export range (defaults to this month's start -> today, IST)
   const [exportFrom, setExportFrom] = useState(() => {
@@ -426,6 +439,7 @@ export default function Attendance() {
                               title="Punch-in selfie"
                               className="acc-sel-thumb"
                               onClick={() => setPreviewImg(d.rec.punch_in_selfie_url)}
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
                           ) : null}
                           {d.rec.punch_out_selfie_url && d.rec.punch_out_selfie_url !== d.rec.punch_in_selfie_url ? (
@@ -435,6 +449,7 @@ export default function Attendance() {
                               title="Punch-out selfie"
                               className="acc-sel-thumb"
                               onClick={() => setPreviewImg(d.rec.punch_out_selfie_url)}
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
                           ) : null}
                         </span>
@@ -515,6 +530,7 @@ export default function Attendance() {
                         title="Punch-in selfie"
                         onClick={() => setPreviewImg(selectedDay.rec.punch_in_selfie_url)}
                         className="acc-modal-selfie"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     ) : null}
                     {selectedDay.rec.punch_out_selfie_url && selectedDay.rec.punch_out_selfie_url !== selectedDay.rec.punch_in_selfie_url ? (
@@ -524,6 +540,7 @@ export default function Attendance() {
                         title="Punch-out selfie"
                         onClick={() => setPreviewImg(selectedDay.rec.punch_out_selfie_url)}
                         className="acc-modal-selfie"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     ) : null}
                   </div>
@@ -692,8 +709,8 @@ export default function Attendance() {
               {filtered.map((w) => {
                 const r = w.record;
                 const isPending = r?.selfie_status === 'pending';
-                const hasSelfieIn = !!r?.punch_in_selfie_url;
-                const hasSelfieOut = !!r?.punch_out_selfie_url;
+                const hasSelfieIn = !!r?.punch_in_selfie_url && !brokenSelfies.has(r.punch_in_selfie_url);
+                const hasSelfieOut = !!r?.punch_out_selfie_url && !brokenSelfies.has(r.punch_out_selfie_url);
                 return (
                   <tr
                     key={w.id}
@@ -718,6 +735,7 @@ export default function Attendance() {
                               alt="selfie"
                               style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
                               onClick={(e) => { e.stopPropagation(); setPreviewImg(r.punch_in_selfie_url); }}
+                              onError={() => markSelfieBroken(r.punch_in_selfie_url)}
                             />
                           ) : r.punch_in_time ? (
                             <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
@@ -737,6 +755,7 @@ export default function Attendance() {
                               alt="selfie"
                               style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
                               onClick={(e) => { e.stopPropagation(); setPreviewImg(r.punch_out_selfie_url); }}
+                              onError={() => markSelfieBroken(r.punch_out_selfie_url)}
                             />
                           ) : (
                             <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
