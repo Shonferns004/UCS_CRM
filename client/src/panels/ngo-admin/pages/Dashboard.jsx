@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X, Bell } from 'lucide-react';
-import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection, listCrmAgents } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import TeamWiseCollection from '../components/TeamWiseCollection';
@@ -218,6 +218,14 @@ const hexA = (hex, a) => {
   const n = parseInt(full, 16);
   if (Number.isNaN(n)) return `rgba(99, 102, 241, ${a})`;
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
+// Agent option label for the assign picker: "Agent 1 — Maya Jadhao", so the admin
+// sees both the seat and the FRO it currently covers at the moment of assigning.
+const agentOptionLabel = (a) => {
+  if (!a) return '';
+  const fro = a.fro_name || a.name;
+  return fro ? `${a.agent_label || 'Agent'} — ${fro}` : (a.agent_label || a.login_id || '');
 };
 
 function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
@@ -940,6 +948,14 @@ export default function Dashboard() {
   // and the detail list in place. This is that in-card view switch — it never
   // opens a modal, it just decides which of the two the single column shows.
   const [narrowDetail, setNarrowDetail] = useState(false);
+  // Unused stations in the details panel are assignable: clicking one opens an
+  // agent picker in place. `assigningStation` is the station code in assign mode
+  // (null = none), `savingStation` is the one mid-write so the picker can't fire
+  // twice. The agent roster is loaded once — assigning is rare, and the roster is
+  // too small to be worth caching anywhere else.
+  const [assigningStation, setAssigningStation] = useState(null);
+  const [savingStation, setSavingStation] = useState(null);
+  const [stationAgents, setStationAgents] = useState([]);
   // The Stations card is pinned to the attendance card's height: grid rows grow
   // with their tallest cell, so without this a taller tab body would stretch the
   // attendance card beside it on every switch.
@@ -1504,6 +1520,42 @@ export default function Dashboard() {
     const controller = fetchDashboard();
     return () => controller.abort();
   }, [fetchDashboard]);
+
+  // The agent roster behind the assign picker. Loaded once on mount; a failure is
+  // swallowed so the picker just shows no options instead of breaking the card.
+  useEffect(() => {
+    let alive = true;
+    listCrmAgents()
+      .then((a) => { if (alive) setStationAgents(Array.isArray(a?.agents) ? a.agents : []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // A station code can legitimately exist under more than one NGO, so an open
+  // picker could otherwise survive an NGO switch and write to the wrong seat.
+  useEffect(() => { setAssigningStation(null); }, [selectedNgoKey]);
+
+  // Assign an agent to an unused station. ngo_id is deliberately omitted: the
+  // server looks the station up and keeps the NGO it already sits under, so this
+  // cannot move a seat between NGOs by accident. One write also re-points the
+  // station's donors to that agent's FRO.
+  const handleAssignStationAgent = async (station, agentId) => {
+    if (!agentId || savingStation) return;
+    setSavingStation(station);
+    try {
+      await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, { crm_agent_id: agentId });
+      setAssigningStation(null);
+      // Both feeds carry the per-NGO station split, so refresh the pair — the
+      // live one is what "Today" actually reads.
+      fetchDashboard();
+      setTlRefreshNonce((v) => v + 1);
+      toast(`${station} assigned`, 'success');
+    } catch (err) {
+      toast(err.message || 'Could not assign agent', 'error');
+    } finally {
+      setSavingStation(null);
+    }
+  };
 
   const handleNgoFilter = (ngoId) => {
     if (ngoId === selectedNgoId) return;
@@ -2204,10 +2256,11 @@ export default function Dashboard() {
                 {ngo_rows.length === 0 ? (
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0' }}>No station data for this period.</div>
                 ) : ngo_rows.map((r) => {
-                  // "In use" = stations that have an agent allocated. Unused is the
-                  // backend's own list, so this and the red pill share one source.
-                  const allocated = Math.max(0, r.total - r.unused.length);
-                  const pct = r.total > 0 ? Math.min(100, (allocated / r.total) * 100) : 0;
+                  // Bars track how many of the NGO's stations are live right now —
+                  // the same "active" number the FRO roster uses — because that is
+                  // the figure the admin reads as stations in use. Allocation stays
+                  // on the red pill, whose list the details panel mirrors.
+                  const pct = r.total > 0 ? Math.min(100, (r.active / r.total) * 100) : 0;
                   const selected = r.key === effectiveNgoKey && !stationsNarrow;
                   return (
                     <button
@@ -2216,7 +2269,7 @@ export default function Dashboard() {
                       className="stations-ngo-row"
                       onClick={() => { setSelectedNgoKey(r.key); if (stationsNarrow) setNarrowDetail(true); }}
                       aria-pressed={selected}
-                      aria-label={`${r.name}, ${r.unused.length} stations not in use, ${allocated} of ${r.total} in use`}
+                      aria-label={`${r.name}, ${r.active} of ${r.total} stations active, ${r.unused.length} not in use`}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box',
                         flex: '1 0 auto', minHeight: 34, marginBottom: 6, textAlign: 'left', font: 'inherit',
@@ -2232,7 +2285,7 @@ export default function Dashboard() {
                       <span style={{ flex: 1, minWidth: 0, height: 6, borderRadius: 3, background: 'var(--stations-track, #e4e8ef)', overflow: 'hidden' }}>
                         <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 3, background: r.color }} />
                       </span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{allocated}/{r.total}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{r.active}/{r.total}</span>
                       <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 800, color: '#ef3340', background: 'var(--stations-danger-soft, #fff0f1)', border: '1px solid #ffd6d9', borderRadius: 999, padding: '1px 6px', lineHeight: 1.4 }}>
                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef3340' }} aria-hidden="true" />
                         {r.unused.length}
@@ -2260,27 +2313,54 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <>
-                    {/* Panel header: accent avatar, name, live unused count. */}
+                    {/* Panel header: accent avatar and the NGO name. The unused count
+                        lives on the list below, so repeating it here was noise. */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginBottom: 8, minWidth: 0 }}>
                       <span style={{ width: 24, height: 24, flexShrink: 0, borderRadius: 8, background: selectedNgo.color, color: '#fff', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} aria-hidden="true">
                         {selectedNgo.name.charAt(0).toUpperCase()}
                       </span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedNgo.name}</div>
-                        <div style={{ fontSize: 10, fontWeight: 600, color: '#ef3340', lineHeight: 1.3 }}>
-                          {selectedNgo.unused.length} station{selectedNgo.unused.length === 1 ? '' : 's'} not in use
-                        </div>
-                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{selectedNgo.name}</div>
                     </div>
                     {/* Only this list scrolls; the card itself never does. */}
                     {selectedNgo.unused.length > 0 ? (
                       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: 4, paddingRight: 2, boxSizing: 'border-box' }}>
-                        {selectedNgo.unused.map((s) => (
-                          <div key={s} title={`${s} — no agent allocated`} style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: 'var(--stations-danger-soft, #fff0f1)', border: '1px solid #ffdfe2', borderRadius: 10, padding: '5px 8px', minWidth: 0, boxSizing: 'border-box' }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef3340', flexShrink: 0 }} aria-hidden="true" />
-                            <span style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
-                          </div>
-                        ))}
+                        {selectedNgo.unused.map((s) => {
+                          const open = assigningStation === s;
+                          const saving = savingStation === s;
+                          return (
+                            <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: open ? '#fff' : 'var(--stations-danger-soft, #fff0f1)', border: `1px solid ${open ? '#ffb3bc' : '#ffdfe2'}`, borderRadius: 10, padding: open ? '6px 8px' : '5px 8px' }}>
+                              <button
+                                type="button"
+                                className="stations-assign-row"
+                                onClick={() => setAssigningStation(open ? null : s)}
+                                disabled={saving}
+                                aria-expanded={open}
+                                title={open ? 'Close the assign picker' : `${s} — no agent allocated. Click to assign one.`}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', boxSizing: 'border-box', background: 'none', border: 'none', padding: 0, font: 'inherit', cursor: saving ? 'default' : 'pointer', textAlign: 'left', minWidth: 0, opacity: saving ? 0.6 : 1 }}
+                              >
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef3340', flexShrink: 0 }} aria-hidden="true" />
+                                <span style={{ fontSize: 10, fontWeight: 600, color: '#b91c1c', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: saving ? 'var(--ink-soft)' : '#ef3340', flexShrink: 0, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : (open ? 'Close' : 'Assign')}</span>
+                              </button>
+                              {open && (
+                                <div style={{ display: 'flex', gap: 5, marginTop: 6, minWidth: 0 }}>
+                                  <select
+                                    value=""
+                                    disabled={saving}
+                                    onChange={(e) => { if (e.target.value) handleAssignStationAgent(s, e.target.value); }}
+                                    aria-label={`Assign an agent to station ${s}`}
+                                    style={{ flex: 1, minWidth: 0, fontSize: 10, padding: '4px 5px', borderRadius: 6, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', font: 'inherit', cursor: 'pointer' }}
+                                  >
+                                    <option value="">{stationAgents.length === 0 ? 'No agents available' : (saving ? 'Assigning…' : 'Select agent…')}</option>
+                                    {stationAgents.map((a) => (
+                                      <option key={a.id} value={a.id}>{agentOptionLabel(a)}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 2, background: 'var(--stations-success-soft, #ecfbf2)', border: '1px solid #cdf3e1', borderRadius: 10, padding: '10px 12px', boxSizing: 'border-box' }}>

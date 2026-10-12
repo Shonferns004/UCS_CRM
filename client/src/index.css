@@ -1387,7 +1387,8 @@
 /* The NGO rows are real buttons; the default UA ring is fine but this keeps a
    clear, high-contrast ring on keyboard focus regardless of UA reset. */
 .panel-ngo-admin .stations-ngo-row:focus-visible,
-.panel-ngo-admin .stations-ngo-back:focus-visible {
+.panel-ngo-admin .stations-ngo-back:focus-visible,
+.panel-ngo-admin .stations-assign-row:focus-visible {
   outline:2px solid var(--sage);
   outline-offset:1px;
 }
