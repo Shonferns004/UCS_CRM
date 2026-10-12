@@ -109,6 +109,33 @@ const buildEventContextMaps = async () => {
   return { ngoMap, ngoCodeMap, sectorMap, activityMap, inactiveVolunteers };
 };
 
+// NGO branding (letter-head banner + logo) used by BOTH the daily (single event)
+// and monthly reports, so an event's report always carries its NGO's logo, name
+// and letter-head exactly like the on-screen NGO card.
+const NGO_HEADER_BANNERS = {
+  mann: '/Letter%20Head%20MANN.png',
+  'mann care': '/Letter%20Head%20MANN.png',
+  'mann care foundation': '/Letter%20Head%20MANN.png',
+  aflf: '/Letter%20Head%20AFLF.png',
+  'ashray for life foundation': '/Letter%20Head%20AFLF.png',
+  bsct: '/Letter%20Head%20BSCT%20(1).png',
+  beingsevak: '/Letter%20Head%20BSCT%20(1).png',
+};
+const NGO_LOGOS = {
+  mann: '/logo/mann-logo.png',
+  aflf: '/logo/aflf-logo.png',
+  bsct: '/logo/beingsevak-logo.png',
+};
+const ngoHeaderBannerFor = (name, code) => {
+  const k = String(name || code || '').trim().toLowerCase();
+  if (NGO_HEADER_BANNERS[k]) return NGO_HEADER_BANNERS[k];
+  for (const key of Object.keys(NGO_HEADER_BANNERS)) {
+    if (k.includes(key)) return NGO_HEADER_BANNERS[key];
+  }
+  return null;
+};
+const ngoLogoFor = (code) => (code ? (NGO_LOGOS[code] || `/logo/${code}-logo.png`) : null);
+
 // Load activities for a set of events from the join table (falling back to the
 // primary activity_id so legacy single-activity events still resolve).
 const loadActivitiesForEvents = async (events, activityMap) => {
@@ -254,7 +281,14 @@ export const listEventHeadEvents = async (req, res) => {
     const filters = { ngo_id, sector_id, activity_id, status, month, year };
     const events = await EventHead.getAllEventHeadEvents(filters);
     const ctx = await buildEventContextMaps();
-    return res.json(await enrichEvents(events, ctx));
+    const enriched = await enrichEvents(events, ctx);
+    // Attach a lightweight social-media publishing summary (e.g. 2/3) for the
+    // events-list badge; absent for events with no tracking yet.
+    const summary = await EventHead.getSocialSummaryByEvents(events.map(e => e.id)).catch(() => ({}));
+    return res.json(enriched.map(ev => {
+      const s = summary[ev.id];
+      return s ? { ...ev, social_completed: s.completed, social_total: s.total } : ev;
+    }));
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -358,7 +392,20 @@ export const cleanupEvents = async (req, res) => {
 
 export const updateEventHeadStatus = async (req, res) => {
   try {
-    const event = await EventHead.updateEventHeadEvent(req.params.id, { status: sanitize(req.body).status });
+    const { status } = sanitize(req.body);
+    // A direct status edit must not bypass completion: the social-media rule is
+    // enforced here too, so a raw API call behaves exactly like the UI.
+    if (status === 'Completed') {
+      const stored = await EventHead.getSocialTracking(req.params.id).catch(() => []);
+      const problems = socialProblems(mergeSocialDefaults(stored));
+      if (problems.length) {
+        return res.status(400).json({
+          message: 'Complete the Social Media Publishing details for every platform before marking this event Completed.',
+          problems,
+        });
+      }
+    }
+    const event = await EventHead.updateEventHeadEvent(req.params.id, { status });
     return res.json(event);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -1016,6 +1063,153 @@ export const uploadMedia = async (req, res) => {
   }
 };
 
+// ─── SOCIAL MEDIA TRACKING ───
+// Instagram / Facebook / YouTube publishing details captured when an event is
+// completed. Stored one row per (event_id, platform); the completion rule is
+// enforced here so a direct API call cannot bypass the UI.
+const SOCIAL_PLATFORMS = EventHead.SOCIAL_PLATFORMS || ['instagram', 'facebook', 'youtube'];
+const SOCIAL_STATUSES = ['Pending', 'Uploaded', 'Not Applicable'];
+
+const normalizePlatform = (v) => {
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'ig' || s === 'insta') return 'instagram';
+  if (s === 'fb') return 'facebook';
+  if (s === 'yt') return 'youtube';
+  return s;
+};
+
+// Coerce whatever the client sent into one sanitised row per platform. Uploaded
+// platforms keep their link/date/time/proof; Not Applicable keeps its reason;
+// everything else collapses to Pending with all fields cleared, so a platform
+// that is downgraded never keeps stale publishing data.
+const sanitizeSocialRows = (input) => {
+  const byPlatform = {};
+  const collect = (r = {}) => {
+    const platform = normalizePlatform(r.platform);
+    if (platform) byPlatform[platform] = r;
+  };
+  if (Array.isArray(input)) input.forEach(collect);
+  else if (input && typeof input === 'object') {
+    for (const k of Object.keys(input)) {
+      const v = input[k];
+      if (v && typeof v === 'object') collect({ ...v, platform: v.platform || k });
+    }
+  }
+  return SOCIAL_PLATFORMS.map(platform => {
+    const r = byPlatform[platform] || {};
+    const status = SOCIAL_STATUSES.includes(String(r.status || '').trim()) ? String(r.status).trim() : 'Pending';
+    const uploaded = status === 'Uploaded';
+    const na = status === 'Not Applicable';
+    return {
+      platform,
+      status,
+      url: uploaded && r.url ? String(r.url).trim() : null,
+      content_type: uploaded && r.content_type ? String(r.content_type).trim() : null,
+      upload_date: uploaded && r.upload_date ? String(r.upload_date).trim().slice(0, 10) : null,
+      upload_time: uploaded && r.upload_time ? String(r.upload_time).trim().slice(0, 8) : null,
+      proof_url: uploaded && r.proof_url ? String(r.proof_url).trim() : null,
+      not_applicable_reason: na && r.not_applicable_reason ? String(r.not_applicable_reason).trim() : null,
+    };
+  });
+};
+
+// The completion rule: Uploaded needs an upload date + upload time;
+// Not Applicable needs a reason. Returns a list of { platform, message }.
+const socialProblems = (rows) => {
+  const problems = [];
+  for (const r of rows) {
+    if (r.status === 'Uploaded') {
+      if (!r.upload_date) problems.push({ platform: r.platform, message: 'Upload date is required' });
+      else if (!r.upload_time) problems.push({ platform: r.platform, message: 'Upload time is required' });
+    } else if (r.status === 'Not Applicable') {
+      if (!r.not_applicable_reason) problems.push({ platform: r.platform, message: 'A reason is required when marked Not Applicable' });
+    } else {
+      problems.push({ platform: r.platform, message: 'Mark this platform Uploaded or Not Applicable' });
+    }
+  }
+  return problems;
+};
+
+// Merge stored rows over defaults so the client always receives all three
+// platforms (Pending when nothing has been saved yet).
+const mergeSocialDefaults = (rows) => {
+  const byPlatform = {};
+  for (const r of rows || []) byPlatform[normalizePlatform(r.platform)] = r;
+  return SOCIAL_PLATFORMS.map(platform => {
+    const r = byPlatform[platform] || {};
+    return {
+      platform,
+      status: SOCIAL_STATUSES.includes(r.status) ? r.status : 'Pending',
+      url: r.url || null,
+      content_type: r.content_type || null,
+      upload_date: r.upload_date || null,
+      upload_time: r.upload_time || null,
+      proof_url: r.proof_url || null,
+      not_applicable_reason: r.not_applicable_reason || null,
+    };
+  });
+};
+
+export const getEventSocial = async (req, res) => {
+  try {
+    const rows = await EventHead.getSocialTracking(req.params.eventId);
+    return res.json({ platforms: mergeSocialDefaults(rows) });
+  } catch (error) {
+    console.error('getEventSocial error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Save without completing — lets the author fill the form in pieces while the
+// event keeps its current status.
+export const saveEventSocial = async (req, res) => {
+  try {
+    const rows = sanitizeSocialRows(req.body && req.body.platforms != null ? req.body.platforms : req.body);
+    const saved = await EventHead.upsertSocialTracking(req.params.eventId, rows);
+    return res.json({ platforms: mergeSocialDefaults(saved) });
+  } catch (error) {
+    console.error('saveEventSocial error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Mark completed: validates every platform server-side, persists the tracking
+// and flips the status in one request. Idempotent — completing again just
+// re-saves the same rows.
+export const completeEventHandler = async (req, res) => {
+  try {
+    const event = await EventHead.getEventHeadEventById(req.params.eventId);
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+    const rows = sanitizeSocialRows(req.body && req.body.platforms != null ? req.body.platforms : req.body);
+    const problems = socialProblems(rows);
+    if (problems.length) {
+      return res.status(400).json({
+        message: 'Cannot mark this event Completed — finish the Social Media Publishing details for every platform first.',
+        problems,
+      });
+    }
+    const saved = await EventHead.upsertSocialTracking(req.params.eventId, rows);
+    const updated = event.status === 'Completed'
+      ? event
+      : await EventHead.updateEventHeadEvent(req.params.eventId, { status: 'Completed' });
+    return res.json({ event: updated, platforms: mergeSocialDefaults(saved) });
+  } catch (error) {
+    console.error('completeEventHandler error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const uploadSocialProof = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const { url } = await uploadEventFile(req.file);
+    return res.json({ url });
+  } catch (error) {
+    console.error('uploadSocialProof error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const listMedia = async (req, res) => {
   try {
     const media = await EventHead.getMediaByEvent(req.params.eventId);
@@ -1261,24 +1455,34 @@ export const generateEventReport = async (req, res) => {
     const media = await EventHead.getMediaByEvent(req.params.eventId);
     const checklist = await EventHead.getChecklistByEvent(req.params.eventId);
     const distributions = await EventHead.getDistributionsByEvent(req.params.eventId);
+    const socialRows = await EventHead.getSocialTracking(req.params.eventId).catch(() => []);
 
-    const { ngoMap, sectorMap, activityMap } = await buildEventContextMaps();
+    const { ngoMap, ngoCodeMap, sectorMap, activityMap } = await buildEventContextMaps();
     const activitiesList = await EventHead.getAllActivities().catch(() => []);
     const activityById = {}; for (const a of activitiesList) activityById[a.id] = a;
     const evActivity = event.activity_id != null ? activityById[event.activity_id] : null;
 
     const day = event.date ? new Date(String(event.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : null;
 
+    // Resolve the event's NGO branding so the daily report shows the same logo,
+    // name and colour as that NGO's monthly card.
+    const ngoName = event.ngo_id != null ? ngoMap[event.ngo_id] || null : null;
+    const ngoCode = event.ngo_id != null ? String(ngoCodeMap[event.ngo_id] || '') : '';
+    const ngoIdBanner = Array.isArray(media) ? (media.find(m => m.media_type === 'Banner') || {}).url || null : null;
+
     const enrichedEvent = {
       ...event,
-      ngo_name: event.ngo_id != null ? ngoMap[event.ngo_id] || null : null,
+      ngo_name: ngoName,
+      ngo_code: ngoCode,
+      ngo_logo: ngoLogoFor(ngoCode),
+      ngo_banner: ngoHeaderBannerFor(ngoName, ngoCode),
       sector_name: event.sector_id != null ? sectorMap[event.sector_id] || null : null,
       activity_name: evActivity ? evActivity.name : (event.activity_id != null ? activityMap[event.activity_id] || null : null),
-      banner: event.banner || (evActivity ? evActivity.banner || null : null) || (Array.isArray(media) ? (media.find(m => m.media_type === 'Banner') || {}).url || null : null),
+      banner: event.banner || (evActivity ? evActivity.banner || null : null) || ngoIdBanner,
       day,
     };
 
-    const report = { event: enrichedEvent, expenses, attendance, media, checklist, distributions, generated_at: new Date() };
+    const report = { event: enrichedEvent, expenses, attendance, media, checklist, distributions, social: mergeSocialDefaults(socialRows), generated_at: new Date() };
     return res.json(report);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1351,33 +1555,6 @@ export const generateNgoMonthlyReport = async (req, res) => {
       }
     } catch { /* banners are optional */ }
 
-    // NGO header banner (letter-head) mapped by NGO name/code.
-    const NGO_HEADER_BANNERS = {
-      mann: '/Letter%20Head%20MANN.png',
-      'mann care': '/Letter%20Head%20MANN.png',
-      'mann care foundation': '/Letter%20Head%20MANN.png',
-      aflf: '/Letter%20Head%20AFLF.png',
-      'aflf': '/Letter%20Head%20AFLF.png',
-      'ashray for life foundation': '/Letter%20Head%20AFLF.png',
-      bsct: '/Letter%20Head%20BSCT%20(1).png',
-      'bsct': '/Letter%20Head%20BSCT%20(1).png',
-      'beingsevak': '/Letter%20Head%20BSCT%20(1).png',
-    };
-    // NGO logos mapped by NGO code.
-    const NGO_LOGOS = {
-      mann: '/logo/mann-logo.png',
-      aflf: '/logo/aflf-logo.png',
-      bsct: '/logo/beingsevak-logo.png',
-    };
-    const ngoHeaderBanner = (name, code) => {
-      const k = String(name || code || '').trim().toLowerCase();
-      if (NGO_HEADER_BANNERS[k]) return NGO_HEADER_BANNERS[k];
-      for (const key of Object.keys(NGO_HEADER_BANNERS)) {
-        if (k.includes(key)) return NGO_HEADER_BANNERS[key];
-      }
-      return null;
-    };
-
     const byNgo = new Map();
     for (const e of enriched) {
       const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
@@ -1387,8 +1564,8 @@ export const generateNgoMonthlyReport = async (req, res) => {
           ngo_id: e.ngo_id != null ? e.ngo_id : null,
           ngo_name: e.ngo_name || ctx.ngoMap[e.ngo_id] || `NGO ${e.ngo_id || ''}`.trim(),
           code,
-          logo: NGO_LOGOS[code] || (code ? `/logo/${code}-logo.png` : null),
-          banner: ngoHeaderBanner(e.ngo_name, ctx.ngoMap[e.ngo_id]),
+          logo: ngoLogoFor(code),
+          banner: ngoHeaderBannerFor(e.ngo_name, ctx.ngoMap[e.ngo_id]),
           events_count: 0,
           submitted: 0,
           completed: 0,

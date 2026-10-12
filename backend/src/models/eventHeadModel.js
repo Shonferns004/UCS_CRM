@@ -547,6 +547,58 @@ export const deleteMedia = async (eventId, id) => {
   return { message: 'Media deleted' };
 };
 
+// ─── SOCIAL MEDIA TRACKING ───
+// The three platforms the organisation publishes on. Kept here (and exported)
+// so the controller, the report and the completion rule all agree on the set.
+export const SOCIAL_PLATFORMS = ['instagram', 'facebook', 'youtube'];
+
+// Raw rows for one event (may be empty or partial). The controller normalises
+// them into one entry per platform.
+export const getSocialTracking = async (eventId) => {
+  const { data, error } = await db.from('event_head_social_tracking').select('*').eq('event_id', eventId);
+  if (error) throw error;
+  return data || [];
+};
+
+// One row per (event_id, platform): the UNIQUE constraint makes this an upsert,
+// so re-submitting completion updates the same rows instead of duplicating.
+export const upsertSocialTracking = async (eventId, rows) => {
+  if (!rows || !rows.length) return [];
+  const payload = rows.map(r => ({
+    event_id: eventId,
+    platform: r.platform,
+    status: r.status || 'Pending',
+    url: r.url ?? null,
+    content_type: r.content_type ?? null,
+    upload_date: r.upload_date || null,
+    upload_time: r.upload_time || null,
+    proof_url: r.proof_url ?? null,
+    not_applicable_reason: r.not_applicable_reason ?? null,
+    updated_at: new Date(),
+  }));
+  const { data, error } = await db.from('event_head_social_tracking')
+    .upsert(payload, { onConflict: 'event_id,platform' })
+    .select();
+  if (error) throw error;
+  return data || [];
+};
+
+// Per-event completion counts for the events-list badge: an event is "complete"
+// for a platform when it is Uploaded or explicitly Not Applicable.
+export const getSocialSummaryByEvents = async (eventIds) => {
+  if (!eventIds || !eventIds.length) return {};
+  const { data, error } = await db.from('event_head_social_tracking')
+    .select('event_id, platform, status')
+    .in('event_id', eventIds);
+  if (error) throw error;
+  const out = {};
+  for (const r of data || []) {
+    if (!out[r.event_id]) out[r.event_id] = { completed: 0, total: SOCIAL_PLATFORMS.length };
+    if (r.status === 'Uploaded' || r.status === 'Not Applicable') out[r.event_id].completed++;
+  }
+  return out;
+};
+
 // ─── ATTENDANCE ───
 export const createAttendance = async (eventId, data) => {
   const { data: result, error } = await db.from('event_head_attendance').insert([{ ...data, event_id: eventId }]).select().single();

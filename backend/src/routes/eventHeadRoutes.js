@@ -117,6 +117,13 @@ router.put('/events/:eventId/media/:id', eh, mediaUpload.single('file'), ctrl.re
 router.delete('/events/:eventId/media/:id', eh, ctrl.removeMedia);
 router.get('/events/:id/banner', eh, ctrl.viewEventBanner);
 
+// Social media publishing tracking (Instagram / Facebook / YouTube) captured at
+// completion. Proof uploads go to the same S3 "event" folder as banners.
+router.get('/events/:eventId/social', eh, ctrl.getEventSocial);
+router.put('/events/:eventId/social', eh, ctrl.saveEventSocial);
+router.post('/events/:eventId/social/proof', eh, mediaUpload.single('file'), ctrl.uploadSocialProof);
+router.post('/events/:eventId/complete', eh, ctrl.completeEventHandler);
+
 // Attendance (scoped under event)
 router.get('/events/:eventId/attendance', eh, ctrl.listAttendance);
 router.post('/events/:eventId/attendance', eh, ctrl.createAttendance);

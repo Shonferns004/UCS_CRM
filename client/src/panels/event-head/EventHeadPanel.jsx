@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
-import { Grid, Cal, Plus, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
+import { Grid, Cal, FileTxt, Bell, Plane, Eye } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import { fetchDeadlineNotifs } from './store'
@@ -44,16 +44,8 @@ const NAV = [
      highlighted as active — sharing one path would light up both at once. */
   { id:'planner',         path:'/event-head/planner',           label:'Monthly Planner',       icon:Plane, section:'Programs' },
   { id:'reels-checklist', path:'/event-head/reels-checklist',   label:'Reels Checklist',       icon:Eye, section:'Programs' },
-  { id:'ngos',           path:'/event-head/ngos',             label:'NGOs',                  icon:Brief, section:'Programs' },
-  { id:'sectors',        path:'/event-head/sectors',          label:'Sectors',               icon:Grid, section:'Programs' },
-  { id:'activities',     path:'/event-head/activities',       label:'Activities',            icon:Star, section:'Programs' },
-  { id:'create',         path:'/event-head/create',           label:'+ Create Event',        icon:Plus, section:'Programs' },
-  { id:'events-list',    path:'/event-head/events-list',      label:'My Events',             icon:Cal, section:'Manage' },
   { id:'media',          path:'/event-head/media-management', label:'Media / Banners',       icon:Eye, section:'Manage' },
-  { id:'volunteers',     path:'/event-head/volunteers',       label:'Voluntary',             icon:Users, section:'Manage' },
   { id:'reports',        path:'/event-head/reports',          label:'Event Reports',         icon:FileTxt, section:'Reporting' },
-  { id:'approvals',      path:'/event-head/approvals',        label:'Approval Workflow',     icon:SettingsIcon, section:'Reporting' },
-  { id:'notifications',  path:'/event-head/notifications',    label:'Notifications',         icon:Bell, section:'Reporting' },
   { id:'my-tickets',     path:'/event-head/my-tickets',       label:'My Tickets',            icon:Bell, section:'Reporting' },
   { id:'all-tickets',    path:'/event-head/all-tickets',      label:'All Tickets',           icon:FileTxt, section:'Reporting' },
   { id:'chat',           path:'/event-head/chat',             label:'Community',             icon:ChatIcon, section:'Community' },

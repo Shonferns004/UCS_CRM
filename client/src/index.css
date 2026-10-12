@@ -3413,6 +3413,142 @@
   .panel-event-head .eh-metrics { gap: 20px; }
 }
 
+/* ── Event Head · Dashboard (Overview) polish ────────────────────────────────
+   Everything below is scoped to .ehd (the EventDashboard root) so it never
+   leaks to the other event-head pages. Layout/typography only — no data logic. */
+.panel-event-head .content-body:has(> .ehd) { background: #f5f6fa; }
+.panel-event-head .content-body > .ehd { max-width: 1200px; margin: 0 auto; width: 100%; }
+
+.ehd {
+  --d-purple:#5b3fd9; --d-purple-soft:#eee9ff;
+  --d-blue:#2f6fed;   --d-blue-soft:#e8f0fe;
+  --d-green:#12a150;  --d-green-soft:#e6f6ec;
+  --d-amber:#c98a00;  --d-amber-soft:#fdf3dd;
+  --d-red:#d92d4a;    --d-red-soft:#fdeaee;
+  --d-line:#e6e8f0; --d-card:#ffffff; --d-muted:#6b7280;
+  font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-size:14px; color:var(--eh-ink,#0f1128);
+}
+.ehd .eh-section { border-radius:14px; border-color:var(--d-line); margin-bottom:14px; box-shadow:0 1px 2px rgba(15,17,40,.04); }
+.ehd .eh-section-head { padding:16px; }
+.ehd .eh-section-body { padding:16px; }
+.ehd .eh-section-head h3 { font-size:15px; font-weight:600; }
+.ehd .eh-section-head .eh-section-sub { font-size:12.5px; color:var(--d-muted); }
+.ehd .eh-btn { padding:8px 13px; border-radius:10px; font-size:12.5px; }
+
+/* Page header */
+.ehd .eh-page { padding-bottom:14px; }
+.ehd .eh-page h2 { font-size:24px; }
+.ehd .eh-page-head { margin-bottom:14px; }
+
+/* Filter grid: even, responsive, compact dropdowns */
+.ehd-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+.ehd-filters .eh-select {
+  appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  height:38px; width:100%; min-width:0; padding:0 34px 0 12px; border-radius:10px;
+  border:1px solid var(--d-line); background-color:var(--d-card); color:var(--eh-ink,#0f1128);
+  font-size:13px; cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 12px center; background-size:12px;
+}
+.ehd-filters .eh-select:focus { border-color:var(--d-purple); box-shadow:0 0 0 3px var(--d-purple-soft); outline:none; }
+.ehd-filters .eh-select:disabled { opacity:.55; }
+
+/* Stat cards */
+.ehd .eh-metrics { grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; margin-bottom:14px; }
+.ehd .eh-metric { border-radius:14px; border-color:var(--d-line); padding:16px; flex-direction:row; align-items:center; gap:14px; box-shadow:0 1px 2px rgba(15,17,40,.04); }
+.ehd .eh-metric:hover { transform:none; box-shadow:0 4px 14px rgba(15,17,40,.08); border-color:var(--d-line); }
+.ehd .eh-metric .eh-m-icon { width:40px; height:40px; border-radius:10px; flex-shrink:0; }
+.ehd .eh-metric .eh-m-icon svg { width:20px; height:20px; }
+.ehd .eh-metric .eh-m-num { font-size:26px; font-weight:700; line-height:1.05; }
+.ehd .eh-metric .eh-m-lbl { font-size:12.5px; color:var(--d-muted); margin-top:3px; }
+
+/* Shared bits */
+.ehd-muted { font-size:12.5px; color:var(--d-muted); }
+.ehd-loading { padding:60px; text-align:center; color:var(--d-muted); }
+.ehd-error { display:flex; align-items:center; gap:12px; flex-wrap:wrap; background:#fff; border:1px solid var(--d-line); border-left:3px solid var(--d-red); border-radius:14px; padding:14px 16px; margin-bottom:14px; font-weight:600; color:var(--d-red); }
+.ehd-error small { font-weight:400; color:var(--d-muted); flex:1; min-width:160px; }
+
+/* Programmes */
+.ehd-prog-list { display:flex; flex-direction:column; max-height:290px; overflow-y:auto; padding-right:4px; }
+.ehd-prog-list::-webkit-scrollbar { width:8px; }
+.ehd-prog-list::-webkit-scrollbar-track { background:transparent; }
+.ehd-prog-list::-webkit-scrollbar-thumb { background:#d4d7e3; border-radius:99px; }
+.ehd-prog-list::-webkit-scrollbar-thumb:hover { background:#b9bdcf; }
+.ehd-prog-day { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--d-muted); margin:8px 0 6px; }
+.ehd-prog-day:first-child { margin-top:0; }
+.ehd-prog { display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; font-family:inherit;
+  border:1px solid var(--d-line); border-radius:12px; padding:11px 13px; background:var(--d-card);
+  transition:border-color .15s, box-shadow .15s; }
+.ehd-prog:hover { border-color:var(--d-purple); box-shadow:0 4px 14px rgba(91,63,217,.10); }
+.ehd-prog-body { display:flex; flex-direction:column; gap:5px; min-width:0; flex:1; }
+.ehd-prog-title { font-size:14px; font-weight:600; color:var(--eh-ink,#0f1128); }
+.ehd-prog-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ehd-chip { font-size:11px; font-weight:600; padding:2px 9px; border-radius:99px; background:var(--d-purple-soft); color:var(--d-purple); }
+.ehd-time { font-size:11.5px; color:var(--d-muted); font-weight:600; }
+.ehd-status { font-size:11px; font-weight:700; padding:3px 10px; border-radius:99px; white-space:nowrap; }
+
+/* Empty states */
+.ehd-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center;
+  padding:34px 20px; border:1px dashed var(--d-line); border-radius:12px; color:var(--d-muted); font-size:13px; background:rgba(255,255,255,.55); }
+.ehd-empty .material-symbols-outlined { font-size:26px; color:#b9bdcf; }
+
+/* Today's / Upcoming / Attention rows */
+.ehd-attn { display:flex; align-items:flex-start; gap:12px; padding:12px 4px; border-bottom:1px solid var(--d-line); cursor:pointer; }
+.ehd-attn:last-child { border-bottom:none; }
+.ehd-attn-dot { width:9px; height:9px; border-radius:50%; margin-top:6px; flex-shrink:0; }
+.ehd-attn-body { min-width:0; flex:1; }
+.ehd-attn-title { font-size:13.5px; font-weight:600; color:var(--eh-ink,#0f1128); }
+.ehd-attn-date { font-size:12px; color:var(--d-muted); margin-top:2px; }
+.ehd-datebox { width:56px; flex-shrink:0; text-align:center; background:#f4f5fb; border:1px solid var(--d-line); border-radius:10px; padding:5px 0; }
+.ehd-datebox-t { font-size:12px; font-weight:700; color:var(--d-purple); }
+.ehd-datebox-d { font-size:10px; text-transform:uppercase; font-weight:700; color:#9aa0bd; }
+.ehd-datebox-n { font-size:15px; font-weight:700; color:var(--d-purple); line-height:1.1; }
+
+/* This Month */
+.ehd-month-badge { width:36px; height:36px; border-radius:10px; background:var(--d-purple-soft); color:var(--d-purple); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.ehd-month-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.ehd-m-num { font-size:26px; font-weight:700; line-height:1.1; }
+.ehd-m-lbl { font-size:12px; color:var(--d-muted); margin-top:3px; }
+
+/* NGO performance bars */
+.ehd-bar-row { padding:10px 0; border-bottom:1px solid var(--d-line); cursor:pointer; transition:padding-left .15s; }
+.ehd-bar-row:last-child { border-bottom:none; }
+.ehd-bar-row:hover { padding-left:6px; }
+.ehd-bar-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
+.ehd-bar-name { font-size:13.5px; font-weight:600; color:var(--eh-ink,#0f1128); }
+.ehd-bar-count { font-size:13px; font-weight:700; color:var(--d-purple); }
+.ehd-bar-track { height:8px; border-radius:99px; background:#eef0f6; overflow:hidden; }
+.ehd-bar-fill { height:100%; border-radius:99px; background:linear-gradient(90deg,var(--d-purple),#8b6ff0); transition:width .3s; }
+
+/* Events by sector */
+.ehd-sector-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+.ehd-sector { border:1px solid var(--d-line); border-radius:14px; padding:13px 14px; background:#fff; cursor:pointer;
+  transition:border-color .15s, box-shadow .15s, transform .15s; }
+.ehd-sector.has-events { border-color:var(--d-purple); background:var(--d-purple-soft); }
+.ehd-sector:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(91,63,217,.12); border-color:var(--d-purple); }
+.ehd-sector-name { font-size:13.5px; font-weight:600; margin-bottom:8px; color:var(--eh-ink,#0f1128); }
+.ehd-sector-stats { display:flex; flex-direction:column; gap:3px; font-size:12.5px; color:var(--d-muted); }
+.ehd-sector-stats b { color:var(--d-purple); }
+
+/* Recent notices → light-blue full-width card with a centered empty state */
+.ehd-notices > div { background:#eef4ff !important; border-color:#dbe6ff !important; }
+.ehd-notices p { display:flex !important; flex-direction:column; align-items:center; gap:6px; padding:30px 16px !important;
+  margin:6px 0 2px !important; border:1px dashed #c3d4ff; border-radius:12px; color:var(--d-muted) !important; font-size:13px !important; }
+.ehd-notices p::before { content:'campaign'; font-family:'Material Symbols Outlined'; font-size:26px; color:#a9c0f5; }
+
+/* Responsive: two-column sections collapse to one column below ~800px */
+@media (max-width:800px) {
+  .panel-event-head .ehd .eh-grid-2 { grid-template-columns:1fr; }
+}
+@media (max-width:640px) {
+  .ehd-filters { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .ehd-month-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .ehd-attn { flex-wrap:wrap; }
+  .ehd .eh-page-head .eh-actions { width:100%; }
+  .ehd .eh-page-head .eh-actions > * { flex:1; justify-content:center; }
+}
+
 /* -- Accounts: collapsible sidebar groups -- */
 /* Nested-navigation styling for the accounts sidebar now lives in
    panels/accounts/sidebar/accountsSidebar.css. It used to sit here, but the
