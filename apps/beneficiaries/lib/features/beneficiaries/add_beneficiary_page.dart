@@ -516,8 +516,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           if (letter != null) {
             if (letter.address.isNotEmpty)
               _locationController.text = letter.address;
-            if (letter.city != null) _cityController.text = letter.city!;
-            if (letter.state != null) _stateController.text = letter.state!;
+            final cs = _extractCityState(text);
+            final city = letter.city ?? cs.city;
+            final st = letter.state ?? cs.state;
+            if (city != null) _cityController.text = city;
+            if (st != null) _stateController.text = st;
             if (letter.pin != null) _pincodeController.text = letter.pin!;
             if (letter.mobile != null &&
                 _mobileController.text.trim().isEmpty) {
@@ -535,7 +538,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       } else {
         final address = _extractAddress(text);
         final pin = RegExp(r'\b\d{6}\b').firstMatch(text)?.group(0);
-
+        final cs = _extractCityState(text);
         setState(() {
           _ocrBusyBack = false;
           if (address != null && address.isNotEmpty) {
@@ -544,6 +547,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           if (pin != null && _pincodeController.text.trim().isEmpty) {
             _pincodeController.text = pin;
           }
+          if (cs.city != null) _cityController.text = cs.city!;
+          if (cs.state != null) _stateController.text = cs.state!;
         });
         showAppSnackbar(
           context,
@@ -636,27 +641,25 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   }
 
   String? _extractDob(String text) {
-    // OCR ki aam galtiyan theek karo.
-    final fixed = text
-        .replaceAllMapped(
-          RegExp(r'(?<=\d)\s*([\/\-.])\s*(?=\d)'),
-          (m) => m.group(1)!,
-        )
-        .replaceAll(RegExp(r'(?<=\d)[Oo](?=\d)'), '0');
-
+    final loose = RegExp(
+      r'[\dOoIl]{1,2}\s*[\/\-.]\s*[\dOoIl]{1,2}\s*[\/\-.]\s*[\dOoIl]{4}',
+    );
+    final fixed = text.replaceAllMapped(loose, (m) {
+      return m
+          .group(0)!
+          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll(RegExp(r'[Oo]'), '0')
+          .replaceAll(RegExp(r'[Il]'), '1');
+    });
     final lines = _lines(fixed);
-
     final dateRegex = RegExp(
       r'(?<!\d)(0?[1-9]|[12]\d|3[01])[\/\-.](0?[1-9]|1[0-2])[\/\-.](19|20)\d{2}(?!\d)',
     );
 
-    // DOB label: OCR ki galtiyon ke saath (D0B, DO8, DOB, Birth).
     final dobLabel = RegExp(
       r'(d[o0]b|d\.o\.b|birth|year\s*of)',
       caseSensitive: false,
     );
-
-    // Sirf wo lines hatao jinme ye words hon aur DOB label na ho.
     final excludeLabel = RegExp(
       r'(issued|details\s*as\s*on|enrol|generated|printed|download)',
       caseSensitive: false,
@@ -711,7 +714,14 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         found[_parseOcrDob(s)!] = s;
       }
     }
-    if (found.isEmpty) return null;
+    if (found.isEmpty) {
+      final yob = RegExp(
+        r'(?:year\s*of\s*birth|yob)\s*[:\-]?\s*((?:19|20)\d{2})',
+        caseSensitive: false,
+      ).firstMatch(text);
+      if (yob != null) return '01/01/${yob.group(1)}';
+      return null;
+    }
     final oldest = found.keys.reduce((a, b) => a.isBefore(b) ? a : b);
     return found[oldest];
   }
@@ -732,9 +742,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       )
       .join(' ');
 
-  /// Name sits just above the DOB / gender line on the Aadhaar front, so we
-  /// look upwards from there instead of grabbing the first text-like line
-  /// (which used to pick up "Aam Aadmi Ka Adhikar" etc.).
   String? _extractName(String text) {
     final lines = _lines(text);
 
@@ -911,8 +918,104 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     return cleaned.isNotEmpty ? cleaned : raw.trim();
   }
 
-  /// e-Aadhaar letter (bada wala) ke "To ... PIN Code ... Mobile" block se
-  /// address nikalta hai. Block na mile to null.
+  static const List<String> _indianStates = [
+    'Andhra Pradesh',
+    'Arunachal Pradesh',
+    'Assam',
+    'Bihar',
+    'Chhattisgarh',
+    'Goa',
+    'Gujarat',
+    'Haryana',
+    'Himachal Pradesh',
+    'Jharkhand',
+    'Karnataka',
+    'Kerala',
+    'Madhya Pradesh',
+    'Maharashtra',
+    'Manipur',
+    'Meghalaya',
+    'Mizoram',
+    'Nagaland',
+    'Odisha',
+    'Orissa',
+    'Punjab',
+    'Rajasthan',
+    'Sikkim',
+    'Tamil Nadu',
+    'Telangana',
+    'Tripura',
+    'Uttar Pradesh',
+    'Uttarakhand',
+    'West Bengal',
+    'Delhi',
+    'Jammu and Kashmir',
+    'Jammu & Kashmir',
+    'Ladakh',
+    'Puducherry',
+    'Chandigarh',
+    'Andaman and Nicobar Islands',
+    'Dadra and Nagar Haveli',
+    'Daman and Diu',
+    'Lakshadweep',
+  ];
+
+  /// Back side ke poore text se city aur state nikalta hai.
+  /// Pehle "VTC / District / State:" labels, warna state ke naam se.
+  ({String? city, String? state}) _extractCityState(String text) {
+    final flat = text.replaceAll(RegExp(r'\s+'), ' ');
+
+    String? byLabel(String pattern) {
+      final m = RegExp(
+        '(?:$pattern)\\s*[:\\-]\\s*([A-Za-z][A-Za-z .]*?)\\s*'
+        '(?:,|\$|\\d|\\b(?:PIN|State|District|Dist|VTC|PO)\\b)',
+        caseSensitive: false,
+      ).firstMatch(flat);
+      final v = m?.group(1)?.trim();
+      return (v == null || v.isEmpty) ? null : v;
+    }
+
+    // State
+    String? state = byLabel(r'state');
+    if (state == null) {
+      final sorted = [..._indianStates]
+        ..sort((a, b) => b.length.compareTo(a.length));
+      for (final s in sorted) {
+        if (RegExp(
+          '\\b${RegExp.escape(s)}\\b',
+          caseSensitive: false,
+        ).hasMatch(flat)) {
+          state = s;
+          break;
+        }
+      }
+    }
+
+    // City
+    String? city =
+        byLabel(r'vtc') ?? byLabel(r'(?<!sub )(?<!sub-)district|(?<!sub )dist');
+
+    // Labels nahi mile: state se just pehle wala comma-part city maano.
+    if (city == null && state != null) {
+      final idx = flat.toLowerCase().lastIndexOf(state.toLowerCase());
+      if (idx > 0) {
+        final before = flat
+            .substring(0, idx)
+            .replaceAll(RegExp(r'[\s,\-:]+$'), '')
+            .replaceAll(RegExp(r'\s*state$', caseSensitive: false), '');
+        final last = before
+            .split(',')
+            .last
+            .replaceAll(RegExp(r'[^A-Za-z .]'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (last.length >= 3) city = last;
+      }
+    }
+
+    return (city: city, state: state);
+  }
+
   ({String address, String? city, String? state, String? pin, String? mobile})?
   _extractLetterAddress(String text) {
     final lines = _lines(text);

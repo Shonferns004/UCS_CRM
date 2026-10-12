@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useBnfBase } from '../bnfUi'
 import { apiGet, apiPatch, apiPost, apiPut, apiDelete } from '../store'
+import { StateSelect, DistrictSelect } from '../../../components/LocationSelect'
+import { stateForDistrict, districtsOfState as districtsOf } from '../../../utils/indiaLocations'
 
 const styles = {
   card: { background: 'var(--card-bg)', boxShadow: 'var(--shadow)', borderRadius: 'var(--radius)', border: '1px solid var(--line)', padding: '20px', marginBottom: '16px' },
@@ -138,6 +140,29 @@ export default function BeneficiaryProfile() {
   const cancelEdit = () => { setEditing(false); setSaveError(null) }
 
   const setField = (key, value) => setForm((p) => ({ ...p, [key]: value }))
+
+  // Picking a district fills in its state when the name is unique to one state
+  // (Bilaspur / Hamirpur / Pratapgarh exist in two, so those need a manual pick).
+  const pickDistrict = (district) => {
+    setForm((prev) => {
+      const next = { ...prev, district }
+      if (district) {
+        const state = stateForDistrict(district)
+        if (state) next.state = state
+        else if (prev.state && !districtsOf(prev.state).includes(district)) next.state = ''
+      }
+      return next
+    })
+  }
+
+  const pickState = (state) => {
+    setForm((prev) => {
+      const next = { ...prev, state }
+      // A district from another state would be wrong, so drop it.
+      if (state && prev.district && !districtsOf(state).includes(prev.district)) next.district = ''
+      return next
+    })
+  }
 
   const sameValue = (a, b) => str(a).trim() === str(b).trim()
 
@@ -299,8 +324,8 @@ export default function BeneficiaryProfile() {
             {/* <E label="Alternate Number">{Text('alternate_mobile')}</E> */}
             {/* <E label="Email">{Text('email', { type: 'email' })}</E> */}
             <E label="City">{Text('city')}</E>
-            <E label="District">{Text('district')}</E>
-            <E label="State">{Text('state')}</E>
+            <E label="District"><DistrictSelect value={str(form.district)} onChange={pickDistrict} ariaLabel="District" /></E>
+            <E label="State"><StateSelect value={str(form.state)} onChange={pickState} ariaLabel="State" /></E>
             <E label="Pincode">{Text('pincode')}</E>
             <E label="NGO">
               <select value={str(form.ngo_id)} onChange={(e) => setField('ngo_id', e.target.value)} style={styles.input}>
@@ -1022,7 +1047,7 @@ export default function BeneficiaryProfile() {
 
       {kitConfirm && (
         <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 13, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <span>This member already received a kit within the last 3 months. Give the kit again anyway?</span>
+          <span>This member already received a kit within the last 1 months. Give the kit again anyway?</span>
           <button onClick={() => markKitGiven(true)} disabled={kitMarking} style={{ ...styles.btn, background: '#b45309', color: '#fff' }}>
             {kitMarking ? 'Saving...' : 'Give Anyway'}
           </button>

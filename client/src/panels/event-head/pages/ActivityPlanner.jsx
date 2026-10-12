@@ -24,6 +24,13 @@ import {
   mergeProgrammeRows,
   BENEFICIARY_CATEGORIES,
 } from '../store.jsx'
+import {
+  fetchTaskAssignees,
+  fetchTaskAssignments,
+  fetchTaskMonthAssignments,
+  createTaskAssignment,
+  deleteTaskAssignment,
+} from '../../../api/taskAssignments'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
 
@@ -987,9 +994,143 @@ function PlanModal({ entry, ngo, month, onClose, onSaved }) {
   )
 }
 
+/* ── Assign a task to a Social team member ──────────────────────────────── */
+
+/* Reached from the "Assign Task" button, which the Social panel turns on by
+   mounting this planner with the `taskAssignment` prop (the Event Manager does
+   not). The manager picks a member of the Social roster and a day of the month
+   on screen; the task then shows read-only on that member's Daily Report for
+   the date, and stays removable here. */
+function AssignTaskModal({ month, onClose, onNotify }) {
+  const [assignees, setAssignees] = useState([])
+  const [date, setDate] = useState(() => {
+    const today = toYmd(new Date())
+    return today.slice(0, 7) === String(month).slice(0, 7) ? today : `${month}-01`
+  })
+  const [form, setForm] = useState({ assignee_id: '', title: '', description: '' })
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    fetchTaskAssignees()
+      .then((r) => { if (alive) setAssignees(r?.employees || []) })
+      .catch((e) => onNotify?.(e?.message || 'Could not load the Social team.'))
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadRows = useCallback((d) => {
+    setLoading(true)
+    fetchTaskAssignments(d)
+      .then((r) => setRows(r?.created_by_me || []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { loadRows(date) }, [date, loadRows])
+
+  const save = async () => {
+    if (busy) return
+    const member = assignees.find((a) => String(a.id) === form.assignee_id)
+    if (!member) return onNotify?.('Choose a team member.')
+    if (!form.title.trim()) return onNotify?.('Enter a task title.')
+    setBusy(true)
+    try {
+      await createTaskAssignment({
+        assignee_id: String(member.id),
+        assignee_name: member.name,
+        task_date: date,
+        title: form.title.trim(),
+        description: form.description.trim(),
+      })
+      setForm({ assignee_id: '', title: '', description: '' })
+      loadRows(date)
+      onNotify?.('Task assigned.')
+    } catch (e) {
+      onNotify?.(e?.message || 'Could not assign the task.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id) => {
+    try {
+      await deleteTaskAssignment(id)
+      setRows((list) => list.filter((r) => String(r.id) !== String(id)))
+    } catch (e) {
+      onNotify?.(e?.message || 'Could not remove the task.')
+    }
+  }
+
+  return (
+    <ModalShell title="Assign Task" subtitle={`Social team · ${monthLabel(month)}`} onClose={onClose} width={620}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Team member">
+          <Select value={form.assignee_id} onChange={(v) => setForm({ ...form, assignee_id: v })}>
+            <option value="">Select a member…</option>
+            {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+        </Field>
+
+        <Field label="Date" hint="Any day of the month on screen — it shows on that day's Daily Report.">
+          <Select value={date} onChange={setDate}>
+            {daysInMonth(month).map((d) => <option key={d} value={d}>{shortDate(d)}</option>)}
+          </Select>
+        </Field>
+
+        <Field label="Task">
+          <input
+            className="eh-select"
+            value={form.title}
+            placeholder="What should they do?"
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
+          />
+        </Field>
+
+        <Field label="Details (optional)">
+          <textarea
+            className="eh-select"
+            rows={3}
+            value={form.description}
+            placeholder="Brief, deliverables, links…"
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
+        </Field>
+
+        <div>
+          <div style={{ ...LABEL, marginBottom: 8 }}>Assigned · {shortDate(date)}</div>
+          {loading && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}>Loading…</div>}
+          {!loading && rows.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}>Nothing assigned for this date yet.</div>
+          )}
+          {!loading && rows.map((t) => (
+            <div key={t.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', borderTop: '1px solid var(--eh-line)', padding: '8px 0' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--eh-ink)' }}>{t.title}</div>
+                {t.description && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', marginTop: 2 }}>{t.description}</div>}
+                <div style={{ fontSize: 11, color: 'var(--eh-ink-faint)', marginTop: 2 }}>To {t.assignee_name}</div>
+              </div>
+              <button className="eh-btn eh-btn-sm" onClick={() => remove(t.id)} title="Remove task">✕</button>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="eh-btn eh-btn-primary" onClick={save} disabled={busy}>
+            {busy ? 'Assigning…' : 'Assign task'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
 /* ── Page ───────────────────────────────────────────────────────────────── */
 
-export default function ActivityPlanner() {
+export default function ActivityPlanner({ taskAssignment = false }) {
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
   const [ngoId, setNgoId] = useState('')
@@ -1007,6 +1148,9 @@ export default function ActivityPlanner() {
 
   const [toast, setToast] = useState('')
   const [addOpen, setAddOpen] = useState(false)
+  // The "Assign Task" modal — only reachable when the Social panel mounts this
+  // planner with `taskAssignment`.
+  const [assignOpen, setAssignOpen] = useState(false)
   // The in-app month calendar opened by "View in Calendar" — its own overlay, so
   // the planner never leaves this page for the separate Calendar section.
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -1032,6 +1176,12 @@ export default function ActivityPlanner() {
   // programme" with no suggestion is still a distinct, openable state.
   const [planEntry, setPlanEntry] = useState(null)
 
+  // Task assignment (Social panel only): the Social roster for the per-programme
+  // dropdowns, and the month's assignments keyed "date::label" so a programme
+  // that is already assigned shows its member again after a reload.
+  const [team, setTeam] = useState([])
+  const [taskMap, setTaskMap] = useState({})
+
   const [year, setYear] = useState(() => new Date().getFullYear())
   const yearOptions = useMemo(() => {
     const now = new Date().getFullYear()
@@ -1054,6 +1204,57 @@ export default function ActivityPlanner() {
     fetchWorkspaceNgos().then((l) => setNgos(Array.isArray(l) ? l : [])).catch(() => setNgos([]))
     fetchSectors().then((l) => setSectors(Array.isArray(l) ? l : [])).catch(() => setSectors([]))
   }, [])
+
+  /* Task assignment (Social panel only): the roster fills the per-programme
+     dropdowns, and the month's assignments are re-read whenever the month
+     changes or after a change, so the grid never shows a stale member. */
+  useEffect(() => {
+    if (!taskAssignment) return
+    fetchTaskAssignees().then((r) => setTeam(Array.isArray(r?.employees) ? r.employees : [])).catch(() => setTeam([]))
+  }, [taskAssignment])
+
+  const loadMonthTasks = useCallback(() => {
+    if (!taskAssignment) { setTaskMap({}); return }
+    fetchTaskMonthAssignments(month)
+      .then((r) => {
+        const map = {}
+        for (const a of (r?.assignments || [])) map[`${a.task_date}::${a.title}`] = a
+        setTaskMap(map)
+      })
+      .catch(() => setTaskMap({}))
+  }, [taskAssignment, month])
+
+  useEffect(() => { loadMonthTasks() }, [loadMonthTasks])
+
+  /* Change a programme's assignee. Clearing the select removes the assignment;
+     picking a member (re)creates one for that programme's date, so the member
+     sees it on their Daily Report for that day. */
+  const assignRow = async (date, label, assigneeId) => {
+    const key = `${date}::${label}`
+    const existing = taskMap[key]
+    try {
+      if (existing && String(existing.assignee_id) === String(assigneeId)) return
+      if (existing) {
+        await deleteTaskAssignment(existing.id)
+        setTaskMap((m) => { const next = { ...m }; delete next[key]; return next })
+      }
+      if (!assigneeId) return
+      const member = team.find((t) => String(t.id) === String(assigneeId))
+      if (!member) return
+      const res = await createTaskAssignment({
+        assignee_id: String(member.id),
+        assignee_name: member.name,
+        task_date: date,
+        title: label,
+        description: '',
+      })
+      const row = res?.assignment || { id: res?.id, task_date: date, title: label, assignee_id: String(member.id), assignee_name: member.name }
+      setTaskMap((m) => ({ ...m, [key]: row }))
+    } catch (e) {
+      showToast(e?.message || 'Could not update the assignment.')
+      loadMonthTasks()
+    }
+  }
 
   // Preselect when there is only one NGO, so a single-NGO Event Head lands on a
   // usable page instead of the cross-NGO overview.
@@ -2426,6 +2627,29 @@ const pendingAll = scopedSuggestions
     }
   }
 
+  /* The "Team member" cell — only in the Social panel's planner
+     (`taskAssignment`). Rendered once per programme block with the member it is
+     assigned to selected, so the name shows right on the row. */
+  const taskCell = (date, label, rowSpan) => {
+    if (!taskAssignment) return null
+    const row = taskMap[`${date}::${label}`]
+    return (
+      <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', paddingTop: 8 }}>
+        <select
+          className="eh-select"
+          value={row ? String(row.assignee_id) : ''}
+          disabled={festBusy}
+          title={row ? `Assigned to ${row.assignee_name}` : 'Assign this programme to a Social team member'}
+          onChange={(e) => assignRow(date, label, e.target.value)}
+          style={{ width: '100%', minWidth: 0, padding: '7px 9px', fontSize: 12, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
+        >
+          <option value="">Unassigned</option>
+          {team.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
+        </select>
+      </td>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{SCROLLBAR_CSS}</style>
@@ -2433,14 +2657,26 @@ const pendingAll = scopedSuggestions
         title="Monthly Planner"
         subtitle={`Plan activities NGO-wise, month-wise · ${monthLabel(month)}`}
         actions={
-          <button
-            className="eh-btn eh-btn-primary"
-            onClick={() => setAddOpen(true)}
-            disabled={!ngo}
-            title={ngo ? `Add an activity to ${ngo.name}` : 'Pick a single NGO to add an activity to it'}
-          >
-            + Add Activity
-          </button>
+          <>
+            {taskAssignment && (
+              <button
+                className="eh-btn"
+                onClick={() => setAssignOpen(true)}
+                title="Assign a task to a Social team member — it shows on their Daily Report"
+                style={{ marginRight: 8 }}
+              >
+                Assign Task
+              </button>
+            )}
+            <button
+              className="eh-btn eh-btn-primary"
+              onClick={() => setAddOpen(true)}
+              disabled={!ngo}
+              title={ngo ? `Add an activity to ${ngo.name}` : 'Pick a single NGO to add an activity to it'}
+            >
+              + Add Activity
+            </button>
+          </>
         }
       />
 
@@ -2676,9 +2912,10 @@ const pendingAll = scopedSuggestions
               <col style={{ width: '21%' }} />
               <col style={{ width: '7%' }} />
               <col style={{ width: '16%' }} />
-              <col style={{ width: '29%' }} />
+              <col style={{ width: taskAssignment ? '17%' : '29%' }} />
               <col style={{ width: '12%' }} />
               <col style={{ width: '7%' }} />
+              {taskAssignment && <col style={{ width: '12%' }} />}
             </colgroup>
             <thead>
               <tr>
@@ -2689,6 +2926,7 @@ const pendingAll = scopedSuggestions
                 <th>AI Suggestion</th>
                 <th>Location</th>
                 <th>Select</th>
+                {taskAssignment && <th>Team member</th>}
               </tr>
             </thead>
             <tbody>
@@ -2765,6 +3003,7 @@ const pendingAll = scopedSuggestions
                           onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
                         />
                       </td>
+                      {taskCell(date, (manual?.name || '').trim() || 'Programme', 1)}
                     </tr>
                   )
                 }
@@ -2868,6 +3107,7 @@ const pendingAll = scopedSuggestions
                           />
                         </td>
                         <td className="sel divider" />
+                        {taskCell(date, o.name, 1)}
                       </tr>
                     )
                     return trs
@@ -3010,6 +3250,7 @@ const pendingAll = scopedSuggestions
                             }}
                           />
                         </td>
+                        {i === 0 ? taskCell(date, o.name, rowCount) : null}
                       </tr>
                     )
                   }
@@ -3049,6 +3290,7 @@ const pendingAll = scopedSuggestions
                             onChange={() => selectFestivalSuggestion(s)}
                           />
                         </td>,
+                        ...(si === 0 ? [taskCell(date, o.name, rowCount)] : []),
                       )
                       trs.push(<tr key={String(s.id)} className={`sel-row${s.is_selected ? ' sel' : ''}`}>{cells}</tr>)
                     })
@@ -3091,6 +3333,7 @@ const pendingAll = scopedSuggestions
                           onClick={() => unselectFestivalSuggestion(chosen)}
                         >✓</button>
                       </td>,
+                      taskCell(date, o.name, rowCount),
                     )
                     trs.push(<tr key={`sel-${chosen.id}`} className="sel-row sel">{cells}</tr>)
 
@@ -3233,6 +3476,14 @@ const pendingAll = scopedSuggestions
           month={month}
           onClose={() => setAddOpen(false)}
           onSaved={onActivityAdded}
+        />
+      )}
+
+      {assignOpen && (
+        <AssignTaskModal
+          month={month}
+          onClose={() => setAssignOpen(false)}
+          onNotify={showToast}
         />
       )}
 

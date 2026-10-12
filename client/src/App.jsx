@@ -7,6 +7,8 @@ import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
 import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
 import ChatFabHost from './components/chat/ChatFabHost'
+import NoticePopupHost from './components/chat/NoticePopupHost'
+import TicketPopupHost from './components/TicketPopupHost'
 
 // Each panel is a separate download. A user only ever pays for the panel they
 // are routed into instead of every panel on every login.
@@ -20,6 +22,7 @@ const EventHeadPanel = lazy(() => import('./panels/event-head/EventHeadPanel'))
 const DocumentationPanel = lazy(() => import('./panels/documentation/DocumentationPanel'))
 const WhatsAppPanel = lazy(() => import('./panels/whatsapp/WhatsAppPanel'))
 const DevPanel = lazy(() => import('./panels/dev-panel/DevPanel'))
+const SocialPanel = lazy(() => import('./panels/social/SocialPanel'))
 const SimCardPanel = lazy(() => import('./panels/sim-card/SimCardPanel'))
 
 const ROLE_PATHS = {
@@ -34,8 +37,10 @@ const ROLE_PATHS = {
   event_manager: '/event-head',
   'Event Manager': '/event-head',
   'Event Head': '/event-head',
-  digital: '/dev-panel',
+  digital: '/social',
+  developer: '/dev-panel',
   developers: '/dev-panel',
+  social: '/social',
 }
 
 const ROLE_PANELS = {
@@ -49,8 +54,10 @@ const ROLE_PANELS = {
   event_manager: { panel: EventHeadPanel, cls: 'panel-event-head' },
   'Event Manager': { panel: EventHeadPanel, cls: 'panel-event-head' },
   'Event Head': { panel: EventHeadPanel, cls: 'panel-event-head' },
-  digital: { panel: DevPanel, cls: 'panel-dev' },
+  digital: { panel: SocialPanel, cls: 'panel-dev' },
+  developer: { panel: DevPanel, cls: 'panel-dev' },
   developers: { panel: DevPanel, cls: 'panel-dev' },
+  social: { panel: SocialPanel, cls: 'panel-dev' },
 }
 
 function ProtectedRoute({ role, children }) {
@@ -96,6 +103,13 @@ function PanelWrapper({ roleKey }) {
         </Suspense>
         <NoticesBar />
         {chatPath && <ChatFabHost chatPath={chatPath} />}
+        {/* Notices reach people wherever they are in the panel, not only on the
+            chat route, so this one is mounted unconditionally. */}
+        <NoticePopupHost />
+        {/* A ticket raised for this panel pops up once per person, wherever
+            they are in the panel. Server keeps the seen set (ticket_popup_seen),
+            so a reload or a second device never re-shows it. */}
+        <TicketPopupHost />
       </div>
     </ChatUnreadProvider>
   )
@@ -122,10 +136,28 @@ function AccessDenied() {
   )
 }
 
+function panelPathFor(user) {
+  if (!user) return null
+  // The backend collapses both 'digital' and any 'develop*' department to the
+  // role 'digital', so only the department string tells the two teams apart.
+  // Digital (Duars Digital) is reviewed/rostered under Social Media, so it opens
+  // the Social panel; developers keep the Developer panel.
+  const dept = String(user.department || '').toLowerCase().trim()
+  if (dept.includes('develop')) return ROLE_PATHS.developers
+  if (dept.includes('digital')) return ROLE_PATHS.digital
+  // Role wins over department: a department string does not always name the
+  // panel. An accounts worker is department 'Admin' but role 'accounts', and
+  // ROLE_PATHS['admin'] points at /ngo-admin — so department-first sent them to
+  // a panel whose route only admits role 'admin', ending in AccessDenied right
+  // after a successful login. The token's role is the authoritative panel key.
+  const role = String(user.role || '').toLowerCase().trim()
+  return ROLE_PATHS[role] || ROLE_PATHS[dept] || null
+}
+
 function RootRedirect() {
   const { user } = useUcs()
   if (!user) return <Navigate to="/login" replace />
-  const path = ROLE_PATHS[user.department] || ROLE_PATHS[user.role]
+  const path = panelPathFor(user)
   if (path) return <Navigate to={path} replace />
   return <AccessDenied />
 }
@@ -134,12 +166,15 @@ function LoginWrapper() {
   const { user } = useUcs()
   const navigate = useNavigate()
   if (user) {
-    const path = ROLE_PATHS[user.department] || ROLE_PATHS[user.role]
+    const path = panelPathFor(user)
     if (path) return <Navigate to={path} replace />
   }
-  return <Login onLogin={(role, path) => {
-    const target = path || ROLE_PATHS[role]
-    navigate(target || '/login', { replace: true })
+  return <Login onLogin={(loggedInUser) => {
+    // Same resolver the route guards use, so the landing panel can never be a
+    // different one than panelPathFor() would pick (role-first, department only
+    // for the digital/develop split).
+    const path = panelPathFor(loggedInUser)
+    if (path) navigate(path, { replace: true })
   }} />
 }
 
@@ -217,8 +252,14 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/dev-panel/*" element={
-          <ProtectedRoute role={['digital', 'developers', 'super_admin']}>
-            <PanelWrapper roleKey="digital" />
+          <ProtectedRoute role={['developers', 'developer', 'digital', 'Developer', 'Developers', 'Digital', 'super_admin']}>
+            <PanelWrapper roleKey="developers" />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/social/*" element={
+          <ProtectedRoute role={['social', 'digital', 'Social', 'Social Media', 'Digital', 'super_admin']}>
+            <PanelWrapper roleKey="social" />
           </ProtectedRoute>
         } />
 

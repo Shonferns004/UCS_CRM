@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { apiGet, apiPost, apiPut, apiDelete, apiPatch } from '../store'
 import CatalogModal from '../components/CatalogModal'
+import { StateSelect } from '../../../components/LocationSelect'
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
@@ -225,7 +226,7 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
               </div>
               <div style={styles.field}>
                 <label style={styles.label}>State</label>
-                <input style={{ ...styles.input, width: '100%' }} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+                <StateSelect value={form.state} onChange={(v) => setForm((p) => ({ ...p, state: v }))} ariaLabel="State" />
               </div>
               <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
                 <label style={styles.label}>Description</label>

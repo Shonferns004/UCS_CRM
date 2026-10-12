@@ -1,10 +1,11 @@
 ﻿import '../../core/lucide_icons.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../../core/constants/indian_locations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/constants/indian_locations.dart';
 import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/searchable_dropdown.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
@@ -31,6 +32,9 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
 
   List<Map<String, dynamic>> _kits = [];
   List<Map<String, dynamic>> _organizers = [];
+
+  List<Map<String, dynamic>> _states = [];
+  List<String> _cities = [];
   String? _selectedState;
   String? _selectedCity;
   final TextEditingController _eventController = TextEditingController();
@@ -82,6 +86,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
         _selfieBase64 = null;
         _loading = false;
       });
+      _applyOfflineLocations(savedState: _selectedState, savedCity: _selectedCity);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -89,6 +94,44 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
         _loading = false;
       });
     }
+  }
+
+  void _applyOfflineLocations({
+    String? savedState,
+    String? savedCity,
+  }) {
+    final states = <Map<String, dynamic>>[
+      for (final s in indianStates) {'name': s},
+    ];
+
+    String? matchedState;
+    if (savedState != null && savedState.isNotEmpty) {
+      for (final state in states) {
+        if ((state['name'] as String).toLowerCase() ==
+            savedState.toLowerCase()) {
+          matchedState = state['name'] as String;
+          break;
+        }
+      }
+    }
+
+    final cities = citiesForState(matchedState);
+    String? matchedCity;
+    if (savedCity != null && savedCity.isNotEmpty) {
+      for (final c in cities) {
+        if (c.toLowerCase() == savedCity.toLowerCase()) {
+          matchedCity = c;
+          break;
+        }
+      }
+    }
+
+    setState(() {
+      _states = states;
+      _selectedState = matchedState;
+      _cities = List<String>.from(cities);
+      _selectedCity = matchedCity;
+    });
   }
 
   // Camera / Gallery chunne ka menu
@@ -230,31 +273,34 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                       const SectionHeader(title: 'Your location today'),
                       const SizedBox(height: 16),
 
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedState,
-                        decoration: const InputDecoration(labelText: 'State *'),
-                        hint: const Text('Select state'),
-                        items: indianStates
-                            .map(
-                              (s) => DropdownMenuItem(value: s, child: Text(s)),
-                            )
+                      SearchableDropdown(
+                        label: 'State *',
+                        hint: 'Select state',
+                        value: _selectedState,
+                        items: _states
+                            .map((state) => state['name'].toString())
                             .toList(),
-                        isExpanded: true,
-                        onChanged: (v) => setState(() => _selectedState = v),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _selectedState = value;
+                            _selectedCity = null;
+                            _cities = List<String>.from(citiesForState(value));
+                          });
+                        },
                       ),
                       const SizedBox(height: 16),
 
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedCity,
-                        decoration: const InputDecoration(labelText: 'City *'),
-                        hint: const Text('Select city'),
-                        items: indianCities
-                            .map(
-                              (c) => DropdownMenuItem(value: c, child: Text(c)),
-                            )
-                            .toList(),
-                        isExpanded: true,
-                        onChanged: (v) => setState(() => _selectedCity = v),
+                      SearchableDropdown(
+                        label: 'City *',
+                        hint: _selectedState == null
+                            ? 'Select state first'
+                            : 'Select city',
+                        value: _selectedCity,
+                        items: _cities,
+                        enabled: _selectedState != null,
+                        onChanged: (value) =>
+                            setState(() => _selectedCity = value),
                       ),
                       const SizedBox(height: 16),
 

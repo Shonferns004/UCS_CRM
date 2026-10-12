@@ -13,8 +13,10 @@ import ChatSearch from './ChatSearch'
 import ReadOnlyBanner from './ReadOnlyBanner'
 import PeoplePicker from './PeoplePicker'
 import GroupCreateDialog from './GroupCreateDialog'
+import GroupSettingsDialog from './GroupSettingsDialog'
+import GroupMembersPanel from './GroupMembersPanel'
 import { ChatState, ChatThreadSkeleton } from './ChatState'
-import { ChatIcon, BackIcon, SearchIcon } from './chatIcons'
+import { ChatIcon, BackIcon, SearchIcon, SettingsIcon } from './chatIcons'
 import './chat.css'
 
 /**
@@ -58,6 +60,8 @@ export default function ChatWorkspace() {
   const [highlightId, setHighlightId] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [groupOpen, setGroupOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [membersOpen, setMembersOpen] = useState(false)
   const [optimistic, setOptimistic] = useState([])
   const [unreadKey, setUnreadKey] = useState(0)
 
@@ -68,16 +72,20 @@ export default function ChatWorkspace() {
   /**
    * Whether the composer should render for the active room.
    *
-   * Two independent gates: the role must be a writer at all, and if the room is
-   * an admins-only group the role must also count as an admin. Checking it here
-   * rather than in the composer keeps the read path untouched — a non-admin can
-   * still open and read the room, they just get no input box.
+   * Three independent gates, checked in order of cheapness:
+   *   1. the role must be a writer at all;
+   *   2. an admins-only group keeps the composer for the three admin roles;
+   *   3. a "selected members" group shows it only for the caller when the
+   *      server reported my_can_post=true (admins always get the composer so
+   *      they can untick themselves or others).
+   * Checking it here rather than in the composer keeps the read path untouched
+   * — a non-admin can still open and read the room, they just get no input box.
    */
   const canWriteHere = useMemo(() => {
     if (!me.canPost || !active) return false
-    if (active.kind === 'group' && active.post_policy === 'admins_only') {
-      return isChatAdmin(me.role)
-    }
+    if (active.kind !== 'group') return true
+    if (active.post_policy === 'admins_only') return isChatAdmin(me.role)
+    if (active.write_mode === 'selected') return isChatAdmin(me.role) || !!active.my_can_post
     return true
   }, [me, active])
 
@@ -91,12 +99,12 @@ export default function ChatWorkspace() {
       const arr = Array.isArray(list) ? list : []
       setConversations(arr)
       setListStatus('ready')
-      // Land on Community: the one room every role can see. Prefer the seeded
-      // room by slug so a user-created group does not steal the landing spot.
+      // Land on the first group the user is actually in. The old slug-based
+      // preference for a seeded "community" room meant anyone not in that room
+      // (e.g. an HR user added only to a Notices group) saw an empty rail.
       setActiveId((prev) => {
         if (prev && arr.some((c) => c.id === prev)) return prev
-        const community = arr.find((c) => c.kind === 'group' && c.slug === 'community')
-        return community?.id || arr.find((c) => c.kind === 'group')?.id || arr[0]?.id || null
+        return arr.find((c) => c.kind === 'group')?.id || arr[0]?.id || null
       })
     } catch (e) {
       setListError(e.message || 'Could not load conversations.')
@@ -126,9 +134,12 @@ export default function ChatWorkspace() {
               sender_name: m.sender_name,
               body: m.deleted_at
                 ? 'This message was deleted'
-                : m.attachment && !m.body
-                  ? m.attachment.name
-                  : m.body,
+                : m.notice_title
+                  ? // A notice's headline is what the rail should tease.
+                    m.notice_title
+                  : m.attachment && !m.body
+                    ? m.attachment.name
+                    : m.body,
               created_at: m.created_at,
               deleted: !!m.deleted_at,
             },
@@ -155,15 +166,31 @@ export default function ChatWorkspace() {
                     ...c.last_message,
                     body: m.deleted_at
                       ? 'This message was deleted'
-                      : m.attachment && !m.body
-                        ? m.attachment.name
-                        : m.body,
+                      : m.notice_title
+                        ? m.notice_title
+                        : m.attachment && !m.body
+                          ? m.attachment.name
+                          : m.body,
                     deleted: !!m.deleted_at,
                   },
                 }
               : c
           )
         )
+      }
+      if (evt.type === 'conversation:update' && evt.conversation) {
+        // A rename or policy flip made by another admin, or by ourselves via
+        // the settings dialog. Replace the rail entry in place.
+        const convo = evt.conversation
+        setConversations((prev) => prev.map((c) => (c.id === convo.id ? { ...c, ...convo } : c)))
+      }
+      if (evt.type === 'conversation:deleted' && evt.conversation_id) {
+        const id = evt.conversation_id
+        // Drop the room from the rail; if it was open, go back to the list so
+        // the thread pane does not keep rendering a conversation that no longer
+        // exists server-side.
+        setConversations((prev) => prev.filter((c) => c.id !== id))
+        setActiveId((prev) => (prev === id ? null : prev))
       }
     })
   }, [me, activeId])
@@ -226,9 +253,17 @@ export default function ChatWorkspace() {
 
   // ---- sending ------------------------------------------------------------
   const send = useCallback(
-    async ({ body, file }) => {
+    async ({ body, file, files = null, noticeTitle = null, isNotice = false }) => {
       if (!active) return
       const clientId = `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const list = (Array.isArray(files) && files.length ? files : null) || (file ? [file] : [])
+      const asAttachment = (f, i) => ({
+        id: `tmp-att-${clientId}-${i}`,
+        name: f.name,
+        mime: f.type,
+        size: f.size,
+        url: f.type?.startsWith('image/') ? URL.createObjectURL(f) : '#',
+      })
       const entry = {
         id: `tmp-${clientId}`,
         client_id: clientId,
@@ -237,25 +272,28 @@ export default function ChatWorkspace() {
         sender_name: me.name,
         sender_role: me.role,
         body,
+        // Carried so a notice keeps its headline while it is still spinning,
+        // and so a retry re-sends it as a notice rather than a plain message.
+        is_notice: isNotice || !!noticeTitle,
+        notice_title: noticeTitle || null,
         created_at: new Date().toISOString(),
-        attachment: file
-          ? {
-              id: `tmp-att-${clientId}`,
-              name: file.name,
-              mime: file.type,
-              size: file.size,
-              url: file.type?.startsWith('image/') ? URL.createObjectURL(file) : '#',
-            }
-          : null,
+        attachment: list[0] ? asAttachment(list[0], 0) : null,
+        gallery: list.length ? list.map(asAttachment) : null,
         pending: true,
         failed: false,
-        // Kept so a retry can re-send the same file without re-picking it.
-        _file: file || null,
+        // Kept so a retry can re-send the same files without re-picking them.
+        _files: list,
       }
       setOptimistic((prev) => [...prev, entry])
 
       try {
-        const saved = await chatApi.sendMessage(me, active.id, { body, file, clientId })
+        const saved = await chatApi.sendMessage(me, active.id, {
+          body,
+          files: list,
+          clientId,
+          noticeTitle,
+          isNotice: isNotice || !!noticeTitle,
+        })
         // Reconcile from the HTTP response rather than waiting on the socket.
         // The realtime frame still arrives and is matched by client_id, so this
         // is idempotent — but if the socket is down the bubble still stops
@@ -271,6 +309,11 @@ export default function ChatWorkspace() {
         )
         if (isAuthError(e)) {
           toast(e.message || 'You are not allowed to post here.', 'error')
+        } else if (e?.message?.toLowerCase().includes('upload')) {
+          // The server returns 503 with a descriptive message when file
+          // storage is misconfigured (STORAGE_NOT_CONFIGURED). Surface it so
+          // the user knows the text-only retry will work but the file will not.
+          toast(e.message, 'error')
         }
       }
     },
@@ -287,8 +330,12 @@ export default function ChatWorkspace() {
       try {
         await chatApi.sendMessage(me, active.id, {
           body: entry.body,
-          file: entry._file,
+          files: entry._files || [],
           clientId: entry.client_id,
+          // A failed notice must retry as a notice, or the headline it was
+          // composed with silently becomes a plain message.
+          noticeTitle: entry.notice_title || null,
+          isNotice: !!entry.is_notice,
         })
       } catch {
         setOptimistic((prev) =>
@@ -429,11 +476,35 @@ export default function ChatWorkspace() {
                     {active.title || (active.kind === 'group' ? 'Group' : 'Conversation')}
                   </h2>
                   <div className="chat-thread-sub">
-                    {active.kind === 'group'
-                      ? `${active.member_count || 0} members${
-                          active.post_policy === 'admins_only' ? ' · admins post only' : ''
-                        }`
-                      : 'Direct message'}
+                    {active.kind === 'group' ? (
+                      <button
+                        type="button"
+                        onClick={() => setMembersOpen(true)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          margin: 0,
+                          font: 'inherit',
+                          color: 'inherit',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          textUnderlineOffset: 2,
+                        }}
+                        title="View members"
+                      >
+                        {active.member_count || 0} members
+                      </button>
+                    ) : (
+                      'Direct message'
+                    )}
+                    {active.kind === 'group' &&
+                      active.post_policy === 'admins_only' &&
+                      ' · admins post only'}
+                    {active.kind === 'group' &&
+                      active.post_policy !== 'admins_only' &&
+                      active.write_mode === 'selected' &&
+                      ' · selected members only'}
                   </div>
                 </div>
 
@@ -450,6 +521,20 @@ export default function ChatWorkspace() {
                 >
                   <SearchIcon size={18} />
                 </button>
+
+                {/* Gear only appears on groups the caller can actually manage,
+                    so DMs and read-only rooms stay clean. */}
+                {active.kind === 'group' && isChatAdmin(me.role) && (
+                  <button
+                    type="button"
+                    className="chat-iconbtn"
+                    onClick={() => setSettingsOpen(true)}
+                    aria-label="Group settings"
+                    title="Group settings"
+                  >
+                    <SettingsIcon size={18} />
+                  </button>
+                )}
               </header>
 
               {searchOpen && (
@@ -498,7 +583,7 @@ export default function ChatWorkspace() {
           ) : (
             <ChatState
               title="Select a conversation"
-              sub="Pick the Community room to read the latest updates."
+              sub="Pick a group or person from the list to start reading."
             />
           )}
         </section>
@@ -510,6 +595,30 @@ export default function ChatWorkspace() {
 
       {groupOpen && (
         <GroupCreateDialog me={me} onClose={() => setGroupOpen(false)} onCreated={startGroup} />
+      )}
+
+      {settingsOpen && active && active.kind === 'group' && (
+        <GroupSettingsDialog
+          me={me}
+          conversation={active}
+          onClose={() => setSettingsOpen(false)}
+          onUpdated={(dto) => {
+            setConversations((prev) => prev.map((c) => (c.id === dto.id ? { ...c, ...dto } : c)))
+          }}
+          onDeleted={(convoId) => {
+            setConversations((prev) => prev.filter((c) => c.id !== convoId))
+            setActiveId((prev) => (prev === convoId ? null : prev))
+            toast('Group deleted.', 'success')
+          }}
+        />
+      )}
+
+      {membersOpen && active && active.kind === 'group' && (
+        <GroupMembersPanel
+          me={me}
+          conversation={active}
+          onClose={() => setMembersOpen(false)}
+        />
       )}
     </div>
   )

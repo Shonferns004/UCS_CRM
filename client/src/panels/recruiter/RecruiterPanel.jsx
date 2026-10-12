@@ -13,6 +13,7 @@ import Dashboard from './components/Dashboard'
 import NoticePopup from '../../components/NoticePopup'
 import Leads from './components/Leads'
 import Candidates from './components/Candidates'
+import RecruiterDailyReport from './components/RecruiterDailyReport'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
@@ -23,8 +24,9 @@ const NAV = [
   { id:'dashboard',  path:'/recruiter/dashboard',  label:'Dashboard',  icon:Grid,   eyebrow:'Overview',  sub:'Your hiring at a glance' },
   { id:'leads',      path:'/recruiter/leads',      label:'Leads',      icon:Users,  eyebrow:'Leads',    sub:'Manage incoming leads and track conversions' },
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
+  { id:'daily-report', path:'/recruiter/daily-report', label:'Daily Report', icon:FileTxt, eyebrow:'Daily', sub:'Your hiring report for the day' },
   { id:'tickets',    path:'/recruiter/tickets',    label:'Tickets',    icon:FileTxt, eyebrow:'Support',   sub:'Raise and track your tickets' },
-  { id:'chat',       path:'/recruiter/chat',       label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
+  { id:'chat',       path:'/recruiter/chat',       label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -169,6 +171,7 @@ function AppShell() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
             <Route path="candidates" element={<Candidates />} />
+            <Route path="daily-report" element={<RecruiterDailyReport />} />
             <Route path="tickets" element={<TechnicalTickets panel="recruiter" />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />

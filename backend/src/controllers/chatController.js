@@ -1,7 +1,10 @@
 import db from '../config/db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as chat from '../models/chatModel.js';
-import { emitChat } from '../socket.js';
-import { notFound } from '../middleware/chatAccess.js';
+import { emitChat, emitChatBroadcast } from '../socket.js';
+import { notFound, isChatAdminRole } from '../middleware/chatAccess.js';
 import { notifyParticipantsOfMessage } from '../services/chatNotificationService.js';
 
 /**
@@ -17,6 +20,7 @@ import { notifyParticipantsOfMessage } from '../services/chatNotificationService
  */
 
 const MAX_BODY = 4000;
+const MAX_NOTICE_TITLE = 120;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const CHAT_BUCKET = 'chat-media';
 const CHAT_PREFIX = 'chat/';
@@ -91,22 +95,62 @@ async function authorize(req, res, { writerOnly = false } = {}) {
  * Returns true when the caller was already refused (and the response sent).
  */
 function policyBlocksPost(ctx) {
-  if (chat.canPostIn(ctx.convo, ctx.me)) return false;
+  if (chat.canPostIn(ctx.convo, ctx.me, ctx.participant)) return false;
+  const policy = ctx.convo.post_policy || 'everyone';
+  const writeMode = ctx.convo.write_mode || 'everyone';
   res.status(403).json({
     message:
-      (ctx.convo.post_policy || 'everyone') === 'admins_only'
+      policy === 'admins_only'
         ? 'Only admins can post in this group.'
-        : 'You cannot post in this conversation.',
+        : writeMode === 'selected'
+          ? 'You cannot post in this group. Only members chosen by an admin can chat here.'
+          : 'You cannot post in this conversation.',
   });
   return true;
 }
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Key is "chat/<file>"; the static mount serves backend/uploads at /uploads,
+// so writing to uploads/ + key yields /uploads/chat/<file> — one prefix, no
+// duplication.
+const LOCAL_UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
 
 async function uploadAttachment(file) {
   const key = `${CHAT_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
   const { error } = await db.storage
     .from(CHAT_BUCKET)
     .upload(key, file.buffer, { contentType: file.mimetype, upsert: false });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Local-disk fallback: when S3 is not configured (no S3_BUCKET), write to
+    // backend/uploads/chat/ which is already served statically at /uploads.
+    // This keeps image notices and attachments working in dev without
+    // requiring AWS credentials.
+    if (error.code === 'STORAGE_NOT_CONFIGURED') {
+      try {
+        fs.mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true });
+        const filePath = path.join(LOCAL_UPLOAD_DIR, key);
+        fs.writeFileSync(filePath, file.buffer);
+        return {
+          url: `/uploads/${key}`,
+          name: file.originalname,
+          type: file.mimetype,
+          size: file.size,
+        };
+      } catch (e) {
+        const err = new Error(e.message || 'File save failed');
+        err.upload = true;
+        err.status = 500;
+        throw err;
+      }
+    }
+    // Surfaced as its own status so a machine without S3 credentials says so
+    // instead of a blanket 500 - "could not send" sends people hunting for a
+    // chat bug when the real answer is a missing S3_BUCKET.
+    const e = new Error(error.message || 'File upload failed');
+    e.upload = true;
+    e.status = 500;
+    throw e;
+  }
   const { data } = db.storage.from(CHAT_BUCKET).getPublicUrl(key);
   return {
     url: data?.publicUrl,
@@ -204,6 +248,9 @@ function normalizeMembers(raw) {
       name: m?.name,
       email: m?.email,
       ngo_id: m?.ngo_id,
+      // Per-member "may chat" choice, honoured only in write_mode='selected'.
+      // Absent means "tick it", matching the picker's default.
+      canPost: m?.can_post == null ? undefined : !!m.can_post,
     });
   }
   return out;
@@ -231,6 +278,10 @@ export const createGroup = async (req, res) => {
     if (title.length > 80) return res.status(400).json({ message: 'Group name is too long (max 80 characters)' });
 
     const postPolicy = req.body?.post_policy === 'admins_only' ? 'admins_only' : 'everyone';
+    // 'selected' = only the members the creator ticks may chat; everyone else
+    // in the room reads. Decided at creation time or later via the group's
+    // settings dialog - same column, same gate.
+    const writeMode = req.body?.write_mode === 'selected' ? 'selected' : 'everyone';
 
     // Re-seat against the real directory so a forged role cannot grant can_post.
     const directory = await chat.listDirectory();
@@ -238,7 +289,7 @@ export const createGroup = async (req, res) => {
     const members = normalizeMembers(req.body?.members).filter((m) => byUid.has(m.uid));
     const roster = members.map((m) => {
       const person = byUid.get(m.uid);
-      return { ...person, subject_id: String(person.id) };
+      return { ...person, subject_id: String(person.id), canPost: m.canPost };
     });
 
     const { convo, memberCount } = await chat.createGroup({
@@ -246,6 +297,7 @@ export const createGroup = async (req, res) => {
       creator: { uid: me.uid, subjectId: me.subjectId, role: me.role, canPost: me.canPost, name: me.name },
       members: roster,
       postPolicy,
+      writeMode,
     });
 
     res.status(201).json(chat.toConversationDto({ ...convo, member_count: memberCount }));
@@ -340,32 +392,84 @@ export const sendMessage = async (req, res) => {
     const { me, convo } = ctx;
     if (policyBlocksPost(ctx)) return;
 
+    // A notice rides the ordinary send path; only its gates differ. Each rule
+    // blocks a different thing: a DM is a two-person room where a broadcast
+    // makes no sense, and FRO may post messages but is not an administrator of
+    // anything - so notices stay super_admin/accounts/admin everywhere.
+    const wantsNotice =
+      req.body?.is_notice === true ||
+      req.body?.is_notice === 'true' ||
+      req.body?.is_notice === '1';
+    let noticeTitle = null;
+    if (wantsNotice) {
+      if (convo.kind !== 'group') {
+        return res.status(400).json({ message: 'Notices can only be posted in a group' });
+      }
+      if (!isChatAdminRole(me.role)) {
+        return res.status(403).json({ message: 'Only Super Admin, Accounts and Admin can post notices.' });
+      }
+      // Optional: the body or the images can carry the notice on their own.
+      // An empty string collapses to NULL so the title is either absent or
+      // meaningful, never a blank headline.
+      noticeTitle = String(req.body?.notice_title || '').trim() || null;
+      if (noticeTitle && noticeTitle.length > MAX_NOTICE_TITLE) {
+        return res.status(400).json({ message: `Notice title is too long (max ${MAX_NOTICE_TITLE} characters)` });
+      }
+    }
+
     const body = String(req.body?.body || '').trim();
     if (body.length > MAX_BODY) {
       return res.status(400).json({ message: `Message is too long (max ${MAX_BODY} characters)` });
     }
-    const file = req.file || null;
-    if (!body && !file) {
+    // `uploadChat.any()` - a notice may carry several images; an ordinary
+    // message still uses only the first file, exactly as single('file') did.
+    const files = (Array.isArray(req.files) && req.files.length ? req.files : null)
+      || (req.file ? [req.file] : []);
+    if (!body && !files.length) {
       return res.status(400).json({ message: 'Message cannot be empty' });
     }
-    if (file) {
-      if (file.size > MAX_FILE_BYTES) {
-        return res.status(400).json({ message: 'File is larger than 25 MB' });
+    if (wantsNotice) {
+      for (const f of files) {
+        if (f.size > MAX_FILE_BYTES) {
+          return res.status(400).json({ message: 'File is larger than 25 MB' });
+        }
+        // A notice shows a poster-style card; a PDF or spreadsheet would
+        // render as an unreadable blob there, so images only.
+        if (!ALLOWED_MIME.has(f.mimetype) || !f.mimetype.startsWith('image/')) {
+          return res.status(400).json({ message: 'A notice can only carry images' });
+        }
       }
-      if (!ALLOWED_MIME.has(file.mimetype)) {
-        return res.status(400).json({ message: 'That file type cannot be attached' });
+    } else {
+      const file = files[0] || null;
+      if (file) {
+        if (file.size > MAX_FILE_BYTES) {
+          return res.status(400).json({ message: 'File is larger than 25 MB' });
+        }
+        if (!ALLOWED_MIME.has(file.mimetype)) {
+          return res.status(400).json({ message: 'That file type cannot be attached' });
+        }
       }
     }
 
-    const attachment = file ? await uploadAttachment(file) : null;
+    const attachments = [];
+    // A non-notice uploads only its first file - the others were never part of
+    // the ordinary composer, and silently dropping them beats inventing a
+    // gallery for regular messages.
+    const toUpload = wantsNotice ? files : files.slice(0, 1);
+    for (const f of toUpload) {
+      attachments.push(await uploadAttachment(f));
+    }
     const { message, duplicate } = await chat.insertMessage({
       conversationId: convo.id,
       senderUid: me.uid,
       senderRole: me.role,
       senderName: me.name,
       body,
-      attachment,
+      attachment: attachments[0] || null,
+      gallery: attachments,
       clientId: req.body?.client_id || null,
+      isNotice: wantsNotice,
+      noticeTitle,
     });
     await chat.touchConversation(convo.id);
 
@@ -388,8 +492,71 @@ export const sendMessage = async (req, res) => {
     }
     res.status(duplicate ? 200 : 201).json(dto);
   } catch (err) {
+    if (err?.upload) {
+      return res.status(err.status || 500).json({ message: err.message });
+    }
     console.error('[chat] sendMessage', err);
     res.status(500).json({ message: 'Could not send the message' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// GET /notices/pending
+// ---------------------------------------------------------------------------
+
+/**
+ * Notices this caller has not dismissed yet - the offline/login path of the
+ * one-time popup. The live path is the ordinary `message:new` socket frame, so
+ * a notice posted while you were away is caught here on the next load and a
+ * notice posted while you are watching is caught by the socket; both funnel
+ * into the same dismissal, so neither can show it twice.
+ *
+ * Returned bare (an array) because chatApi returns the parsed body untouched
+ * and the host does `Array.isArray(list)` - a wrapper would yield a popup that
+ * never fires.
+ */
+export const pendingNotices = async (req, res) => {
+  try {
+    const me = identify(req, res);
+    if (!me) return;
+    const rows = await chat.listPendingNotices(me.uid);
+    res.json(
+      rows.map((row) => ({
+        ...chat.toMessageDto(row),
+        conversation_title: row.conversation_title || null,
+      }))
+    );
+  } catch (err) {
+    console.error('[chat] pendingNotices', err);
+    res.status(500).json({ message: 'Could not load notices' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /messages/:id/notice-viewed
+// ---------------------------------------------------------------------------
+
+/**
+ * Records that the caller has been shown the notice's popup, once.
+ *
+ * Every precondition is re-checked here rather than trusted from the client:
+ * the row must be a real, undeleted notice in a conversation the caller
+ * actually belongs to, so a crafted id cannot write a view row for a room the
+ * caller has no business in (and, more importantly, cannot mark someone
+ * else's notice dismissed for them).
+ */
+export const noticeViewed = async (req, res) => {
+  try {
+    const me = identify(req, res);
+    if (!me) return;
+    const msg = await chat.getMessage(Number(req.params.id));
+    if (!msg || !msg.is_notice || msg.deleted_at) return notFound(res);
+    if (!(await chat.isParticipant(msg.conversation_id, me.uid))) return notFound(res);
+    await chat.markNoticeViewed(msg.id, me.uid);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[chat] noticeViewed', err);
+    res.status(500).json({ message: 'Could not update notice state' });
   }
 };
 
@@ -502,6 +669,162 @@ export const deleteMessage = async (req, res) => {
   } catch (err) {
     console.error('[chat] deleteMessage', err);
     res.status(500).json({ message: 'Could not delete the message' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Group management — participants list, settings, delete
+// ---------------------------------------------------------------------------
+
+/** Loads a group the caller belongs to, or ends the request. */
+async function authorizeGroupAdmin(req, res) {
+  const me = identify(req, res);
+  if (!me) return null;
+  if (!isChatAdminRole(me.role)) {
+    res.status(403).json({ message: 'Only Super Admin, Accounts and Admin can manage groups.' });
+    return null;
+  }
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    notFound(res);
+    return null;
+  }
+  const convo = await chat.getConversation(id);
+  // A DM is never manageable here even if the caller is an admin elsewhere.
+  if (!convo || convo.kind !== 'group') {
+    notFound(res);
+    return null;
+  }
+  if (!(await chat.isParticipant(convo.id, me.uid))) {
+    notFound(res);
+    return null;
+  }
+  return { me, convo };
+}
+
+/** Row -> participant DTO for the settings dialog. */
+function toParticipantDto(p) {
+  return {
+    uid: p.uid,
+    subject_id: p.subject_id,
+    name: p.display_name,
+    role: p.role,
+    can_post: !!p.can_post,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET /conversations/:id/participants
+// ---------------------------------------------------------------------------
+
+/**
+ * Member roster of a group, for the settings dialog's tick list. Any member
+ * may read it - membership is not secret inside a room you are already in -
+ * but only the three admin roles get the PATCH that changes anything.
+ */
+export const listGroupParticipants = async (req, res) => {
+  try {
+    const me = identify(req, res);
+    if (!me) return;
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return notFound(res);
+    const convo = await chat.getConversation(id);
+    if (!convo || convo.kind !== 'group') return notFound(res);
+    if (!(await chat.isParticipant(convo.id, me.uid))) return notFound(res);
+    const rows = await chat.listParticipants(convo.id);
+    res.json(rows.map(toParticipantDto));
+  } catch (err) {
+    console.error('[chat] listGroupParticipants', err);
+    res.status(500).json({ message: 'Could not load group members' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /conversations/:id/settings  (admin participants)
+// ---------------------------------------------------------------------------
+
+/**
+ * Body: { title?, post_policy?, write_mode?, members?: [{uid, can_post}] }
+ *
+ * Everything optional - omitted fields stay as they are, so the dialog can
+ * send only what changed. Members are applied as can_post ticks on existing
+ * participants; joining and leaving is not part of this endpoint.
+ */
+export const updateGroupSettings = async (req, res) => {
+  try {
+    const ctx = await authorizeGroupAdmin(req, res);
+    if (!ctx) return;
+    const { convo } = ctx;
+
+    const rawTitle = req.body?.title;
+    let title = null;
+    if (rawTitle != null) {
+      title = String(rawTitle).trim();
+      if (!title) return res.status(400).json({ message: 'Group name is required' });
+      if (title.length > 80) {
+        return res.status(400).json({ message: 'Group name is too long (max 80 characters)' });
+      }
+    }
+    const postPolicy =
+      req.body?.post_policy == null
+        ? null
+        : req.body.post_policy === 'admins_only'
+          ? 'admins_only'
+          : 'everyone';
+    const writeMode =
+      req.body?.write_mode == null ? null : req.body.write_mode === 'selected' ? 'selected' : 'everyone';
+
+    const updated = await chat.updateGroupSettings(convo.id, { title, postPolicy, writeMode });
+    if (Array.isArray(req.body?.members)) {
+      await chat.setParticipantsCanPost(
+        convo.id,
+        req.body.members.map((m) => ({ uid: m?.uid, canPost: m?.can_post }))
+      );
+    }
+
+    // Everyone in the room should see the rename/policy flip immediately; the
+    // rail's title and the composer gate both read these fields.
+    const dto = chat.toConversationDto({
+      ...updated,
+      my_can_post:
+        (await chat.getParticipant(convo.id, ctx.me.uid))?.can_post ?? null,
+    });
+    emitChat(convo.id, {
+      type: 'conversation:update',
+      conversation_id: convo.id,
+      conversation: dto,
+    });
+    res.json(dto);
+  } catch (err) {
+    console.error('[chat] updateGroupSettings', err);
+    res.status(500).json({ message: 'Could not update the group' });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /conversations/:id  (admin participants)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard-deletes a group room: participants, messages and notice views all
+ * cascade. Announced over the socket first so everyone's rail drops it
+ * without a reload.
+ */
+export const deleteGroup = async (req, res) => {
+  try {
+    const ctx = await authorizeGroupAdmin(req, res);
+    if (!ctx) return;
+    const { convo } = ctx;
+    // Delete first so a failed write never announces a phantom removal.
+    await db._pool.query(`DELETE FROM chat_conversations WHERE id = $1`, [convo.id]);
+    // Broadcast globally, not room-scoped: people who never joined this room's
+    // socket still have it in their rail from an earlier list fetch, and a
+    // room-scoped frame would never reach them. The payload is only an id.
+    emitChatBroadcast({ type: 'conversation:deleted', conversation_id: convo.id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[chat] deleteGroup', err);
+    res.status(500).json({ message: 'Could not delete the group' });
   }
 };
 

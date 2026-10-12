@@ -1,828 +1,445 @@
-﻿
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+﻿import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts, getReceiptStats } from '../api/endpoints'
+import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts, getReceiptStats } from '../api/endpoints'
 import { api } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { deptLabel } from '../../../lib/labels'
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar, LineChart, Line, CartesianGrid, Legend } from 'recharts'
-import { fmt, STATUS_META, StatBox } from '../components/froShared'
-import { FroMiniCard } from '../components/FroMiniCard'
-import { FroDetailModal, FroDeepDetailModal } from '../components/FroModals'
-import { FroNestedModal } from '../components/FroNestedModal'
-import FroPerformanceToday from '../components/FroPerformanceToday'
 
-/* ============ MINT PALETTE ============ */
-const MINT = '#8CCDA4'          // fills, charts, borders
-const MINT_DEEP = '#2A6B45'     // readable green text / icons
-const MINT_DARK = '#1E4D3B'     // brand dark green
-const MINT_LIGHT = '#EAF7EE'    // light tint backgrounds
-const BLUSH = '#F7B2AD'         // soft red fill
-const RED_DEEP = '#C0473C'      // readable red text / buttons
-const GOLD = '#E0A73C'          // readable amber text
-const GOLD_LIGHT = '#F6C979'    // amber fill
-const SLATE = '#4C7C8C'         // secondary accent
-const PRIMARY = '#1F332B'       // main text (green-black)
-const CORAL = RED_DEEP          // kept name so old references work
+/* ============ PALETTE — mint theme, colour only where it carries meaning ============ */
+const MINT = '#8CCDA4'
+const MINT_DEEP = '#2A6B45'
+const MINT_DARK = '#1E4D3B'
+const MINT_LIGHT = '#EAF7EE'
+const BLUSH = '#F7B2AD'
+const RED = '#C0473C'
+const AMBER = '#D9962B'
+const AMBER_LIGHT = '#F6C979'
+const INK = '#1F332B'
+const MUTED = '#64748b'
 
-const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
-
-/* fresh chart colors for Volunteers by Department bars */
-const DEPT_COLORS = [
-  '#22C55E', // green
-  '#3B82F6', // blue
-  '#F59E0B', // amber
-  '#A855F7', // purple
-  '#EF4444', // red
-  '#14B8A6', // teal
-  '#F97316', // orange
-  '#6366F1', // indigo
-  '#EC4899', // pink
-  '#06B6D4', // cyan
-  '#84CC16', // lime
-  '#8B5CF6', // violet
-  '#F43F5E', // rose
-  '#0EA5E9', // sky
-  '#D946EF', // fuchsia
-  '#10B981', // emerald
-]
-
-const NGO_CHIP_COLORS = {}
-const NGO_PALETTE = [MINT_DEEP, RED_DEEP, SLATE, GOLD, '#3F8760', '#7A5C8C', MINT_DARK, '#B07D4F']
-function ngoColor(name) {
-  if (name && name.toLowerCase().startsWith('man')) return '#e91e9a'
-  if (name && name.toLowerCase().startsWith('aflf')) return '#3b82f6'
-  if (name && name.toLowerCase().startsWith('bsct')) return '#38bdf8'
-  if (!NGO_CHIP_COLORS[name]) {
-    NGO_CHIP_COLORS[name] = NGO_PALETTE[Object.keys(NGO_CHIP_COLORS).length % NGO_PALETTE.length]
-  }
-  return NGO_CHIP_COLORS[name]
+const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' }
+const NGO_PALETTE = [MINT_DEEP, RED, '#4C7C8C', AMBER, '#3F8760', '#7A5C8C', MINT_DARK, '#B07D4F']
+const SEVERITY = {
+  critical: { color: '#DC2626', icon: 'error' },
+  warning: { color: '#D97706', icon: 'warning' },
+  info: { color: '#2563EB', icon: 'info' },
 }
-
 const PERIODS = [
-  { key: '7d', label: '7 Days' },
-  { key: '30d', label: '30 Days' },
-  { key: '90d', label: '90 Days' },
-  { key: '1y', label: '1 Year' },
-  { key: 'all', label: 'All Time' },
+  { key: '7d', label: '7 Days' }, { key: '30d', label: '30 Days' }, { key: '90d', label: '90 Days' },
+  { key: '1y', label: '1 Year' }, { key: 'all', label: 'All Time' },
+]
+const PERFORMER_PERIODS = [
+  { key: 'today', label: 'Today' }, { key: '7d', label: 'Weekly' }, { key: '1y', label: 'Yearly' }, { key: 'all', label: 'All Time' },
 ]
 
-/* ================= CSV / EXCEL EXPORT ================= */
+const ngoColorCache = {}
+function ngoColor(name = '') {
+  const n = name.toLowerCase()
+  if (n.startsWith('man')) return '#e91e9a'
+  if (n.startsWith('aflf')) return '#3b82f6'
+  if (n.startsWith('bsct')) return '#38bdf8'
+  if (!ngoColorCache[name]) ngoColorCache[name] = NGO_PALETTE[Object.keys(ngoColorCache).length % NGO_PALETTE.length]
+  return ngoColorCache[name]
+}
+const isMainNgo = (name = '') => ['man', 'aflf', 'bsct'].some(p => name.toLowerCase().startsWith(p))
+
+/* ============ HELPERS ============ */
+const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
+const money = (n) => Number(n) >= 100000 ? `₹${(Number(n) / 100000).toFixed(1)}L` : inr(n)
+const asList = (d) => { const l = d?.data || d || []; return Array.isArray(l) ? l : [] }
+const lc = (v) => (v || '').toLowerCase()
+const todayStr = () => new Date().toISOString().slice(0, 10)
+const PIPELINE_STATES = ['hold', 'followed_up', 'call_back', 'scheduled']
+
+/* ============ CSV EXPORT ============ */
 function exportToExcel(data, period) {
-  const { ngos: ngosE = {}, workers: workersE = {}, attendance: attE = {}, froAssignments = [] } = data
-  const stats = { totalNgos: ngosE.total ?? 0, totalWorkers: workersE.total ?? 0, activeWorkers: workersE.active ?? 0 }
-  const deptWorkers = workersE.by_department || {}
-  const attendanceStatus = attE.by_status || {}
-  const attendancePercent = attE.percent || 0
-  const ngoUserCounts = ngosE.per_ngo || []
-  const rows = []
-  rows.push(['DASHBOARD REPORT'])
-  rows.push(['Generated', new Date().toLocaleString('en-IN')])
-  rows.push(['Period', PERIODS.find(p => p.key === period)?.label || period])
-  rows.push([])
-  rows.push(['KEY METRICS'])
-  rows.push(['Total NGOs', stats.totalNgos || 0])
-rows.push(['Total Volunteers', stats.totalWorkers || 0])
-    rows.push(['Active Volunteers', stats.activeWorkers || 0])
-  rows.push(['Attendance %', attendancePercent + '%'])
-  rows.push([])
-  rows.push(['ATTENDANCE STATUS'])
-  rows.push(['Present', attendanceStatus.present || 0])
-  rows.push(['Late', attendanceStatus.late || 0])
-  rows.push(['Absent', attendanceStatus.absent || 0])
-  rows.push([])
-rows.push(['VOLUNTEERS BY DEPARTMENT'])
-    rows.push(['Department', 'Volunteers'])
-  Object.entries(deptWorkers).forEach(([name, count]) => rows.push([name, count]))
-  rows.push([])
-  if (froAssignments.length > 0) {
-    rows.push(['NGO WISE FRO ASSIGNMENTS'])
-    rows.push(['FRO Name', 'Assigned NGOs'])
+  const { ngos = {}, workers = {}, attendance = {}, froAssignments = [] } = data
+  const status = attendance.by_status || {}
+  const src = attendance.today?.present !== undefined ? attendance.today : attendance.by_worker || {}
+  const tot = (src.present || 0) + (src.late || 0) + (src.absent || 0)
+  const attPct = tot > 0 ? Math.min(100, Math.round(((src.present || 0) + (src.late || 0)) / tot * 100)) : 0
+  const rows = [
+    ['DASHBOARD REPORT'],
+    ['Generated', new Date().toLocaleString('en-IN')],
+    ['Period', PERIODS.find(p => p.key === period)?.label || period],
+    [],
+    ['KEY METRICS'],
+    ['Total NGOs', ngos.total || 0],
+    ['Total Volunteers', workers.total || 0],
+    ['Active Volunteers', workers.active || 0],
+    ['Attendance % (today)', attPct + '%'],
+    [],
+    ['ATTENDANCE STATUS'],
+    ['Present', status.present || 0], ['Late', status.late || 0], ['Absent', status.absent || 0],
+    [],
+    ['VOLUNTEERS BY DEPARTMENT'], ['Department', 'Volunteers'],
+    ...Object.entries(workers.by_department || {}),
+    [],
+  ]
+  if (froAssignments.length) {
+    rows.push(['NGO WISE FRO ASSIGNMENTS'], ['FRO Name', 'Assigned NGOs'])
     froAssignments.forEach(f => rows.push([f.name, (f.ngos || []).join(' | ')]))
-  } else if (ngoUserCounts.length > 0) {
-    rows.push(['NGO SUMMARY'])
-    rows.push(['NGO', 'Volunteers'])
-    ngoUserCounts.forEach(n => rows.push([n.name, n.workers || 0]))
+  } else if ((ngos.per_ngo || []).length) {
+    rows.push(['NGO SUMMARY'], ['NGO', 'Volunteers'])
+    ngos.per_ngo.forEach(n => rows.push([n.name, n.workers || 0]))
   }
-
-  const csv = '\uFEFF' + rows
-    .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\r\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
+  const csv = '\uFEFF' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
   const a = document.createElement('a')
   a.href = url
-  a.download = `dashboard-report-${period}-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  a.download = `dashboard-report-${period}-${todayStr()}.csv`
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
-/* ================= DONUT ================= */
-function DonutChart({ segments, size, centerValue, centerLabel, animated, onSegmentClick, activeLabel }) {
-  const total = segments.reduce((s, seg) => s + seg.value, 0)
+/* ============ SMALL SHARED COMPONENTS ============ */
+function SectionCard({ icon, title, right, children, className = '', style }) {
+  return (
+    <section className={`nd-card ${className}`} style={style}>
+      <header className="nd-sec-head">
+        {icon && <span className="material-symbols-outlined nd-sec-icon">{icon}</span>}
+        <h3 className="nd-section-title">{title}</h3>
+        {right && <div className="nd-sec-right">{right}</div>}
+      </header>
+      {children}
+    </section>
+  )
+}
+
+function Modal({ title, icon, color = MINT_DEEP, badge, wide, onClose, children, footer }) {
+  useEffect(() => {
+    const h = e => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+  return (
+    <div className="nd-modal-overlay" onClick={onClose}>
+      <div className={`nd-modal${wide ? ' nd-modal-wide' : ''}`} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+        <div className="nd-modal-head" style={{ borderColor: `${color}30` }}>
+          {icon && <span className="material-symbols-outlined" style={{ fontSize: 20, color }}>{icon}</span>}
+          {badge !== undefined && <span className="nd-modal-badge" style={{ background: `${color}18`, color }}>{badge}</span>}
+          <h3 className="nd-modal-title">{title}</h3>
+          <button className="nd-modal-close" aria-label="Close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+        </div>
+        <div className="nd-modal-body">{children}</div>
+        {footer && <div className="nd-modal-foot">{footer}</div>}
+      </div>
+    </div>
+  )
+}
+
+function SearchBox({ value, onChange, placeholder }) {
+  return (
+    <div className="nd-modal-search">
+      <span className="material-symbols-outlined nd-modal-search-icon">search</span>
+      <input className="nd-modal-search-input" placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} autoFocus />
+      {value && <button className="nd-modal-search-clear" aria-label="Clear" onClick={() => onChange('')}><span className="material-symbols-outlined">close</span></button>}
+    </div>
+  )
+}
+
+function Segmented({ options, value, onChange }) {
+  return (
+    <div className="nd-seg" role="tablist">
+      {options.map(o => (
+        <button key={o.key} role="tab" aria-selected={value === o.key} className={value === o.key ? 'on' : ''} onClick={() => onChange(o.key)}>
+          {o.label}{o.badge > 0 && <span className="nd-seg-badge">{o.badge}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function DonutChart({ segments, size, centerValue, centerLabel, animated, onSegmentClick }) {
+  const total = segments.reduce((s, x) => s + x.value, 0)
   if (total === 0) return null
-  const r = 15.915
   let offset = 0
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg viewBox="0 0 36 36" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
-        <circle cx="18" cy="18" fill="transparent" r={r} stroke="#EEF4EF" strokeWidth="3" />
-        {segments.map((seg) => {
-          const pct = (seg.value / total) * 100
-          const dash = pct.toFixed(1)
-          const gap = (100 - parseFloat(dash)).toFixed(1)
-          const isActive = activeLabel === seg.label
+        <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="#EEF4EF" strokeWidth="3" />
+        {segments.map(seg => {
+          const dash = ((seg.value / total) * 100).toFixed(1)
           const el = (
-            <circle
-              key={seg.label}
-              cx="18" cy="18" fill="transparent" r={r}
-              stroke={seg.color}
-              strokeDasharray={animated ? `${dash} ${gap}` : `0 100`}
-              strokeDashoffset={-offset}
-              strokeLinecap="round"
-              strokeWidth={isActive ? 5.5 : 4.5}
-              style={{ transition: 'stroke-dasharray 1s ease, stroke-width 0.2s ease', cursor: onSegmentClick ? 'pointer' : 'default', opacity: activeLabel && !isActive ? 0.35 : 1 }}
-              onClick={() => onSegmentClick && onSegmentClick(seg.label)}
-            />
+            <circle key={seg.label} cx="18" cy="18" r="15.915" fill="transparent" stroke={seg.color}
+              strokeDasharray={animated ? `${dash} ${(100 - dash).toFixed(1)}` : '0 100'}
+              strokeDashoffset={-offset} strokeLinecap="round" strokeWidth="4.5"
+              style={{ transition: 'stroke-dasharray 1s ease', cursor: onSegmentClick ? 'pointer' : 'default' }}
+              onClick={() => onSegmentClick?.(seg.label)} />
           )
           offset += animated ? parseFloat(dash) : 0
           return el
         })}
       </svg>
-      {(centerValue !== undefined || centerLabel) && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          {centerValue !== undefined && <span style={{ fontSize: 24, fontWeight: 800, color: PRIMARY }}>{Number(centerValue).toLocaleString()}</span>}
-          {centerLabel && <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>{centerLabel}</span>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ================= ACCOUNTS DETAIL MODAL ================= */
-function AccountsDetailModal({ status, onClose }) {
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState('')
-  const [q, setQ] = useState('')
-
-  useEffect(() => {
-    setLoading(true)
-    getAccountsLeads(status === 'verified_today' ? 'verified' : status)
-      .then(d => {
-        const list = d?.data || d || []
-        if (status === 'verified_today') {
-          const today = new Date().toISOString().slice(0, 10)
-          setItems(list.filter(r => r.verified_at?.slice(0, 10) === today))
-        } else {
-          setItems(list)
-        }
-      })
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false))
-  }, [status])
-
-  const filtered = q.trim()
-    ? items.filter(r => (r.donor_name || '').toLowerCase().includes(q.trim().toLowerCase()) || (r.donor_mobile || '').includes(q.trim()))
-    : items
-
-  const labels = { pending: 'Pending', verified: 'Verified', rejected: 'Rejected', verified_today: 'Verified Today' }
-
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal fro-modal" onClick={e => e.stopPropagation()}>
-        <div className="nd-modal-head" style={{ borderColor: `${MINT}50` }}>
-          <h3 className="nd-modal-title">Accounts — {labels[status] || status}</h3>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body" style={{ padding: 0 }}>
-          <div className="nd-modal-search" style={{ margin: 12 }}>
-            <input className="nd-modal-search-input" placeholder="Search donor..." value={q} onChange={e => setQ(e.target.value)} autoFocus />
-            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
-          </div>
-          {loading ? (
-            <p className="nd-muted" style={{ padding: 16 }}>Loading...</p>
-          ) : err ? (
-            <p className="nd-muted" style={{ padding: 16, color: RED_DEEP }}>{err}</p>
-          ) : filtered.length === 0 ? (
-            <p className="nd-muted" style={{ padding: 16 }}>No records found.</p>
-          ) : (
-            <div className="fro-table-wrap">
-              <table className="fro-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Donor Name</th>
-                    <th>Mobile</th>
-                    <th>Amount</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((r, i) => (
-                    <tr key={r.log_id || i}>
-                      <td>{i + 1}</td>
-                      <td>{r.donor_name}</td>
-                      <td>{r.donor_mobile}</td>
-                      <td className="fro-amt">₹{(r.amount || 0).toLocaleString('en-IN')}</td>
-                      <td>{r.created_at?.slice(0, 10) || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <div className="fro-live-footer" style={{ padding: '10px 16px', justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
-        </div>
+      <div className="nd-donut-center">
+        <span style={{ fontSize: 24, fontWeight: 800, color: INK }}>{Number(centerValue).toLocaleString()}</span>
+        {centerLabel && <span style={{ fontSize: 11, color: MUTED }}>{centerLabel}</span>}
       </div>
     </div>
   )
 }
 
-/* ================= RECRUITER DETAIL MODAL ================= */
-function RecruiterDetailModal({ type, onClose }) {
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState('')
-  const [q, setQ] = useState('')
-
-  useEffect(() => {
-    setLoading(true)
-    getRecruiterLeads()
-      .then(d => {
-        const list = d?.data || d || []
-        if (type === 'new_today') {
-          const today = new Date().toISOString().slice(0, 10)
-          setItems(list.filter(r => r.created_at?.slice(0, 10) === today))
-        } else {
-          setItems(list)
-        }
-      })
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false))
-  }, [type])
-
-  const filtered = q.trim()
-    ? items.filter(r => (r.name || '').toLowerCase().includes(q.trim().toLowerCase()) || (r.phone || '').includes(q.trim()))
-    : items
-
-  const labels = { total_leads: 'All Leads', new_today: 'New Today', conversion_rate: 'Lead Status Overview' }
-
+function PipelineFlow({ stages }) {
+  const max = Math.max(...stages.map(s => s.value), 1)
   return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal fro-modal" onClick={e => e.stopPropagation()}>
-        <div className="nd-modal-head" style={{ borderColor: `${GOLD_LIGHT}60` }}>
-          <h3 className="nd-modal-title">Recruiter — {labels[type] || type}</h3>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body" style={{ padding: 0 }}>
-          <div className="nd-modal-search" style={{ margin: 12 }}>
-            <input className="nd-modal-search-input" placeholder="Search lead..." value={q} onChange={e => setQ(e.target.value)} autoFocus />
-            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
-          </div>
-          {loading ? (
-            <p className="nd-muted" style={{ padding: 16 }}>Loading...</p>
-          ) : err ? (
-            <p className="nd-muted" style={{ padding: 16, color: RED_DEEP }}>{err}</p>
-          ) : filtered.length === 0 ? (
-            <p className="nd-muted" style={{ padding: 16 }}>No leads found.</p>
-          ) : (
-            <div className="fro-table-wrap">
-              <table className="fro-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Status</th>
-                    <th>Recruiter</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((r, i) => (
-                    <tr key={r.id || i}>
-                      <td>{i + 1}</td>
-                      <td>{r.name}</td>
-                      <td>{r.phone}</td>
-                      <td><span className={`lead-status-dot ${r.status}`} />{r.status}</td>
-                      <td>{r.users?.name || '-'}</td>
-                      <td>{r.created_at?.slice(0, 10) || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <div className="fro-live-footer" style={{ padding: '10px 16px', justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>{filtered.length} lead{filtered.length !== 1 ? 's' : ''}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ================= PANEL SUMMARY MODAL ================= */
-function PanelSummaryModal({ panel, onClose, dashboardData }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  const fetchData = useCallback(() => {
-    setLoading(true)
-
-    const fetchers = {
-      accounts: () => getAccountsLeads()
-        .then(d => {
-          const list = d?.data || d || []
-          const pending = list.filter(l => l.accounts_status === 'pending')
-          const verified = list.filter(l => l.accounts_status === 'verified')
-          const today = new Date().toDateString()
-          const verifiedToday = verified.filter(l => l.verified_at && new Date(l.verified_at).toDateString() === today)
-          return {
-            pending: { count: pending.length, amount: pending.reduce((s, l) => s + Number(l.amount || 0), 0) },
-            verified: { count: verified.length, amount: verified.reduce((s, l) => s + Number(l.amount || 0), 0) },
-            verifiedToday: { count: verifiedToday.length, amount: verifiedToday.reduce((s, l) => s + Number(l.amount || 0), 0) },
-            total: { count: list.length, amount: list.reduce((s, l) => s + Number(l.amount || 0), 0) },
-          }
-        }),
-      fro: () => api('/fro/status', { _prefix: 'ucs' })
-        .then(list => {
-          const arr = Array.isArray(list) ? list : []
-          const active = arr.filter(f => f.worker?.is_active)
-          const punchedIn = arr.filter(f => f.worker?.is_punched_in)
-          const totalCollection = arr.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0)
-          const totalData = arr.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)
-          return { total: arr.length, active: active.length, inactive: arr.length - active.length, punchedIn: punchedIn.length, totalCollection, totalData }
-        }),
-      hr: () => Promise.all([getWorkers(), getAttendance()])
-        .then(([workers, attendance]) => {
-          const wList = Array.isArray(workers) ? workers : workers?.data || []
-          const attList = Array.isArray(attendance) ? attendance : attendance?.data || []
-          const today = new Date().toDateString()
-          const todayAtt = attList.filter(a => a.date && new Date(a.date).toDateString() === today)
-
-          const workerMap = {}
-          wList.forEach(w => { workerMap[w.id] = w })
-
-          const deptGroups = {}
-          wList.forEach(w => {
-            const dept = w.department || 'Unassigned'
-            if (!deptGroups[dept]) deptGroups[dept] = { total: 0, present: 0, absent: 0, late: 0 }
-            deptGroups[dept].total++
-          })
-
-          todayAtt.forEach(a => {
-            const worker = workerMap[a.worker_id]
-            const dept = worker?.department || 'Unassigned'
-            if (!deptGroups[dept]) deptGroups[dept] = { total: 0, present: 0, absent: 0, late: 0 }
-            if (a.status === 'present') deptGroups[dept].present++
-            else if (a.status === 'late') deptGroups[dept].late++
-            else if (a.status === 'absent') deptGroups[dept].absent++
-          })
-
-          const totalWorkers = wList.length
-          const activeWorkers = wList.filter(w => w.is_active).length
-          const presentToday = todayAtt.filter(a => a.status === 'present' || a.punched_in).length
-          const totalAtt = todayAtt.length
-
-          const departments = Object.entries(deptGroups)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([name, counts]) => ({ name, ...counts }))
-
-          return { totalWorkers, activeWorkers, presentToday, totalAtt, attendancePercent: totalAtt > 0 ? Math.round((presentToday / totalAtt) * 100) : 0, departments }
-        }),
-      'ngo-admin': () => {
-        const dd = dashboardData
-        if (dd?.stats?.totalNgos != null) {
-          return Promise.resolve({ totalNgos: dd.stats.totalNgos, ngoTotals: dd.ngoTotals || [] })
-        }
-        return Promise.resolve({ totalNgos: 0, ngoTotals: [] })
-      },
-      'event-head': () => {
-        const ev = dashboardData?.upcomingEvents || []
-        const now = new Date()
-        const upcoming = ev.filter(e => new Date(e.event_date) >= now)
-        const past = ev.filter(e => new Date(e.event_date) < now)
-        return Promise.resolve({ total: ev.length, upcoming: upcoming.length, past: past.length, next: upcoming[0] || null })
-      },
-      recruiter: () => getRecruiterLeads()
-        .then(d => {
-          const list = d?.data || d || []
-          const today = new Date().toDateString()
-          const newToday = list.filter(l => l.created_at && new Date(l.created_at).toDateString() === today)
-          const statusGroups = {}
-          list.forEach(l => { const s = l.status || 'unknown'; statusGroups[s] = (statusGroups[s] || 0) + 1 })
-          const selected = list.filter(l => l.status === 'selected' || l.status === 'verified').length
-          const rejected = list.filter(l => l.status === 'rejected').length
-          const conversionRate = rejected + selected > 0 ? (selected / (selected + rejected)) * 100 : 0
-          return { total: list.length, newToday: newToday.length, conversionRate, statusGroups }
-        }),
-    }
-
-    const fetcher = fetchers[panel]
-    if (fetcher) fetcher().then(setData).catch((err) => { console.error('API error:', err.message); setData({}) }) .finally(() => setLoading(false))
-  }, [panel])
-
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
-
-  const labels = {
-    accounts: { title: 'Accounts — Lead Verification', icon: 'receipt_long', color: MINT_DARK },
-    fro: { title: 'FRO — Field Operations', icon: 'groups', color: MINT_DEEP },
-    hr: { title: 'HR — Volunteer Management', icon: 'badge', color: SLATE },
-    'ngo-admin': { title: 'Admin — NGO Management', icon: 'corporate_fare', color: GOLD },
-    'event-head': { title: 'Event Head — Events & Volunteers', icon: 'event', color: '#3B82F6' },
-    recruiter: { title: 'Recruiter — Lead Pipeline', icon: 'person_search', color: GOLD },
-  }
-  const meta = labels[panel] || {}
-
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
-        <div className="nd-modal-head" style={{ borderColor: `${meta.color}30` }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: meta.color }}>{meta.icon}</span>
-          <h3 className="nd-modal-title">{meta.title}</h3>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body">
-          {loading && !data ? (
-            <p className="nd-muted">Loading...</p>
-          ) : (
-            <div className="ps-grid">
-              {panel === 'accounts' && data && (
-                <>
-                  <div className="ps-card" style={{ borderTop: `3px solid #F59E0B` }}>
-                    <span className="ps-label">⏳ Pending</span>
-                    <span className="ps-value">{data.pending?.count ?? 0}</span>
-                    <span className="ps-sub">₹{(data.pending?.amount || 0).toLocaleString('en-IN')} total</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid #3B82F6` }}>
-                    <span className="ps-label">✔️ Verified</span>
-                    <span className="ps-value">{data.verified?.count ?? 0}</span>
-                    <span className="ps-sub">₹{(data.verified?.amount || 0).toLocaleString('en-IN')} total</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid #10B981` }}>
-                    <span className="ps-label">📅 Verified Today</span>
-                    <span className="ps-value">{data.verifiedToday?.count ?? 0}</span>
-                    <span className="ps-sub">₹{(data.verifiedToday?.amount || 0).toLocaleString('en-IN')} collected</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid #8B5CF6` }}>
-                    <span className="ps-label">💰 Total Amount</span>
-                    <span className="ps-value">₹{(data.total?.amount || 0).toLocaleString('en-IN')}</span>
-                    <span className="ps-sub">Across {data.total?.count || 0} leads</span>
-                  </div>
-                </>
-              )}
-              {panel === 'fro' && data && (
-                <>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DARK}` }}>
-                    <span className="ps-label">📋 Total FROs</span>
-                    <span className="ps-value">{data.total ?? 0}</span>
-                    <span className="ps-sub">Registered volunteers</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DEEP}` }}>
-                    <span className="ps-label">🟢 Active</span>
-                    <span className="ps-value">{data.active ?? 0}</span>
-                    <span className="ps-sub">{data.inactive ?? 0} inactive</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${SLATE}` }}>
-                    <span className="ps-label">✅ Punched In</span>
-                    <span className="ps-value">{data.punchedIn ?? 0}</span>
-                    <span className="ps-sub">Today</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${GOLD}` }}>
-                    <span className="ps-label">💰 Today's Collection</span>
-                    <span className="ps-value">₹{(data.totalCollection || 0).toLocaleString('en-IN')}</span>
-                    <span className="ps-sub">Data used: {data.totalData || 0}</span>
-                  </div>
-                </>
-              )}
-              {panel === 'hr' && data && (
-                <>
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-                    <div className="ps-card" style={{ borderTop: `3px solid ${SLATE}`, flex: 1, minWidth: 100 }}>
-                      <span className="ps-label">👷 Total Volunteers</span>
-                      <span className="ps-value">{data.totalWorkers ?? 0}</span>
-                      <span className="ps-sub">All time</span>
-                    </div>
-                    <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DEEP}`, flex: 1, minWidth: 100 }}>
-                      <span className="ps-label">✅ Active</span>
-                      <span className="ps-value">{data.activeWorkers ?? 0}</span>
-                      <span className="ps-sub">Currently active</span>
-                    </div>
-                    <div className="ps-card" style={{ borderTop: `3px solid ${GOLD}`, flex: 1, minWidth: 100 }}>
-                      <span className="ps-label">📊 Attendance</span>
-                      <span className="ps-value">{data.attendancePercent ?? 0}%</span>
-                      <span className="ps-sub">{data.presentToday ?? 0} of {data.totalAtt ?? 0} today</span>
-                    </div>
-                  </div>
-                  {data.departments?.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Department Breakdown</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 50px', gap: 4, padding: '6px 10px', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc', borderRadius: 6 }}>
-                          <span>Department</span><span style={{ textAlign: 'center' }}>Total</span><span style={{ textAlign: 'center', color: '#22C55E' }}>P</span><span style={{ textAlign: 'center', color: '#EF4444' }}>A</span><span style={{ textAlign: 'center', color: '#F59E0B' }}>L</span>
-                        </div>
-                        {data.departments.map(d => (
-                          <div key={d.name} style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 50px', gap: 4, padding: '6px 10px', fontSize: 12, borderRadius: 6, background: '#fff', border: '1px solid #f1f5f9' }}>
-                            <span style={{ fontWeight: 600, color: '#334155' }}>{deptLabel(d.name)}</span>
-                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#334155' }}>{d.total}</span>
-                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#22C55E' }}>{d.present}</span>
-                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#EF4444' }}>{d.absent}</span>
-                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#F59E0B' }}>{d.late}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 8, fontStyle: 'italic' }}>
-                        {data.presentToday} present · {data.totalAtt - data.presentToday - data.departments.reduce((s, d) => s + d.late + d.absent, 0) ? 'others' : ''} today
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              {panel === 'ngo-admin' && data && (
-                <>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${GOLD}` }}>
-                    <span className="ps-label">🏢 Total NGOs</span>
-                    <span className="ps-value">{data.totalNgos ?? 0}</span>
-                    <span className="ps-sub">Registered NGOs</span>
-                  </div>
-                  {data.ngoTotals?.length > 0 && (
-                    <div className="ps-card" style={{ borderTop: `3px solid ${SLATE}` }}>
-                      <span className="ps-label">📊 NGO Breakdown</span>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: 8 }}>
-                        {data.ngoTotals.map(t => (
-                          <span key={t.name} style={{
-                            background: `${t.color || SLATE}14`, color: t.color || SLATE,
-                            borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600
-                          }}>
-                            {t.name} — {t.count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              {panel === 'recruiter' && data && (
-                <>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DARK}` }}>
-                    <span className="ps-label">📋 Total Leads</span>
-                    <span className="ps-value">{data.total ?? 0}</span>
-                    <span className="ps-sub">All time</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DEEP}` }}>
-                    <span className="ps-label">🆕 New Today</span>
-                    <span className="ps-value">{data.newToday ?? 0}</span>
-                    <span className="ps-sub">Added today</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${GOLD}` }}>
-                    <span className="ps-label">📈 Conversion</span>
-                    <span className="ps-value">{(data.conversionRate ?? 0).toFixed(1)}%</span>
-                    <span className="ps-sub">Selected vs Rejected</span>
-                  </div>
-                </>
-              )}
-              {panel === 'event-head' && data && (
-                <>
-                  <div className="ps-card" style={{ borderTop: `3px solid #3B82F6` }}>
-                    <span className="ps-label">📅 Total Events</span>
-                    <span className="ps-value">{data.total ?? 0}</span>
-                    <span className="ps-sub">All events</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid #22C55E` }}>
-                    <span className="ps-label">🔜 Upcoming</span>
-                    <span className="ps-value">{data.upcoming ?? 0}</span>
-                    <span className="ps-sub">Scheduled</span>
-                  </div>
-                  {data.next && (
-                    <div className="ps-card" style={{ borderTop: `3px solid #8B5CF6` }}>
-                      <span className="ps-label">📌 Next Event</span>
-                      <span className="ps-value">{data.next.title}</span>
-                      <span className="ps-sub">{new Date(data.next.event_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{data.next.event_time ? ` at ${data.next.event_time.slice(0, 5)}` : ''}</span>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <div className="fro-live-footer">
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>Auto-refreshes every 30s</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ================= NAME LIST MODAL ================= */
-function NameListModal({ title, color, names, onClose }) {
-  const [q, setQ] = useState('')
-  const filtered = q.trim()
-    ? names.filter(n => {
-        const name = (typeof n === 'string' ? n : (n.name || '')).toLowerCase()
-        return name.includes(q.trim().toLowerCase())
-      })
-    : names
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal" onClick={e => e.stopPropagation()}>
-        <div className="nd-modal-head" style={{ borderColor: `${color}30` }}>
-          <span className="nd-modal-badge" style={{ background: `${color}18`, color }}>
-            {filtered.length}/{names.length}
-          </span>
-          <h3 className="nd-modal-title">{title}</h3>
-          <button className="nd-modal-close" onClick={onClose}>
-            <span className="material-symbols-outlined">close</span>
-          </button>
-        </div>
-        <div className="nd-modal-body">
-          <div className="nd-modal-search">
-            <span className="material-symbols-outlined nd-modal-search-icon">search</span>
-            <input
-              className="nd-modal-search-input"
-              placeholder="Search by name..."
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              autoFocus
-            />
-            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
-          </div>
-          {filtered.length === 0 ? (
-            <p className="nd-muted" style={{ padding: 16 }}>{q ? 'No matching names found.' : 'No records found for this period.'}</p>
-          ) : (
-            filtered.map((n, i) => {
-              const person = typeof n === 'string' ? { name: n } : n
-              return (
-                <div key={i} className="nd-modal-row">
-                  <span className="nd-avatar" style={{ background: `${color}18`, color }}>
-                    {person.name?.charAt(0).toUpperCase() || '?'}
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                    <span className="nd-modal-name">{person.name}</span>
-                    {(person.dept || person.department) && (
-                      <span className="nd-modal-dept">{deptLabel(person.dept || person.department)}</span>
-                    )}
-                  </div>
-                  {person.time && <span className="nd-modal-time">{person.time}</span>}
-                </div>
-              )
-            })
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ─── Animated counter (scroll-triggered) ─── */
-function AnimatedNum({ to, suffix = '' }) {
-  const [v, setV] = useState(0);
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    if (to === 0) { setV(0); return; }
-    const obs = new IntersectionObserver(([e]) => {
-      if (!e.isIntersecting) return;
-      const dur = 1000, s = performance.now(), d = to;
-      const tick = (n) => { const p = Math.min((n - s) / dur, 1); setV(Math.round(d * (1 - Math.pow(1 - p, 3)))); if (p < 1) requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
-      obs.disconnect();
-    }, { threshold: 0.3 });
-    obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, [to]);
-  return <span ref={ref}>{v.toLocaleString('en-IN')}{suffix}</span>;
-}
-
-
-
-
-
-/* ─── Monthly Attendance Heatmap ─── */
-function AttendanceHeatmap({ attendance, holidays }) {
-  const yr = new Date().getFullYear(), mo = new Date().getMonth()
-  const dim = new Date(yr, mo + 1, 0).getDate(), fdow = new Date(yr, mo, 1).getDay()
-  const ds = (d) => `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-  const hset = new Set((holidays || []).map(x => x.date?.slice(0, 10)))
-  const a = attendance || []
-  const dayStats = {}
-  for (let d = 1; d <= dim; d++) {
-    const s = ds(d), da = a.filter(x => x.date === s), t = da.length, p = da.filter(x => x.status === 'present' || x.status === 'late').length
-    dayStats[s] = { t, p, pct: t ? Math.round(p / t * 100) : 0 }
-  }
-  const hColor = (s) => {
-    if (!dayStats[s] || !dayStats[s].t) return 'var(--line,#E4DECF)'
-    const pct = dayStats[s].pct
-    if (pct >= 90) return MINT
-    if (pct >= 70) return '#7a9a5a'
-    if (pct >= 50) return '#a8c08a'
-    return BLUSH
-  }
-  const isHol = (d) => hset.has(ds(d)) || new Date(yr, mo, d).getDay() === 0
-  return (
-    <div>
-      <div style={{ fontSize: 10, color: MINT_DEEP, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8, textAlign: 'center' }}>
-        {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
-        {['S','M','T','W','T','F','S'].map((n, i) => <div key={`dow-${i}`} style={{ fontSize: 7, color: '#94a3b8', textAlign: 'center', fontWeight: 600 }}>{n}</div>)}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
-        {Array.from({ length: fdow }).map((_, i) => <div key={`e${i}`} />)}
-        {Array.from({ length: dim }, (_, i) => i + 1).map(d => {
-          const s = ds(d), hol = isHol(d)
-          return <div key={d} title={hol ? 'Holiday' : `${dayStats[s]?.p||0}/${dayStats[s]?.t||0} present`}
-            style={{ borderRadius: 3, background: hol ? 'repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,.03)3px,rgba(0,0,0,.03)6px)' : hColor(s), display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 18, cursor: 'default' }}>
-            <span style={{ fontSize: 7, fontWeight: 600, color: hol ? '#94a3b8' : 'rgba(255,255,255,.85)' }}>{d}</span>
-          </div>
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-        {[
-          { bg: MINT, label: '≥90%' },
-          { bg: '#7a9a5a', label: '70–89%' },
-          { bg: '#a8c08a', label: '50–69%' },
-          { bg: BLUSH, label: '<50%' },
-          { bg: 'repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(0,0,0,.05)2px,rgba(0,0,0,.05)4px)', label: 'Holiday' },
-        ].map(c => (
-          <span key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 7, color: '#94a3b8' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: c.bg, display: 'inline-block', border: '1px solid #DCEEE2' }} />
-            {c.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/* ================= PIPELINE FLOW ================= */
-function PipelineFlow({ stages, color, height }) {
-  const maxVal = Math.max(...stages.map(s => s.value), 1)
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '6px 0', height: height || 64 }}>
-      {stages.map((s, i) => (
-        <div key={s.label} style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-          {i > 0 && (
-            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 18 }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </div>
-          )}
-          <div style={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
-            <div style={{
-              height: 8, borderRadius: 4, margin: '0 auto 4px',
-              width: `${Math.max(30, (s.value / maxVal) * 100)}%`,
-              background: `linear-gradient(90deg, ${s.color || color}, ${s.color || color}88)`,
-            }} />
-            <div style={{ fontSize: 12, fontWeight: 800, color: PRIMARY, lineHeight: 1.2 }}>{s.value.toLocaleString()}</div>
-            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>{s.label}</div>
-            {s.sub && <div style={{ fontSize: 8, color: '#b6c0cc' }}>{s.sub}</div>}
-          </div>
+    <div className="nd-pipeline">
+      {stages.map(s => (
+        <div key={s.label} className="nd-pipe-stage">
+          <div style={{ height: 8, borderRadius: 4, width: `${Math.max(30, (s.value / max) * 100)}%`, background: s.color, margin: '0 auto 6px' }} />
+          <div style={{ fontSize: 15, fontWeight: 800, color: INK }}>{s.value.toLocaleString()}</div>
+          <div style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>{s.label}</div>
+          {s.sub && <div style={{ fontSize: 11, color: '#94a3b8' }}>{s.sub}</div>}
         </div>
       ))}
     </div>
   )
 }
 
-
-
-/* ================= NGO STATION MODAL ================= */
-const NGO_DISPOSITION_LABELS = {
-  pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
-  busy: 'Busy', ringing: 'Ringing', call_waiting: 'Call Waiting', unreachable: 'Unreachable',
-  switched_off: 'Switched Off', out_of_coverage: 'Out of Coverage', wrong_number: 'Wrong Number',
-  invalid_number: 'Invalid', rejected: 'Rejected', temporary_network_issue: 'Temporary Network Issue', voicemail: 'Voicemail',
-  lead_done: 'Lead Done', visit_donate: 'Visit & Donate', will_donate_online: 'Will Donate Online',
-  promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending', already_donated: 'Already Donated',
-  email_sent: 'Email Sent', whatsapp_sent: 'WhatsApp Sent', csr_inquiry: 'CSR Inquiry',
-  wants_80g_details: 'Wants 80G Details', wants_trust_documents: 'Wants Trust Documents',
-  not_interested: 'Not Interested', not_interested_now: 'Not Interested Now', dnd: 'DND',
-  wrong_person: 'Wrong Person', call_disconnected: 'Call Disconnected',
-  language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
-  query_complaint: 'Query/Complaint', receipt_request: 'Receipt Request',
-  donation_collected: 'Donation Collected',
+function RankList({ title, items, valueKey, format = v => v, colors }) {
+  const max = Math.max(...items.map(x => x[valueKey]), 1)
+  return (
+    <div>
+      <div className="nd-sub-title">{title}</div>
+      {items.map((x, i) => {
+        const c = colors[i] || '#94a3b8'
+        return (
+          <div key={x.id || i} className="nd-rank">
+            <span className="nd-rank-no" style={{ background: `${c}18`, color: c }}>{i + 1}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="nd-rank-top">
+                <span className="nd-rank-name">{x.name}</span>
+                <span style={{ fontWeight: 800, color: c }}>{format(x[valueKey])}</span>
+              </div>
+              <div className="nd-track"><div style={{ width: `${(x[valueKey] / max) * 100}%`, background: c }} /></div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
-const NGO_DISPOSITION_GROUPS = [
+
+/* ============ NAME LIST MODAL (attendance etc.) ============ */
+function NameListModal({ title, color, names, onClose }) {
+  const [q, setQ] = useState('')
+  const nameOf = n => (typeof n === 'string' ? n : n.name || '')
+  const filtered = q.trim() ? names.filter(n => lc(nameOf(n)).includes(lc(q.trim()))) : names
+  return (
+    <Modal title={title} color={color} badge={`${filtered.length}/${names.length}`} onClose={onClose}>
+      <SearchBox value={q} onChange={setQ} placeholder="Search by name..." />
+      {filtered.length === 0 ? <p className="nd-muted">{q ? 'No matching names.' : 'No records for this period.'}</p> :
+        filtered.map((n, i) => {
+          const p = typeof n === 'string' ? { name: n } : n
+          return (
+            <div key={i} className="nd-modal-row">
+              <span className="nd-avatar" style={{ background: `${color}18`, color }}>{p.name?.charAt(0).toUpperCase() || '?'}</span>
+              <div style={{ minWidth: 0 }}>
+                <span className="nd-modal-name">{p.name}</span>
+                {(p.dept || p.department) && <span className="nd-modal-dept">{deptLabel(p.dept || p.department)}</span>}
+              </div>
+              {p.time && <span className="nd-modal-time">{p.time}</span>}
+            </div>
+          )
+        })}
+    </Modal>
+  )
+}
+
+/* ============ ONE TABLE MODAL for action-center items, accounts and recruiter lists ============ */
+const ACC_STATUS = (s) => () => getAccountsLeads(s)
+const LIST_CONFIGS = {
+  pendingLeaves: { title: 'Pending Leave Requests', icon: 'event_busy', color: AMBER, load: getLeaves, keep: l => lc(l.status) === 'pending', cols: ['worker_name', 'from_date', 'to_date', 'reason'] },
+  hrVerifiedTickets: { title: 'Tickets Ready to Approve', icon: 'verified', color: MINT_DEEP, load: getAllTickets, keep: t => lc(t.status) === 'hr_verified', cols: ['worker_name', 'date', 'correct_status'] },
+  pendingTickets: { title: 'Pending Attendance Tickets', icon: 'confirmation_number', color: AMBER, load: getAllTickets, keep: t => lc(t.status) === 'pending', cols: ['worker_name', 'date', 'correct_status'] },
+  pendingAccountsLeads: { title: 'Unverified Donor Leads', icon: 'receipt_long', color: AMBER, load: getAccountsLeads, keep: l => lc(l.accounts_status) === 'pending', cols: ['donor_name', 'donor_mobile', 'amount'] },
+  submittedEvents: { title: 'Events Awaiting Approval', icon: 'event_upcoming', color: AMBER, load: getEvents, keep: e => lc(e.status) === 'submitted', cols: ['title', 'event_date', 'event_time'] },
+  recruiterPipeline: { title: 'Recruiter Pipeline Leads', icon: 'person_search', color: MINT_DEEP, load: getRecruiterLeads, keep: l => PIPELINE_STATES.includes(lc(l.status)), cols: ['name', 'phone', 'status'] },
+  acc_pending: { title: 'Accounts — Pending', icon: 'receipt_long', color: AMBER, load: ACC_STATUS('pending'), cols: ['donor_name', 'donor_mobile', 'amount', 'created_at'] },
+  acc_verified: { title: 'Accounts — Verified', icon: 'receipt_long', color: MINT_DEEP, load: ACC_STATUS('verified'), cols: ['donor_name', 'donor_mobile', 'amount', 'created_at'] },
+  acc_rejected: { title: 'Accounts — Rejected', icon: 'receipt_long', color: RED, load: ACC_STATUS('rejected'), cols: ['donor_name', 'donor_mobile', 'amount', 'created_at'] },
+  acc_verified_today: { title: 'Accounts — Verified Today', icon: 'receipt_long', color: MINT_DEEP, load: ACC_STATUS('verified'), keep: r => r.verified_at?.slice(0, 10) === todayStr(), cols: ['donor_name', 'donor_mobile', 'amount', 'created_at'] },
+}
+const colTitle = c => c.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase())
+const cell = (r, c) => {
+  const v = r[c]
+  if (c.includes('amount')) return inr(v)
+  if (c.includes('date') || c === 'created_at') return (v || '-').toString().slice(0, 10)
+  return v || '-'
+}
+
+function ListModal({ type, onClose }) {
+  const cfg = LIST_CONFIGS[type]
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [q, setQ] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    cfg.load()
+      .then(d => setItems(cfg.keep ? asList(d).filter(cfg.keep) : asList(d)))
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false))
+  }, [type]) // eslint-disable-line
+
+  const rows = q.trim() ? items.filter(r => JSON.stringify(r).toLowerCase().includes(lc(q.trim()))) : items
+  return (
+    <Modal title={cfg.title} icon={cfg.icon} color={cfg.color} badge={items.length} wide onClose={onClose}
+      footer={<span>{rows.length} item{rows.length !== 1 ? 's' : ''}</span>}>
+      <SearchBox value={q} onChange={setQ} placeholder="Search..." />
+      {loading ? <p className="nd-muted">Loading...</p> : err ? <p className="nd-muted" style={{ color: RED }}>{err}</p> :
+        rows.length === 0 ? <p className="nd-muted">{q ? 'No matching items.' : 'Nothing here right now.'}</p> : (
+          <div className="nd-table-wrap">
+            <table className="nd-table">
+              <thead><tr><th>#</th>{cfg.cols.map(c => <th key={c}>{colTitle(c)}</th>)}</tr></thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.id || r.log_id || i}><td>{i + 1}</td>{cfg.cols.map(c => <td key={c}>{cell(r, c)}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+    </Modal>
+  )
+}
+
+/* ============ PANEL SUMMARY MODAL ============ */
+const PANEL_META = {
+  accounts: { title: 'Accounts — Lead Verification', icon: 'receipt_long' },
+  fro: { title: 'FRO — Field Operations', icon: 'groups' },
+  hr: { title: 'HR — Volunteer Management', icon: 'badge' },
+  'event-head': { title: 'Events', icon: 'event' },
+  recruiter: { title: 'Recruiter — Lead Pipeline', icon: 'person_search' },
+}
+
+function PanelSummaryModal({ panel, onClose, dashboardData }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const sum = (arr, f) => arr.reduce((s, x) => s + Number(f(x) || 0), 0)
+    const sameDay = (d) => d && new Date(d).toDateString() === new Date().toDateString()
+    const fetchers = {
+      accounts: () => getAccountsLeads().then(d => {
+        const list = asList(d)
+        const by = (f) => { const a = list.filter(f); return { count: a.length, amount: sum(a, l => l.amount) } }
+        return { cards: [
+          { label: 'Pending', ...by(l => l.accounts_status === 'pending'), sub: 'total' },
+          { label: 'Verified', ...by(l => l.accounts_status === 'verified'), sub: 'total' },
+          { label: 'Verified today', ...by(l => l.accounts_status === 'verified' && sameDay(l.verified_at)), sub: 'collected' },
+          { label: 'Total amount', count: list.length, amount: sum(list, l => l.amount), sub: 'leads', amountAsValue: true },
+        ] }
+      }),
+      fro: () => api('/fro/status', { _prefix: 'ucs' }).then(list => {
+        const a = Array.isArray(list) ? list : []
+        const active = a.filter(f => f.worker?.is_active).length
+        return { cards: [
+          { label: 'Total FROs', value: a.length, sub: 'Registered volunteers' },
+          { label: 'Active', value: active, sub: `${a.length - active} inactive` },
+          { label: 'Punched in', value: a.filter(f => f.worker?.is_punched_in).length, sub: 'Today' },
+          { label: "Today's collection", value: inr(sum(a, f => f.performance?.today_collection)), sub: `Data used: ${sum(a, f => f.performance?.data_used)}` },
+        ] }
+      }),
+      hr: () => Promise.all([getWorkers(), getAttendance()]).then(([w, a]) => {
+        const workers = asList(w), att = asList(a).filter(x => sameDay(x.date))
+        const byId = Object.fromEntries(workers.map(x => [x.id, x]))
+        const depts = {}
+        const slot = n => (depts[n] ||= { total: 0, present: 0, absent: 0, late: 0 })
+        workers.forEach(x => slot(x.department || 'Unassigned').total++)
+        att.forEach(x => {
+          const s = slot(byId[x.worker_id]?.department || 'Unassigned')
+          if (x.status in s) s[x.status]++
+        })
+        const present = att.filter(x => x.status === 'present' || x.punched_in).length
+        return {
+          cards: [
+            { label: 'Volunteers', value: workers.length, sub: 'All time' },
+            { label: 'Active', value: workers.filter(x => x.is_active).length, sub: 'Currently active' },
+            { label: 'Attendance', value: `${att.length ? Math.round((present / att.length) * 100) : 0}%`, sub: `${present} of ${att.length} today` },
+          ],
+          depts: Object.entries(depts).sort(([x], [y]) => x.localeCompare(y)).map(([name, c]) => ({ name, ...c })),
+        }
+      }),
+      'event-head': () => {
+        const ev = dashboardData?.upcoming_events || []
+        const next = ev.find(e => new Date(e.event_date) >= new Date())
+        return Promise.resolve({ cards: [
+          { label: 'Upcoming events', value: ev.length, sub: 'Scheduled' },
+          ...(next ? [{ label: 'Next event', value: next.title, sub: new Date(next.event_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + (next.event_time ? ` at ${next.event_time.slice(0, 5)}` : '') }] : []),
+        ] })
+      },
+      recruiter: () => getRecruiterLeads().then(d => {
+        const list = asList(d)
+        const sel = list.filter(l => l.status === 'selected' || l.status === 'verified').length
+        const rej = list.filter(l => l.status === 'rejected').length
+        return { cards: [
+          { label: 'Total leads', value: list.length, sub: 'All time' },
+          { label: 'New today', value: list.filter(l => sameDay(l.created_at)).length, sub: 'Added today' },
+          { label: 'Conversion', value: `${sel + rej ? ((sel / (sel + rej)) * 100).toFixed(1) : '0.0'}%`, sub: 'Selected vs rejected' },
+        ] }
+      }),
+    }
+    setLoading(true)
+    fetchers[panel]().then(setData).catch(e => { console.error('API error:', e.message); setData({ cards: [] }) }).finally(() => setLoading(false))
+  }, [panel, dashboardData])
+
+  const meta = PANEL_META[panel]
+  return (
+    <Modal title={meta.title} icon={meta.icon} color={MINT_DEEP} onClose={onClose}>
+      {loading ? <p className="nd-muted">Loading...</p> : (
+        <>
+          <div className="ps-grid">
+            {data.cards.map(c => (
+              <div key={c.label} className="ps-card">
+                <span className="ps-label">{c.label}</span>
+                <span className="ps-value">{c.value ?? (c.amountAsValue ? inr(c.amount) : c.count)}</span>
+                <span className="ps-sub">{c.value === undefined && !c.amountAsValue ? `${inr(c.amount)} ${c.sub}` : c.amountAsValue ? `Across ${c.count} ${c.sub}` : c.sub}</span>
+              </div>
+            ))}
+          </div>
+          {data.depts?.length > 0 && (
+            <div className="nd-table-wrap" style={{ marginTop: 14 }}>
+              <table className="nd-table">
+                <thead><tr><th>Department</th><th>Total</th><th>Present</th><th>Absent</th><th>Late</th></tr></thead>
+                <tbody>
+                  {data.depts.map(d => (
+                    <tr key={d.name}><td>{deptLabel(d.name)}</td><td>{d.total}</td><td>{d.present}</td><td>{d.absent}</td><td>{d.late}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
+  )
+}
+
+/* ============ NGO STATION MODAL ============ */
+const DISPOSITION_LABELS = {
+  pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled', busy: 'Busy', ringing: 'Ringing',
+  call_waiting: 'Call Waiting', unreachable: 'Unreachable', switched_off: 'Switched Off', out_of_coverage: 'Out of Coverage',
+  wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected', temporary_network_issue: 'Temporary Network Issue',
+  voicemail: 'Voicemail', lead_done: 'Lead Done', visit_donate: 'Visit & Donate', will_donate_online: 'Will Donate Online',
+  promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending', already_donated: 'Already Donated', email_sent: 'Email Sent',
+  whatsapp_sent: 'WhatsApp Sent', csr_inquiry: 'CSR Inquiry', wants_80g_details: 'Wants 80G Details', wants_trust_documents: 'Wants Trust Documents',
+  not_interested: 'Not Interested', not_interested_now: 'Not Interested Now', dnd: 'DND', wrong_person: 'Wrong Person',
+  call_disconnected: 'Call Disconnected', language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
+  query_complaint: 'Query/Complaint', receipt_request: 'Receipt Request', donation_collected: 'Donation Collected',
+}
+const DISPOSITION_GROUPS = [
   { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated'] },
   { label: 'In Progress', color: '#d97706', bg: '#fffbeb', statuses: ['pending', 'contacted', 'follow_up', 'scheduled', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents'] },
   { label: 'Negative', color: '#dc2626', bg: '#fef2f2', statuses: ['not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'call_disconnected', 'rejected', 'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'temporary_network_issue', 'voicemail', 'language_barrier'] },
   { label: 'Other', color: '#5B6B4E', bg: '#f0f2ee', statuses: ['transferred_senior', 'query_complaint', 'receipt_request'] },
 ]
+const groupOf = s => DISPOSITION_GROUPS.find(g => g.statuses.includes(s)) || DISPOSITION_GROUPS[3]
 
 function NgoStationModal({ ngoName, ngoId, onClose }) {
-  const [allDonors, setAllDonors] = useState([])
+  const [donors, setDonors] = useState([])
   const [stats, setStats] = useState(null)
-  const [stationList, setStationList] = useState([])
-  const [activeStation, setActiveStation] = useState(null)
+  const [stations, setStations] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -831,1190 +448,523 @@ function NgoStationModal({ ngoName, ngoId, onClose }) {
 
   useEffect(() => {
     setLoading(true)
-    api(`/ngo-admin/dashboard/station-stats`).then(dStats => {
-      const stations = dStats?.stations || {}
-      const prefix = ngoName + '-'
-      const matched = Object.keys(stations).filter(k => k === ngoName || k.startsWith(prefix)).sort()
-      setStationList(matched)
-      if (matched.length === 0) {
-        setStats(null)
-        setAllDonors([])
-        setLoading(false)
-        return
-      }
+    api('/ngo-admin/dashboard/station-stats').then(async res => {
+      const all = res?.stations || {}
+      const matched = Object.keys(all).filter(k => k === ngoName || k.startsWith(ngoName + '-')).sort()
+      setStations(matched)
       const agg = {}
-      matched.forEach(st => {
-        const s = stations[st]
-        if (s) Object.entries(s).forEach(([status, count]) => { agg[status] = (agg[status] || 0) + count })
-      })
+      matched.forEach(st => Object.entries(all[st] || {}).forEach(([s, c]) => { agg[s] = (agg[s] || 0) + c }))
       setStats(agg)
-      setActiveStation(matched[0])
-      Promise.all(matched.map(st => {
-        // Pass the NGO through. This modal is already scoped to one NGO, and a
-        // station NAME can be shared between NGOs - without ngo_id the endpoint
-        // unions them and the donor list disagrees with the station's own count.
-        const params = new URLSearchParams({ station: st });
-        if (ngoId) params.set('ngo_id', ngoId);
-        return api(`/ngo-admin/donors-by-station?${params}`).catch(() => []);
-      })).then(results => {
-        const combined = results.flatMap(r => Array.isArray(r) ? r : [])
-        setAllDonors(combined)
-      }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false))
-    }).catch((err) => { console.error('API error:', err.message); setLoading(false) })
+      // Pass ngo_id: a station name can be shared between NGOs.
+      const results = await Promise.all(matched.map(st => {
+        const params = new URLSearchParams({ station: st })
+        if (ngoId) params.set('ngo_id', ngoId)
+        return api(`/ngo-admin/donors-by-station?${params}`).catch(() => [])
+      }))
+      setDonors(results.flatMap(r => (Array.isArray(r) ? r : [])))
+    }).catch(e => console.error('API error:', e.message)).finally(() => setLoading(false))
   }, [ngoName, ngoId])
 
-  const allStatuses = stats ? Object.entries(stats).filter(([, v]) => v > 0) : []
-  const totalDonors = allStatuses.reduce((t, [, v]) => t + v, 0)
-  const groupData = NGO_DISPOSITION_GROUPS.map(g => ({
-    ...g, total: g.statuses.reduce((t, s) => t + (stats?.[s] || 0), 0),
-  })).filter(g => g.total > 0)
-
-  const donors = statusFilter ? allDonors.filter(d => d.status === statusFilter) : allDonors
-  const filtered = search ? donors.filter(d =>
-    (d.donor_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (d.donor_mobile || '').includes(search) ||
-    (d.fro_name || '').toLowerCase().includes(search.toLowerCase())
-  ) : donors
-  const totPages = Math.ceil(filtered.length / PER_PAGE)
-  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const statuses = Object.entries(stats || {}).filter(([, v]) => v > 0)
+  const total = statuses.reduce((t, [, v]) => t + v, 0)
+  const groups = DISPOSITION_GROUPS.map(g => ({ ...g, total: g.statuses.reduce((t, s) => t + (stats?.[s] || 0), 0) })).filter(g => g.total > 0)
+  const byStatus = statusFilter ? donors.filter(d => d.status === statusFilter) : donors
+  const filtered = search ? byStatus.filter(d => [d.donor_name, d.donor_mobile, d.fro_name].some(v => lc(v).includes(lc(search)))) : byStatus
+  const pages = Math.ceil(filtered.length / PER_PAGE)
+  const visible = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
   return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '80vh' }}>
-        <div className="nd-modal-head" style={{ borderColor: `${GOLD}40` }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: GOLD }}>corporate_fare</span>
-          <h3 className="nd-modal-title">{ngoName}</h3>
-          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{allDonors.length} donors · {stationList.length} station{stationList.length !== 1 ? 's' : ''}</span>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body">
-          {loading ? <p className="nd-muted">Loading...</p> : stationList.length === 0 ? (
-            <p className="nd-muted">No station data found for {ngoName}.</p>
-          ) : (
-            <>
-              {stationList.length > 1 && (
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                  {stationList.map(st => (
-                    <button key={st} onClick={() => setActiveStation(st)}
-                      style={{
-                        padding: '3px 12px', borderRadius: 12, border: `1.5px solid ${activeStation === st ? GOLD : '#DCEEE2'}`,
-                        background: activeStation === st ? '#fffbeb' : '#f6faf7', cursor: 'pointer', fontSize: 10, fontWeight: activeStation === st ? 700 : 500,
-                        color: activeStation === st ? '#b45309' : '#64748b', fontFamily: 'inherit',
-                      }}>
-                      {st}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {groupData.length > 0 && (
-                <>
-                  <div style={{ height: 8, borderRadius: 4, background: '#e5e7eb', display: 'flex', overflow: 'hidden', marginBottom: 8 }}>
-                    {groupData.map(g => <div key={g.label} style={{ width: `${(g.total / totalDonors) * 100}%`, height: '100%', background: g.color, opacity: 0.5 }} />)}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                    {groupData.map(g => (
-                      <span key={g.label} style={{ fontSize: 10, fontWeight: 600, color: g.color, background: g.bg, padding: '2px 10px', borderRadius: 10 }}>
-                        {g.label}: {g.total}
-                      </span>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
-                    {allStatuses.map(([status, count]) => {
-                      const grp = NGO_DISPOSITION_GROUPS.find(g => g.statuses.includes(status)) || NGO_DISPOSITION_GROUPS[3]
-                      return (
-                        <button key={status} onClick={() => setStatusFilter(statusFilter === status ? '' : status)} style={{
-                          padding: '3px 10px', borderRadius: 20, border: `1px solid ${statusFilter === status ? grp.color : 'transparent'}`,
-                          background: statusFilter === status ? grp.bg : '#f6faf7', cursor: 'pointer', fontSize: 11, fontWeight: statusFilter === status ? 700 : 500,
-                          color: statusFilter === status ? grp.color : '#64748b', fontFamily: 'inherit',
-                        }}>
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: grp.color, display: 'inline-block', marginRight: 4, verticalAlign: 'middle' }} />
-                          {NGO_DISPOSITION_LABELS[status] || status}
-                          <span style={{ fontWeight: 700, color: grp.color, marginLeft: 3 }}>{count}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-              <div className="nd-modal-search" style={{ marginTop: 4 }}>
-                <span className="material-symbols-outlined nd-modal-search-icon">search</span>
-                <input className="nd-modal-search-input" placeholder="Search donor name, phone, FRO..." value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
-                {search && <button className="nd-modal-search-clear" onClick={() => setSearch('')}><span className="material-symbols-outlined">close</span></button>}
-              </div>
-              <div className="fro-table-wrap" style={{ maxHeight: '35vh', marginTop: 8 }}>
-                <table className="fro-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Donor Name</th>
-                      <th>Phone</th>
-                      <th>FRO</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginated.length === 0 ? (
-                      <tr><td colSpan={5} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>
-                        {!statusFilter && !search ? 'Click a disposition above to view donors.' : 'No donors match.'}
-                      </td></tr>
-                    ) : (
-                      paginated.map((d, i) => {
-                        const grp = NGO_DISPOSITION_GROUPS.find(g => g.statuses.includes(d.status)) || NGO_DISPOSITION_GROUPS[3]
-                        return (
-                          <tr key={d.id || i}>
-                            <td>{i + 1 + (page - 1) * PER_PAGE}</td>
-                            <td style={{ fontWeight: 600 }}>{d.donor_name || '—'}</td>
-                            <td>{d.donor_mobile || '—'}</td>
-                            <td>{d.fro_name || 'Unassigned'}</td>
-                            <td><span style={{ fontSize: 10, fontWeight: 600, color: grp.color, background: grp.bg, padding: '2px 8px', borderRadius: 10 }}>{NGO_DISPOSITION_LABELS[d.status] || d.status}</span></td>
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {totPages > 1 && (
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 8 }}>
-                  <button className="nd-modal-close" style={{ fontSize: 11, padding: '2px 10px', width: 'auto', borderRadius: 6 }} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</button>
-                  <span style={{ fontSize: 10, color: '#64748b', padding: '4px 8px' }}>{page}/{totPages}</span>
-                  <button className="nd-modal-close" style={{ fontSize: 11, padding: '2px 10px', width: 'auto', borderRadius: 6 }} disabled={page >= totPages} onClick={() => setPage(p => p + 1)}>Next</button>
-                </div>
-              )}
-            </>)}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ================= NGO QUICK MODAL ================= */
-function NgoQuickModal({ ngoName, onClose, froLiveData, froAssignments, ngoUserCounts, accountsSummary }) {
-  const ngoFros = froLiveData.filter(f => f.worker?.ngo_name === ngoName)
-  const totalCollection = ngoFros.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0)
-  const totalCalls = ngoFros.reduce((s, f) => s + Number(f.performance?.today_calls || 0), 0)
-  const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)
-  const assignedFros = froAssignments.filter(f => (f.ngos || []).includes(ngoName))
-  const workerCount = ngoUserCounts.find(n => n.name === ngoName)
-  const nc = ngoColor(ngoName)
-
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420, maxHeight: '70vh' }}>
-        <div className="nd-modal-head" style={{ borderColor: `${nc}40` }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: nc, flexShrink: 0 }} />
-          <h3 className="nd-modal-title" style={{ color: nc }}>{ngoName}</h3>
-          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{workerCount?.workers || workerCount?.count || 0} volunteers</span>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-            <div style={{ padding: '10px 12px', borderRadius: 10, background: '#E8F5E9' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Collection</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: MINT_DEEP }}>₹{totalCollection.toLocaleString('en-IN')}</div>
-            </div>
-            <div style={{ padding: '10px 12px', borderRadius: 10, background: '#E3F2FD' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Calls</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#1E88E5' }}>{totalCalls}</div>
-            </div>
-            <div style={{ padding: '10px 12px', borderRadius: 10, background: '#F3E5F5' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Data Used</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#8E24AA' }}>{totalDataUsed}</div>
-            </div>
-            <div style={{ padding: '10px 12px', borderRadius: 10, background: '#FFF8E1' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>FROs</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#F57C00' }}>{assignedFros.length} assigned</div>
-            </div>
+    <Modal title={ngoName} icon="corporate_fare" color={AMBER} wide onClose={onClose}
+      badge={`${donors.length} donors · ${stations.length} station${stations.length !== 1 ? 's' : ''}`}>
+      {loading ? <p className="nd-muted">Loading...</p> : stations.length === 0 ? <p className="nd-muted">No station data found for {ngoName}.</p> : (
+        <>
+          <div className="nd-stack-bar">{groups.map(g => <div key={g.label} style={{ width: `${(g.total / total) * 100}%`, background: g.color }} />)}</div>
+          <div className="nd-chips">
+            {groups.map(g => <span key={g.label} style={{ color: g.color, background: g.bg }}>{g.label}: {g.total}</span>)}
           </div>
-          {assignedFros.length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Assigned FROs</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {assignedFros.map((f, i) => {
-                  const live = ngoFros.find(l => l.worker?.name === f.name || l.worker?.login_id === f.name)
-                  return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f8fafb', border: '1px solid #eaf3ec' }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: live ? '#10b981' : '#94a3b8', flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: PRIMARY, flex: 1, minWidth: 0 }}>{f.name}</span>
-                      {live ? (
-                        <span style={{ fontSize: 11, fontWeight: 600, color: MINT_DEEP }}>₹{Number(live.today_collection || 0).toLocaleString('en-IN')}</span>
-                      ) : (
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>Offline</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+          <div className="nd-chips">
+            {statuses.map(([s, c]) => {
+              const g = groupOf(s), on = statusFilter === s
+              return (
+                <button key={s} className="nd-chip-btn" aria-pressed={on}
+                  style={{ borderColor: on ? g.color : 'transparent', background: on ? g.bg : '#f6faf7', color: on ? g.color : MUTED }}
+                  onClick={() => { setStatusFilter(on ? '' : s); setPage(1) }}>
+                  {DISPOSITION_LABELS[s] || s} <b style={{ color: g.color }}>{c}</b>
+                </button>
+              )
+            })}
+          </div>
+          <SearchBox value={search} onChange={v => { setSearch(v); setPage(1) }} placeholder="Search donor name, phone, FRO..." />
+          <div className="nd-table-wrap" style={{ maxHeight: '35vh' }}>
+            <table className="nd-table">
+              <thead><tr><th>#</th><th>Donor</th><th>Phone</th><th>FRO</th><th>Status</th></tr></thead>
+              <tbody>
+                {visible.length === 0 ? <tr><td colSpan={5} className="nd-muted" style={{ textAlign: 'center' }}>{!statusFilter && !search ? 'Pick a disposition above to view donors.' : 'No donors match.'}</td></tr> :
+                  visible.map((d, i) => {
+                    const g = groupOf(d.status)
+                    return (
+                      <tr key={d.id || i}>
+                        <td>{i + 1 + (page - 1) * PER_PAGE}</td>
+                        <td><b>{d.donor_name || '—'}</b></td>
+                        <td>{d.donor_mobile || '—'}</td>
+                        <td>{d.fro_name || 'Unassigned'}</td>
+                        <td><span className="nd-pill" style={{ color: g.color, background: g.bg }}>{DISPOSITION_LABELS[d.status] || d.status}</span></td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+          {pages > 1 && (
+            <div className="nd-pager">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</button>
+              <span>{page}/{pages}</span>
+              <button disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </Modal>
   )
 }
 
-/* ================= ACTION CENTER MODAL ================= */
-function ActionCenterModal({ type, onClose }) {
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
+/* ============ FRO PERFORMANCE — TODAY ============ */
+const num = (v) => Number(v || 0)
+
+function statusOf(f) {
+  if (f.status === 'on_call') return { label: 'On call', color: MINT_DEEP, rank: 0 }
+  if (f.status === 'online') return { label: 'Online', color: MINT, rank: 1 }
+  if (f.worker?.is_punched_in) return { label: 'Punched in', color: AMBER, rank: 2 }
+  return { label: 'Offline', color: '#CBD5E1', rank: 3 }
+}
+
+const SORTS = [
+  { key: 'today_collection', label: 'Collection' },
+  { key: 'today_calls', label: 'Calls' },
+  { key: 'data_used', label: 'Data used' },
+]
+
+function FroPerformanceToday({ froLiveData = [] }) {
+  const [sortKey, setSortKey] = useState('today_collection')
+  const [ngo, setNgo] = useState('all')
   const [q, setQ] = useState('')
+  const [showAll, setShowAll] = useState(false)
 
-  useEffect(() => {
-    setLoading(true)
-    const fetchers = {
-      pendingLeaves: () => getLeaves(),
-      hrVerifiedTickets: () => getAllTickets(),
-      pendingTickets: () => getAllTickets(),
-      pendingAccountsLeads: () => getAccountsLeads(),
-      submittedEvents: () => getEvents(),
-      recruiterPipeline: () => getRecruiterLeads(),
-    }
-    const fetcher = fetchers[type]
-    if (!fetcher) { setLoading(false); return }
-    fetcher()
-      .then(d => {
-        let list = d?.data || d || []
-        if (!Array.isArray(list)) list = []
-        if (type === 'pendingLeaves') list = list.filter(l => (l.status || '').toLowerCase() === 'pending')
-        else if (type === 'hrVerifiedTickets') list = list.filter(t => (t.status || '').toLowerCase() === 'hr_verified')
-        else if (type === 'pendingTickets') list = list.filter(t => (t.status || '').toLowerCase() === 'pending')
-        else if (type === 'pendingAccountsLeads') list = list.filter(l => (l.accounts_status || '').toLowerCase() === 'pending')
-        else if (type === 'submittedEvents') list = list.filter(e => (e.status || '').toLowerCase() === 'submitted')
-        else if (type === 'recruiterPipeline') list = list.filter(l => {
-          const s = (l.status || '').toLowerCase()
-          return s === 'hold' || s === 'followed_up' || s === 'call_back' || s === 'scheduled'
-        })
-        setItems(list)
-      })
-      .catch((err) => { console.error('API error:', err.message); setItems([]) })
-      .finally(() => setLoading(false))
-  }, [type])
+  const rows = useMemo(() => froLiveData.map(f => ({
+    id: f.worker?.id || f.worker?.login_id || f.worker?.name,
+    name: f.worker?.name || f.worker?.login_id || 'Unknown',
+    loginId: f.worker?.login_id,
+    ngo: f.worker?.ngo_name || '—',
+    collection: num(f.performance?.today_collection),
+    calls: num(f.performance?.today_calls),
+    data: num(f.performance?.data_used),
+    st: statusOf(f),
+  })), [froLiveData])
 
-  const filtered = q.trim()
-    ? items.filter(r => {
-        const name = (r.worker_name || r.name || r.worker?.name || r.title || r.donor_name || r.event_title || r.mobile || '').toLowerCase()
-        return name.includes(q.trim().toLowerCase())
-      })
-    : items
+  const ngos = useMemo(() => [...new Set(rows.map(r => r.ngo))].sort(), [rows])
 
-  const meta = {
-    pendingLeaves: { title: 'Pending Leave Requests', icon: 'event_busy', color: '#F59E0B', fields: ['worker_name', 'from_date', 'to_date', 'reason'] },
-    hrVerifiedTickets: { title: 'Tickets Ready to Approve', icon: 'verified', color: '#3B82F6', fields: ['worker_name', 'date', 'correct_status'] },
-    pendingTickets: { title: 'Pending Attendance Tickets', icon: 'confirmation_number', color: '#8B5CF6', fields: ['worker_name', 'date', 'correct_status'] },
-    pendingAccountsLeads: { title: 'Unverified Donor Leads', icon: 'receipt_long', color: '#EC4899', fields: ['donor_name', 'donor_mobile', 'amount'] },
-    submittedEvents: { title: 'Events Awaiting Approval', icon: 'event_upcoming', color: '#10B981', fields: ['title', 'event_date', 'event_time'] },
-    recruiterPipeline: { title: 'Recruiter Pipeline Leads', icon: 'person_search', color: '#0EA5E9', fields: ['name', 'phone', 'status'] },
-  }
-  const m = meta[type] || { title: 'Items', icon: 'list', color: '#64748b', fields: [] }
+  const totals = useMemo(() => ({
+    collection: rows.reduce((s, r) => s + r.collection, 0),
+    calls: rows.reduce((s, r) => s + r.calls, 0),
+    live: rows.filter(r => r.st.rank <= 1).length,
+    punched: rows.filter(r => r.st.rank <= 2).length,
+  }), [rows])
+
+  const valueOf = (r) => (sortKey === 'today_collection' ? r.collection : sortKey === 'today_calls' ? r.calls : r.data)
+
+  const sorted = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    return rows
+      .filter(r => (ngo === 'all' || r.ngo === ngo) && (!term || `${r.name} ${r.loginId || ''}`.toLowerCase().includes(term)))
+      .sort((a, b) => valueOf(b) - valueOf(a) || a.name.localeCompare(b.name))
+  }, [rows, ngo, q, sortKey]) // eslint-disable-line
+
+  const visible = showAll ? sorted : sorted.slice(0, 10)
+  const max = Math.max(...sorted.map(valueOf), 1)
+  const fmtValue = (r) => (sortKey === 'today_collection' ? inr(r.collection) : valueOf(r).toLocaleString('en-IN'))
+
+  const half = Math.ceil(visible.length / 2)
+  const columns = [visible.slice(0, half), visible.slice(half)]
+
+  const renderRow = (r, i) => (
+    <li key={r.id || i} className={`fp-row${i < 3 && valueOf(r) > 0 ? ' top' : ''}`}>
+      <span className={`fp-rank${i < 3 ? ` fp-rank-${i + 1}` : ''}`}>{i + 1}</span>
+      <div className="fp-who">
+        <span className="fp-name">{r.name}</span>
+        <span className="fp-meta">
+          <i style={{ background: r.st.color }} />{r.st.label}
+          <em style={{ color: ngoColor(r.ngo), background: `${ngoColor(r.ngo)}14` }}>{r.ngo}</em>
+        </span>
+      </div>
+      <div className="fp-bar">
+        <div className="fp-track"><div style={{ width: `${(valueOf(r) / max) * 100}%` }} /></div>
+      </div>
+      <div className="fp-nums">
+        <b>{fmtValue(r)}</b>
+        <span>{sortKey === 'today_collection' ? `${r.calls} calls` : inr(r.collection)}</span>
+      </div>
+    </li>
+  )
+
+  const summary = [
+    { label: 'Collection today', value: inr(totals.collection), color: MINT_DEEP },
+    { label: 'Calls today', value: totals.calls.toLocaleString('en-IN') },
+    { label: 'Live now', value: totals.live, sub: `of ${rows.length} FROs` },
+    { label: 'Punched in', value: totals.punched, sub: `${rows.length - totals.punched} not in yet` },
+  ]
 
   return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal fro-modal" onClick={e => e.stopPropagation()}>
-        <div className="nd-modal-head" style={{ borderColor: `${m.color}50` }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: m.color }}>{m.icon}</span>
-          <span className="nd-modal-badge" style={{ background: `${m.color}18`, color: m.color }}>{items.length}</span>
-          <h3 className="nd-modal-title">{m.title}</h3>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body" style={{ padding: 0 }}>
-          <div className="nd-modal-search" style={{ margin: 12 }}>
-            <input className="nd-modal-search-input" placeholder="Search..." value={q} onChange={e => setQ(e.target.value)} autoFocus />
-            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
+    <section className="fp-wrap">
+      <style>{FRO_CSS}</style>
+
+      <header className="fp-head">
+        <span className="material-symbols-outlined" style={{ fontSize: 18, color: MINT_DEEP }}>leaderboard</span>
+        <h3>FRO performance — today</h3>
+        <span className="fp-live"><i />Live</span>
+      </header>
+
+      <div className="fp-summary">
+        {summary.map(s => (
+          <div key={s.label}>
+            <small>{s.label}</small>
+            <b style={s.color ? { color: s.color } : undefined}>{s.value}</b>
+            {s.sub && <span>{s.sub}</span>}
           </div>
-          {loading ? (
-            <p className="nd-muted" style={{ padding: 16 }}>Loading...</p>
-          ) : filtered.length === 0 ? (
-            <p className="nd-muted" style={{ padding: 16 }}>{q ? 'No matching items.' : 'No pending items.'}</p>
-          ) : (
-            <div className="fro-table-wrap">
-              <table className="fro-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    {m.fields.map(f => <th key={f}>{f.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((r, i) => (
-                    <tr key={r.id || r.log_id || i}>
-                      <td>{i + 1}</td>
-                      {m.fields.map(f => (
-                        <td key={f}>
-                          {f.includes('amount') || f.includes('salary') ? `₹${Number(r[f] || 0).toLocaleString('en-IN')}` :
-                           f.includes('date') ? (r[f] || '-').toString().slice(0, 10) :
-                           r[f] || '-'}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        ))}
+      </div>
+
+      <div className="fp-tools">
+        <div className="fp-search">
+          <span className="material-symbols-outlined">search</span>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search FRO..." aria-label="Search FRO" />
         </div>
-        <div className="fro-live-footer" style={{ padding: '10px 16px', justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</span>
+        <select value={ngo} onChange={e => setNgo(e.target.value)} aria-label="Filter by NGO">
+          <option value="all">All NGOs</option>
+          {ngos.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <div className="fp-seg" role="tablist">
+          {SORTS.map(s => (
+            <button key={s.key} role="tab" aria-selected={sortKey === s.key} className={sortKey === s.key ? 'on' : ''} onClick={() => setSortKey(s.key)}>{s.label}</button>
+          ))}
         </div>
       </div>
-    </div>
+
+      {sorted.length === 0 ? (
+        <p className="fp-empty">No FROs match your filters.</p>
+      ) : (
+        <div className="fp-list">
+          {columns.map((col, ci) => (
+            <ol key={ci} className="fp-col">
+              {col.map((r, j) => renderRow(r, ci === 0 ? j : half + j))}
+            </ol>
+          ))}
+        </div>
+      )}
+
+      {sorted.length > 10 && (
+        <button className="fp-more" onClick={() => setShowAll(v => !v)}>
+          {showAll ? 'Show top 10' : `Show all ${sorted.length}`}
+        </button>
+      )}
+    </section>
   )
 }
 
-/* ================= CREATE NOTICE MODAL ================= */
+
+/* ================================================================ */
+/*                            DASHBOARD                             */
+/* ================================================================ */
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [period, setPeriod] = useState('all')
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [animated, setAnimated] = useState(false)
-  const [modal, setModal] = useState(null)
+  const [nameModal, setNameModal] = useState(null)
   const [panelModal, setPanelModal] = useState(null)
-  const [accountsModalStatus, setAccountsModalStatus] = useState(null)
-  const [recruiterModalType, setRecruiterModalType] = useState(null)
+  const [listModal, setListModal] = useState(null)
+  const [ngoStationModal, setNgoStationModal] = useState(null)
+  const [alertModal, setAlertModal] = useState(null)
+  const [attnTab, setAttnTab] = useState('actions')
   const [allUserList, setAllUserList] = useState([])
   const [froLiveData, setFroLiveData] = useState([])
-  const [selectedFro, setSelectedFro] = useState(null)
-  const [deepFro, setDeepFro] = useState(null)
-  const [attendanceData, setAttendanceData] = useState([])
-  const [holidaysData, setHolidaysData] = useState([])
-  const [ngoStationModal, setNgoStationModal] = useState(null)
-  const [deptModal, setDeptModal] = useState(null)
-  const [kpiModal, setKpiModal] = useState(null)
   const [adminTargets, setAdminTargets] = useState([])
+  const [targetsLoading, setTargetsLoading] = useState(false)
   const [targetModalAdmin, setTargetModalAdmin] = useState(null)
   const [editTargetValue, setEditTargetValue] = useState('')
-  const [targetsLoading, setTargetsLoading] = useState(false)
   const [savingTarget, setSavingTarget] = useState(false)
   const [performerPeriod, setPerformerPeriod] = useState('all')
-  const [performerFros, setPerformerFros] = useState([])
-  const [performerRecruiters, setPerformerRecruiters] = useState([])
-  const [actionCenter, setActionCenter] = useState({
-    pendingLeaves: 0,
-    hrVerifiedTickets: 0,
-    pendingTickets: 0,
-    pendingAccountsLeads: 0,
-    submittedEvents: 0,
-    recruiterPipeline: 0,
-  })
-  const [acModal, setAcModal] = useState(null)
+  const [performers, setPerformers] = useState({ fros: [], recruiters: [] })
+  const [actionCenter, setActionCenter] = useState({ pendingLeaves: 0, hrVerifiedTickets: 0, pendingTickets: 0, pendingAccountsLeads: 0, submittedEvents: 0, recruiterPipeline: 0 })
   const [alertsData, setAlertsData] = useState({ alerts: [], summary: { critical: 0, warning: 0, info: 0 } })
-  const [alertModal, setAlertModal] = useState(null)
   const [receiptStats, setReceiptStats] = useState([])
-  const navigate = useNavigate()
+  const [ready, setReady] = useState(false) // secondary requests wait for the main dashboard call
 
-  useEffect(() => {
-    getUsers().then(d => {
-      setAllUserList(Array.isArray(d) ? d : d?.data || d || [])
-    }).catch((err) => { console.error('API error:', err.message); })
-  }, [])
-
+  /* ---------- one-time loads ---------- */
+  useEffect(() => { if (!ready) return; getUsers().then(d => setAllUserList(asList(d))).catch(e => console.error('API error:', e.message)) }, [ready])
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
-
+  useEffect(() => { if (!ready) return; getReceiptStats().then(d => setReceiptStats(Array.isArray(d?.statsByProject) ? d.statsByProject : [])).catch(() => {}) }, [ready])
   useEffect(() => {
-    getReceiptStats().then(d => {
-      setReceiptStats(Array.isArray(d?.statsByProject) ? d.statsByProject : [])
-    }).catch(() => {})
-  }, [])
-
-  useEffect(() => {
+    if (!ready) return
     setTargetsLoading(true)
-    getNgoAdminTargets().then(d => { setAdminTargets(Array.isArray(d) ? d : []); setTargetsLoading(false) }).catch((err) => { console.error('API error:', err.message); setTargetsLoading(false) })
+    getNgoAdminTargets().then(d => setAdminTargets(Array.isArray(d) ? d : [])).catch(e => console.error('API error:', e.message)).finally(() => setTargetsLoading(false))
+  }, [ready])
+
+  /* ---------- live data (refreshed via realtime) ---------- */
+  const fetchDashboard = useCallback(() => getDashboard(period).then(d => { setData(d); setErr('') }).catch(e => setErr(e.message)), [period])
+  useEffect(() => { setLoading(true); fetchDashboard().finally(() => { setLoading(false); setReady(true) }) }, [fetchDashboard])
+
+  const fetchFroLive = useCallback(() => {
+    api('/fro/status', { _prefix: 'ucs' }).then(d => setFroLiveData(Array.isArray(d) ? d : [])).catch(e => console.error('API error:', e.message))
   }, [])
-
-  /* Main dashboard data — refresh every 30s */
-  const fetchDashboard = useCallback(() => {
-    return getDashboard(period).then(d => { setData(d); setErr('') }).catch(e => setErr(e.message))
-  }, [period])
+  useEffect(() => { if (ready) fetchFroLive() }, [ready, fetchFroLive])
 
   useEffect(() => {
-    setLoading(true)
-    fetchDashboard().finally(() => setLoading(false))
-  }, [fetchDashboard])
+    if (!ready) return
+    getDashboard(performerPeriod).then(d => setPerformers({ fros: d?.topFros || [], recruiters: d?.topRecruiters || [] })).catch(e => console.error('API error:', e.message))
+  }, [ready, performerPeriod])
 
-  /* Attendance heatmap data — independent 60s poll */
-  const fetchAttendanceHeatmap = useCallback(() => {
-    Promise.all([
-      getAttendance().catch((err) => { console.error('API error:', err.message); return []; }),
-      getHolidays().catch((err) => { console.error('API error:', err.message); return []; }),
-    ]).then(([att, hol]) => {
-      const attArr = Array.isArray(att) ? att : att?.data || []
-      const holArr = Array.isArray(hol) ? hol : hol?.data || []
-      setAttendanceData(attArr)
-      setHolidaysData(holArr)
-    }).catch((err) => { console.error('API error:', err.message); })
-  }, [])
-
-  useEffect(() => {
-    fetchAttendanceHeatmap()
-  }, [fetchAttendanceHeatmap])
-
-  /* FRO live data on dashboard — independent 30s poll */
-  const fetchFroLiveInline = useCallback(() => {
-    api('/fro/status', { _prefix: 'ucs' }).then(d => setFroLiveData(Array.isArray(d) ? d : [])).catch((err) => { console.error('API error:', err.message); })
-  }, [])
-
-  useEffect(() => {
-    fetchFroLiveInline()
-  }, [fetchFroLiveInline])
-
-  /* Top Performers — independent period fetch */
-  useEffect(() => {
-    getDashboard(performerPeriod).then(d => {
-      setPerformerFros(d?.topFros || [])
-      setPerformerRecruiters(d?.topRecruiters || [])
-    }).catch((err) => { console.error('API error:', err.message); })
-  }, [performerPeriod])
-
-  /* Action Center — pending items across all panels */
   const fetchActionCenter = useCallback(() => {
-    Promise.allSettled([
-      getLeaves().catch(() => []),
-      getAllTickets().catch(() => []),
-      getAccountsLeads().catch(() => []),
-      getEvents().catch(() => []),
-      getRecruiterLeads().catch(() => []),
-    ]).then(([leavesRes, ticketsRes, accLeadsRes, eventsRes, recLeadsRes]) => {
-      const leaves = leavesRes.status === 'fulfilled' ? (leavesRes.value?.data || leavesRes.value || []) : []
-      const tickets = ticketsRes.status === 'fulfilled' ? (ticketsRes.value?.data || ticketsRes.value || []) : []
-      const accLeads = accLeadsRes.status === 'fulfilled' ? (accLeadsRes.value?.data || accLeadsRes.value || []) : []
-      const events = eventsRes.status === 'fulfilled' ? (eventsRes.value?.data || eventsRes.value || []) : []
-      const recLeads = recLeadsRes.status === 'fulfilled' ? (recLeadsRes.value?.data || recLeadsRes.value || []) : []
-      const pendingLeaves = Array.isArray(leaves) ? leaves.filter(l => (l.status || '').toLowerCase() === 'pending').length : 0
-      const pendingTickets = Array.isArray(tickets) ? tickets.filter(t => (t.status || '').toLowerCase() === 'pending').length : 0
-      const hrVerifiedTickets = Array.isArray(tickets) ? tickets.filter(t => (t.status || '').toLowerCase() === 'hr_verified').length : 0
-      const pendingAccLeads = Array.isArray(accLeads) ? accLeads.filter(l => (l.accounts_status || '').toLowerCase() === 'pending').length : 0
-      const submittedEvents = Array.isArray(events) ? events.filter(e => (e.status || '').toLowerCase() === 'submitted').length : 0
-      const pipelineLeads = Array.isArray(recLeads) ? recLeads.filter(l => {
-        const s = (l.status || '').toLowerCase()
-        return s === 'hold' || s === 'followed_up' || s === 'call_back' || s === 'scheduled'
-      }).length : 0
+    Promise.allSettled([getLeaves(), getAllTickets(), getAccountsLeads(), getEvents(), getRecruiterLeads()]).then(res => {
+      const [leaves, tickets, acc, events, rec] = res.map(r => (r.status === 'fulfilled' ? asList(r.value) : []))
+      const n = (list, f) => list.filter(f).length
       setActionCenter({
-        pendingLeaves,
-        hrVerifiedTickets,
-        pendingTickets,
-        pendingAccountsLeads: pendingAccLeads,
-        submittedEvents,
-        recruiterPipeline: pipelineLeads,
+        pendingLeaves: n(leaves, LIST_CONFIGS.pendingLeaves.keep),
+        hrVerifiedTickets: n(tickets, LIST_CONFIGS.hrVerifiedTickets.keep),
+        pendingTickets: n(tickets, LIST_CONFIGS.pendingTickets.keep),
+        pendingAccountsLeads: n(acc, LIST_CONFIGS.pendingAccountsLeads.keep),
+        submittedEvents: n(events, LIST_CONFIGS.submittedEvents.keep),
+        recruiterPipeline: n(rec, LIST_CONFIGS.recruiterPipeline.keep),
       })
-    }).catch((err) => { console.error('API error:', err.message); })
+    })
   }, [])
+  useEffect(() => { if (ready) fetchActionCenter() }, [ready, fetchActionCenter])
 
-  useEffect(() => {
-    fetchActionCenter()
-  }, [fetchActionCenter])
-
-  /* Risk & Alerts — independent 60s poll */
   const fetchAlerts = useCallback(() => {
-    getSuperAdminAlerts()
-      .then(d => setAlertsData(d || { alerts: [], summary: { critical: 0, warning: 0, info: 0 } }))
-      .catch((err) => { console.error('API error:', err.message); })
+    getSuperAdminAlerts().then(d => setAlertsData(d || { alerts: [], summary: { critical: 0, warning: 0, info: 0 } })).catch(e => console.error('API error:', e.message))
   }, [])
+  useEffect(() => { if (ready) fetchAlerts() }, [ready, fetchAlerts])
 
-  useEffect(() => {
-    fetchAlerts()
-  }, [fetchAlerts])
-
-  /* Realtime refresh — debounced to coalesce bursts */
-  const dashTimers = useRef({})
+  /* ---------- realtime (debounced) ---------- */
+  const timers = useRef({})
   const debounce = useCallback((key, fn, ms = 1200) => {
-    if (dashTimers.current[key]) clearTimeout(dashTimers.current[key])
-    dashTimers.current[key] = setTimeout(() => { delete dashTimers.current[key]; fn() }, ms)
+    clearTimeout(timers.current[key])
+    timers.current[key] = setTimeout(fn, ms)
   }, [])
-  useEffect(() => () => { Object.values(dashTimers.current).forEach(clearTimeout) }, [])
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), [])
 
-  const refreshAggregates = useCallback(() => {
-    debounce('agg', () => {
-      fetchDashboard()
-      fetchActionCenter()
-      fetchAlerts()
-    })
-  }, [debounce, fetchDashboard, fetchActionCenter, fetchAlerts])
+  const refreshAggregates = useCallback(() => debounce('agg', () => { fetchDashboard(); fetchActionCenter(); fetchAlerts() }), [debounce, fetchDashboard, fetchActionCenter, fetchAlerts])
+  const refreshFro = useCallback(() => debounce('fro', () => { fetchFroLive(); fetchDashboard() }), [debounce, fetchFroLive, fetchDashboard])
+  const rt = (fn) => ({ event: '*', onInsert: fn, onUpdate: fn, onDelete: fn })
+  ;['leads', 'workers', 'attendance', 'events', 'leaves', 'attendance_corrections'].forEach(t => useRealtime(t, rt(refreshAggregates))) // eslint-disable-line react-hooks/rules-of-hooks
+  useRealtime('fro_live_status', rt(refreshFro))
 
-  const refreshHeatmap = useCallback(() => {
-    debounce('heat', fetchAttendanceHeatmap)
-  }, [debounce, fetchAttendanceHeatmap])
-
-  const refreshFroInline = useCallback(() => {
-    debounce('fro', () => {
-      fetchFroLiveInline()
-      fetchDashboard()
-    })
-  }, [debounce, fetchFroLiveInline, fetchDashboard])
-
-  useRealtime('leads', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
-  useRealtime('workers', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
-  useRealtime('attendance', { event: '*', onInsert: refreshHeatmap, onUpdate: refreshHeatmap, onDelete: refreshHeatmap })
-  useRealtime('holidays', { event: '*', onInsert: refreshHeatmap, onUpdate: refreshHeatmap, onDelete: refreshHeatmap })
-  useRealtime('events', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
-  useRealtime('leaves', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
-  useRealtime('attendance_corrections', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
-  useRealtime('fro_live_status', { event: '*', onInsert: refreshFroInline, onUpdate: refreshFroInline, onDelete: refreshFroInline })
-
+  /* ---------- early states ---------- */
   if (err) return <div className="sa-err-card">Error: {err}</div>
   if (!data) return (
     <div className="dash-page" style={{ maxWidth: 1280, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ flex: 1 }}>
-          <div className="sk" style={{ width: 200, height: 20, marginBottom: 8 }} />
-          <div className="sk" style={{ width: 280, height: 12 }} />
-        </div>
-        <div className="sk" style={{ width: 140, height: 32, borderRadius: 6 }} />
-      </div>
-      <div className="metrics-grid">
-        {[1, 2, 3, 4].map(i => <div key={i} className="clay-card"><div className="sk" style={{ height: 80 }} /></div>)}
-      </div>
+      <div className="sk" style={{ width: 200, height: 20, marginBottom: 8 }} />
+      <div className="sk" style={{ width: 280, height: 12, marginBottom: 24 }} />
+      <div className="metrics-grid">{[1, 2, 3, 4].map(i => <div key={i} className="clay-card"><div className="sk" style={{ height: 80 }} /></div>)}</div>
     </div>
   )
 
+  /* ---------- derived data ---------- */
   const {
-    ngos: ngosD = {}, users: usersD = {}, workers: workersD = {},
-    hr: hrD = {}, recruiters: recruitersD = {},
-    attendance: attD = {}, salary_payable = 0,
-    accounts: accountsD = {}, recruiting: recruitingD = {},
-    monthly_revenue = [], top_fros = [], top_recruiters = [],
-    recent_notices = [], upcoming_events = [], recent_activities = [],
-    froAssignments = [],
+    ngos: ngosD = {}, workers: workersD = {}, attendance: attD = {}, salary_payable: salary = 0,
+    accounts: accD = {}, monthly_revenue: monthlyRevenue = [], recent_activities: activities = [],
+    upcoming_events: events = [], froAssignments = [],
   } = data
-
-  const stats = { totalNgos: ngosD.total ?? 0, totalWorkers: workersD.total ?? 0, activeWorkers: workersD.active ?? 0, totalHr: hrD.total ?? 0, totalRecruiters: recruitersD.total ?? 0, totalUsers: usersD.total ?? 0, activeUsers: usersD.active ?? 0, workersJoinedThisMonth: workersD.joined_this_month ?? 0 }
-  const kpiChanges = { totalNgos: ngosD.change ?? 0, totalUsers: usersD.change_total ?? 0, activeUsers: usersD.change_active ?? 0, totalWorkers: workersD.change ?? 0, totalHr: hrD.change ?? 0, totalRecruiters: recruitersD.change ?? 0, attendancePercent: attD.percent_change ?? 0 }
   const ngoUserCounts = ngosD.per_ngo || []
-  const deptWorkers = workersD.by_department || {}
-  const attendanceStatus = attD.by_status || {}
-  const attendanceWorkerCounts = attD.by_worker || {}
-  const todayAttendance = attD.today || {}
-  const attendancePercent = attD.percent || 0
-  const attendanceDetails = attD.details || {}
-  const todayAttendanceDetails = attD.today_details || {}
-  const recentNotices = recent_notices
-  const upcomingEvents = upcoming_events
-  const monthlyRevenue = monthly_revenue
-  const topFros = top_fros
-  const topRecruiters = top_recruiters
-  const recentActivities = recent_activities
-  const roleDistribution = usersD.role_distribution || {}
-  const allTimeRoleDistribution = usersD.all_time_role_distribution || {}
-  const totalSalaryPayable = salary_payable
-  const accountsSummary = {
-    pending: accountsD.pending?.count ?? 0, pendingAmount: accountsD.pending?.amount ?? 0,
-    verified: accountsD.verified?.count ?? 0, verifiedAmount: accountsD.verified?.amount ?? 0,
-    rejected: accountsD.rejected?.count ?? 0, rejectedAmount: accountsD.rejected?.amount ?? 0,
-    verifiedToday: accountsD.verified_today?.count ?? 0, verifiedTodayAmount: accountsD.verified_today?.amount ?? 0,
+  const acc = {
+    pending: accD.pending?.count ?? 0, pendingAmount: accD.pending?.amount ?? 0,
+    verified: accD.verified?.count ?? 0, verifiedAmount: accD.verified?.amount ?? 0,
+    rejected: accD.rejected?.count ?? 0, rejectedAmount: accD.rejected?.amount ?? 0,
+    today: accD.verified_today?.count ?? 0, todayAmount: accD.verified_today?.amount ?? 0,
   }
-  const recruiterSummary = {
-    totalLeads: recruitingD.total_leads ?? 0,
-    newToday: recruitingD.new_today ?? 0,
-    conversionRate: recruitingD.conversion_rate ?? 0,
-  }
-  // keep stats.totalFroDonors and accountsSummary.bankAudits accessible via fallback
-  stats.totalFroDonors = (stats.totalFroDonors || 0)
-  accountsSummary.bankAudits = (accountsSummary.bankAudits ?? 0)
 
-  const today = new Date()
-  const hour = today.getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-  const dateStr = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-
-  const totalDonorsAmount = accountsSummary.verifiedAmount || accountsSummary.pendingAmount || 0
-  const totalFroDonors = (stats.totalFroDonors || 0)
-  const pendingVerifications = accountsSummary.pending ?? 0
-  const bankAudits = accountsSummary.bankAudits ?? 0
-
-  const CARD_COLORS = [
-    { icon: '#3B82F6', bg: '#EFF6FF' },
-    { icon: '#8B5CF6', bg: '#F5F3FF' },
-    { icon: '#10B981', bg: '#ECFDF5' },
-    { icon: '#F59E0B', bg: '#FFFBEB' },
-    { icon: '#EC4899', bg: '#FDF2F8' },
-    { icon: '#6366F1', bg: '#EEF2FF' },
+  const hasToday = attD.today?.present !== undefined
+  const attSrc = hasToday ? attD.today : attD.by_worker || {}
+  const attDetails = hasToday ? attD.today_details || {} : attD.details || {}
+  // Percent from the same counts the card shows (backend `percent` is period-wide and can exceed 100).
+  const attTotal = (attSrc.present ?? 0) + (attSrc.late ?? 0) + (attSrc.absent ?? 0)
+  const attPercent = attTotal > 0 ? Math.min(100, Math.round((((attSrc.present ?? 0) + (attSrc.late ?? 0)) / attTotal) * 100)) : 0
+  const attSegments = [
+    { label: 'Present', value: attSrc.present ?? 0, color: MINT, text: MINT_DEEP },
+    { label: 'Late', value: attSrc.late ?? 0, color: AMBER_LIGHT, text: '#9C6F14' },
+    { label: 'Absent', value: attSrc.absent ?? 0, color: BLUSH, text: RED },
   ]
-
-  /* -------- metric cards -------- */
-  const metricCards = [
-    { label: 'Total Donation', value: totalDonorsAmount, icon: 'payments', isCurrency: true, color: CARD_COLORS[2], changeKey: 'totalDonors' },
-    { label: 'Bank Audits', value: bankAudits, icon: 'account_balance', changeKey: 'bankAudits', color: CARD_COLORS[5] },
-  ]
-
-  /* -------- departments (from allTimeRoleDistribution / allUserList) -------- */
-  const ROLE_LABELS = {
-    super_admin: 'Super Admin', admin: 'Admin', hoadmin: 'Accounts',
-    inter: 'Intermediate', team_lead: 'Team Lead', hr: 'HR',
-    recruiter: 'Recruiter', telecaller: 'Telecaller', fro: 'FRO',
-    accounts: 'Accounts', leads: 'Leads', worker: 'Volunteer',
-    ngo_admin: 'Admin',
-  }
-  const HIDE_DEPTS = ['hr-recruitment', 'hr recruitment', 'hr_recruitment', 'hrrecruitment']
-  const deptRaw = Object.keys(allTimeRoleDistribution || {}).length > 0
-    ? allTimeRoleDistribution
-    : (allUserList || []).reduce((acc, u) => {
-        const role = (u.role || '').toLowerCase().trim()
-        if (role) acc[role] = (acc[role] || 0) + 1
-        return acc
-      }, {})
-  const deptData = Object.entries(deptRaw)
-    .filter(([name]) => !HIDE_DEPTS.includes(name.toLowerCase().trim()))
-    .map(([name, value]) => ({ name: ROLE_LABELS[name.toLowerCase().trim()] || name.charAt(0).toUpperCase() + name.slice(1), value }))
-    .sort((a, b) => b.value - a.value)
-  const totalDeptWorkers = deptData.reduce((s, d) => s + d.value, 0) || 1
-
-  /* -------- attendance (today — daily check-ins) -------- */
-  const hasTodayData = todayAttendance?.present !== undefined
-  const attSrc = hasTodayData ? todayAttendance : attendanceWorkerCounts
-  const detSrc = hasTodayData ? todayAttendanceDetails : attendanceDetails
-
-  const attPresent = attSrc?.present ?? 0
-  const attLate = attSrc?.late ?? 0
-  const attAbsent = attSrc?.absent ?? 0
-
-  const attSegments = []
-  if (attPresent > 0) attSegments.push({ label: 'Present', value: attPresent, color: MINT, text: MINT_DEEP, icon: 'verified' })
-  if (attLate > 0) attSegments.push({ label: 'Late', value: attLate, color: GOLD_LIGHT, text: '#9C6F14', icon: 'pace' })
-  if (attAbsent > 0) attSegments.push({ label: 'Absent', value: attAbsent, color: BLUSH, text: RED_DEEP, icon: 'cancel' })
-
-  function openAttendanceList(label) {
-    const key = label.toLowerCase()
+  const openAttendance = (label) => {
     const seg = attSegments.find(s => s.label === label)
-    setModal({
-      title: `${label} Volunteers`,
-      color: seg?.text || PRIMARY,
-      names: detSrc?.[key] || [],
-    })
+    setNameModal({ title: `${label} Volunteers`, color: seg.text, names: attDetails[label.toLowerCase()] || [] })
   }
 
-  function openAbsentees() {
-    setModal({
-      title: 'Absent Volunteers',
-      color: RED_DEEP,
-      names: detSrc?.absent || [],
-    })
+  const greeting = (h => (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'))(new Date().getHours())
+  const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const roleCount = (...roles) => allUserList.filter(u => roles.includes(u.role)).length
+
+  const kpis = [
+    { label: 'Total donation', value: money(acc.verifiedAmount), sub: `${acc.verified} verified leads`, icon: 'payments', onClick: () => setListModal('acc_verified') },
+    { label: 'Verified today', value: acc.today, sub: inr(acc.todayAmount), icon: 'task_alt', onClick: () => setListModal('acc_verified_today') },
+    { label: 'Pending verification', value: acc.pending, sub: inr(acc.pendingAmount), icon: 'hourglass_top', tone: acc.pending > 0 ? AMBER : null, onClick: () => setListModal('acc_pending') },
+    { label: 'Attendance', value: `${attPercent}%`, sub: `${attSrc.present ?? 0} present · ${attSrc.absent ?? 0} absent`, icon: 'how_to_reg', tone: attPercent < 60 ? RED : null, onClick: () => openAttendance('Present') },
+    { label: 'Active volunteers', value: workersD.active ?? 0, sub: `of ${workersD.total ?? 0} total`, icon: 'groups', onClick: () => setPanelModal('hr') },
+  ]
+
+  const actionCards = [
+    { label: 'Pending leaves', key: 'pendingLeaves', icon: 'event_busy' },
+    { label: 'Tickets to approve', key: 'hrVerifiedTickets', icon: 'verified' },
+    { label: 'Pending tickets', key: 'pendingTickets', icon: 'confirmation_number' },
+    { label: 'Unverified leads', key: 'pendingAccountsLeads', icon: 'receipt_long' },
+    { label: 'Events to approve', key: 'submittedEvents', icon: 'event_upcoming' },
+    { label: 'Recruiter pipeline', key: 'recruiterPipeline', icon: 'person_search' },
+  ]
+  const actionTotal = Object.values(actionCenter).reduce((s, v) => s + v, 0)
+
+  const panels = [
+    { key: 'accounts', label: 'Accounts', icon: 'receipt_long', sub: `${roleCount('accounts')} volunteers` },
+    { key: 'fro', label: 'FRO', icon: 'groups', sub: `${roleCount('fro') || froLiveData.length} volunteers` },
+    { key: 'hr', label: 'HR', icon: 'badge', sub: `${roleCount('hr', 'hoadmin')} volunteers` },
+    { key: 'event-head', label: 'Events', icon: 'event', sub: `${events.length} upcoming` },
+    { key: 'recruiter', label: 'Recruiter', icon: 'person_search', sub: `${roleCount('recruiter')} volunteers` },
+  ]
+
+  const revMax = Math.max(...monthlyRevenue.map(m => m.amount), 1)
+  const revPts = monthlyRevenue.map((m, i) => `${(i / (monthlyRevenue.length - 1 || 1)) * 100},${95 - (m.amount / revMax) * 85}`)
+  const revTotal = monthlyRevenue.reduce((s, m) => s + m.amount, 0)
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  const ACTIVITY_ICONS = {
+    verified: ['check_circle', MINT_DEEP], rejected: ['cancel', RED], lead_created: ['person_add', '#4C7C8C'],
+    worker_joined: ['how_to_reg', MINT_DEEP], notification: ['notifications', AMBER],
+  }
+  const timeAgo = (t) => {
+    const m = Math.floor((Date.now() - new Date(t)) / 60000)
+    if (m < 1) return 'Just now'
+    if (m < 60) return `${m}m ago`
+    if (m < 1440) return `${Math.floor(m / 60)}h ago`
+    return new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
   }
 
-  /* -------- NGO wise FRO assignments -------- */
-  const allNgoNames = [...new Set([
-    ...ngoUserCounts.map(n => n.name),
-    ...froAssignments.flatMap(f => f.ngos || []),
-  ])]
-  const ngoTotals = allNgoNames.map(name => ({
-    name,
-    count: froAssignments.filter(f => (f.ngos || []).includes(name)).length,
-  }))
+  const saveTarget = async () => {
+    setSavingTarget(true)
+    try {
+      const v = Number(editTargetValue) || 0
+      await setNgoAdminTarget(targetModalAdmin.id, v)
+      setAdminTargets(prev => prev.map(t => (t.id === targetModalAdmin.id ? { ...t, daily_target: v } : t)))
+      setTargetModalAdmin(null)
+    } catch (e) { alert(e.message) } finally { setSavingTarget(false) }
+  }
 
+  /* ================= RENDER ================= */
   return (
     <div className="dash-page" style={{ maxWidth: 1280, margin: '0 auto' }}>
-      {/* ============ MINT DESIGN STYLES (single-file, scoped with nd-) ============ */}
-      <style>{`
-        .nd-card {
-          background: #fff;
-          border: 1px solid #DFEDE4;
-          border-radius: 20px;
-          padding: 22px;
-          box-shadow: 0 1px 2px rgba(30,77,59,0.04), 0 8px 24px -12px rgba(30,77,59,0.08);
-          transition: box-shadow 0.25s ease, transform 0.25s ease;
-        }
-        .nd-card:hover { box-shadow: 0 2px 4px rgba(30,77,59,0.05), 0 16px 32px -12px rgba(30,77,59,0.12); }
-        .nd-section-title {
-          font-size: 13px; font-weight: 700; color: ${MINT_DARK};
-          text-transform: uppercase; letter-spacing: 1.2px; margin: 0;
-        }
-        .nd-muted { color: #94a3b8; font-size: 13px; margin: 8px 0 0; }
-        .nd-appear { opacity: 0; transform: translateY(14px); animation: ndUp 0.55s cubic-bezier(0.22,1,0.36,1) forwards; }
-        @keyframes ndUp { to { opacity: 1; transform: translateY(0); } }
-        @media (prefers-reduced-motion: reduce) { .nd-appear { animation: none; opacity: 1; transform: none; } }
+      <style>{CSS}</style>
 
-        /* metric cards */
-        .nd-metric {
-          position: relative; overflow: hidden;
-        }
-        .nd-metric::after {
-          content: ''; position: absolute; right: -30px; top: -30px;
-          width: 100px; height: 100px; border-radius: 50%;
-          background: radial-gradient(circle, rgba(140,205,164,0.14), transparent 70%);
-        }
-
-        /* dept bar chart */
-        .nd-bar-list { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
-        .nd-bar-row { display: flex; align-items: center; gap: 12px; }
-        .nd-bar-label {
-          width: 120px; font-size: 12.5px; font-weight: 700; color: ${PRIMARY};
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
-        }
-        .nd-bar-track {
-          flex: 1; height: 16px; background: #F1F5F2; border-radius: 99px; overflow: hidden;
-        }
-        .nd-bar-fill {
-          height: 100%; border-radius: 99px;
-          transition: width 0.9s cubic-bezier(0.22,1,0.36,1) 0.25s;
-        }
-        .nd-bar-value { width: 80px; font-size: 13px; font-weight: 800; color: ${PRIMARY}; }
-        .nd-bar-value small { color: #94a3b8; font-weight: 600; margin-left: 5px; font-size: 11px; }
-        .nd-bar-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-
-        /* FRO assignment rows */
-        .nd-fro-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
-        .nd-fro-summary-pill {
-          display: flex; align-items: center; gap: 8px;
-          padding: 8px 14px; border-radius: 12px; font-size: 12.5px; font-weight: 700;
-        }
-        .nd-fro-list { max-height: 340px; overflow-y: auto; margin-top: 12px; padding-right: 6px; }
-        .nd-fro-row {
-          display: flex; align-items: center; gap: 12px;
-          padding: 11px 12px; border-radius: 14px;
-          border: 1px solid #EAF3EC; margin-bottom: 8px;
-          transition: background 0.15s ease;
-        }
-        .nd-fro-row:hover { background: ${MINT_LIGHT}; }
-        .nd-fro-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-        .nd-ngo-chip {
-          font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px;
-          padding: 4px 10px; border-radius: 99px;
-        }
-
-        /* clickable attendance pills */
-        .nd-att-pill {
-          display: flex; align-items: center; gap: 10px; width: 100%;
-          padding: 11px 14px; border-radius: 14px; border: 1px solid;
-          background: transparent; cursor: pointer; text-align: left;
-          font-family: inherit;
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-        .nd-att-pill:hover { transform: translateX(3px); box-shadow: 0 4px 12px -6px rgba(30,77,59,0.15); }
-        .nd-att-pill:focus-visible { outline: 2px solid ${MINT_DARK}; outline-offset: 2px; }
-
-        /* scrollable notice & event lists */
-        .nd-scroll-list {
-          max-height: 300px; overflow-y: auto; padding-right: 6px;
-          display: flex; flex-direction: column; gap: 12px; margin-top: 14px;
-          scrollbar-width: thin;
-        }
-        .nd-scroll-list::-webkit-scrollbar { width: 5px; }
-        .nd-scroll-list::-webkit-scrollbar-thumb { background: #CFE5D7; border-radius: 99px; }
-        .nd-scroll-fade { position: relative; }
-        .nd-scroll-fade::after {
-          content: ''; position: absolute; left: 0; right: 10px; bottom: 0; height: 28px;
-          background: linear-gradient(transparent, #fff); pointer-events: none; border-radius: 0 0 16px 16px;
-        }
-
-        .nd-notice {
-          display: flex; gap: 12px; padding: 12px; border-radius: 14px;
-          background: ${MINT_LIGHT}; border: 1px solid #DCEEE2;
-        }
-        .nd-notice-icon {
-          width: 36px; height: 36px; border-radius: 11px; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-        }
-
-        .nd-event {
-          display: flex; gap: 12px; align-items: center;
-          padding: 11px 12px; border-radius: 14px; border: 1px solid #DCEEE2;
-        }
-        .nd-event-date {
-          width: 46px; height: 50px; border-radius: 12px; flex-shrink: 0;
-          background: #DBEAFE; color: #1E40AF;
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-        }
-
-        /* modal */
-        .nd-modal-overlay {
-          position: fixed; inset: 0; z-index: 1000;
-          background: rgba(31,51,43,0.45); backdrop-filter: blur(3px);
-          display: flex; align-items: center; justify-content: center; padding: 20px;
-          animation: ndFade 0.2s ease;
-        }
-        @keyframes ndFade { from { opacity: 0; } to { opacity: 1; } }
-        .nd-modal {
-          background: #fff; border-radius: 22px; width: 100%; max-width: 420px;
-          max-height: 75vh; display: flex; flex-direction: column; overflow: hidden;
-          box-shadow: 0 24px 60px -12px rgba(31,51,43,0.35);
-          animation: ndPop 0.3s cubic-bezier(0.22,1,0.36,1);
-        }
-        @keyframes ndPop { from { opacity: 0; transform: scale(0.94) translateY(10px); } to { opacity: 1; transform: none; } }
-        .nd-modal-head {
-          display: flex; align-items: center; gap: 12px;
-          padding: 18px 20px; border-bottom: 1px solid;
-        }
-        .nd-modal-badge { font-size: 14px; font-weight: 800; padding: 6px 12px; border-radius: 10px; }
-        .nd-modal-title { margin: 0; flex: 1; font-size: 15px; font-weight: 700; color: ${PRIMARY}; }
-        .nd-modal-close {
-          border: none; background: ${MINT_LIGHT}; border-radius: 10px; width: 32px; height: 32px;
-          display: flex; align-items: center; justify-content: center; cursor: pointer; color: #64748b;
-        }
-        .nd-modal-close:hover { background: #DCEEE2; }
-        .nd-modal-body { overflow-y: auto; padding: 12px 16px 18px; }
-        .nd-modal-row {
-          display: flex; align-items: center; gap: 12px;
-          padding: 10px 8px; border-bottom: 1px solid #F0F7F2;
-        }
-        .nd-modal-row:last-child { border-bottom: none; }
-        .nd-avatar {
-          width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 14px;
-        }
-        .nd-modal-name { display: block; font-size: 13.5px; font-weight: 600; color: ${PRIMARY}; }
-        .nd-modal-dept { display: block; font-size: 11px; color: #94a3b8; }
-        .nd-modal-time { margin-left: auto; font-size: 11.5px; color: #64748b; font-weight: 600; }
-
-        /* modal search */
-        .nd-modal-search {
-          display: flex; align-items: center; gap: 8px;
-          padding: 8px 12px; margin-bottom: 8px;
-          border: 1px solid #DCEEE2; border-radius: 12px;
-          background: #F6FAF7; transition: border-color 0.2s;
-        }
-        .nd-modal-search:focus-within { border-color: ${MINT}; background: #fff; }
-        .nd-modal-search-icon { font-size: 18px; color: #94a3b8; }
-        .nd-modal-search-input {
-          flex: 1; border: none; background: transparent;
-          font-size: 13px; font-family: inherit; color: ${PRIMARY};
-          outline: none;
-        }
-        .nd-modal-search-input::placeholder { color: #b6c0cc; }
-        .nd-modal-search-clear {
-          border: none; background: transparent; cursor: pointer;
-          color: #94a3b8; padding: 2px; display: flex;
-        }
-        .nd-modal-search-clear:hover { color: #64748b; }
-
-        /* mini cards for accounts / recruiter */
-        .mini-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-        .mini-card {
-          background: #F6FAF7; border-radius: 14px; padding: 14px 16px;
-          display: flex; flex-direction: column; gap: 2px;
-          border: 1px solid #DCEEE2;
-        }
-        .mini-card-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
-        .mini-card-value { font-size: 26px; font-weight: 800; color: ${PRIMARY}; line-height: 1.2; }
-        .mini-card-sub { font-size: 12px; color: #64748b; font-weight: 600; }
-        .ps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .ps-card {
-          background: #F6FAF7; border-radius: 14px; padding: 14px 16px;
-          display: flex; flex-direction: column; gap: 2px;
-          border: 1px solid #DCEEE2;
-        }
-        .ps-label { font-size: 12px; font-weight: 700; color: #94a3b8; }
-        .ps-value { font-size: 24px; font-weight: 800; color: ${PRIMARY}; line-height: 1.2; }
-        .ps-sub { font-size: 11px; color: #64748b; font-weight: 600; }
-        .mini-card-clickable { cursor: pointer; transition: box-shadow 0.2s, transform 0.15s; }
-        .mini-card-clickable:hover { box-shadow: 0 4px 12px rgba(30,77,59,0.10); transform: translateY(-1px); }
-        .lead-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-        .lead-status-dot.scheduled { background: ${SLATE}; }
-        .lead-status-dot.verified { background: ${MINT_DEEP}; }
-        .lead-status-dot.selected { background: ${MINT_DEEP}; }
-        .lead-status-dot.rejected { background: ${RED_DEEP}; }
-        .lead-status-dot.pending { background: ${GOLD}; }
-        .lead-status-dot.contacted { background: ${MINT_DARK}; }
-        .lead-status-dot.follow_up { background: ${GOLD_LIGHT}; }
-
-        /* Panel link cards — uniform mint design */
-        .panel-link-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-          gap: 14px;
-          margin-top: 20px;
-          margin-bottom: 24px;
-        }
-        .panel-link-card {
-          background: #fff;
-          border: 1px solid #DCEEE2;
-          border-left: 4px solid ${MINT};
-          border-radius: 12px; padding: 12px 14px; cursor: pointer;
-          display: flex; flex-direction: column; gap: 2px;
-          color: ${PRIMARY};
-          transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
-          animation: ndUp 0.5s cubic-bezier(0.22,1,0.36,1) forwards;
-          opacity: 0; box-shadow: 0 2px 8px rgba(30,77,59,0.06);
-        }
-        .panel-link-card:nth-child(1) { animation-delay: 0.1s; }
-        .panel-link-card:nth-child(2) { animation-delay: 0.15s; }
-        .panel-link-card:nth-child(3) { animation-delay: 0.2s; }
-        .panel-link-card:nth-child(4) { animation-delay: 0.25s; }
-        .panel-link-card:nth-child(5) { animation-delay: 0.3s; }
-        .panel-link-card:hover { transform: translateY(-3px); background: #FAFBFC; box-shadow: 0 8px 20px rgba(30,77,59,0.12); }
-        .panel-link-card .material-symbols-outlined {
-          font-size: 18px;
-          width: 32px; height: 32px; border-radius: 8px;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .panel-link-label { font-size: 14px; font-weight: 800; letter-spacing: -0.3px; color: ${MINT_DARK}; }
-        .panel-link-sub { font-size: 10px; color: #5F7269; font-weight: 500; }
-
-        /* ALL FRO card */
-        .nd-fro-card { border: 1px solid rgba(30,77,59,0.15); transition: border-color 0.2s, box-shadow 0.2s; cursor: pointer; }
-        .nd-fro-card:hover { border-color: rgba(30,77,59,0.4); box-shadow: 0 2px 4px rgba(30,77,59,0.08), 0 8px 24px -12px rgba(30,77,59,0.15); }
-
-        /* FRO Live Modal - wider */
-        .fro-modal { max-width: 800px !important; }
-
-        /* FRO Live Panel */
-        .fro-live-panel { animation: ndUp 0.4s cubic-bezier(0.22,1,0.36,1) forwards; }
-        .fro-live-header {
-          display: flex; justify-content: space-between; align-items: center;
-          padding-bottom: 14px; border-bottom: 1px solid #EAF3EC; margin-bottom: 4px;
-        }
-        .fro-live-table-wrap {
-          overflow: auto; max-height: 60vh;
-        }
-        .fro-live-table {
-          width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px;
-        }
-        .fro-live-table thead { position: sticky; top: 0; z-index: 2; }
-        .fro-live-table th {
-          position: sticky; top: 0; z-index: 2;
-          text-align: left; padding: 12px 10px; font-size: 11px; font-weight: 700;
-          color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px;
-          border-bottom: 1px solid #EAF3EC; white-space: nowrap;
-          background: #fff;
-        }
-        .fro-live-table td {
-          padding: 10px; border-bottom: 1px solid #F0F7F2; vertical-align: middle;
-        }
-        .fro-live-table tbody tr:hover { background: ${MINT_LIGHT}; }
-        .fro-table-wrap {
-          overflow: auto; max-height: 55vh;
-        }
-        .fro-table {
-          width: 100%; border-collapse: collapse; font-size: 13px;
-        }
-        .fro-table thead { position: sticky; top: 0; z-index: 2; }
-        .fro-table th {
-          position: sticky; top: 0; z-index: 2;
-          text-align: left; padding: 10px 10px; font-size: 11px; font-weight: 700;
-          color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px;
-          border-bottom: 1px solid #EAF3EC; white-space: nowrap;
-          background: #fff;
-        }
-        .fro-table td {
-          padding: 9px 10px; border-bottom: 1px solid #F0F7F2; vertical-align: middle;
-        }
-        .fro-table tbody tr:hover { background: ${MINT_LIGHT}; }
-        .fro-name { display: block; font-weight: 700; color: ${PRIMARY}; }
-        .fro-login-id { display: block; font-size: 11px; color: #94a3b8; margin-top: 1px; }
-        .fro-status-dot {
-          display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-          margin-right: 6px; vertical-align: middle;
-        }
-        .fro-status-dot.active { background: ${MINT}; box-shadow: 0 0 0 2px rgba(140,205,164,0.3); }
-        .fro-status-dot.inactive { background: #e2e8f0; }
-        .fro-badge {
-          display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px;
-          border-radius: 99px;
-        }
-        .fro-badge-green { background: rgba(140,205,164,0.18); color: ${MINT_DEEP}; }
-        .fro-badge-red { background: rgba(247,178,173,0.25); color: ${RED_DEEP}; }
-        .fro-num { font-size: 14px; font-weight: 700; color: ${PRIMARY}; }
-        .fro-amt { color: ${MINT_DEEP}; }
-        .fro-live-footer {
-          border-top: 1px solid #EAF3EC; padding-top: 12px; margin-top: 4px;
-          display: flex; justify-content: flex-end;
-        }
-        .fro-refresh-btn {
-          border: none; background: ${MINT_LIGHT}; border-radius: 8px; width: 30px; height: 30px;
-          display: flex; align-items: center; justify-content: center; cursor: pointer;
-          color: #64748b; font-size: 13px; font-family: inherit;
-        }
-        .fro-refresh-btn:hover { background: #DCEEE2; }
-        .fro-spin { animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        /* FRO mini cards on dashboard */
-        .fro-mini-card {
-          background: #fff;
-          border: 1px solid #DCEEE2;
-          border-radius: 14px;
-          padding: 14px 16px;
-          cursor: pointer;
-          transition: box-shadow 0.2s ease, transform 0.15s ease;
-        }
-        .fro-mini-card:hover {
-          box-shadow: 0 4px 14px rgba(30,77,59,0.10);
-          transform: translateY(-2px);
-        }
-
-        /* ─── Risk & Alerts Panel ─── */
-        .nd-alerts-panel { animation: ndUp 0.4s cubic-bezier(0.22,1,0.36,1) forwards; }
-        .nd-alerts-summary { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .nd-alerts-badge {
-          display: inline-flex; align-items: center; gap: 5px;
-          padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 700;
-        }
-        .nd-alerts-badge.critical { background: rgba(239,68,68,0.1); color: #DC2626; }
-        .nd-alerts-badge.warning { background: rgba(245,158,11,0.1); color: #D97706; }
-        .nd-alerts-badge.info { background: rgba(59,130,246,0.1); color: #2563EB; }
-        .nd-alert-item {
-          display: flex; align-items: flex-start; gap: 12px;
-          padding: 12px 14px; border-radius: 12px; margin-bottom: 8px;
-          cursor: pointer; transition: all 0.2s ease;
-        }
-        .nd-alert-item:last-child { margin-bottom: 0; }
-        .nd-alert-item:hover { transform: translateX(3px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-        .nd-alert-item.critical { background: rgba(239,68,68,0.04); border-left: 3px solid #EF4444; }
-        .nd-alert-item.warning { background: rgba(245,158,11,0.04); border-left: 3px solid #F59E0B; }
-        .nd-alert-item.info { background: rgba(59,130,246,0.04); border-left: 3px solid #3B82F6; }
-        .nd-alert-icon {
-          width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .nd-alert-title { font-size: 13px; font-weight: 700; color: #1F332B; margin: 0; line-height: 1.3; }
-        .nd-alert-desc { font-size: 11.5px; color: #64748b; margin: 3px 0 0; line-height: 1.4; }
-        .nd-alert-action {
-          font-size: 10.5px; font-weight: 700; color: #2A6B45; margin-top: 5px;
-          display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
-          transition: color 0.15s; border: none; background: none; padding: 0; font-family: inherit;
-        }
-        .nd-alert-action:hover { color: #1E4D3B; text-decoration: underline; }
-      `}</style>
-
-      {/* ============ HEADER ============ */}
+      {/* ---------- Header ---------- */}
       <div className="dash-header">
         <div>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 99, background: '#EAF7EE', color: '#2A6B45', fontSize: 11.5, fontWeight: 700, letterSpacing: 0.2 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>
-            {greeting} · {dateStr}
-          </span>
+          <span className="nd-greeting"><span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>{greeting} · {dateStr}</span>
           <h2 className="dash-header-title" style={{ marginTop: 8 }}>Dashboard Overview</h2>
           <p className="dash-header-sub">Operational insights across all NGOs and departments.</p>
         </div>
         <div className="dash-header-actions">
           <div className="dash-period-bar">
             {PERIODS.map(p => (
-              <button
-                key={p.key}
-                className={`dash-period-btn${period === p.key ? ' active' : ''}`}
-                disabled={loading}
-                onClick={() => setPeriod(p.key)}
-              >
+              <button key={p.key} className={`dash-period-btn${period === p.key ? ' active' : ''}`} disabled={loading} onClick={() => setPeriod(p.key)}>
                 {loading && period === p.key ? '\u25c9 ' : ''}{p.label}
               </button>
             ))}
           </div>
-          <button
-            className="btn btn-primary btn-sm"
-            style={{ background: MINT_DARK, borderColor: MINT_DARK }}
-            onClick={() => exportToExcel(data, period)}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4 }}>download</span>
-            Export Report
+          <button className="btn btn-primary btn-sm" style={{ background: MINT_DARK, borderColor: MINT_DARK }} onClick={() => exportToExcel(data, period)}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4 }}>download</span>Export report
           </button>
         </div>
       </div>
 
-      {/* ============ QUICK ACTION BUTTONS ============ */}
-      <div className="nd-appear" style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', animationDelay: '0.05s' }}>
-        <button
-          onClick={() => openAttendanceList('Present')}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10, flex: 1,
-            border: '1px solid #DCEEE2', background: '#fff',
-            color: MINT_DARK, fontSize: 12, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'box-shadow 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          }}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#22C55E' }}>verified</span>
-          Present {attPresent > 0 && <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.7 }}>({attPresent})</span>}
-        </button>
-        <button
-          onClick={() => openAttendanceList('Late')}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10, flex: 1,
-            border: '1px solid #DCEEE2', background: '#fff',
-            color: MINT_DARK, fontSize: 12, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'box-shadow 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          }}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#F59E0B' }}>pace</span>
-          Late {attLate > 0 && <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.7 }}>({attLate})</span>}
-        </button>
+      {/* ---------- Needs attention ---------- */}
+      <SectionCard icon="notifications_active" title="Needs attention" className="nd-mb"
+        right={<><span className="nd-live"><i />Live</span>
+          <Segmented value={attnTab} onChange={setAttnTab} options={[
+            { key: 'actions', label: 'Pending actions', badge: actionTotal },
+            { key: 'alerts', label: 'Risk & alerts', badge: alertsData.alerts.length },
+          ]} /></>}>
+        {attnTab === 'actions' ? (
+          <div className="nd-auto-grid" style={{ '--min': '190px' }}>
+            {actionCards.map(c => {
+              const n = actionCenter[c.key]
+              return (
+                <button key={c.key} className={`nd-action${n > 0 ? ' has' : ''}`} onClick={() => setListModal(c.key)}>
+                  <span className="material-symbols-outlined">{c.icon}</span>
+                  <span className="nd-action-txt"><small>{c.label}</small><b>{n}</b></span>
+                </button>
+              )
+            })}
+          </div>
+        ) : alertsData.alerts.length === 0 ? <p className="nd-muted">No active alerts. Everything looks fine.</p> : (
+          <div className="nd-alert-list">
+            {alertsData.alerts.map((a, i) => {
+              const s = SEVERITY[a.severity] || SEVERITY.info
+              return (
+                <button key={a.id || i} className="nd-alert-item" style={{ borderLeftColor: s.color }} onClick={() => setAlertModal(a)}>
+                  <span className="material-symbols-outlined" style={{ color: s.color }}>{s.icon}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="nd-alert-title">{a.title}</span>
+                    <span className="nd-alert-desc">{a.description}</span>
+                    {a.actionLabel && <span className="nd-alert-action">{a.actionLabel}</span>}
+                  </span>
+                  <b style={{ color: s.color, fontSize: 20 }}>{a.count}</b>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ---------- KPI strip ---------- */}
+      <div className="nd-auto-grid nd-mb" style={{ '--min': '200px' }}>
+        {kpis.map(k => (
+          <button key={k.label} className="nd-card nd-kpi" onClick={k.onClick}>
+            <span className="nd-kpi-label"><span className="material-symbols-outlined">{k.icon}</span>{k.label}</span>
+            <span className="nd-kpi-value" style={k.tone ? { color: k.tone } : undefined}>{k.value}</span>
+            <span className="nd-kpi-sub">{k.sub}</span>
+          </button>
+        ))}
       </div>
 
-
-      {/* ============ LOW ATTENDANCE ALERT (clickable, slim) ============ */}
-      {attendancePercent < 60 && (
-        <div
-          className="nd-appear"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            background: 'rgba(247,178,173,0.20)',
-            border: '1px solid #F2C0BA',
-            borderRadius: 12, padding: '8px 16px', marginBottom: 20,
-            animationDelay: '0.05s',
-          }}
-        >
-          <div style={{
-            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-            background: 'rgba(247,178,173,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <span className="material-symbols-outlined" style={{ color: RED_DEEP, fontSize: 18 }}>warning</span>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <strong style={{ fontSize: 13, color: PRIMARY, display: 'block' }}>
-              Attendance is low — {attendancePercent}%
-            </strong>
-            <span style={{ fontSize: 11.5, color: '#64748b' }}>
-              {attAbsent > 0 ? `${attAbsent} volunteer(s) absent` : 'Attendance dropped below 60% for the selected period.'}
-            </span>
-          </div>
-          <button
-            onClick={openAbsentees}
-            style={{
-              border: `1px solid ${RED_DEEP}`, background: RED_DEEP, color: '#fff',
-              borderRadius: 10, padding: '6px 14px', fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
-            }}
-          >
-            View absentees
+      {/* ---------- Department shortcuts ---------- */}
+      <div className="nd-auto-grid nd-mb" style={{ '--min': '170px' }}>
+        {panels.map(p => (
+          <button key={p.key} className="nd-panel-link" onClick={() => setPanelModal(p.key)}>
+            <span className="material-symbols-outlined">{p.icon}</span>
+            <span><b>{p.label}</b><small>{p.sub}</small></span>
           </button>
-        </div>
-      )}
+        ))}
+      </div>
 
-
-      {/* ============ NGO TOPIC CARDS (BSCT, AFLF, MAN) ============ */}
-      {ngoUserCounts.filter(n => ['bsct', 'aflf', 'man'].some(pre => n.name.toLowerCase().startsWith(pre))).length > 0 && (
-        <div className="nd-appear" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20, animationDelay: '0.5s' }}>
+      {/* ---------- NGO cards ---------- */}
+      {ngoUserCounts.some(n => isMainNgo(n.name)) && (
+        <div className="nd-auto-grid nd-mb" style={{ '--min': '280px' }}>
           {['bsct', 'aflf', 'man'].map(prefix => {
-            const n = ngoUserCounts.find(x => x.name.toLowerCase().startsWith(prefix))
+            const n = ngoUserCounts.find(x => lc(x.name).startsWith(prefix))
             if (!n) return null
             const nc = ngoColor(n.name)
-            const ngoFros = froLiveData.filter(f => f.worker?.ngo_name === n.name)
-            const totalCollection = ngoFros.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0)
-            const totalCalls = ngoFros.reduce((s, f) => s + Number(f.performance?.today_calls || 0), 0)
-            const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)
-            const assignedFros = froAssignments.filter(f => (f.ngos || []).includes(n.name))
+            const fros = froLiveData.filter(f => f.worker?.ngo_name === n.name)
+            const sum = (k) => fros.reduce((s, f) => s + Number(f.performance?.[k] || 0), 0)
+            const live = fros.filter(f => f.status === 'on_call' || f.status === 'online').length
+            const assigned = froAssignments.filter(f => (f.ngos || []).includes(n.name)).length
             return (
-              <div key={n.name} className="nd-card" style={{ padding: '12px 14px', borderLeft: `4px solid ${nc}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: nc, flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, color: nc }}>{n.name}</span>
-                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginLeft: 'auto' }}>{n.workers || n.count || 0} volunteers · <span style={{ color: '#16a34a' }}>{ngoFros.filter(f => f.status === 'on_call' || f.status === 'online').length} live</span></span>
+              <div key={n.name} className="nd-card" style={{ borderLeft: `4px solid ${nc}` }}>
+                <div className="nd-ngo-head">
+                  <b style={{ color: nc }}>{n.name}</b>
+                  <span>{n.workers || n.count || 0} volunteers · <span style={{ color: MINT_DEEP }}>{live} live</span></span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#E8F5E9' }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Today's Collection</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: MINT_DEEP }}>₹{totalCollection.toLocaleString('en-IN')}</div>
-                  </div>
-                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#E3F2FD' }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Today's Calls</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#1E88E5' }}>{totalCalls}</div>
-                    <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 1 }}>{totalCalls} people called today</div>
-                  </div>
-                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#F3E5F5' }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Today's Data Used</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#8E24AA' }}>{totalDataUsed}</div>
-                  </div>
-                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#FFF8E1' }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total FROs</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#F57C00' }}>{assignedFros.length}</div>
-                  </div>
+                <div className="nd-stat-grid">
+                  <div><small>Today's collection</small><b style={{ color: MINT_DEEP }}>{inr(sum('today_collection'))}</b></div>
+                  <div><small>Today's calls</small><b>{sum('today_calls')}</b></div>
+                  <div><small>Today's data used</small><b>{sum('data_used')}</b></div>
+                  <div><small>Total FROs</small><b>{assigned}</b></div>
                 </div>
               </div>
             )
@@ -2022,1026 +972,460 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ---------- Attendance + NGO overview ---------- */}
+      <div className="nd-auto-grid nd-mb" style={{ '--min': '340px' }}>
+        <SectionCard icon="how_to_reg" title="Attendance today" right={<span className="nd-sec-note">{attPercent}% attendance</span>}>
+          <div className="nd-att">
+            {attSegments.some(s => s.value > 0)
+              ? <DonutChart segments={attSegments.filter(s => s.value > 0)} size={130} animated={animated}
+                  centerValue={attSegments.reduce((s, x) => s + x.value, 0)} centerLabel="Check-ins" onSegmentClick={openAttendance} />
+              : <p className="nd-muted">No check-ins yet today.</p>}
+            <div className="nd-att-list">
+              {attSegments.map(s => (
+                <button key={s.label} className="nd-att-pill" style={{ borderColor: s.color }} onClick={() => openAttendance(s.label)}>
+                  <i style={{ background: s.color }} />{s.label}<b style={{ color: s.text }}>{s.value}</b>
+                </button>
+              ))}
+            </div>
+          </div>
+          {attPercent < 60 && (
+            <div className="nd-warn">
+              <span className="material-symbols-outlined">warning</span>
+              <span>Attendance is low ({attPercent}%){attSrc.absent > 0 ? ` — ${attSrc.absent} absent` : ''}</span>
+              <button onClick={() => openAttendance('Absent')}>View absentees</button>
+            </div>
+          )}
+        </SectionCard>
 
-      {/* ============ ACTION CENTER — PENDING ITEMS ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.08s', marginBottom: 20, padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#EF4444' }}>notifications_active</span>
-          <h3 className="nd-section-title" style={{ margin: 0, color: '#EF4444' }}>Action Center</h3>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
-            Auto-refreshes every 30s
-          </span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
-          {[
-            {
-              label: 'Pending Leaves',
-              count: actionCenter.pendingLeaves,
-              icon: 'event_busy',
-              color: '#F59E0B',
-              bg: '#FFFBEB',
-              type: 'pendingLeaves',
-            },
-            {
-              label: 'Tickets to Approve',
-              count: actionCenter.hrVerifiedTickets,
-              icon: 'verified',
-              color: '#3B82F6',
-              bg: '#EFF6FF',
-              type: 'hrVerifiedTickets',
-            },
-            {
-              label: 'Pending Tickets',
-              count: actionCenter.pendingTickets,
-              icon: 'confirmation_number',
-              color: '#8B5CF6',
-              bg: '#F5F3FF',
-              type: 'pendingTickets',
-            },
-            {
-              label: 'Unverified Leads',
-              count: actionCenter.pendingAccountsLeads,
-              icon: 'receipt_long',
-              color: '#EC4899',
-              bg: '#FDF2F8',
-              type: 'pendingAccountsLeads',
-            },
-            {
-              label: 'Events to Approve',
-              count: actionCenter.submittedEvents,
-              icon: 'event_upcoming',
-              color: '#10B981',
-              bg: '#ECFDF5',
-              type: 'submittedEvents',
-            },
-            {
-              label: 'Recruiter Pipeline',
-              count: actionCenter.recruiterPipeline,
-              icon: 'person_search',
-              color: '#0EA5E9',
-              bg: '#F0F9FF',
-              type: 'recruiterPipeline',
-            },
-          ].map(card => {
-            const hasItems = card.count > 0
+        <SectionCard icon="corporate_fare" title="Admin — NGO overview" right={<span className="nd-sec-note">{ngoUserCounts.length} NGOs</span>}>
+          {ngoUserCounts.length === 0 ? <p className="nd-muted">No NGO data available</p> : (() => {
+            const total = ngoUserCounts.reduce((s, n) => s + (n.workers || n.count || 0), 0)
             return (
-              <div
-                key={card.label}
-                onClick={() => setAcModal(card.type)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 12px', borderRadius: 12,
-                  background: hasItems ? card.bg : '#F8FAFC',
-                  border: `1px solid ${hasItems ? card.color + '30' : '#E2E8F0'}`,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  opacity: hasItems ? 1 : 0.6,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 4px 12px ${card.color}20` }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}
-              >
-                <div style={{
-                  width: 34, height: 34, borderRadius: 10,
-                  background: hasItems ? card.color + '18' : '#F1F5F9',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 17, color: hasItems ? card.color : '#94a3b8' }}>{card.icon}</span>
+              <div className="nd-att">
+                <DonutChart size={130} animated={animated} centerValue={total} centerLabel="Total" onSegmentClick={setNgoStationModal}
+                  segments={ngoUserCounts.map((n, i) => ({ label: n.name, value: n.workers || n.count || 1, color: isMainNgo(n.name) ? ngoColor(n.name) : NGO_PALETTE[i % NGO_PALETTE.length] }))} />
+                <div className="nd-att-list">
+                  {ngoUserCounts.slice(0, 8).map((n, i) => {
+                    const v = n.workers || n.count || 0
+                    const c = isMainNgo(n.name) ? ngoColor(n.name) : NGO_PALETTE[i % NGO_PALETTE.length]
+                    return (
+                      <button key={n.name} className="nd-ngo-row" onClick={() => setNgoStationModal(n.name)}>
+                        <i style={{ background: c }} /><span>{n.name}</span>
+                        <div className="nd-track" style={{ width: 60 }}><div style={{ width: `${Math.round((v / (total || 1)) * 100)}%`, background: c }} /></div>
+                        <b>{v}</b>
+                      </button>
+                    )
+                  })}
                 </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.4 }}>{card.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: hasItems ? card.color : '#CBD5E1', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{card.count}</div>
-                </div>
-                {hasItems && (
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%',
-                    background: card.color, flexShrink: 0,
-                    animation: 'acPulse 2s ease-in-out infinite',
-                  }} />
-                )}
               </div>
             )
-          })}
-        </div>
+          })()}
+        </SectionCard>
       </div>
 
-      <style>{`
-        @keyframes acPulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(1.4); }
-        }
-      `}</style>
+      {/* ---------- FRO performance ---------- */}
+      {froLiveData.length > 0 && <FroPerformanceToday froLiveData={froLiveData} />}
 
+      {/* ---------- Accounts pipeline ---------- */}
+      <SectionCard icon="receipt_long" title="Accounts — lead verification" className="nd-mb">
+        <PipelineFlow stages={[
+          { label: 'Pending', value: acc.pending, sub: inr(acc.pendingAmount), color: AMBER_LIGHT },
+          { label: 'Verified', value: acc.verified, sub: inr(acc.verifiedAmount), color: MINT },
+          { label: 'Rejected', value: acc.rejected, sub: inr(acc.rejectedAmount), color: BLUSH },
+          { label: 'Verified today', value: acc.today, sub: inr(acc.todayAmount), color: MINT_DEEP },
+        ]} />
+        <div className="nd-auto-grid" style={{ '--min': '160px', marginTop: 10 }}>
+          {[['Pending', acc.pending, acc.pendingAmount, 'acc_pending', AMBER_LIGHT], ['Verified', acc.verified, acc.verifiedAmount, 'acc_verified', MINT],
+            ['Rejected', acc.rejected, acc.rejectedAmount, 'acc_rejected', BLUSH], ['Verified today', acc.today, acc.todayAmount, 'acc_verified_today', MINT_DEEP]].map(([l, n, amt, key, c]) => (
+            <button key={key} className="nd-mini" style={{ borderLeftColor: c }} onClick={() => setListModal(key)}>
+              <small>{l}</small><b>{n}</b><span>{inr(amt)}</span>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
 
-      {/* ============ RISK & ALERTS PANEL ============ */}
-      {alertsData.alerts.length > 0 && (
-        <div className="nd-card nd-alerts-panel" style={{ animationDelay: '0.1s', marginBottom: 20, padding: '16px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#EF4444' }}>warning</span>
-            <h3 className="nd-section-title" style={{ margin: 0, color: '#EF4444' }}>Risk & Alerts</h3>
-            <div className="nd-alerts-summary" style={{ marginLeft: 'auto', gap: 8 }}>
-              {alertsData.summary.critical > 0 && (
-                <span className="nd-alerts-badge critical">
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#DC2626' }} />
-                  {alertsData.summary.critical} Critical
-                </span>
-              )}
-              {alertsData.summary.warning > 0 && (
-                <span className="nd-alerts-badge warning">
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#D97706' }} />
-                  {alertsData.summary.warning} Warning
-                </span>
-              )}
-              {alertsData.summary.info > 0 && (
-                <span className="nd-alerts-badge info">
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2563EB' }} />
-                  {alertsData.summary.info} Info
-                </span>
-              )}
-            </div>
-            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>Auto-refreshes every 60s</span>
-          </div>
-
-          <div style={{ maxHeight: 340, overflowY: 'auto', paddingRight: 4 }}>
-            {alertsData.alerts.map((alert, i) => (
-              <div
-                key={alert.id || i}
-                className={`nd-alert-item ${alert.severity}`}
-                onClick={() => setAlertModal(alert)}
-              >
-                <div className="nd-alert-icon" style={{
-                  background: alert.severity === 'critical' ? 'rgba(239,68,68,0.12)' :
-                              alert.severity === 'warning' ? 'rgba(245,158,11,0.12)' : 'rgba(59,130,246,0.12)',
-                }}>
-                  <span className="material-symbols-outlined" style={{
-                    fontSize: 17,
-                    color: alert.severity === 'critical' ? '#DC2626' :
-                           alert.severity === 'warning' ? '#D97706' : '#2563EB',
-                  }}>
-                    {alert.severity === 'critical' ? 'error' : alert.severity === 'warning' ? 'warning' : 'info'}
-                  </span>
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p className="nd-alert-title">{alert.title}</p>
-                  <p className="nd-alert-desc">{alert.description}</p>
-                  <button className="nd-alert-action">
-                    {alert.actionLabel} →
-                  </button>
-                </div>
-                <span style={{
-                  fontSize: 20, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0,
-                  color: alert.severity === 'critical' ? '#DC2626' :
-                         alert.severity === 'warning' ? '#D97706' : '#2563EB',
-                }}>
-                  {alert.count}
-                </span>
+      {/* ---------- Receipts ---------- */}
+      {receiptStats.length > 0 && (
+        <SectionCard icon="receipt_long" title="Receipt overview" className="nd-mb">
+          <div className="nd-auto-grid" style={{ '--min': '220px' }}>
+            {receiptStats.map(g => (
+              <div key={g.project_id || 'unknown'} className="nd-receipt">
+                <div className="nd-receipt-name">{PROJECT_LABELS[g.project_id] || g.project_id || 'Unknown'}</div>
+                <div><b>{(g.count || 0).toLocaleString('en-IN')}</b><small>Total receipts</small></div>
+                <div><b>{(g.donors || 0).toLocaleString('en-IN')}</b><small>Total donors</small></div>
+                <div><b style={{ color: MINT_DEEP }}>{inr(g.total_amount)}</b><small>Total amount</small></div>
               </div>
             ))}
           </div>
-        </div>
+        </SectionCard>
       )}
 
-
-      {/* ============ METRIC CARDS ============ */}
-      <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-        {metricCards.map((card, i) => {
-          const kpiStages = [
-            { label: 'Active', value: Math.round((card.value || 0) * 0.8), color: MINT },
-            { label: 'Pending', value: Math.round((card.value || 0) * 0.2), color: GOLD },
-          ]
-          return (
-            <div
-              key={card.label}
-              className="nd-card nd-metric nd-appear"
-              style={{ animationDelay: `${0.08 * (i + 1)}s`, cursor: 'pointer', padding: '12px 16px' }}
-              onClick={() => setKpiModal({ title: card.label, stages: kpiStages, color: card.color?.icon || MINT_DEEP })}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                  {card.label}
-                </span>
-                <div style={{
-                  width: 28, height: 28, borderRadius: 8,
-                  background: card.color?.bg || MINT_LIGHT,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <span className="material-symbols-outlined" style={{ color: card.color?.icon || MINT_DARK, fontSize: 15 }}>{card.icon}</span>
-                </div>
+      {/* ---------- Monthly revenue / performers / activity ---------- */}
+      <div className="nd-auto-grid nd-mb" style={{ '--min': '320px' }}>
+        <SectionCard icon="monitoring" title="Monthly revenue">
+          {monthlyRevenue.length === 0 ? <p className="nd-muted">No revenue data yet</p> : (
+            <>
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="nd-line">
+                <path d={`M${revPts.join(' L')} L100,95 L0,95 Z`} fill={MINT} fillOpacity=".25" />
+                <path d={`M${revPts.join(' L')}`} fill="none" stroke={MINT_DEEP} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+              </svg>
+              <div className="nd-line-labels">
+                {monthlyRevenue.map((m, i) => (
+                  <span key={m.month}>{i % 2 === 0 || i === monthlyRevenue.length - 1 ? `${MONTHS[parseInt(m.month.split('-')[1]) - 1]} '${m.month.slice(2, 4)}` : ''}</span>
+                ))}
               </div>
-              <div style={{ marginTop: 6 }}>
-                <span style={{ fontSize: 24, fontWeight: 800, color: PRIMARY, lineHeight: 1 }}>
-                  {card.isCurrency ? (
-                    <>₹{(Number(card.value) / 100000).toFixed(1)}<span style={{ fontSize: 12, fontWeight: 600 }}>L</span></>
-                  ) : (
-                    <AnimatedNum to={typeof card.value === 'number' ? card.value : 0} />
-                  )}
-                </span>
-                <div style={{ fontSize: 10, color: card.color?.icon || MINT_DARK, fontWeight: 600, marginTop: 2 }}>
-                  {card.isCurrency ? 'Total donation value' : `${card.label} across all departments`}
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+              <div className="nd-line-foot"><span>Total: {inr(revTotal)}</span><span>Avg: {inr(Math.round(revTotal / monthlyRevenue.length))}</span></div>
+            </>
+          )}
+        </SectionCard>
 
+        <SectionCard icon="emoji_events" title="Top performers">
+          <Segmented value={performerPeriod} onChange={setPerformerPeriod} options={PERFORMER_PERIODS} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14 }}>
+            {performers.fros.length === 0 && performers.recruiters.length === 0 && <p className="nd-muted">No performer data yet</p>}
+            {performers.fros.length > 0 && <RankList title="Top FROs by collection" items={performers.fros} valueKey="totalCollection" format={inr} colors={[AMBER, MINT_DEEP, '#4C7C8C', '#7A5C8C', MUTED]} />}
+            {performers.recruiters.length > 0 && <RankList title="Top recruiters by leads" items={performers.recruiters} valueKey="leadCount" colors={[MINT_DEEP, '#4C7C8C', AMBER, '#7A5C8C', MUTED]} />}
+          </div>
+        </SectionCard>
 
-      {/* ============ PANEL LINKS — uniform mint cards ============ */}
-      <div className="panel-link-grid">
-        <div className="panel-link-card" style={{ borderLeftColor: '#8B5CF6', cursor: 'pointer' }} onClick={() => setPanelModal('accounts')}>
-          <span className="material-symbols-outlined" style={{ background: '#F5F3FF', color: '#8B5CF6' }}>receipt_long</span>
-          <span className="panel-link-label" style={{ color: '#8B5CF6' }}>Accounts</span>
-          <span className="panel-link-sub">{allUserList.filter(u => u.role === 'accounts').length || 0} volunteers</span>
-        </div>
-        <div className="panel-link-card" style={{ borderLeftColor: '#EC4899', cursor: 'pointer' }} onClick={() => setPanelModal('fro')}>
-          <span className="material-symbols-outlined" style={{ background: '#FDF2F8', color: '#EC4899' }}>groups</span>
-          <span className="panel-link-label" style={{ color: '#EC4899' }}>FRO</span>
-          <span className="panel-link-sub">{allUserList.filter(u => u.role === 'fro').length || froLiveData.length} volunteers</span>
-        </div>
-        <div className="panel-link-card" style={{ borderLeftColor: '#3B82F6', cursor: 'pointer' }} onClick={() => setPanelModal('hr')}>
-          <span className="material-symbols-outlined" style={{ background: '#EFF6FF', color: '#3B82F6' }}>badge</span>
-          <span className="panel-link-label" style={{ color: '#3B82F6' }}>HR</span>
-          <span className="panel-link-sub">{allUserList.filter(u => u.role === 'hr' || u.role === 'hoadmin').length || 0} volunteers</span>
-        </div>
-        <div className="panel-link-card" style={{ borderLeftColor: '#F59E0B', cursor: 'pointer' }} onClick={() => setPanelModal('event-head')}>
-          <span className="material-symbols-outlined" style={{ background: '#FFFBEB', color: '#F59E0B' }}>event</span>
-          <span className="panel-link-label" style={{ color: '#F59E0B' }}>Events</span>
-          <span className="panel-link-sub">{upcomingEvents.length || 0} upcoming</span>
-        </div>
-        <div className="panel-link-card" style={{ borderLeftColor: '#10B981', cursor: 'pointer' }} onClick={() => setPanelModal('recruiter')}>
-          <span className="material-symbols-outlined" style={{ background: '#ECFDF5', color: '#10B981' }}>person_search</span>
-          <span className="panel-link-label" style={{ color: '#10B981' }}>Recruiter</span>
-          <span className="panel-link-sub">{allUserList.filter(u => u.role === 'recruiter').length || 0} volunteers</span>
-        </div>
-      </div>
-
-      {/* ============ NGO ADMIN OVERVIEW ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.25s', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: GOLD }}>corporate_fare</span>
-          <h3 className="nd-section-title" style={{ margin: 0 }}>Admin — Overview</h3>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
-            {ngoUserCounts.length} NGOs
-          </span>
-        </div>
-        {ngoUserCounts.length === 0 ? (
-          <p className="nd-muted">No NGO data available</p>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <div style={{ cursor: 'pointer' }} onClick={() => ngoUserCounts.length === 1 && setNgoStationModal(ngoUserCounts[0].name)}>
-                <DonutChart
-                  segments={ngoUserCounts.map((n, i) => ({
-                    label: n.name, value: n.workers || n.count || 1,
-                    color: NGO_PALETTE[i % NGO_PALETTE.length],
-                  }))}
-                  size={140}
-                  centerValue={ngoUserCounts.reduce((s, n) => s + (n.workers || n.count || 0), 0)}
-                  centerLabel="Total"
-                  animated={animated}
-                  onSegmentClick={(label) => setNgoStationModal(label)}
-                />
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {ngoUserCounts.slice(0, 8).map((n, i) => {
-                const total = ngoUserCounts.reduce((s, x) => s + (x.workers || x.count || 0), 0) || 1
-                const pct = Math.round(((n.workers || n.count || 0) / total) * 100)
-                const c = NGO_PALETTE[i % NGO_PALETTE.length]
-                const dotColor = ['man','aflf','bsct'].some(pre => n.name.toLowerCase().startsWith(pre)) ? ngoColor(n.name) : c
+        <SectionCard icon="history" title="Recent activity" right={activities.length > 0 && <span className="nd-sec-note">{activities.length}</span>}>
+          {activities.length === 0 ? <p className="nd-muted">No recent activity</p> : (
+            <div className="nd-scroll" style={{ maxHeight: 280 }}>
+              {activities.map((a, i) => {
+                const [icon, color] = ACTIVITY_ICONS[a.type] || ['circle', '#94a3b8']
                 return (
-                  <div key={n.name} onClick={() => setNgoStationModal(n.name)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '3px 6px', borderRadius: 8, transition: 'background 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = MINT_LIGHT} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: ['man','aflf','bsct'].some(pre => n.name.toLowerCase().startsWith(pre)) ? ngoColor(n.name) : PRIMARY, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
-                    <div style={{ width: 60, height: 6, background: '#F1F5F2', borderRadius: 99, overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', background: dotColor, borderRadius: 99 }} />
+                  <div key={i} className="nd-act">
+                    <span className="nd-act-icon" style={{ color, background: `${color}18` }}><span className="material-symbols-outlined">{icon}</span></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span className="nd-act-msg">{a.message}</span>
+                      <div className="nd-act-meta"><span>{a.detail}</span><span>{a.time ? timeAgo(a.time) : ''}</span></div>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', minWidth: 30, textAlign: 'right' }}>{n.workers || n.count || 0}</span>
-                    <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>chevron_right</span>
                   </div>
                 )
               })}
             </div>
-          </div>
-        )}
+          )}
+        </SectionCard>
       </div>
 
-      {/* ============ DAILY TARGET MANAGEMENT ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.35s', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: GOLD }}>track_changes</span>
-          <h3 className="nd-section-title" style={{ margin: 0 }}>Admin Daily Targets</h3>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
-            {targetsLoading ? 'Loading...' : `${adminTargets.length} admins`}
-          </span>
-        </div>
-        {!targetsLoading && adminTargets.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Admin</th>
-                  <th style={{ textAlign: 'right', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Today's Collection</th>
-                  <th style={{ textAlign: 'right', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Daily Target</th>
-                  <th style={{ textAlign: 'center', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Progress</th>
-                  <th style={{ textAlign: 'center', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Action</th>
-                </tr>
-              </thead>
+      {/* ---------- Admin daily targets ---------- */}
+      <SectionCard icon="track_changes" title="Admin daily targets" className="nd-mb" right={<span className="nd-sec-note">{targetsLoading ? 'Loading...' : `${adminTargets.length} admins`}</span>}>
+        {targetsLoading ? <p className="nd-muted">Loading...</p> : adminTargets.length === 0 ? <p className="nd-muted">No admin data available</p> : (
+          <div className="nd-table-wrap" style={{ maxHeight: 'none' }}>
+            <table className="nd-table">
+              <thead><tr><th>Admin</th><th>Today's collection</th><th>Daily target</th><th>Progress</th><th /></tr></thead>
               <tbody>
                 {adminTargets.map(t => {
                   const pct = t.daily_target > 0 ? Math.min(100, Math.round((t.today_collection / t.daily_target) * 100)) : 0
                   return (
-                    <tr key={t.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                      <td style={{ padding: '10px 10px', fontWeight: 600, color: PRIMARY }}>
-                        {t.name}<span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 11, marginLeft: 4 }}>{t.login_id}</span>
-                      </td>
-                      <td style={{ padding: '10px 10px', textAlign: 'right', color: MINT_DEEP, fontWeight: 700 }}>₹{t.today_collection.toLocaleString('en-IN')}</td>
-                      <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>
-                        {t.daily_target > 0 ? `₹${t.daily_target.toLocaleString('en-IN')}` : <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Not set</span>}
-                      </td>
-                      <td style={{ padding: '10px 10px', textAlign: 'center' }}>
-                        {t.daily_target > 0 ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                            <div style={{ width: 60, height: 6, borderRadius: 99, background: '#F1F5F2', overflow: 'hidden' }}>
-                              <div style={{ width: `${pct}%`, height: '100%', borderRadius: 99, background: pct >= 100 ? MINT_DEEP : pct >= 50 ? GOLD : '#ef4444' }} />
-                            </div>
-                            <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>{pct}%</span>
-                          </div>
-                        ) : <span style={{ color: '#94a3b8' }}>—</span>}
-                      </td>
-                      <td style={{ padding: '10px 10px', textAlign: 'center' }}>
-                        <button onClick={() => { setTargetModalAdmin(t); setEditTargetValue(String(t.daily_target || '')); }}
-                          style={{ padding: '4px 10px', border: '1px solid #DCEEE2', borderRadius: 6, background: '#fff', color: MINT_DARK, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                          {t.daily_target > 0 ? 'Edit' : 'Set'}
-                        </button>
-                      </td>
+                    <tr key={t.id}>
+                      <td><b>{t.name}</b> <small className="nd-faint">{t.login_id}</small></td>
+                      <td style={{ color: MINT_DEEP, fontWeight: 700 }}>{inr(t.today_collection)}</td>
+                      <td>{t.daily_target > 0 ? inr(t.daily_target) : <span className="nd-faint">Not set</span>}</td>
+                      <td>{t.daily_target > 0
+                        ? <div className="nd-progress"><div className="nd-track" style={{ width: 70 }}><div style={{ width: `${pct}%`, background: pct >= 100 ? MINT_DEEP : pct >= 50 ? AMBER : RED }} /></div>{pct}%</div>
+                        : '—'}</td>
+                      <td><button className="nd-btn-sm" onClick={() => { setTargetModalAdmin(t); setEditTargetValue(String(t.daily_target || '')) }}>{t.daily_target > 0 ? 'Edit' : 'Set'}</button></td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
-        ) : targetsLoading ? (
-          <p className="nd-muted">Loading...</p>
-        ) : (
-          <p className="nd-muted">No Admin data available</p>
         )}
-      </div>
+      </SectionCard>
 
-      {/* ============ TARGET EDIT MODAL ============ */}
-      {targetModalAdmin && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={() => setTargetModalAdmin(null)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid #e5e7eb' }}>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Set Daily Target — {targetModalAdmin.name}</span>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: '#94a3b8' }} onClick={() => setTargetModalAdmin(null)}>close</span>
-            </div>
-            <div style={{ padding: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Daily Target Amount (₹)</label>
-              <input type="number" min="0" value={editTargetValue} onChange={e => setEditTargetValue(e.target.value)} placeholder="e.g. 100000"
-                style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                Today's collection: ₹{targetModalAdmin.today_collection.toLocaleString('en-IN')} across {targetModalAdmin.ngo_count || 0} NGOs
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 16px', borderTop: '1px solid #e5e7eb' }}>
-              <button onClick={() => setTargetModalAdmin(null)}
-                style={{ padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={async () => {
-                setSavingTarget(true)
-                try {
-                  await setNgoAdminTarget(targetModalAdmin.id, Number(editTargetValue) || 0)
-                  setAdminTargets(prev => prev.map(t => t.id === targetModalAdmin.id ? { ...t, daily_target: Number(editTargetValue) || 0 } : t))
-                  setTargetModalAdmin(null)
-                } catch (e) { alert(e.message) }
-                finally { setSavingTarget(false) }
-              }} disabled={savingTarget}
-                style={{ padding: '7px 12px', border: 'none', borderRadius: 8, background: MINT_DEEP, color: '#fff', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: savingTarget ? 0.5 : 1 }}>
-                {savingTarget ? 'Saving...' : 'Save Target'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============ ALERT DETAIL MODAL ============ */}
-      {alertModal && (
-        <div className="nd-modal-overlay" onClick={() => setAlertModal(null)}>
-          <div className="nd-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
-            <div className="nd-modal-head" style={{
-              borderBottomColor: alertModal.severity === 'critical' ? 'rgba(239,68,68,0.2)' :
-                                alertModal.severity === 'warning' ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.2)',
-            }}>
-              <span className="nd-modal-badge" style={{
-                background: alertModal.severity === 'critical' ? 'rgba(239,68,68,0.1)' :
-                           alertModal.severity === 'warning' ? 'rgba(245,158,11,0.1)' : 'rgba(59,130,246,0.1)',
-                color: alertModal.severity === 'critical' ? '#DC2626' :
-                       alertModal.severity === 'warning' ? '#D97706' : '#2563EB',
-              }}>
-                {alertModal.severity.toUpperCase()}
-              </span>
-              <h3 className="nd-modal-title">{alertModal.title}</h3>
-              <button className="nd-modal-close" onClick={() => setAlertModal(null)}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
-              </button>
-            </div>
-            <div className="nd-modal-body">
-              <p style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>{alertModal.description}</p>
-              <p style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>
-                Category: <strong style={{ color: PRIMARY }}>{alertModal.category?.toUpperCase()}</strong>
-                {' · '}
-                Count: <strong style={{ color: alertModal.severity === 'critical' ? '#DC2626' : alertModal.severity === 'warning' ? '#D97706' : '#2563EB' }}>{alertModal.count}</strong>
-              </p>
-              {alertModal.details && alertModal.details.length > 0 && (
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Affected Items</p>
-                  {alertModal.details.map((item, i) => (
-                    <div key={i} className="nd-modal-row">
-                      <div className="nd-avatar" style={{
-                        background: alertModal.severity === 'critical' ? 'rgba(239,68,68,0.1)' :
-                                   alertModal.severity === 'warning' ? 'rgba(245,158,11,0.1)' : 'rgba(59,130,246,0.1)',
-                        color: alertModal.severity === 'critical' ? '#DC2626' :
-                               alertModal.severity === 'warning' ? '#D97706' : '#2563EB',
-                        fontSize: 13, fontWeight: 700,
-                      }}>
-                        {item.name?.charAt(0) || '?'}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <span className="nd-modal-name">{item.name}</span>
-                        {item.value && <span className="nd-modal-dept">{deptLabel(item.value)}</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============ MAIN GRID ============ */}
-      <div className="dash-grid">
-        <div className="dash-grid-main">
-
-        </div>
-
-        <div className="dash-grid-side">
-
-    
-
-        </div>
-      </div>
-
-      {/* ---- FRO PERFORMANCE OVERVIEW ---- */}
-      {froLiveData.length > 0 && (
-        <FroPerformanceToday froLiveData={froLiveData} />
-      )}
-
-
-      {/* ============ ACCOUNTS SUMMARY ============ */}
-      {accountsSummary.pending !== undefined && (
-        <div className="nd-card nd-appear" style={{ animationDelay: '0.2s', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#0284c7' }}>receipt_long</span>
-            <h3 className="nd-section-title" style={{ margin: 0 }}>Accounts — Lead Verification Pipeline</h3>
-          </div>
-          <PipelineFlow stages={[
-            { label: 'Pending', value: accountsSummary.pending ?? 0, sub: `₹${(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}`, color: '#38bdf8' },
-            { label: 'Verified', value: accountsSummary.verified ?? 0, sub: `₹${(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}`, color: '#a78bfa' },
-            { label: 'Rejected', value: accountsSummary.rejected ?? 0, sub: `₹${(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}`, color: '#f472b6' },
-            { label: 'Today', value: accountsSummary.verifiedToday ?? 0, sub: `₹${(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}`, color: '#fbbf24' },
-          ]} height={50} />
-          <div className="mini-card-grid" style={{ marginTop: 8 }}>
-            <div className="mini-card mini-card-clickable" style={{ borderLeft: `3px solid #38bdf8`, paddingLeft: 13, background: '#fff' }} onClick={() => setAccountsModalStatus('pending')}>
-              <span className="mini-card-label">Pending</span>
-              <span className="mini-card-value">{accountsSummary.pending ?? 0}</span>
-              <span className="mini-card-sub">₹{(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}</span>
-            </div>
-            <div className="mini-card mini-card-clickable" style={{ borderLeft: `3px solid #a78bfa`, paddingLeft: 13, background: '#fff' }} onClick={() => setAccountsModalStatus('verified')}>
-              <span className="mini-card-label">Verified</span>
-              <span className="mini-card-value">{accountsSummary.verified ?? 0}</span>
-              <span className="mini-card-sub">₹{(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}</span>
-            </div>
-            <div className="mini-card mini-card-clickable" style={{ borderLeft: `3px solid #f472b6`, paddingLeft: 13, background: '#fff' }} onClick={() => setAccountsModalStatus('rejected')}>
-              <span className="mini-card-label">Rejected</span>
-              <span className="mini-card-value">{accountsSummary.rejected ?? 0}</span>
-              <span className="mini-card-sub">₹{(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}</span>
-            </div>
-            <div className="mini-card mini-card-clickable" style={{ borderLeft: `3px solid #fbbf24`, paddingLeft: 13, background: '#fff' }} onClick={() => setAccountsModalStatus('verified_today')}>
-              <span className="mini-card-label">Verified Today</span>
-              <span className="mini-card-value">{accountsSummary.verifiedToday ?? 0}</span>
-              <span className="mini-card-sub">₹{(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {/* ============ REVENUE TREND CHART ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.22s', marginBottom: 20, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#14B8A6' }}>trending_up</span>
-          <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Revenue Overview</h3>
-        </div>
-        {(() => {
-          const amounts = [
-            { label: 'Pending', amount: accountsSummary.pendingAmount || 0, color: '#F59E0B' },
-            { label: 'Verified', amount: accountsSummary.verifiedAmount || 0, color: '#3B82F6' },
-            { label: 'Rejected', amount: accountsSummary.rejectedAmount || 0, color: '#EF4444' },
-            { label: 'Verified Today', amount: accountsSummary.verifiedTodayAmount || 0, color: '#8B5CF6' },
-          ]
-          const max = Math.max(...amounts.map(a => a.amount), 1)
-          const barMaxHeight = 140
-          return (
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: barMaxHeight + 40, gap: 12 }}>
-              {amounts.map(a => {
-                const h = (a.amount / max) * barMaxHeight
-                return (
-                  <div key={a.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: a.color, marginBottom: 4 }}>
-                      ₹{(a.amount).toLocaleString('en-IN')}
-                    </span>
-                    <div style={{
-                      width: '100%', maxWidth: 80, height: h || 4,
-                      background: a.color, borderRadius: '6px 6px 0 0',
-                      transition: 'height 0.6s ease',
-                      minHeight: 4,
-                    }} />
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginTop: 6, textAlign: 'center' }}>
-                      {a.label}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })()}
-      </div>
-
-      {/* ============ RECEIPT OVERVIEW (3 NGO cards) ============ */}
-      {receiptStats.length > 0 && (
-        <div className="nd-card nd-appear" style={{ animationDelay: '0.25s', marginBottom: 20, padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#16a34a' }}>receipt_long</span>
-            <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Receipt Overview</h3>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${receiptStats.length}, 1fr)`, gap: 16 }}>
-            {receiptStats.map(g => (
-              <div key={g.project_id || 'unknown'} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 14px', textAlign: 'center' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 12 }}>{PROJECT_LABELS[g.project_id] || g.project_id || 'Unknown'}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color: '#5B6B4E', lineHeight: 1.2 }}>{(g.count || 0).toLocaleString('en-IN')}</div>
-                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>Total Receipts</div>
-                  </div>
-                  <div style={{ height: 1, background: '#e5e7eb' }} />
-                  <div>
-                    <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color: '#8b5cf6', lineHeight: 1.2 }}>{(g.donors || 0).toLocaleString('en-IN')}</div>
-                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>Total Donors</div>
-                  </div>
-                  <div style={{ height: 1, background: '#e5e7eb' }} />
-                  <div>
-                    <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>{'\u20B9'}{(g.total_amount || 0).toLocaleString('en-IN')}</div>
-                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>Total Amount</div>
+      {/* ---------- Events ---------- */}
+      <SectionCard icon="event" title="Upcoming events" className="nd-mb" right={events.length > 0 && <span className="nd-sec-note">{events.length}</span>}>
+        {events.length === 0 ? <p className="nd-muted">No upcoming events</p> : (
+          <div className="nd-scroll" style={{ maxHeight: 240 }}>
+            {events.map((ev, i) => {
+              const d = new Date(ev.event_date)
+              return (
+                <div key={ev.id || i} className="nd-event">
+                  <div className="nd-event-date"><small>{d.toLocaleString('en-IN', { month: 'short' })}</small><b>{d.getDate()}</b></div>
+                  <div style={{ minWidth: 0 }}>
+                    <h4>{ev.title}</h4>
+                    <p>{[ev.location, ev.event_time?.slice(0, 5)].filter(Boolean).join(' • ')}</p>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        </div>
-      )}
-
-
-      {/* ============ 3-COL GRID: Monthly Revenue + Top Performers + Recent Activity ============ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 20 }}>
-
-        {/* ---- MONTHLY REVENUE TREND (line chart) ---- */}
-        <div className="nd-card nd-appear" style={{ animationDelay: '0.28s', gridColumn: 'span 1', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#14B8A6' }}>monitoring</span>
-            <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Monthly Revenue</h3>
-          </div>
-          {monthlyRevenue.length === 0 ? (
-            <p className="nd-muted">No revenue data yet</p>
-          ) : (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', position: 'relative', height: 160, paddingTop: 16 }}>
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-                {(() => {
-                  const max = Math.max(...monthlyRevenue.map(m => m.amount), 1)
-                  const pts = monthlyRevenue.map((m, i) => {
-                    const x = (i / (monthlyRevenue.length - 1 || 1)) * 100
-                    const y = 95 - (m.amount / max) * 85
-                    return `${x},${y}`
-                  })
-                  const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p}`).join(' ')
-                  const areaD = pts.length > 0 ? `${d} L${pts[pts.length - 1].split(',')[0]},95 L${pts[0].split(',')[0]},95 Z` : ''
-                  return (
-                    <>
-                      <defs>
-                        <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#14B8A6" stopOpacity={0.25} />
-                          <stop offset="100%" stopColor="#14B8A6" stopOpacity={0.01} />
-                        </linearGradient>
-                      </defs>
-                      <path d={areaD} fill="url(#revenueGrad)" />
-                      <path d={d} fill="none" stroke="#14B8A6" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-                      {pts.map((p, i) => {
-                        const [cx, cy] = p.split(',')
-                        return i % 2 === 0 || i === pts.length - 1 ? (
-                          <circle key={i} cx={cx} cy={cy} r={1.8} fill="#fff" stroke="#14B8A6" strokeWidth={0.8} />
-                        ) : null
-                      })}
-                    </>
-                  )
-                })()}
-              </svg>
-              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginTop: 'auto', paddingTop: 8 }}>
-                {monthlyRevenue.map((m, i) => (
-                  <div key={m.month} style={{ textAlign: 'center', flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', display: 'block', whiteSpace: 'nowrap' }}>
-                      {i % 2 === 0 || i === monthlyRevenue.length - 1 ? (() => {
-                        const [y, mo] = m.month.split('-')
-                        const months = ['J','F','M','A','M','J','J','A','S','O','N','D']
-                        return `${months[parseInt(mo) - 1]}'${y.slice(2)}`
-                      })() : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid #DEE9E1' }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
-              Total: ₹{monthlyRevenue.reduce((s, m) => s + m.amount, 0).toLocaleString('en-IN')}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#14B8A6' }}>
-              Avg: ₹{monthlyRevenue.length > 0 ? Math.round(monthlyRevenue.reduce((s, m) => s + m.amount, 0) / monthlyRevenue.length).toLocaleString('en-IN') : 0}
-            </span>
-          </div>
-        </div>
-
-        {/* ---- TOP PERFORMERS ---- */}
-        <div className="nd-card nd-appear" style={{ animationDelay: '0.33s', gridColumn: 'span 1', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#F59E0B' }}>emoji_events</span>
-            <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Top Performers</h3>
-          </div>
-          <div style={{ display: 'flex', gap: 3, marginBottom: 14, background: '#F1F5F2', borderRadius: 10, padding: 3 }}>
-            {[
-              { key: 'today', label: 'Today' },
-              { key: '7d', label: 'Weekly' },
-              { key: '1y', label: 'Yearly' },
-              { key: 'all', label: 'All Time' },
-            ].map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => setPerformerPeriod(opt.key)}
-                style={{
-                  flex: 1, padding: '5px 0', borderRadius: 8, border: 'none',
-                  background: performerPeriod === opt.key ? '#fff' : 'transparent',
-                  boxShadow: performerPeriod === opt.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                  fontSize: 10, fontWeight: 700, color: performerPeriod === opt.key ? '#F59E0B' : '#94a3b8',
-                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {performerFros.length === 0 && performerRecruiters.length === 0 ? (
-              <p className="nd-muted">No performer data yet</p>
-            ) : (
-              <>
-                {performerFros.length > 0 && (
-                  <div>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#EC4899', textTransform: 'uppercase', letterSpacing: 0.6 }}>Top FROs by Collection</span>
-                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {performerFros.map((f, i) => {
-                        const colors = ['#F59E0B', '#14B8A6', '#3B82F6', '#8B5CF6', '#64748b']
-                        const c = colors[i] || '#94a3b8'
-                        const maxAmt = Math.max(...performerFros.map(x => x.totalCollection), 1)
-                        const pct = (f.totalCollection / maxAmt) * 100
-                        return (
-                          <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ width: 18, height: 18, borderRadius: '50%', background: `${c}18`, color: c, fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              {i + 1}
-                            </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: '#1F332B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                                <span style={{ fontSize: 12, fontWeight: 800, color: c }}>₹{f.totalCollection.toLocaleString('en-IN')}</span>
-                              </div>
-                              <div style={{ width: '100%', height: 6, background: '#F1F5F2', borderRadius: 99, marginTop: 4, overflow: 'hidden' }}>
-                                <div style={{ width: `${pct}%`, height: '100%', background: c, borderRadius: 99, transition: 'width 0.6s ease' }} />
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-                {performerRecruiters.length > 0 && (
-                  <div style={{ marginTop: performerFros.length > 0 ? 12 : 0, paddingTop: performerFros.length > 0 ? 12 : 0, borderTop: performerFros.length > 0 ? '1px solid #DEE9E1' : 'none' }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#3B82F6', textTransform: 'uppercase', letterSpacing: 0.6 }}>Top Recruiters by Leads</span>
-                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {performerRecruiters.map((r, i) => {
-                        const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899']
-                        const c = colors[i] || '#94a3b8'
-                        const maxLead = Math.max(...performerRecruiters.map(x => x.leadCount), 1)
-                        const pct = (r.leadCount / maxLead) * 100
-                        return (
-                          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ width: 18, height: 18, borderRadius: '50%', background: `${c}18`, color: c, fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              {i + 1}
-                            </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: '#1F332B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</span>
-                                <span style={{ fontSize: 12, fontWeight: 800, color: c }}>{r.leadCount}</span>
-                              </div>
-                              <div style={{ width: '100%', height: 6, background: '#F1F5F2', borderRadius: 99, marginTop: 4, overflow: 'hidden' }}>
-                                <div style={{ width: `${pct}%`, height: '100%', background: c, borderRadius: 99, transition: 'width 0.6s ease' }} />
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* ---- RECENT ACTIVITY LOG ---- */}
-        <div className="nd-card nd-appear" style={{ animationDelay: '0.38s', gridColumn: 'span 1', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8B5CF6' }}>history</span>
-            <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Recent Activity</h3>
-            {recentActivities.length > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#8B5CF6', background: 'rgba(139,92,246,0.12)', borderRadius: 99, padding: '2px 8px', marginLeft: 'auto' }}>
-                {recentActivities.length}
-              </span>
-            )}
-          </div>
-          {recentActivities.length === 0 ? (
-            <p className="nd-muted">No recent activity</p>
-          ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 280, overflowY: 'auto', paddingRight: 4 }}>
-              {recentActivities.map((a, i) => {
-                const iconMap = {
-                  verified: { icon: 'check_circle', bg: '#ECFDF5', color: '#10B981' },
-                  rejected: { icon: 'cancel', bg: '#FEF2F2', color: '#EF4444' },
-                  lead_created: { icon: 'person_add', bg: '#EFF6FF', color: '#3B82F6' },
-                  worker_joined: { icon: 'how_to_reg', bg: '#F5F3FF', color: '#8B5CF6' },
-                  notification: { icon: 'notifications', bg: '#FFFBEB', color: '#F59E0B' },
-                }
-                const meta = iconMap[a.type] || { icon: 'circle', bg: '#F1F5F2', color: '#94a3b8' }
-                const timeStr = a.time
-                  ? (() => {
-                      const d = new Date(a.time)
-                      const now = new Date()
-                      const diffMs = now - d
-                      const diffMin = Math.floor(diffMs / 60000)
-                      if (diffMin < 1) return 'Just now'
-                      if (diffMin < 60) return `${diffMin}m ago`
-                      const diffHr = Math.floor(diffMin / 60)
-                      if (diffHr < 24) return `${diffHr}h ago`
-                      return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-                    })()
-                  : ''
-                return (
-                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{
-                      width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                      background: meta.bg, color: meta.color,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{meta.icon}</span>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#1F332B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {a.message}
-                      </span>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 1 }}>
-                        <span style={{ fontSize: 10.5, color: '#94a3b8' }}>{a.detail}</span>
-                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, flexShrink: 0 }}>{timeStr}</span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-
-      {/* ---- UPCOMING EVENTS — scrollable, shows all ---- */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.9s', marginTop: 17, marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#3B82F6' }}>event</span>
-            <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Upcoming Events</h3>
-          </div>
-          {upcomingEvents.length > 0 && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: RED_DEEP,
-              background: 'rgba(247,178,173,0.25)', borderRadius: 99, padding: '3px 10px',
-            }}>
-              {upcomingEvents.length}
-            </span>
-          )}
-        </div>
-        {upcomingEvents.length === 0 ? (
-          <>
-            <p className="nd-muted">No upcoming events</p>
-            <button
-              onClick={() => navigate('/sa/events')}
-              style={{
-                width: '100%', marginTop: 14, padding: '10px 0',
-                border: `1.5px dashed #3B82F6`, background: 'rgba(59,130,246,0.08)',
-                color: '#3B82F6', borderRadius: 12, fontSize: 12, fontWeight: 700,
-                letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
-              + ADD NEW EVENT
-            </button>
-          </>
-        ) : (
-          <>
-            <div className={upcomingEvents.length > 2 ? 'nd-scroll-fade' : ''}>
-              <div className="nd-scroll-list" style={{ maxHeight: 240 }}>
-                {upcomingEvents.map((ev, i) => {
-                  const d = new Date(ev.event_date)
-                  return (
-                    <div key={ev.id || i} className="nd-event">
-                      <div className="nd-event-date">
-                        <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 }}>
-                          {d.toLocaleString('en-IN', { month: 'short' })}
-                        </span>
-                        <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{d.getDate()}</span>
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{ev.title}</h4>
-                        <p style={{ margin: '3px 0 0', fontSize: 11.5, color: '#94a3b8' }}>
-                          {ev.location && <span>{ev.location}</span>}
-                          {ev.event_time && <span> {'\u2022'} {ev.event_time.slice(0, 5)}</span>}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-            <button
-              onClick={() => navigate('/sa/events')}
-              style={{
-                width: '100%', marginTop: 14, padding: '10px 0',
-                border: `1.5px dashed #3B82F6`, background: 'rgba(59,130,246,0.08)',
-                color: '#3B82F6', borderRadius: 12, fontSize: 12, fontWeight: 700,
-                letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
-              + ADD NEW EVENT
-            </button>
-          </>
         )}
-      </div>
+        <button className="nd-add-btn" onClick={() => navigate('/sa/events')}>+ Add new event</button>
+      </SectionCard>
 
-
-      {/* ============ TOTAL SALARY PAYABLE ============ */}
-      {totalSalaryPayable > 0 && (
-        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #059669', animationDelay: '0.16s', marginTop: 12, marginBottom: 20, cursor: 'pointer' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>payments</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Total Salary Payable</span>
+      {/* ---------- Salary ---------- */}
+      {salary > 0 && (
+        <div className="nd-card nd-mb nd-salary">
+          <span className="material-symbols-outlined">payments</span>
+          <div>
+            <small>Total salary payable</small>
+            <b>{inr(salary)}</b>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <span style={{ fontSize: 22, fontWeight: 800, color: '#059669', lineHeight: 1 }}>₹{totalSalaryPayable.toLocaleString('en-IN')}</span>
-            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>Monthly recurring</span>
-            {(() => {
-              const wc = stats.totalWorkers || 0
-              const avg = wc > 0 ? Math.round(totalSalaryPayable / wc) : 0
-              return avg > 0 ? (
-                <span style={{ fontSize: 10, color: '#64748b', background: '#F1F5F2', borderRadius: 99, padding: '2px 8px', fontWeight: 600 }}>Avg ₹{avg.toLocaleString('en-IN')}/volunteer</span>
-              ) : null
-            })()}
-          </div>
+          <span className="nd-sec-note">Monthly{workersD.total > 0 ? ` · avg ${inr(Math.round(salary / workersD.total))}/volunteer` : ''}</span>
         </div>
       )}
 
-
-      {/* ============ MAIN GRID ============ */}
-      <div className="dash-grid">
-        <div className="dash-grid-main">
-
-        </div>
-
-        <div className="dash-grid-side">
-
-    
-
-        </div>
-      </div>
-
-
-
-      {/* ============ NAME LIST MODAL ============ */}
-      {modal && (
-        <NameListModal
-          title={modal.title}
-          color={modal.color}
-          names={modal.names}
-          onClose={() => setModal(null)}
-        />
-      )}
-
-      {/* ============ ACCOUNTS DETAIL MODAL ============ */}
-      {accountsModalStatus && (
-        <AccountsDetailModal
-          status={accountsModalStatus}
-          onClose={() => setAccountsModalStatus(null)}
-        />
-      )}
-
-      {/* ============ RECRUITER DETAIL MODAL ============ */}
-      {recruiterModalType && (
-        <RecruiterDetailModal
-          type={recruiterModalType}
-          onClose={() => setRecruiterModalType(null)}
-        />
-      )}
-
-      {/* ============ PANEL SUMMARY MODAL ============ */}
-      {panelModal && (
-        <PanelSummaryModal
-          panel={panelModal}
-          dashboardData={data}
-          onClose={() => setPanelModal(null)}
-        />
-      )}
-
-      {/* ============ KPI PIPELINE MODAL ============ */}
-      {kpiModal && (
-        <div className="nd-modal-overlay" onClick={() => setKpiModal(null)}>
-          <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
-            <div className="nd-modal-head" style={{ borderColor: `${kpiModal.color}30` }}>
-              <span className="material-symbols-outlined" style={{ color: kpiModal.color, fontSize: 20 }}>analytics</span>
-              <h3 className="nd-modal-title">{kpiModal.title}</h3>
-              <button className="nd-modal-close" onClick={() => setKpiModal(null)}><span className="material-symbols-outlined">close</span></button>
-            </div>
-            <div className="nd-modal-body">
-              <PipelineFlow stages={kpiModal.stages} height={60} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
-                {kpiModal.stages.map(s => (
-                  <div key={s.label} style={{ padding: '10px 12px', borderRadius: 10, background: `${s.color}14`, border: `1px solid ${s.color}40` }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: s.color, textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: PRIMARY }}>{s.value.toLocaleString()}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============ NGO STATION MODAL ============ */}
+      {/* ================= MODALS ================= */}
+      {nameModal && <NameListModal {...nameModal} onClose={() => setNameModal(null)} />}
+      {listModal && <ListModal type={listModal} onClose={() => setListModal(null)} />}
+      {panelModal && <PanelSummaryModal panel={panelModal} dashboardData={data} onClose={() => setPanelModal(null)} />}
       {ngoStationModal && (
-        <NgoStationModal
-          ngoName={ngoStationModal}
-          // per_ngo carries { id, name, code }; resolve the modal's name to the
-          // id the donors-by-station endpoint scopes on.
-          ngoId={(ngoUserCounts || []).find(n => n && n.name === ngoStationModal)?.id || ''}
-          onClose={() => setNgoStationModal(null)}
-        />
+        <NgoStationModal ngoName={ngoStationModal} ngoId={ngoUserCounts.find(n => n?.name === ngoStationModal)?.id || ''} onClose={() => setNgoStationModal(null)} />
       )}
 
-      {/* ============ DEPARTMENT VOLUNTEER MODAL ============ */}
-      {deptModal && (
-        <NameListModal
-          title={deptModal.title}
-          color={MINT_DEEP}
-          names={deptModal.names}
-          onClose={() => setDeptModal(null)}
-        />
+      {alertModal && (() => {
+        const s = SEVERITY[alertModal.severity] || SEVERITY.info
+        return (
+          <Modal title={alertModal.title} icon={s.icon} color={s.color} badge={alertModal.severity.toUpperCase()} onClose={() => setAlertModal(null)}>
+            <p style={{ fontSize: 13, color: MUTED, margin: '0 0 6px' }}>{alertModal.description}</p>
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px' }}>Category: <b style={{ color: INK }}>{alertModal.category}</b> · Count: <b style={{ color: s.color }}>{alertModal.count}</b></p>
+            {alertModal.details?.map((item, i) => (
+              <div key={i} className="nd-modal-row">
+                <span className="nd-avatar" style={{ background: `${s.color}18`, color: s.color }}>{item.name?.charAt(0) || '?'}</span>
+                <div style={{ minWidth: 0 }}>
+                  <span className="nd-modal-name">{item.name}</span>
+                  {item.value && <span className="nd-modal-dept">{deptLabel(item.value)}</span>}
+                </div>
+              </div>
+            ))}
+          </Modal>
+        )
+      })()}
+
+      {targetModalAdmin && (
+        <Modal title={`Set daily target — ${targetModalAdmin.name}`} icon="track_changes" onClose={() => setTargetModalAdmin(null)}
+          footer={<>
+            <button className="nd-btn-sm" onClick={() => setTargetModalAdmin(null)}>Cancel</button>
+            <button className="nd-btn-sm primary" disabled={savingTarget} onClick={saveTarget}>{savingTarget ? 'Saving...' : 'Save target'}</button>
+          </>}>
+          <label className="nd-label" htmlFor="nd-target">Daily target amount (₹)</label>
+          <input id="nd-target" className="nd-input" type="number" min="0" placeholder="e.g. 100000" value={editTargetValue} onChange={e => setEditTargetValue(e.target.value)} autoFocus />
+          <p className="nd-muted">Today's collection: {inr(targetModalAdmin.today_collection)} across {targetModalAdmin.ngo_count || 0} NGOs</p>
+        </Modal>
       )}
-
-      {/* ============ LEGACY FRO DETAIL MODALS ============ */}
-      {selectedFro && <FroDetailModal fro={selectedFro} onClose={() => setSelectedFro(null)} onShowDeep={() => { setDeepFro(selectedFro); setSelectedFro(null) }} />}
-      {deepFro && <FroDeepDetailModal fro={deepFro} onClose={() => setDeepFro(null)} />}
-
-      {/* ============ ACTION CENTER MODAL ============ */}
-      {acModal && (
-        <ActionCenterModal type={acModal} onClose={() => setAcModal(null)} />
-      )}
-
     </div>
   )
 }
 
+/* ================= STYLES (scoped with nd-) ================= */
+const CSS = `
+.nd-mb { margin-bottom: 20px; }
+.nd-card { background:#fff; border:1px solid #DFEDE4; border-radius:16px; padding:18px 20px; box-shadow:0 1px 2px rgba(30,77,59,.04), 0 8px 24px -12px rgba(30,77,59,.08); font-family:inherit; text-align:left; }
+.nd-auto-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(var(--min,280px),100%), 1fr)); gap:14px; }
+.nd-sec-head { display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+.nd-sec-icon { font-size:18px; color:${MINT_DEEP}; }
+.nd-section-title { margin:0; font-size:14px; font-weight:700; color:${MINT_DARK}; }
+.nd-sec-right { margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.nd-sec-note { font-size:12px; color:#94a3b8; font-weight:600; }
+.nd-muted { color:#94a3b8; font-size:13px; margin:8px 0 0; }
+.nd-faint { color:#94a3b8; }
+.nd-greeting { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:99px; background:${MINT_LIGHT}; color:${MINT_DEEP}; font-size:12px; font-weight:700; }
+.nd-live { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:${MINT_DEEP}; }
+.nd-live i { width:7px; height:7px; border-radius:50%; background:${MINT_DEEP}; animation:ndPulse 2s ease-in-out infinite; }
+@keyframes ndPulse { 50% { opacity:.4; } }
+@media (prefers-reduced-motion: reduce) { .nd-live i { animation:none; } }
+button:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 
+.nd-seg { display:inline-flex; gap:3px; background:#F1F5F2; border-radius:10px; padding:3px; }
+.nd-seg button { border:none; background:transparent; border-radius:8px; padding:5px 12px; font:inherit; font-size:12px; font-weight:700; color:#94a3b8; cursor:pointer; display:flex; align-items:center; gap:6px; }
+.nd-seg button.on { background:#fff; color:${MINT_DARK}; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.nd-seg-badge { background:${RED}; color:#fff; border-radius:99px; padding:0 6px; font-size:11px; line-height:16px; }
 
+.nd-action { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid #E2E8F0; background:#F8FAFC; cursor:pointer; font-family:inherit; text-align:left; color:#94a3b8; }
+.nd-action.has { background:#FFFBEB; border-color:${AMBER}40; color:${AMBER}; }
+.nd-action-txt { display:flex; flex-direction:column; min-width:0; }
+.nd-action small { font-size:12px; font-weight:600; color:${MUTED}; }
+.nd-action b { font-size:20px; line-height:1.1; font-variant-numeric:tabular-nums; }
+.nd-action:hover { box-shadow:0 4px 12px rgba(30,77,59,.1); }
+
+.nd-alert-list { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto; }
+.nd-alert-item { display:flex; align-items:flex-start; gap:12px; padding:12px 14px; border-radius:12px; border:none; border-left:3px solid; background:#FAFBFA; cursor:pointer; font-family:inherit; text-align:left; width:100%; }
+.nd-alert-item:hover { background:${MINT_LIGHT}; }
+.nd-alert-title { display:block; font-size:13px; font-weight:700; color:${INK}; }
+.nd-alert-desc { display:block; font-size:12px; color:${MUTED}; margin-top:2px; }
+.nd-alert-action { display:block; font-size:12px; font-weight:700; color:${MINT_DEEP}; margin-top:4px; }
+
+.nd-kpi { display:flex; flex-direction:column; gap:4px; cursor:pointer; }
+.nd-kpi:hover { box-shadow:0 6px 18px rgba(30,77,59,.12); }
+.nd-kpi-label { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${MUTED}; }
+.nd-kpi-label .material-symbols-outlined { font-size:16px; color:${MINT_DEEP}; }
+.nd-kpi-value { font-size:26px; font-weight:800; color:${INK}; line-height:1.1; }
+.nd-kpi-sub { font-size:12px; color:#94a3b8; }
+
+.nd-panel-link { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#fff; border:1px solid #DCEEE2; border-left:4px solid ${MINT}; border-radius:12px; cursor:pointer; font-family:inherit; text-align:left; color:${INK}; }
+.nd-panel-link:hover { background:${MINT_LIGHT}; }
+.nd-panel-link .material-symbols-outlined { font-size:18px; width:32px; height:32px; border-radius:8px; background:${MINT_LIGHT}; color:${MINT_DEEP}; display:flex; align-items:center; justify-content:center; }
+.nd-panel-link b { display:block; font-size:14px; color:${MINT_DARK}; }
+.nd-panel-link small { font-size:12px; color:#5F7269; }
+
+.nd-ngo-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; font-size:14px; }
+.nd-ngo-head span { margin-left:auto; font-size:12px; color:#94a3b8; font-weight:600; }
+.nd-stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.nd-stat-grid div { padding:8px 10px; border-radius:8px; background:#F6FAF7; }
+.nd-stat-grid small { display:block; font-size:11px; font-weight:600; color:#94a3b8; }
+.nd-stat-grid b { font-size:18px; color:${INK}; }
+
+.nd-att { display:flex; align-items:center; gap:20px; flex-wrap:wrap; justify-content:center; }
+.nd-att-list { flex:1; min-width:170px; display:flex; flex-direction:column; gap:6px; }
+.nd-donut-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.nd-att-pill, .nd-ngo-row { display:flex; align-items:center; gap:10px; width:100%; padding:9px 12px; border-radius:12px; border:1px solid; background:transparent; cursor:pointer; font:inherit; font-size:13px; font-weight:600; color:${INK}; text-align:left; }
+.nd-att-pill i, .nd-ngo-row i { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.nd-att-pill b { margin-left:auto; }
+.nd-ngo-row { border-color:transparent; padding:5px 8px; }
+.nd-ngo-row span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nd-ngo-row:hover, .nd-att-pill:hover { background:${MINT_LIGHT}; }
+.nd-warn { display:flex; align-items:center; gap:10px; margin-top:14px; padding:8px 12px; border-radius:12px; background:rgba(247,178,173,.2); border:1px solid #F2C0BA; font-size:13px; color:${INK}; flex-wrap:wrap; }
+.nd-warn .material-symbols-outlined { color:${RED}; font-size:18px; }
+.nd-warn button { margin-left:auto; border:none; background:${RED}; color:#fff; border-radius:10px; padding:6px 14px; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+
+.nd-track { height:6px; background:#F1F5F2; border-radius:99px; overflow:hidden; }
+.nd-track div { height:100%; border-radius:99px; transition:width .6s ease; }
+.nd-pipeline { display:flex; gap:8px; padding:6px 0; }
+.nd-pipe-stage { flex:1; min-width:0; text-align:center; }
+.nd-mini { display:flex; flex-direction:column; gap:2px; padding:12px 14px; border:1px solid #DCEEE2; border-left:3px solid; border-radius:12px; background:#fff; cursor:pointer; font-family:inherit; text-align:left; }
+.nd-mini:hover { background:${MINT_LIGHT}; }
+.nd-mini small { font-size:12px; font-weight:600; color:#94a3b8; }
+.nd-mini b { font-size:24px; color:${INK}; }
+.nd-mini span { font-size:12px; color:${MUTED}; font-weight:600; }
+
+.nd-receipt { background:#F9FAFB; border:1px solid #E5E7EB; border-radius:12px; padding:14px; text-align:center; display:flex; flex-direction:column; gap:10px; }
+.nd-receipt-name { font-size:13px; font-weight:700; color:#111827; }
+.nd-receipt b { display:block; font-size:20px; color:${INK}; }
+.nd-receipt small { font-size:11px; color:#6b7280; font-weight:600; }
+
+.nd-line { width:100%; height:150px; }
+.nd-line-labels { display:flex; }
+.nd-line-labels span { flex:1; text-align:center; font-size:11px; color:#94a3b8; white-space:nowrap; }
+.nd-line-foot { display:flex; justify-content:space-between; margin-top:10px; padding-top:8px; border-top:1px solid #DEE9E1; font-size:12px; font-weight:600; color:${MUTED}; }
+
+.nd-sub-title { font-size:12px; font-weight:700; color:${MINT_DARK}; margin-bottom:8px; }
+.nd-rank { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.nd-rank-no { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.nd-rank-top { display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-bottom:4px; }
+.nd-rank-name { font-weight:700; color:${INK}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.nd-scroll { overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px; scrollbar-width:thin; }
+.nd-act { display:flex; gap:10px; align-items:flex-start; }
+.nd-act-icon { width:28px; height:28px; border-radius:8px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+.nd-act-icon .material-symbols-outlined { font-size:16px; }
+.nd-act-msg { display:block; font-size:13px; font-weight:600; color:${INK}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nd-act-meta { display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; }
+.nd-event { display:flex; gap:12px; align-items:center; padding:10px 12px; border-radius:12px; border:1px solid #DCEEE2; }
+.nd-event-date { width:46px; height:50px; border-radius:12px; flex-shrink:0; background:${MINT_LIGHT}; color:${MINT_DEEP}; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.nd-event-date b { font-size:18px; line-height:1; }
+.nd-event h4 { margin:0; font-size:13px; font-weight:700; color:${INK}; }
+.nd-event p { margin:3px 0 0; font-size:12px; color:#94a3b8; }
+.nd-add-btn { width:100%; margin-top:14px; padding:10px 0; border:1.5px dashed ${MINT_DEEP}; background:${MINT_LIGHT}; color:${MINT_DEEP}; border-radius:12px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+.nd-salary { display:flex; align-items:center; gap:12px; border-left:4px solid ${MINT_DEEP}; flex-wrap:wrap; }
+.nd-salary .material-symbols-outlined { color:${MINT_DEEP}; }
+.nd-salary small { display:block; font-size:12px; font-weight:600; color:#94a3b8; }
+.nd-salary b { font-size:22px; color:${MINT_DEEP}; }
+.nd-salary .nd-sec-note { margin-left:auto; }
+
+.nd-table-wrap { overflow:auto; max-height:55vh; }
+.nd-table { width:100%; border-collapse:collapse; font-size:13px; }
+.nd-table th { position:sticky; top:0; background:#fff; text-align:left; padding:9px 10px; font-size:12px; font-weight:700; color:#94a3b8; border-bottom:1px solid #EAF3EC; white-space:nowrap; }
+.nd-table td { padding:9px 10px; border-bottom:1px solid #F0F7F2; vertical-align:middle; }
+.nd-table tbody tr:hover { background:${MINT_LIGHT}; }
+.nd-progress { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${MUTED}; }
+.nd-btn-sm { padding:6px 12px; border:1px solid #DCEEE2; border-radius:8px; background:#fff; color:${MINT_DARK}; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.nd-btn-sm.primary { background:${MINT_DEEP}; color:#fff; border-color:${MINT_DEEP}; }
+.nd-btn-sm:disabled { opacity:.5; }
+.nd-label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
+.nd-input { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font:inherit; font-size:14px; box-sizing:border-box; }
+
+.nd-modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(31,51,43,.45); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:20px; }
+.nd-modal { background:#fff; border-radius:20px; width:100%; max-width:480px; max-height:80vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px -12px rgba(31,51,43,.35); animation:ndPop .25s ease; }
+.nd-modal-wide { max-width:800px; }
+@keyframes ndPop { from { opacity:0; transform:scale(.96) translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .nd-modal { animation:none; } }
+.nd-modal-head { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid; }
+.nd-modal-badge { font-size:13px; font-weight:800; padding:5px 11px; border-radius:10px; }
+.nd-modal-title { margin:0; flex:1; font-size:15px; font-weight:700; color:${INK}; }
+.nd-modal-close { border:none; background:${MINT_LIGHT}; border-radius:10px; width:32px; height:32px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:${MUTED}; }
+.nd-modal-body { overflow-y:auto; padding:14px 18px 18px; }
+.nd-modal-foot { display:flex; justify-content:flex-end; gap:8px; padding:10px 18px; border-top:1px solid #EAF3EC; font-size:12px; color:#94a3b8; }
+.nd-modal-row { display:flex; align-items:center; gap:12px; padding:10px 6px; border-bottom:1px solid #F0F7F2; }
+.nd-avatar { width:34px; height:34px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; }
+.nd-modal-name { display:block; font-size:14px; font-weight:600; color:${INK}; }
+.nd-modal-dept { display:block; font-size:12px; color:#94a3b8; }
+.nd-modal-time { margin-left:auto; font-size:12px; color:${MUTED}; font-weight:600; }
+.nd-modal-search { display:flex; align-items:center; gap:8px; padding:8px 12px; margin-bottom:10px; border:1px solid #DCEEE2; border-radius:12px; background:#F6FAF7; }
+.nd-modal-search:focus-within { border-color:${MINT}; background:#fff; }
+.nd-modal-search-icon { font-size:18px; color:#94a3b8; }
+.nd-modal-search-input { flex:1; border:none; background:transparent; font:inherit; font-size:13px; color:${INK}; outline:none; }
+.nd-modal-search-clear { border:none; background:transparent; cursor:pointer; color:#94a3b8; display:flex; }
+
+.nd-stack-bar { height:8px; border-radius:4px; background:#e5e7eb; display:flex; overflow:hidden; margin-bottom:8px; }
+.nd-chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.nd-chips > span { font-size:12px; font-weight:600; padding:2px 10px; border-radius:10px; }
+.nd-chip-btn { padding:3px 10px; border-radius:20px; border:1px solid; cursor:pointer; font:inherit; font-size:12px; font-weight:500; }
+.nd-pill { font-size:12px; font-weight:600; padding:2px 8px; border-radius:10px; }
+.nd-pager { display:flex; justify-content:center; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:${MUTED}; }
+.nd-pager button { border:1px solid #DCEEE2; background:#fff; border-radius:6px; padding:3px 10px; cursor:pointer; font:inherit; font-size:12px; }
+
+.ps-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+.ps-card { background:#F6FAF7; border-radius:14px; padding:14px 16px; display:flex; flex-direction:column; gap:2px; border:1px solid #DCEEE2; border-top:3px solid ${MINT}; }
+.ps-label { font-size:12px; font-weight:700; color:#94a3b8; }
+.ps-value { font-size:24px; font-weight:800; color:${INK}; line-height:1.2; }
+.ps-sub { font-size:12px; color:${MUTED}; font-weight:600; }
+@media (max-width: 640px) { .nd-pipeline { flex-wrap:wrap; } .nd-pipe-stage { flex:1 1 40%; } .nd-card { padding:16px; } }
+`
+
+const FRO_CSS = `
+.fp-wrap { background:#fff; border:1px solid #DFEDE4; border-radius:16px; padding:18px 20px; margin-bottom:20px; box-shadow:0 1px 2px rgba(30,77,59,.04), 0 8px 24px -12px rgba(30,77,59,.08); }
+.fp-head { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+.fp-head h3 { margin:0; font-size:14px; font-weight:700; color:${MINT_DARK}; }
+.fp-live { margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:${MINT_DEEP}; }
+.fp-live i { width:7px; height:7px; border-radius:50%; background:${MINT_DEEP}; animation:fpPulse 2s ease-in-out infinite; }
+@keyframes fpPulse { 50% { opacity:.4; } }
+@media (prefers-reduced-motion: reduce) { .fp-live i { animation:none; } }
+
+.fp-summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:16px; }
+.fp-summary > div { background:#F6FAF7; border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; }
+.fp-summary small { font-size:12px; font-weight:600; color:#94a3b8; }
+.fp-summary b { font-size:22px; font-weight:800; color:${INK}; line-height:1.2; }
+.fp-summary span { font-size:12px; color:${MUTED}; }
+
+.fp-tools { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+.fp-search { flex:1; min-width:160px; display:flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid #DCEEE2; border-radius:10px; background:#F6FAF7; }
+.fp-search:focus-within { border-color:${MINT}; background:#fff; }
+.fp-search .material-symbols-outlined { font-size:18px; color:#94a3b8; }
+.fp-search input { flex:1; border:none; background:transparent; outline:none; font:inherit; font-size:13px; color:${INK}; }
+.fp-tools select { padding:7px 10px; border:1px solid #DCEEE2; border-radius:10px; background:#fff; font:inherit; font-size:13px; color:${INK}; }
+.fp-seg { display:inline-flex; gap:3px; background:#F1F5F2; border-radius:10px; padding:3px; }
+.fp-seg button { border:none; background:transparent; border-radius:8px; padding:5px 12px; font:inherit; font-size:12px; font-weight:700; color:#94a3b8; cursor:pointer; }
+.fp-seg button.on { background:#fff; color:${MINT_DARK}; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.fp-wrap button:focus-visible, .fp-wrap select:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
+
+.fp-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 12px; align-items:start; }
+.fp-col { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.fp-row { display:grid; grid-template-columns:28px minmax(0, 1fr) auto; align-items:center; gap:6px 10px; padding:10px 12px; border:1px solid #EAF3ED; border-radius:12px; }
+.fp-row:hover { background:${MINT_LIGHT}; }
+.fp-rank { grid-column:1; grid-row:1 / 3; width:26px; height:26px; border-radius:50%; background:#F1F5F2; color:${MUTED}; font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+.fp-rank-1 { background:linear-gradient(135deg,#FFE07A,#E0A800); color:#5A4300; box-shadow:0 0 0 2px #FFF3C4, 0 2px 6px rgba(224,168,0,.35); }
+.fp-rank-2 { background:linear-gradient(135deg,#EDF1F5,#AEB8C2); color:#374151; box-shadow:0 0 0 2px #F3F6F9, 0 2px 6px rgba(120,132,145,.3); }
+.fp-rank-3 { background:linear-gradient(135deg,#F3C79C,#C97B45); color:#4A2A10; box-shadow:0 0 0 2px #FBE6D2, 0 2px 6px rgba(201,123,69,.3); }
+.fp-who { grid-column:2; grid-row:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.fp-name { font-size:14px; font-weight:700; color:${INK}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fp-meta { display:flex; align-items:center; gap:6px; font-size:12px; color:${MUTED}; flex-wrap:wrap; }
+.fp-meta i { width:8px; height:8px; border-radius:50%; }
+.fp-meta em { font-style:normal; font-weight:700; padding:1px 8px; border-radius:99px; font-size:11px; }
+.fp-track { height:8px; background:#F1F5F2; border-radius:99px; overflow:hidden; }
+.fp-track div { height:100%; background:${MINT}; border-radius:99px; transition:width .6s ease; }
+.fp-row.top .fp-track div { background:${MINT_DEEP}; }
+.fp-bar { grid-column:2 / 4; grid-row:2; }
+.fp-nums { grid-column:3; grid-row:1; text-align:right; display:flex; flex-direction:column; }
+.fp-nums b { font-size:15px; font-weight:800; color:${INK}; font-variant-numeric:tabular-nums; }
+.fp-nums span { font-size:12px; color:#94a3b8; }
+.fp-empty { color:#94a3b8; font-size:13px; margin:8px 0 0; }
+.fp-more { width:100%; margin-top:10px; padding:9px 0; border:1.5px dashed ${MINT_DEEP}; background:${MINT_LIGHT}; color:${MINT_DEEP}; border-radius:12px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+
+@media (max-width: 640px) {
+  .fp-wrap { padding:16px; }
+  .fp-list { grid-template-columns:1fr; }
+}
+`

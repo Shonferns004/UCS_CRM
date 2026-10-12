@@ -113,18 +113,43 @@ const http = {
     )
   },
 
-  sendMessage: (_me, convoId, { body = '', file = null, clientId } = {}) => {
+  sendMessage: (
+    _me,
+    convoId,
+    { body = '', file = null, files = null, clientId, noticeTitle = null, isNotice = false } = {}
+  ) => {
     const fd = new FormData()
     const text = String(body || '').trim()
     if (text) fd.append('body', text)
-    if (file) fd.append('file', file)
+    // A notice may carry several images; an ordinary message sends one. The
+    // server takes only the first file when is_notice is absent, so sharing
+    // one field name cannot change how a plain send behaves.
+    const list = (Array.isArray(files) && files.length ? files : null) || (file ? [file] : [])
+    for (const f of list) fd.append('files', f)
     if (clientId) fd.append('client_id', clientId)
+    // A notice is the same multipart send with two extra text fields; the
+    // server re-derives every permission from the token, never from these.
+    // The flag is explicit rather than inferred from the title, because a
+    // titleless notice (body and/or images only) is still a notice.
+    if (isNotice || noticeTitle) fd.append('is_notice', 'true')
+    if (noticeTitle) fd.append('notice_title', String(noticeTitle).trim())
     return api(`/chat/conversations/${encodeURIComponent(convoId)}/messages`, {
       method: 'POST',
       body: fd,
       _prefix: 'ucs',
     })
   },
+
+  // Notices not yet dismissed by this identity (offline / next-login path of
+  // the one-time popup). Bare array, so the host can Array.isArray() it.
+  getPendingNotices: () => api('/chat/notices/pending', { _prefix: 'ucs' }),
+
+  markNoticeViewed: (messageId) =>
+    api(`/chat/messages/${encodeURIComponent(messageId)}/notice-viewed`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      _prefix: 'ucs',
+    }),
 
   markRead: (_me, convoId, messageId) =>
     api(`/chat/conversations/${encodeURIComponent(convoId)}/read`, {
@@ -153,6 +178,32 @@ const http = {
     }),
 
   getUnreadCount: () => api('/chat/unread-count', { _prefix: 'ucs' }),
+
+  // ---- group management (admin participants) ----
+  getGroupParticipants: (_me, convoId) =>
+    api(`/chat/conversations/${encodeURIComponent(convoId)}/participants`, { _prefix: 'ucs' }),
+
+  updateGroupSettings: (_me, convoId, { title, postPolicy, writeMode, members } = {}) =>
+    api(`/chat/conversations/${encodeURIComponent(convoId)}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        // Omitted fields are left untouched server-side, so the dialog can
+        // send only what actually changed.
+        ...(title !== undefined ? { title } : {}),
+        ...(postPolicy !== undefined ? { post_policy: postPolicy } : {}),
+        ...(writeMode !== undefined ? { write_mode: writeMode } : {}),
+        ...(members !== undefined
+          ? { members: members.map((m) => ({ uid: m.uid, can_post: !!m.canPost })) }
+          : {}),
+      }),
+      _prefix: 'ucs',
+    }),
+
+  deleteGroup: (_me, convoId) =>
+    api(`/chat/conversations/${encodeURIComponent(convoId)}`, {
+      method: 'DELETE',
+      _prefix: 'ucs',
+    }),
 }
 
 /**
@@ -225,6 +276,11 @@ export const chatApi = {
   createDirect: (me, userId) => http.createDirect(me, userId),
   getMessages: (me, convoId, opts) => http.getMessages(me, convoId, opts),
   sendMessage: (me, convoId, payload) => http.sendMessage(me, convoId, payload),
+  getPendingNotices: () => http.getPendingNotices(),
+  markNoticeViewed: (messageId) => http.markNoticeViewed(messageId),
+  getGroupParticipants: (me, convoId) => http.getGroupParticipants(me, convoId),
+  updateGroupSettings: (me, convoId, payload) => http.updateGroupSettings(me, convoId, payload),
+  deleteGroup: (me, convoId) => http.deleteGroup(me, convoId),
   markRead: (me, convoId, messageId) => http.markRead(me, convoId, messageId),
   searchMessages: (me, convoId, q, opts) => http.searchMessages(me, convoId, q, opts),
   editMessage: (me, messageId, body) => http.editMessage(me, messageId, body),

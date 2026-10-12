@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { SimProvider, useSim } from '../sim/store'
-import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal } from '../sim/modals'
+import { SimFormModal, SimViewModal, ReplaceModal } from '../sim/modals'
 import { ImportModal, DeleteConfirmModal } from '../sim/ImportModal'
 import { deleteSimCard } from '../sim/api'
 import { toast } from '../../../components/Toast'
@@ -52,7 +52,6 @@ function SectionInner() {
   const [formKey, setFormKey] = useState(0)
   const [viewCard, setViewCard] = useState(null)
   const [replaceCard, setReplaceCard] = useState(null)
-  const [historyCard, setHistoryCard] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
   const [deleteCard, setDeleteCard] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -85,7 +84,7 @@ function SectionInner() {
   useEffect(() => {
     setImportOpen(false)
     setFormOpen(false); setEditing(null)
-    setViewCard(null); setReplaceCard(null); setHistoryCard(null)
+    setViewCard(null); setReplaceCard(null)
     setDeleteCard(null)
   }, [location.pathname])
 
@@ -181,7 +180,7 @@ function SectionInner() {
       <Routes>
         <Route index element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
         <Route path="dashboard" element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
-        <Route path="inventory" element={<Inventory simName={simName} onSimNameChange={setSimName} onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={(c) => setDeleteCard(c)} onHistory={setHistoryCard} />} />
+        <Route path="inventory" element={<Inventory simName={simName} onSimNameChange={setSimName} onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={(c) => setDeleteCard(c)} />} />
         <Route path="cards" element={<SimInventory />} />
         <Route path="expiring" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
         <Route path="reports" element={<Reports />} />
@@ -192,10 +191,9 @@ function SectionInner() {
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
 
-      <SimFormModal key={formKey} open={formOpen} card={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} />
-      <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard) }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null) } }} onHistory={() => { if (viewCard) { setHistoryCard(viewCard); setViewCard(null) } }} />
+      <SimFormModal key={formKey} open={formOpen} card={editing} inventory={sim.inventory} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} />
+      <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard) }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null) } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
-      <SimHistoryModal card={historyCard} open={!!historyCard} onClose={() => setHistoryCard(null)} />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); sim.refresh() }} />
       <DeleteConfirmModal card={deleteCard} deleting={deleting} onClose={() => { if (!deleting) setDeleteCard(null) }} onConfirm={() => deleteCard && doDelete(deleteCard)} />
     </div>

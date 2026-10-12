@@ -166,7 +166,7 @@ export function isWithinThreeMonths(dateStr) {
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return false;
   const cutoff = new Date(date);
-  cutoff.setMonth(cutoff.getMonth() + 3);
+  cutoff.setMonth(cutoff.getMonth() + 1);
   return Date.now() <= cutoff.getTime();
 }
 

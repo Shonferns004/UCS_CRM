@@ -30,12 +30,7 @@ export default function ConversationList({
 }) {
   const groups = conversations
     .filter((c) => c.kind === 'group')
-    .sort((a, b) => {
-      // Community (slug 'community') always first, then alphabetical.
-      if (a.slug === 'community') return -1
-      if (b.slug === 'community') return 1
-      return String(a.title || '').localeCompare(String(b.title || ''))
-    })
+    .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')))
   const dms = conversations.filter((c) => c.kind === 'direct')
   const term = filter.trim().toLowerCase()
 

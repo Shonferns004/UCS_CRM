@@ -10,7 +10,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 // by the controller (db.storage.from('event') -> <S3_BUCKET>/event/<file>).
 const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head');
+const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head', 'social', 'digital');
 // Calendar extras (static paths BEFORE /events/:id)
 router.get('/calendar/observances', eh, ctrl.listCalendarObservances);
 router.post('/calendar/suggest', eh, ctrl.suggestDayPrograms);

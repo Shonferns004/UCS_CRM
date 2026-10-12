@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
+import { enrichDonorProfileFromReceipt, isBlankSuspenseValue } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -1564,9 +1564,13 @@ export const getSuspenseReceipts = async (req, res) => {
       const r = receiptMap[e.receipt_id] || {};
       // Receipt already linked to a lead (credited to an FRO) — skip.
       if (r.log_id) return null;
-      // Receipts parked under the category label "suspense" belong only in the
-      // Unclaimed tab — keep them out of the regular All pool entirely.
-      if (isCategoryLabel(r.agent_name) || isCategoryLabel(e.agent_name)) return null;
+      // A receipt parked under the category label "suspense" belongs only in
+      // the Unclaimed tab (the pool below lists exactly those). PG / Library
+      // rows are known non-donation categories and stay out entirely. The
+      // ENTRY's own agent label must never hide a fresh audit row: fresh
+      // audits show in All, grouped by NGO, with or without a receipt.
+      const parked = isCategoryLabel(r.agent_name);
+      if (parked && !isBlankSuspenseValue(r.agent_name)) return null;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -1585,13 +1589,16 @@ export const getSuspenseReceipts = async (req, res) => {
         // imports create numberless suspense receipts, and numbers are allocated
         // automatically at claim/verify time.
         waiting_receipt_no: !!e.verify_fro_worker_id,
+        ...(parked ? { pool: 'unclaimed' } : {}),
       };
     }).filter(Boolean);
 
     for (const e of entries || []) {
       if (e.receipt_id) continue;
-      // Numberless entries parked under "suspense" also belong only in Unclaimed.
-      if (isCategoryLabel(e.agent_name)) continue;
+      // Fresh bank audits with no receipt yet always show in All, grouped by
+      // their NGO — including the ones stamped "suspense". Skipping them on
+      // the agent label (what the Unclaimed split did) hid them from this page
+      // completely, because the Unclaimed pool below is built from receipts.
       pool.push({
         id: `entry-${e.id}`,
         entry_id: e.id,
@@ -6105,7 +6112,7 @@ export const getLiveStatuses = async (req, res) => {
     const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0)).toISOString();
     const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999)).toISOString();
 
-    const [ngoData, attendanceData, collectionData, assignmentData] = await Promise.all([
+    const [ngoData, attendanceData, collectionData, assignmentData, callCountData] = await Promise.all([
       db
         .from('worker_ngo_allocations')
         .select('worker_id, ngos(name)')
@@ -6128,6 +6135,19 @@ export const getLiveStatuses = async (req, res) => {
         .from('fro_assignments')
         .select('fro_worker_id, status')
         .in('fro_worker_id', workerIds),
+      // Calls today, derived from the log itself rather than the live counter.
+      // The fro_live_status.today_calls column is written by the client heartbeat
+      // and had gone permanently zero across every FRO while dispositions kept
+      // flowing, so the admin board showed 0 for people who were working. Counting
+      // the day's fro_donor_logs rows per worker matches the NGO-admin Telecaller
+      // "Total Calls" figure (ngoAdminController totalCalls = log rows) and is the
+      // same source the FRO's own strip reads, so the two surfaces agree.
+      db
+        .from('fro_donor_logs')
+        .select('fro_worker_id')
+        .in('fro_worker_id', workerIds)
+        .gte('created_at', todayStart)
+        .lte('created_at', todayEnd),
     ]);
 
     const ngoMap = {};
@@ -6155,6 +6175,12 @@ export const getLiveStatuses = async (req, res) => {
     (collectionData.data || []).forEach(log => {
       const wid = log.fro_worker_id;
       if (wid) collectionMap[wid] = (collectionMap[wid] || 0) + parseFloat(log.amount_collected || 0);
+    });
+
+    const callsMap = {};
+    (callCountData.data || []).forEach(log => {
+      const wid = log.fro_worker_id;
+      if (wid) callsMap[wid] = (callsMap[wid] || 0) + 1;
     });
 
     const statsMap = {};
@@ -6193,15 +6219,13 @@ export const getLiveStatuses = async (req, res) => {
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
       const dataUsed = stats.contacted + stats.donation_collected;
-      // Talk and Calls are "today" counters on the same row, so a row nobody has
-      // logged into since yesterday is still holding yesterday's figures. liveIdleSeconds
-      // now drops the idle half of that; these two need the same treatment or the
-      // board mixes a stale idle with a stale talk time and the productivity share
-      // is computed from two different days. Read-only: the rollover belongs to the
-      // write paths, and an admin refreshing a page must not reset anyone's ledger.
+      // Talk and Calls sit on the same "today" row, so a row nobody has logged
+      // into since yesterday is still holding yesterday's figures. Talk is the
+      // live counter and needs the staleness drop; Calls is now derived fresh from
+      // today's logs above, so it carries no stale value to drop.
       const staleDay = isCounterDayStale(ls, nowMs);
       const talkSeconds = staleDay ? 0 : (ls.today_talk_seconds || 0);
-      const callCount = staleDay ? 0 : (ls.today_calls || 0);
+      const callCount = callsMap[ls.worker_id] || 0;
       const productivity = talkSeconds > 0 ? 100 : null;
 
       const coverers = (coversByTarget.get(String(ls.worker_id)) || [])

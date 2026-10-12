@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { useHR } from './store'
-import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star, ChartBar } from './icons'
+import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star, ChartBar, Heart } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -20,6 +20,8 @@ import HRForms from './components/HRForms'
 import Holidays from './components/Holidays'
 import Recruiters from './components/Recruiters'
 import Reports from './components/Reports'
+import HrDailyReport from './components/HrDailyReport'
+import SocialReport from './components/SocialReport'
 import GenerateQR from './components/GenerateQR'
 import Loans from './components/Loans'
 import Tickets from './components/Tickets'
@@ -47,6 +49,8 @@ const NAV = [
   { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Volunteer onboarding forms' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
   { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:ChartBar,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
+  { id:'hr-daily-report', path:'/hr/daily-report', label:'Daily Report', icon:ChartBar, eyebrow:'Daily', sub:'Your HR report for the day' },
+  { id:'social-report', path:'/hr/social-report', label:'Social Report', icon:Heart, eyebrow:'Daily', sub:'Social media content and reach' },
   { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:Star,    eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
   { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
@@ -54,7 +58,7 @@ const NAV = [
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
-  { id:'chat',       path:'/hr/chat',        label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
+  { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
   { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
 ]
 
@@ -271,6 +275,8 @@ export default function HRPanel() {
         <Route path="hr-forms" element={<HRForms />} />
         <Route path="recruiters" element={<Recruiters />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="daily-report" element={<HrDailyReport />} />
+        <Route path="social-report" element={<SocialReport />} />
         <Route path="quizzes" element={<Quizzes />} />
         <Route path="holidays" element={<Holidays />} />
         <Route path="qr" element={<GenerateQR />} />

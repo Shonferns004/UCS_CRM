@@ -48,7 +48,7 @@ const NAV = [
   { id:'reports',        path:'/event-head/reports',          label:'Event Reports',         icon:FileTxt, section:'Reporting' },
   { id:'my-tickets',     path:'/event-head/my-tickets',       label:'My Tickets',            icon:Bell, section:'Reporting' },
   { id:'all-tickets',    path:'/event-head/all-tickets',      label:'All Tickets',           icon:FileTxt, section:'Reporting' },
-  { id:'chat',           path:'/event-head/chat',             label:'Community',             icon:ChatIcon, section:'Community' },
+  { id:'chat',           path:'/event-head/chat',             label:'UCS Chat',             icon:ChatIcon, section:'Community' },
 ]
 
 const SECTIONS = [
@@ -56,7 +56,7 @@ const SECTIONS = [
   { id:'Programs', label:'Programs' },
   { id:'Manage', label:'Planning & Manage' },
   { id:'Reporting', label:'Reporting' },
-  { id:'Community', label:'Community' },
+  { id:'Community', label:'UCS Chat' },
 ]
 
 function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {

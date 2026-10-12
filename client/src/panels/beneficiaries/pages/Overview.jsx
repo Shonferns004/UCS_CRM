@@ -158,7 +158,7 @@ export default function Overview() {
 
       {/* Type filter + NGO-wise totals */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-        <div style={styles.card}>
+        {/* <div style={styles.card}>
           <div style={{ ...styles.cardTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
             <span>Types of Beneficiaries</span>
             <select
@@ -207,8 +207,40 @@ export default function Overview() {
               </tbody>
             </table>
           ) : noData}
+        </div> */}
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Beneficiary Status Breakdown</div>
+          {b ? (
+            <>
+              <table style={styles.table}>
+                <thead><tr><th style={styles.th}>Status</th><th style={styles.th}>Count</th><th style={styles.th}>%</th></tr></thead>
+                <tbody>
+                  {Object.entries(STATUS_COLORS).map(([status, [bg, fg]]) => {
+                    const count = b.summary?.[status] || 0
+                    const pct = benTotal > 0 ? Math.round((count / benTotal) * 100) : 0
+                    return (
+                      <tr key={status}>
+                        <td style={styles.td}><span style={styles.pillBg(bg, fg)}>{status}</span></td>
+                        <td style={styles.td}>{count}</td>
+                        <td style={styles.td}>{pct}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <div style={{ marginTop: '12px', borderTop: '1px solid var(--bg)', paddingTop: '12px' }}>
+                <div style={styles.row}>
+                  <span style={styles.subLabel}>Biometric Registered</span>
+                  <span style={styles.subValue}>{b.biometric?.registered || 0}</span>
+                </div>
+                <div style={{ ...styles.row, marginBottom: 0 }}>
+                  <span style={styles.subLabel}>Biometric Pending</span>
+                  <span style={styles.subValue}>{b.biometric?.pending || 0}</span>
+                </div>
+              </div>
+            </>
+          ) : noData}
         </div>
-
         <div style={styles.card}>
           <div style={styles.cardTitle}>Total Members — NGO wise</div>
           {stats?.ngos?.length ? (
@@ -273,39 +305,7 @@ export default function Overview() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
         {/* Beneficiary Breakdown */}
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>Beneficiary Status Breakdown</div>
-          {b ? (
-            <>
-              <table style={styles.table}>
-                <thead><tr><th style={styles.th}>Status</th><th style={styles.th}>Count</th><th style={styles.th}>%</th></tr></thead>
-                <tbody>
-                  {Object.entries(STATUS_COLORS).map(([status, [bg, fg]]) => {
-                    const count = b.summary?.[status] || 0
-                    const pct = benTotal > 0 ? Math.round((count / benTotal) * 100) : 0
-                    return (
-                      <tr key={status}>
-                        <td style={styles.td}><span style={styles.pillBg(bg, fg)}>{status}</span></td>
-                        <td style={styles.td}>{count}</td>
-                        <td style={styles.td}>{pct}%</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-              <div style={{ marginTop: '12px', borderTop: '1px solid var(--bg)', paddingTop: '12px' }}>
-                <div style={styles.row}>
-                  <span style={styles.subLabel}>Biometric Registered</span>
-                  <span style={styles.subValue}>{b.biometric?.registered || 0}</span>
-                </div>
-                <div style={{ ...styles.row, marginBottom: 0 }}>
-                  <span style={styles.subLabel}>Biometric Pending</span>
-                  <span style={styles.subValue}>{b.biometric?.pending || 0}</span>
-                </div>
-              </div>
-            </>
-          ) : noData}
-        </div>
+
 
         {/* Event Reports */}
         <div style={styles.card}>
