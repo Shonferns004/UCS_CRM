@@ -80,6 +80,27 @@ export function resolveChatIdentity(user) {
 export function toMessageDto(row) {
   if (!row) return null;
   const hasAttachment = !!row.attachment_url;
+  const first = hasAttachment
+    ? {
+        url: row.attachment_url,
+        name: row.attachment_name,
+        mime: row.attachment_type,
+        size: row.attachment_size == null ? null : Number(row.attachment_size),
+      }
+    : null;
+  // A multi-image notice keeps every image in attachment_gallery JSON; a
+  // single image has no gallery row and is synthesised from the flat columns,
+  // so consumers always see the same array shape.
+  let gallery = null;
+  if (row.attachment_gallery) {
+    try {
+      const parsed = JSON.parse(row.attachment_gallery);
+      if (Array.isArray(parsed) && parsed.length) gallery = parsed;
+    } catch {
+      /* a corrupt JSON cell degrades to the single-image view, never a 500 */
+    }
+  }
+  if (!gallery && first) gallery = [first];
   return {
     id: row.id,
     conversation_id: row.conversation_id,
@@ -87,18 +108,17 @@ export function toMessageDto(row) {
     sender_role: row.sender_role,
     sender_name: row.sender_name,
     body: row.deleted_at ? null : row.body,
-    attachment: hasAttachment
-      ? {
-          url: row.attachment_url,
-          name: row.attachment_name,
-          mime: row.attachment_type,
-          size: row.attachment_size == null ? null : Number(row.attachment_size),
-        }
-      : null,
+    attachment: first,
+    gallery: row.deleted_at ? null : gallery,
     client_id: row.client_id,
     edited_at: row.edited_at,
     deleted_at: row.deleted_at,
     created_at: row.created_at,
+    // A notice is an ordinary message flagged in place, so the DTO only needs
+    // to carry the two extra columns. `notice_title` is nulled with `body` on
+    // soft delete, keeping the deleted-bubble contract identical.
+    is_notice: !!row.is_notice,
+    notice_title: row.deleted_at ? null : (row.notice_title || null),
   };
 }
 
@@ -115,6 +135,12 @@ export function toConversationDto(row) {
     member_count: row.member_count ?? null,
     // Only group rooms carry a policy; a DM is always open to its two members.
     post_policy: row.kind === 'group' ? (row.post_policy || 'everyone') : null,
+    // 'selected' means only the members an admin ticked (plus admins) may post.
+    write_mode: row.kind === 'group' ? (row.write_mode || 'everyone') : null,
+    // The caller's own per-member chat permission, so the composer can hide
+    // itself in a 'selected' room without a second round trip. Meaningless
+    // outside 'selected' mode - the server re-derives everything on write.
+    my_can_post: row.my_can_post == null ? null : !!row.my_can_post,
     peer: row.peer
       ? {
           uid: row.peer.uid,
@@ -129,9 +155,9 @@ export function toConversationDto(row) {
       ? {
           id: row.last_message_id,
           sender_uid: row.last_message_sender,
-          body: row.last_message_deleted_at
-            ? 'This message was deleted'
-            : row.last_message_body,
+            body: row.last_message_deleted_at
+              ? 'This message was deleted'
+              : row.last_message_notice_title || row.last_message_body,
           attachment: row.last_message_attachment
             ? { url: row.last_message_attachment }
             : null,
@@ -205,18 +231,27 @@ export async function touchConversation(id) {
  * Whether the caller may post in this conversation.
  *
  * DMs are always open to their members (a read-only role can never reach one,
- * so this is only ever asked about a writer). Groups may carry a post_policy:
- *   - 'everyone'    any writer participant
- *   - 'admins_only' only the three admin roles
+ * so this is only ever asked about a writer). Groups may carry two switches:
+ *   - post_policy  'everyone'    any writer participant
+ *                 'admins_only' only the three admin roles
+ *   - write_mode   'everyone'    (default) any writer who passes post_policy
+ *                 'selected'    only members an admin ticked, plus admins
  *
- * The Community room is seeded with 'everyone' and is not editable, so this is
- * the only place the policy is consulted.
+ * `participant` is consulted only in 'selected' mode - that is the one case
+ * where the per-member can_post flag is authoritative rather than a UI hint.
+ * In every other mode a forged can_post row still grants nothing.
  */
-export function canPostIn(convo, me) {
+export function canPostIn(convo, me, participant) {
   if (!me?.canPost) return false;
   if (convo?.kind !== 'group') return true;
-  if ((convo.post_policy || 'everyone') !== 'admins_only') return true;
-  return isChatAdminRole(me.role);
+  if ((convo.post_policy || 'everyone') === 'admins_only') return isChatAdminRole(me.role);
+  if ((convo.write_mode || 'everyone') === 'selected') {
+    // Admins always keep the wheel: someone has to be able to post the next
+    // notice and untick the person who was muted by mistake.
+    if (isChatAdminRole(me.role)) return true;
+    return !!participant?.can_post;
+  }
+  return true;
 }
 
 /**
@@ -227,13 +262,17 @@ export function canPostIn(convo, me) {
  * seated, so a group created with an empty roster still has exactly one member
  * rather than being an orphan nobody can open.
  */
-export async function createGroup({ title, creator, members, postPolicy }) {
+export async function createGroup({ title, creator, members, postPolicy, writeMode }) {
   const slug = `group:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const { rows } = await db._pool.query(
-    `INSERT INTO chat_conversations (kind, slug, title, created_by, post_policy)
-     VALUES ('group', $1, $2, $3, $4)
+    `INSERT INTO chat_conversations (kind, slug, title, created_by, post_policy, write_mode)
+     VALUES ('group', $1, $2, $3, $4, $5)
      RETURNING *`,
-    [slug, title, creator.uid, postPolicy === 'admins_only' ? 'admins_only' : 'everyone']
+    [
+      slug, title, creator.uid,
+      postPolicy === 'admins_only' ? 'admins_only' : 'everyone',
+      writeMode === 'selected' ? 'selected' : 'everyone',
+    ]
   );
   const convo = rows[0];
 
@@ -244,7 +283,7 @@ export async function createGroup({ title, creator, members, postPolicy }) {
     uid: creator.uid,
     subjectId: creator.subjectId,
     role: creator.role,
-    canPost: canPostIn(convo, creator),
+    canPost: canPostIn(convo, creator, null),
     name: creator.name,
   });
   for (const m of members || []) {
@@ -254,8 +293,13 @@ export async function createGroup({ title, creator, members, postPolicy }) {
       subjectId: m.subject_id ?? m.subjectId,
       role: m.role,
       // Seated with the flag their policy grants, so the cached UI copy agrees
-      // with what sendMessage will actually allow.
-      canPost: canPostIn(convo, { canPost: isWriterRole(m.role), role: m.role }),
+      // with what sendMessage will actually allow. In 'selected' mode the
+      // per-member canPost the creator chose is what counts.
+      canPost: canPostIn(
+        convo,
+        { canPost: isWriterRole(m.role), role: m.role },
+        { can_post: m.canPost !== false }
+      ),
       name: m.name,
       email: m.email,
       ngoId: m.ngo_id ?? m.ngoId,
@@ -266,6 +310,49 @@ export async function createGroup({ title, creator, members, postPolicy }) {
     await addParticipant(convo.id, p);
   }
   return { convo, memberCount: roster.size };
+}
+
+/** Renames a group and/or flips its two policy switches. */
+export async function updateGroupSettings(id, { title, postPolicy, writeMode }) {
+  const { rows } = await db._pool.query(
+    `UPDATE chat_conversations
+        SET title       = COALESCE($2, title),
+            post_policy = COALESCE($3, post_policy),
+            write_mode  = COALESCE($4, write_mode),
+            updated_at  = now()
+      WHERE id = $1
+      RETURNING *`,
+    [
+      id,
+      title == null ? null : title,
+      postPolicy == null ? null : (postPolicy === 'admins_only' ? 'admins_only' : 'everyone'),
+      writeMode == null ? null : (writeMode === 'selected' ? 'selected' : 'everyone'),
+    ]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Applies the per-member "may chat" tick list.
+ *
+ * Only ever touches rows that already exist - adding and removing members is a
+ * separate concern, and an UPDATE cannot seat someone. Unknown uids are
+ * silently skipped so a stale client cannot error the whole save.
+ */
+export async function setParticipantsCanPost(conversationId, entries) {
+  let changed = 0;
+  for (const e of entries || []) {
+    const uid = String(e?.uid || '').trim();
+    if (!uid) continue;
+    const { rowCount } = await db._pool.query(
+      `UPDATE chat_participants
+          SET can_post = $3
+        WHERE conversation_id = $1 AND uid = $2`,
+      [conversationId, uid, !!e.canPost]
+    );
+    changed += rowCount || 0;
+  }
+  return changed;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,13 +408,15 @@ export async function listParticipants(conversationId) {
  */
 export async function listConversationsFor(me) {
   const { rows } = await db._pool.query(
-    `SELECT
-        c.id, c.kind, c.slug, c.title, c.updated_at, c.post_policy,
+     `SELECT
+        c.id, c.kind, c.slug, c.title, c.updated_at, c.post_policy, c.write_mode,
         p.last_read_at, p.last_read_msg_id,
+        p.can_post AS my_can_post,
         lm.id         AS last_message_id,
         lm.sender_uid AS last_message_sender,
         lm.created_at AS last_message_at,
         lm.body       AS last_message_body,
+        lm.notice_title AS last_message_notice_title,
         lm.deleted_at AS last_message_deleted_at,
         lm.attachment_url AS last_message_attachment,
         (
@@ -343,13 +432,13 @@ export async function listConversationsFor(me) {
      FROM chat_conversations c
      JOIN chat_participants p
        ON p.conversation_id = c.id AND p.uid = $1
-     LEFT JOIN LATERAL (
-       SELECT id, sender_uid, created_at, body, deleted_at, attachment_url
-       FROM chat_messages
-       WHERE conversation_id = c.id
-       ORDER BY id DESC
-       LIMIT 1
-     ) lm ON true
+      LEFT JOIN LATERAL (
+        SELECT id, sender_uid, created_at, body, notice_title, deleted_at, attachment_url
+        FROM chat_messages
+        WHERE conversation_id = c.id
+        ORDER BY id DESC
+        LIMIT 1
+      ) lm ON true
      WHERE c.is_archived = false
        AND (c.kind = 'group' OR $2::boolean)
      ORDER BY COALESCE(lm.created_at, c.updated_at) DESC`,
@@ -483,8 +572,8 @@ export async function insertMessage(msg) {
     `INSERT INTO chat_messages
        (conversation_id, sender_uid, sender_role, sender_name, body,
         attachment_url, attachment_name, attachment_type, attachment_size,
-        client_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        client_id, is_notice, notice_title, attachment_gallery)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (conversation_id, client_id) WHERE client_id IS NOT NULL
        DO NOTHING
      RETURNING *`,
@@ -492,6 +581,10 @@ export async function insertMessage(msg) {
       msg.conversationId, msg.senderUid, msg.senderRole, msg.senderName,
       msg.body || null, msg.attachment?.url || null, msg.attachment?.name || null,
       msg.attachment?.type || null, msg.attachment?.size || null, msg.clientId || null,
+      !!msg.isNotice, msg.isNotice ? msg.noticeTitle || null : null,
+      // Only worth a column when there is more than one image; a single image
+      // is already fully described by the flat attachment_* columns.
+      msg.gallery && msg.gallery.length > 1 ? JSON.stringify(msg.gallery) : null,
     ]
   );
   if (rows[0]) return { message: rows[0], duplicate: false };
@@ -521,10 +614,57 @@ export async function softDeleteMessage(id) {
   const { rows } = await db._pool.query(
     `UPDATE chat_messages
      SET deleted_at = now(), body = NULL, attachment_url = NULL,
-         attachment_name = NULL, attachment_type = NULL, attachment_size = NULL
+         attachment_name = NULL, attachment_type = NULL, attachment_size = NULL,
+         attachment_gallery = NULL, notice_title = NULL
      WHERE id = $1
      RETURNING *`,
     [id]
+  );
+  return rows[0] || null;
+}
+
+// ---------------------------------------------------------------------------
+// Notices (group-only, admin-posted; plan.md §6.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Notices the caller has not yet dismissed, oldest first so a backlog replays
+ * in the order it was written.
+ *
+ * Three filters that must all hold: the caller must be a participant of the
+ * room (JOIN chat_participants - a notice can never reach a non-member), must
+ * not be its own author (sending one is not "seeing" it), and must have no
+ * chat_notice_views row (the once-per-person guarantee, stored server-side so
+ * it survives reloads and devices).
+ */
+export async function listPendingNotices(uid, limit = 20) {
+  const cap = Math.min(Number(limit) || 20, 50);
+  const { rows } = await db._pool.query(
+    `SELECT m.*, c.title AS conversation_title
+       FROM chat_messages m
+       JOIN chat_conversations c ON c.id = m.conversation_id
+       JOIN chat_participants p ON p.conversation_id = c.id AND p.uid = $1
+       LEFT JOIN chat_notice_views v ON v.message_id = m.id AND v.uid = $1
+      WHERE m.is_notice = true
+        AND m.deleted_at IS NULL
+        AND m.sender_uid <> $1
+        AND v.message_id IS NULL
+        AND c.is_archived = false
+      ORDER BY m.id ASC
+      LIMIT $2`,
+    [uid, cap]
+  );
+  return rows;
+}
+
+/** Idempotent: replaying a dismissal (double-click, lost response) is a no-op. */
+export async function markNoticeViewed(messageId, uid) {
+  const { rows } = await db._pool.query(
+    `INSERT INTO chat_notice_views (message_id, uid)
+     VALUES ($1, $2)
+     ON CONFLICT (message_id, uid) DO NOTHING
+     RETURNING *`,
+    [messageId, uid]
   );
   return rows[0] || null;
 }
@@ -541,6 +681,7 @@ export async function searchMessages(conversationId, q, limit = 50) {
   const cap = Math.min(Number(limit) || 50, 100);
   const { rows } = await db._pool.query(
     `SELECT id, conversation_id, sender_uid, sender_name, sender_role, body,
+            notice_title, is_notice,
             attachment_url, attachment_name, attachment_type, attachment_size,
             edited_at, deleted_at, created_at, client_id
      FROM chat_messages

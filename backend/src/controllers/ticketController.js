@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getSenderPanel, getSenderName } from '../utils/panel.js';
-import { isEventTeam } from '../middleware/authMiddleware.js';
+import { isEventTeam, normalizeRole } from '../middleware/authMiddleware.js';
 
 export const listTickets = async (req, res) => {
   try {
@@ -302,6 +302,144 @@ export const getWorkers = async (req, res) => {
       .order('name');
     if (error) throw error;
     return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// -- "Ticket raised" popups ---------------------------------------------------
+// TicketPopupHost in the client polls getPendingTicketPopups and pops the
+// newest ticket the user's panel owns; ackTicketPopup records the shown ticket
+// in ticket_popup_seen so each person sees it exactly once, on any device.
+
+// Statuses a queue still has to act on. A ticket that reached a terminal
+// state before the target panel ever saw it must not pop up later.
+const OPEN_STATUSES = ['open', 'in_progress', 'under_review', 'pending'];
+const DEV_CLOSED_STATUSES = ['resolved', 'closed', 'rejected'];
+
+// Role (or users.department) -> the support_tickets.department that panel
+// works. 'developers' routes to the developer_tickets stack instead.
+const TARGET_DEPARTMENTS = {
+  accounts: 'accounts',
+  hr: 'hr',
+  event_head: 'event_head',
+  event_manager: 'event_head',
+  digital: 'developers',
+  developers: 'developers',
+};
+
+// Supervisors watch every queue through their own dashboards; popping each
+// department's tickets at them would be noise, so they never get popups.
+const NO_POPUP_ROLES = new Set(['super_admin', 'admin', 'master']);
+
+const targetDepartment = (user) => {
+  const role = normalizeRole(user?.role);
+  const mapped = TARGET_DEPARTMENTS[role];
+  if (mapped) return mapped;
+  if (NO_POPUP_ROLES.has(role)) return null;
+  if (isEventTeam(user)) return 'event_head';
+  const raw = user?.department != null ? String(user.department).trim() : '';
+  if (raw) {
+    const byDept = TARGET_DEPARTMENTS[normalizeRole(raw.toLowerCase())];
+    if (byDept) return byDept;
+  }
+  return null;
+};
+
+const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
+
+const readSeenIds = async (userId) => {
+  try {
+    const { rows } = await db._pool.query(
+      'SELECT ticket_id FROM ticket_popup_seen WHERE user_id = $1',
+      [String(userId)]
+    );
+    return new Set(rows.map(r => r.ticket_id));
+  } catch (e) {
+    // Table not created yet (boot race) must not 500 the panel; the client's
+    // next poll retries once the bootstrap has run.
+    console.warn('[tickets] popup seen lookup failed:', e?.message || String(e));
+    return null;
+  }
+};
+
+export const getPendingTicketPopups = async (req, res) => {
+  try {
+    const department = targetDepartment(req.user);
+    if (!department) return res.json([]);
+
+    let tickets = [];
+    // Only recent tickets pop. Without this window, the first poll after a
+    // login would parade every open ticket the person never acked — including
+    // ones raised weeks ago — across their screen.
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    if (department === 'developers') {
+      const { data, error } = await db
+        .from('developer_tickets')
+        .select('id, subject, description, category, priority, status, reference_id, desk_number, ngo, raised_by_panel, raised_by_name, created_at')
+        .not('status', 'in', DEV_CLOSED_STATUSES)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      tickets = (data || []).map(t => ({ ...t, _source: 'dev' }));
+    } else {
+      const { data, error } = await db
+        .from('support_tickets')
+        .select('*, workers!support_tickets_raised_by_fkey(name, login_id)')
+        .eq('department', department)
+        .in('status', OPEN_STATUSES)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      tickets = (data || []).map(t => ({ ...t, _source: 'sup' }));
+    }
+
+    const seen = await readSeenIds(req.user.id);
+    if (seen === null) return res.json([]);
+
+    const pending = tickets
+      // Your own ticket and a same-panel raise (accounts -> accounts) are the
+      // raiser's own business, not a "something new landed on your queue" ping
+      // -- the accounts panel's old toast watcher applied the same rules.
+      .filter(t => String(t.raised_by ?? '') !== String(req.user.id))
+      .filter(t => !(t.raised_by_panel && String(t.raised_by_panel) === department))
+      .filter(t => !seen.has(`${t._source === 'dev' ? 'dev' : 'sup'}:${t.id}`))
+      .map(t => ({
+        id: t.id,
+        source: t._source,
+        subject: t.subject,
+        description: t.description,
+        category: t.category,
+        priority: t.priority,
+        status: t.status,
+        reference_id: t.reference_id,
+        desk_number: t.desk_number,
+        ngo: t.ngo,
+        raised_by_panel: t.raised_by_panel,
+        created_at: t.created_at,
+        raiser: t.workers?.name || t.raised_by_name || null,
+      }));
+
+    return res.json(pending);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const ackTicketPopup = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isUuid(id)) return res.status(400).json({ message: 'Invalid ticket id' });
+    const prefix = req.query.source === 'dev' ? 'dev' : 'sup';
+    // ON CONFLICT DO NOTHING: two tabs dismissing the same popup both ack,
+    // exactly one row lands.
+    await db._pool.query(
+      'INSERT INTO ticket_popup_seen (ticket_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [`${prefix}:${id}`, String(req.user.id)]
+    );
+    return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -14,6 +14,11 @@ import {
   editMessage,
   deleteMessage,
   unreadCount,
+  pendingNotices,
+  noticeViewed,
+  listGroupParticipants,
+  updateGroupSettings,
+  deleteGroup,
 } from '../controllers/chatController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { chatWriter, chatGroupCreator } from '../middleware/chatAccess.js';
@@ -33,9 +38,15 @@ const router = Router();
 
 // Chat keeps its own 25 MB cap rather than raising the global uploader's. A
 // rejected file must fail before it is buffered into memory.
+//
+// `.any()` rather than `.single('file')`: a notice may carry several images in
+// one send. The field name is still chosen by the client ('files' for the
+// multi-image notice path, 'file' for a plain message) and the controller
+// interprets the array - ordinary messages take only the first entry, so the
+// extra capacity cannot change how a normal send behaves.
 const uploadChat = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 25 * 1024 * 1024, files: 10 },
 });
 
 /**
@@ -61,6 +72,11 @@ router.use(authenticate);
 router.get('/people', chatWriter, listPeople);
 router.get('/directory', chatGroupCreator, listDirectory);
 router.get('/unread-count', unreadCount);
+// Notices are read by every member including read-only roles, and dismissed by
+// the viewer alone - no writer gate on either, just an authenticated identity
+// that must already be a participant of the room (enforced in the handler).
+router.get('/notices/pending', pendingNotices);
+router.post('/messages/:id/notice-viewed', noticeViewed);
 
 router.get('/conversations', listConversations);
 router.post('/conversations/direct', chatWriter, openDirect);
@@ -68,10 +84,15 @@ router.post('/conversations/direct', chatWriter, openDirect);
 // may not create rooms. Declared before the /:id patterns for the same reason
 // `direct` is.
 router.post('/conversations/group', chatGroupCreator, createGroup);
+// Group management: roster is readable by any member; settings/deletion are
+// gated in the handler on the three admin roles + membership.
+router.get('/conversations/:id/participants', listGroupParticipants);
+router.patch('/conversations/:id/settings', chatWriter, updateGroupSettings);
+router.delete('/conversations/:id', chatWriter, deleteGroup);
 router.get('/conversations/:id/messages', listMessages);
 router.get('/conversations/:id/search', searchMessages);
 router.post('/conversations/:id/read', markRead);
-router.post('/conversations/:id/messages', chatWriter, sendLimiter, uploadChat.single('file'), sendMessage);
+router.post('/conversations/:id/messages', chatWriter, sendLimiter, uploadChat.any(), sendMessage);
 
 router.patch('/messages/:id', chatWriter, editMessage);
 router.delete('/messages/:id', chatWriter, deleteMessage);
