@@ -2325,7 +2325,7 @@ export default function Dashboard() {
                     aria-label={`${r.name} progress: ${r.active} of ${r.total}, ${r.unused.length} not in use`}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box',
-                      flex: '1 0 auto', minHeight: 25, marginBottom: 4, textAlign: 'left', font: 'inherit',
+                      flex: '1 0 auto', minHeight: 30, marginBottom: 4, textAlign: 'left', font: 'inherit',
                       background: selected ? hexA(r.color, 0.07) : '#fff',
                       border: selected ? `1px solid ${hexA(r.color, 0.45)}` : '1px solid var(--stations-border, #DCE7F5)',
                       borderRadius: 11, padding: '4px 8px', cursor: 'pointer', minWidth: 0,
@@ -2368,8 +2368,8 @@ export default function Dashboard() {
                     const open = assigningStation === s;
                     const saving = savingStation === s;
                     return (
-                      <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: open ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${open ? 'var(--stations-assign, #E52336)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '4px 8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, minHeight: 31 }}>
+                      <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: open ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${open ? 'var(--stations-assign, #E52336)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                           <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                           </span>
