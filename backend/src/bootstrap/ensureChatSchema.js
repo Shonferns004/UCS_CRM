@@ -54,7 +54,7 @@ async function ensureConversation() {
   if (existing) return existing;
   const { rows } = await db._pool.query(
     `INSERT INTO chat_conversations (kind, slug, title, created_by)
-     VALUES ('group', $1, 'Community', 'system')
+     VALUES ('group', $1, 'UCS Chat', 'system')
      ON CONFLICT (slug) DO NOTHING
      RETURNING *`,
     [COMMUNITY_SLUG]

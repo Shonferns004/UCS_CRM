@@ -453,7 +453,7 @@ export async function listConversationsFor(me) {
       const peer = await getDirectPeer(row.id, me.uid);
       out.push({ ...row, title: peer?.display_name || 'Direct message', peer });
     } else {
-      out.push({ ...row, title: row.title || 'Community' });
+      out.push({ ...row, title: row.title || 'UCS Chat' });
     }
   }
   return out;
