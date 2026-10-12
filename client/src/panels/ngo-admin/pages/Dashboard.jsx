@@ -1591,9 +1591,6 @@ export default function Dashboard() {
   const stations_per_ngo = isTodayRange
     ? (tlData?.stations_per_ngo || data.stations_per_ngo || {})
     : (data.stations_per_ngo || tlData?.stations_per_ngo || {});
-  const stations_summary = isTodayRange
-    ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] })
-    : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0, inactive: 0, inactive_stations: [] });
   // One row per NGO for the Stations card. "Unused" is the backend's own list
   // of stations with no agent allocated (NOT total - active, which would call
   // every offline FRO an unused station). The row's red pill and the details
@@ -2196,16 +2193,6 @@ export default function Dashboard() {
             close button. Below STATIONS_NARROW_W the columns stop fitting and the
             panel takes the card in place via a text Back control. */}
         <div ref={stationsCardRef} className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: pairHeight ? `${pairHeight}px` : undefined, boxSizing: 'border-box', minWidth: 0 }}>
-          {/* Header: icon, title, subtitle. The Per NGO / Not in Use pills are gone —
-              the rows themselves are the navigation now. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginBottom: 10, minWidth: 0 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.2 }}>Stations</div>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Station usage overview</div>
-            </div>
-          </div>
-
           {/* Body. Wide: two columns in one card (list | panel). Narrow: a single
               column that flips between the two views. */}
           <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'grid', gridTemplateColumns: stationsNarrow ? 'minmax(0, 1fr)' : 'minmax(0, 1.8fr) minmax(0, 1fr)', columnGap: 0, overflow: 'hidden' }}>
@@ -2305,13 +2292,6 @@ export default function Dashboard() {
                 )}
               </div>
             )}
-          </div>
-
-          {/* Footer: the Total / Active metrics stay visible as a compact inline
-              strip so they neither float over the panel nor crowd the rows. */}
-          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 14, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)', flexWrap: 'wrap', rowGap: 4, minWidth: 0 }}>
-            <span style={{ whiteSpace: 'nowrap' }}><b style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{stations_summary.total}</b> Total Stations</span>
-            <span style={{ whiteSpace: 'nowrap' }}><b style={{ fontSize: 12, fontWeight: 700, color: 'var(--stations-success, #16a765)', fontVariantNumeric: 'tabular-nums' }}>{stations_summary.active}</b> Active Now</span>
           </div>
         </div>
       </div>
