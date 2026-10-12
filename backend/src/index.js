@@ -22,6 +22,7 @@ import letterRoutes from './routes/letterRoutes.js';
 import hrWhatsAppRoutes from './routes/hrWhatsAppRoutes.js';
 import hrDailyReportRoutes from './routes/hrDailyReportRoutes.js';
 import dailyReportRoutes from './routes/dailyReportRoutes.js';
+import taskAssignmentRoutes from './routes/taskAssignmentRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import eventRoutes from './routes/eventRoutes.js';
 import noticeRoutes from './routes/noticeRoutes.js';
@@ -124,6 +125,7 @@ import { ensureSevakRenewalSchema } from './bootstrap/ensureSevakRenewalSchema.j
 import { ensureStationAgentOfRecordSchema } from './bootstrap/ensureStationAgentOfRecordSchema.js';
 import { ensureFroDonorLogOperatorSchema } from './bootstrap/ensureFroDonorLogOperatorSchema.js';
 import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSchema.js';
+import { ensureTaskAssignmentSchema } from './bootstrap/ensureTaskAssignmentSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config();
@@ -246,6 +248,7 @@ app.use('/api/letters', letterRoutes);
 app.use('/api/hr/whatsapp', hrWhatsAppRoutes);
 app.use('/api/hr-reports', hrDailyReportRoutes);
 app.use('/api/daily-reports', dailyReportRoutes);
+app.use('/api/task-assignments', taskAssignmentRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/notices', noticeRoutes);
@@ -1204,6 +1207,7 @@ await ensureFroTimeSessionsAgentSchema().catch(e => console.error('ensureFroTime
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
     await ensureStationAgentOfRecordSchema().catch(e => console.error('ensureStationAgentOfRecordSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
+    await ensureTaskAssignmentSchema().catch(e => console.error('ensureTaskAssignmentSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

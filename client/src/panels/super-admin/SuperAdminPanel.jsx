@@ -36,7 +36,7 @@ import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
 import { EMBED_PANELS, injectEmbedCss } from './embedPanels'
-import HrRecruitmentReport from './pages/HrRecruitmentReport'
+// import HrRecruitmentReport from './pages/HrRecruitmentReport'
 import DailyReportsOverview from './pages/DailyReportsOverview'
 
 const NAV = [
@@ -61,7 +61,7 @@ const NAV = [
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
   { id: 'late-policy', path: '/sa/late-policy', label: 'Late Policy', eyebrow: 'HR', icon: Clock },
   { id: 'chat', path: '/sa/chat', label: 'Community', eyebrow: 'Team', icon: ChatIcon },
-  { id: 'hr-report', path: '/sa/hr-report', label: 'HR & Recruitment Report', eyebrow: 'Reports', icon: Clipboard },
+  // { id: 'hr-report', path: '/sa/hr-report', label: 'HR & Recruitment Report', eyebrow: 'Reports', icon: Clipboard },
   { id: 'daily-reports', path: '/sa/daily-reports', label: 'Daily Reports', eyebrow: 'Reports', icon: Clipboard },
 ]
 
@@ -74,7 +74,7 @@ NAV.forEach(n => { navMap[n.id] = n })
 // It starts collapsed. To promote a page, move its id into another category.
 const CATEGORIES = [
   { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter'] },
-  { id: 'people', label: 'People', icon: Users, items: ['hr-report', 'daily-reports', 'organization', 'admin-attendance'] },
+  { id: 'people', label: 'People', icon: Users, items: ['daily-reports', 'organization', 'admin-attendance'] },
   { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'data-management'] },
   { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
   { id: 'comms', label: 'Communication', icon: Megaphone, items: ['notices', 'chat'] },
@@ -105,6 +105,7 @@ function Sidebar({ mobileOpen }) {
 
   const renderItem = (id) => {
     const n = navMap[id]
+    if (!n) return null
     const Icon = n.icon
     const embed = EMBED_PANELS[id]
     if (embed) {
@@ -429,7 +430,7 @@ export default function SuperAdminPanel() {
         <Route path="ngo-admin/*" element={<PanelFrame panel="ngo-admin" />} />
         <Route path="hr/*" element={<PanelFrame panel="hr" />} />
         <Route path="admin-attendance" element={<AdminAttendance />} />
-        <Route path="hr-report" element={<HrRecruitmentReport />} />
+        {/* <Route path="hr-report" element={<HrRecruitmentReport />} /> */}
         <Route path="daily-reports" element={<DailyReportsOverview />} />
         <Route path="event-head/*" element={<PanelFrame panel="event-head" />} />
         <Route path="recruiter/*" element={<PanelFrame panel="recruiter" />} />

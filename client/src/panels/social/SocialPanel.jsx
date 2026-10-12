@@ -1,21 +1,30 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useUcs } from '../../store'
 import SocialDailyReport from './pages/SocialDailyReport'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import ToastContainer from '../../components/Toast'
+import { fetchTaskAssignAccess } from '../../api/taskAssignments'
+
+// Reused from the Event Manager workspace so the Social team plans against the
+// exact same NGOs/sectors/activities and AI suggestions. Lazy so the planner
+// (and the event-head store it pulls in) is only downloaded if opened.
+const ActivityPlanner = lazy(() => import('../event-head/pages/ActivityPlanner'))
 
 // Social Media Manager workspace. Mirrors the Developer panel's self-contained
-// shell (inline styles, own toast host) but with just the report and community.
+// shell (inline styles, own toast host) and hosts the report, the shared monthly
+// planner (borrowed from the Event Manager workspace) and community.
 
 const NAV = [
   { id: 'daily-report', path: '/social/daily-report', label: 'Daily Report', icon: 'description' },
+  { id: 'planner', path: '/social/planner', label: 'Monthly Planner', icon: 'planner' },
   { id: 'chat', path: '/social/chat', label: 'Community', icon: 'chat' },
 ]
 
 const ICONS = {
   description: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>,
+  planner: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg>,
 }
 
@@ -23,6 +32,18 @@ export default function SocialPanel() {
   const location = useLocation()
   const { user, logout } = useUcs()
   const [collapsed, setCollapsed] = useState(false)
+
+  // Assign UI is for the Social head only; everyone else sees the plan read-only
+  // (their tasks still show in the Daily Report). Starts hidden so no member ever
+  // flashes the picker before the check resolves.
+  const [canAssign, setCanAssign] = useState(false)
+  useEffect(() => {
+    let alive = true
+    fetchTaskAssignAccess()
+      .then((res) => { if (alive) setCanAssign(Boolean(res?.can_assign)) })
+      .catch(() => { if (alive) setCanAssign(false) })
+    return () => { alive = false }
+  }, [])
 
   const activeNav = NAV.find((n) => location.pathname === n.path)
 
@@ -78,6 +99,13 @@ export default function SocialPanel() {
           <Routes>
             <Route index element={<Navigate to="daily-report" replace />} />
             <Route path="daily-report" element={<SocialDailyReport />} />
+            <Route path="planner" element={
+              <div className="panel-event-head">
+                <Suspense fallback={<div style={{ padding: 8, color: 'var(--ink-soft)', fontSize: 13 }}>Loading planner…</div>}>
+                  <ActivityPlanner taskAssignment={canAssign} />
+                </Suspense>
+              </div>
+            } />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="/social/daily-report" replace />} />
           </Routes>

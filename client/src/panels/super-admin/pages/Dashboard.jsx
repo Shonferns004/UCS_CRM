@@ -583,6 +583,29 @@ function FroPerformanceToday({ froLiveData = [] }) {
   const max = Math.max(...sorted.map(valueOf), 1)
   const fmtValue = (r) => (sortKey === 'today_collection' ? inr(r.collection) : valueOf(r).toLocaleString('en-IN'))
 
+  const half = Math.ceil(visible.length / 2)
+  const columns = [visible.slice(0, half), visible.slice(half)]
+
+  const renderRow = (r, i) => (
+    <li key={r.id || i} className={`fp-row${i < 3 && valueOf(r) > 0 ? ' top' : ''}`}>
+      <span className={`fp-rank${i < 3 ? ` fp-rank-${i + 1}` : ''}`}>{i + 1}</span>
+      <div className="fp-who">
+        <span className="fp-name">{r.name}</span>
+        <span className="fp-meta">
+          <i style={{ background: r.st.color }} />{r.st.label}
+          <em style={{ color: ngoColor(r.ngo), background: `${ngoColor(r.ngo)}14` }}>{r.ngo}</em>
+        </span>
+      </div>
+      <div className="fp-bar">
+        <div className="fp-track"><div style={{ width: `${(valueOf(r) / max) * 100}%` }} /></div>
+      </div>
+      <div className="fp-nums">
+        <b>{fmtValue(r)}</b>
+        <span>{sortKey === 'today_collection' ? `${r.calls} calls` : inr(r.collection)}</span>
+      </div>
+    </li>
+  )
+
   const summary = [
     { label: 'Collection today', value: inr(totals.collection), color: MINT_DEEP },
     { label: 'Calls today', value: totals.calls.toLocaleString('en-IN') },
@@ -629,27 +652,13 @@ function FroPerformanceToday({ froLiveData = [] }) {
       {sorted.length === 0 ? (
         <p className="fp-empty">No FROs match your filters.</p>
       ) : (
-        <ol className="fp-list">
-          {visible.map((r, i) => (
-            <li key={r.id || i} className={`fp-row${i < 3 && valueOf(r) > 0 ? ' top' : ''}`}>
-              <span className="fp-rank">{i + 1}</span>
-              <div className="fp-who">
-                <span className="fp-name">{r.name}</span>
-                <span className="fp-meta">
-                  <i style={{ background: r.st.color }} />{r.st.label}
-                  <em style={{ color: ngoColor(r.ngo), background: `${ngoColor(r.ngo)}14` }}>{r.ngo}</em>
-                </span>
-              </div>
-              <div className="fp-bar">
-                <div className="fp-track"><div style={{ width: `${(valueOf(r) / max) * 100}%` }} /></div>
-              </div>
-              <div className="fp-nums">
-                <b>{fmtValue(r)}</b>
-                <span>{sortKey === 'today_collection' ? `${r.calls} calls` : inr(r.collection)}</span>
-              </div>
-            </li>
+        <div className="fp-list">
+          {columns.map((col, ci) => (
+            <ol key={ci} className="fp-col">
+              {col.map((r, j) => renderRow(r, ci === 0 ? j : half + j))}
+            </ol>
           ))}
-        </ol>
+        </div>
       )}
 
       {sorted.length > 10 && (
@@ -1392,13 +1401,15 @@ const FRO_CSS = `
 .fp-seg button.on { background:#fff; color:${MINT_DARK}; box-shadow:0 1px 4px rgba(0,0,0,.08); }
 .fp-wrap button:focus-visible, .fp-wrap select:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 
-.fp-list { list-style:none; margin:0; padding:0; }
-.fp-row { display:grid; grid-template-columns:28px minmax(140px, 1.2fr) 1.4fr minmax(90px, auto); align-items:center; gap:14px; padding:10px 8px; border-bottom:1px solid #F0F7F2; }
-.fp-row:last-child { border-bottom:none; }
-.fp-row:hover { background:${MINT_LIGHT}; border-radius:10px; }
-.fp-rank { width:26px; height:26px; border-radius:50%; background:#F1F5F2; color:${MUTED}; font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; }
-.fp-row.top .fp-rank { background:${MINT_DEEP}; color:#fff; }
-.fp-who { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.fp-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 12px; align-items:start; }
+.fp-col { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.fp-row { display:grid; grid-template-columns:28px minmax(0, 1fr) auto; align-items:center; gap:6px 10px; padding:10px 12px; border:1px solid #EAF3ED; border-radius:12px; }
+.fp-row:hover { background:${MINT_LIGHT}; }
+.fp-rank { grid-column:1; grid-row:1 / 3; width:26px; height:26px; border-radius:50%; background:#F1F5F2; color:${MUTED}; font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+.fp-rank-1 { background:linear-gradient(135deg,#FFE07A,#E0A800); color:#5A4300; box-shadow:0 0 0 2px #FFF3C4, 0 2px 6px rgba(224,168,0,.35); }
+.fp-rank-2 { background:linear-gradient(135deg,#EDF1F5,#AEB8C2); color:#374151; box-shadow:0 0 0 2px #F3F6F9, 0 2px 6px rgba(120,132,145,.3); }
+.fp-rank-3 { background:linear-gradient(135deg,#F3C79C,#C97B45); color:#4A2A10; box-shadow:0 0 0 2px #FBE6D2, 0 2px 6px rgba(201,123,69,.3); }
+.fp-who { grid-column:2; grid-row:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
 .fp-name { font-size:14px; font-weight:700; color:${INK}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .fp-meta { display:flex; align-items:center; gap:6px; font-size:12px; color:${MUTED}; flex-wrap:wrap; }
 .fp-meta i { width:8px; height:8px; border-radius:50%; }
@@ -1406,7 +1417,8 @@ const FRO_CSS = `
 .fp-track { height:8px; background:#F1F5F2; border-radius:99px; overflow:hidden; }
 .fp-track div { height:100%; background:${MINT}; border-radius:99px; transition:width .6s ease; }
 .fp-row.top .fp-track div { background:${MINT_DEEP}; }
-.fp-nums { text-align:right; display:flex; flex-direction:column; }
+.fp-bar { grid-column:2 / 4; grid-row:2; }
+.fp-nums { grid-column:3; grid-row:1; text-align:right; display:flex; flex-direction:column; }
 .fp-nums b { font-size:15px; font-weight:800; color:${INK}; font-variant-numeric:tabular-nums; }
 .fp-nums span { font-size:12px; color:#94a3b8; }
 .fp-empty { color:#94a3b8; font-size:13px; margin:8px 0 0; }
@@ -1414,7 +1426,6 @@ const FRO_CSS = `
 
 @media (max-width: 640px) {
   .fp-wrap { padding:16px; }
-  .fp-row { grid-template-columns:28px 1fr auto; row-gap:6px; }
-  .fp-bar { grid-column:2 / 4; grid-row:2; }
+  .fp-list { grid-template-columns:1fr; }
 }
 `

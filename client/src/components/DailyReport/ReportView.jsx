@@ -20,6 +20,8 @@ const DEFAULT_COLUMNS = [
 const isBlank = (v) =>
   v == null || (Array.isArray(v) && v.length === 0) || String(v).trim() === ''
 
+const STATUS_LABEL = { done: 'Done', wip: 'WIP', pending: 'Pending' }
+
 const text = (v) => (v == null ? '' : String(v))
 
 const toRows = (field, value) => {
@@ -43,7 +45,7 @@ const toTasks = (value) => {
     .filter((it) => it.text.trim() !== '')
 }
 
-function Field({ field, value }) {
+function Field({ field, value, assignedTasks = [] }) {
   if (field.type === 'rows') {
     const { columns, rows } = toRows(field, value)
     return (
@@ -79,15 +81,24 @@ function Field({ field, value }) {
 
   if (field.type === 'checklist') {
     const tasks = toTasks(value)
+    const assigned = Array.isArray(assignedTasks) ? assignedTasks : []
     return (
       <div style={{ gridColumn: '1 / -1' }}>
         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{field.label}</div>
-        {tasks.length === 0 ? (
+        {tasks.length === 0 && assigned.length === 0 ? (
           <div className="sa-muted" style={{ fontSize: 12 }}>—</div>
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.8 }}>
             {tasks.map((it, i) => (
               <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{it.done ? '✓ ' : '○ '}{it.text}</li>
+            ))}
+            {assigned.map((t) => (
+              <li key={`assigned-${t.id}`} style={{ whiteSpace: 'pre-wrap' }}>
+                {t.title}
+                <span className="sa-muted" style={{ fontSize: 11 }}>
+                  {' · '}Assigned{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''} · {STATUS_LABEL[t.status] || 'Pending'}
+                </span>
+              </li>
             ))}
           </ul>
         )}
@@ -106,9 +117,15 @@ function Field({ field, value }) {
 // Read-only render of one daily report's data using the panel's own section
 // config: identical grouping, labels and table/list shapes to what the
 // reporter filled in on their side.
-export default function ReportView({ panel, data }) {
+//
+// `assignedTasks` are manager-assigned tasks for THIS reporter; they are shown
+// inside the panel's "My Tasks" checklist so the view matches what the member
+// sees (own tasks + assigned tasks in one place).
+export default function ReportView({ panel, data, assignedTasks = [] }) {
   const sections = PANEL_SECTIONS[panel] || []
-  const populated = sections.filter((s) => (s.fields || []).some((f) => !isBlank(data?.[s.id]?.[f.id])))
+  const assigned = Array.isArray(assignedTasks) ? assignedTasks : []
+  const hasAssigned = (s, f) => f.type === 'checklist' && assigned.length > 0 && s.id === 'social_tasks'
+  const populated = sections.filter((s) => (s.fields || []).some((f) => !isBlank(data?.[s.id]?.[f.id]) || hasAssigned(s, f)))
   if (populated.length === 0) return <div className="sa-muted" style={{ fontSize: 12 }}>No entries.</div>
 
   return (
@@ -118,8 +135,15 @@ export default function ReportView({ panel, data }) {
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
             {(s.fields || [])
-              .filter((f) => !isBlank(data?.[s.id]?.[f.id]))
-              .map((f) => <Field key={f.id} field={f} value={data[s.id][f.id]} />)}
+              .filter((f) => !isBlank(data?.[s.id]?.[f.id]) || hasAssigned(s, f))
+              .map((f) => (
+                <Field
+                  key={f.id}
+                  field={f}
+                  value={data?.[s.id]?.[f.id]}
+                  assignedTasks={hasAssigned(s, f) ? assigned : []}
+                />
+              ))}
           </div>
         </div>
       ))}

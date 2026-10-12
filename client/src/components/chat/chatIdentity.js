@@ -44,10 +44,11 @@ const ROLE_LABELS = {
   recruiter: 'Recruiter',
   fro: 'FRO',
   event_head: 'Event Head',
-  // authController.js maps department 'digital' (or anything containing
-  // 'develop') to role 'digital'. The old key was 'developers', which never
-  // matched a real token, so the label fell back to the raw string.
-  digital: 'Developer',
+  // authController.js maps both department 'digital' and anything containing
+  // 'develop' to role 'digital'. The Digital (Duars Digital) team opens the
+  // Social panel and is reviewed under Social Media, so it is labelled
+  // 'Digital', not 'Developer'.
+  digital: 'Digital',
   developers: 'Developer',
   worker: 'Worker',
 }

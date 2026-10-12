@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { DatePicker } from '../ui'
 import { toast as globalToast } from '../Toast'
-import {
-  fetchMyDailyReport,
-  fetchDailyReports,
-  saveDailyReport,
-} from '../../api/dailyReports'
+import { updateTaskAssignment } from '../../api/taskAssignments'
+import { fetchMyDailyReport, fetchDailyReports, saveDailyReport } from '../../api/dailyReports'
 
 // Shared daily-report screen used by the Developer and Social Media reports
 // (and ready for any panel that adds a config). The page is config-driven:
@@ -122,7 +119,7 @@ const TASK_COLUMNS = [
   { id: 'done', label: 'Done' },
 ]
 
-function ChecklistField({ value, onChange, placeholder }) {
+function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAssignedStatus, updatingId }) {
   const items = Array.isArray(value) ? value : []
   const [draft, setDraft] = useState('')
   const [draftStatus, setDraftStatus] = useState('pending')
@@ -135,6 +132,14 @@ function ChecklistField({ value, onChange, placeholder }) {
   const setStatusAt = (idx, status) => onChange(items.map((it, i) => (i === idx ? toTask(it.text, status) : it)))
   const removeAt = (idx) => onChange(items.filter((_, i) => i !== idx))
   const indexed = items.map((it, i) => ({ it, i }))
+  // Tasks a manager assigned to this reporter, shown as cards in the same board
+  // as the reporter's own tasks. They are not part of `data`, so changing their
+  // status goes through onAssignedStatus rather than onChange.
+  const assigned = assignedTasks.map((t) => ({
+    ...t,
+    status: TASK_STATUSES.includes(t.status) ? t.status : 'pending',
+  }))
+  const empty = items.length === 0 && assigned.length === 0
   return (
     <div className="dr-check">
       <div className="dr-check-add">
@@ -150,18 +155,19 @@ function ChecklistField({ value, onChange, placeholder }) {
         </select>
         <button type="button" className="btn btn-primary btn-sm" onClick={add} disabled={!draft.trim()}>Add</button>
       </div>
-      {items.length === 0 && <div className="dr-muted">No tasks yet — add one above.</div>}
-      {items.length > 0 && (
+      {empty && <div className="dr-muted">No tasks yet — add one above.</div>}
+      {!empty && (
         <div className="dr-board">
           {TASK_COLUMNS.map((col) => {
             const colItems = indexed.filter(({ it }) => it.status === col.id)
+            const colAssigned = assigned.filter((t) => t.status === col.id)
             return (
               <div key={col.id} className={`dr-col dr-col-${col.id}`}>
                 <div className="dr-col-head">
                   <span>{col.label}</span>
-                  <span className="dr-col-count">{colItems.length}</span>
+                  <span className="dr-col-count">{colItems.length + colAssigned.length}</span>
                 </div>
-                {colItems.length === 0 && <div className="dr-col-empty">No tasks</div>}
+                {colItems.length === 0 && colAssigned.length === 0 && <div className="dr-col-empty">No tasks</div>}
                 {colItems.map(({ it, i }) => (
                   <div key={i} className={`dr-task dr-task-${it.status}`}>
                     <div className="dr-task-top">
@@ -176,6 +182,28 @@ function ChecklistField({ value, onChange, placeholder }) {
                           className={`dr-task-btn dr-task-btn-${c.id}${it.status === c.id ? ' on' : ''}`}
                           aria-pressed={it.status === c.id}
                           onClick={() => it.status !== c.id && setStatusAt(i, c.id)}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {colAssigned.map((t) => (
+                  <div key={`assigned-${t.id}`} className={`dr-task dr-task-${col.id} dr-task-assigned`}>
+                    <div className="dr-task-text">{t.title}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
+                      Assigned{t.assigned_by_name ? ` · ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''}
+                    </div>
+                    <div className="dr-task-actions" role="group" aria-label="Update assigned task">
+                      {TASK_COLUMNS.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className={`dr-task-btn dr-task-btn-${c.id}${t.status === c.id ? ' on' : ''}`}
+                          aria-pressed={t.status === c.id}
+                          disabled={updatingId === t.id}
+                          onClick={() => t.status !== c.id && onAssignedStatus && onAssignedStatus(t.id, c.id)}
                         >
                           {c.label}
                         </button>
@@ -251,6 +279,7 @@ export default function DailyReport({
   sections = [],
   summaryTitle = 'Today at a glance',
   loadSummary,
+  loadAssignedTasks,
   notify,
 }) {
   // The dev panel mounts its own ToastProvider, not the global ToastContainer,
@@ -259,6 +288,8 @@ export default function DailyReport({
   const [date, setDate] = useState(todayIst())
   const [data, setData] = useState(() => emptyData(sections))
   const [summary, setSummary] = useState(null)
+  const [assigned, setAssigned] = useState([])
+  const [updatingId, setUpdatingId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -271,6 +302,19 @@ export default function DailyReport({
   const snapshotRef = useRef(savedSnapshot)
 
   const dirty = JSON.stringify(data) !== savedSnapshot
+
+  const setAssignedStatus = async (id, status) => {
+    if (updatingId) return
+    setUpdatingId(id)
+    try {
+      await updateTaskAssignment(id, status)
+      setAssigned((list) => list.map((t) => (String(t.id) === String(id) ? { ...t, status } : t)))
+    } catch (err) {
+      toast(err.message || 'Could not update the task status', 'error')
+    } finally {
+      setUpdatingId(null)
+    }
+  }
 
   const load = useCallback(async (d) => {
     setLoading(true)
@@ -305,6 +349,15 @@ export default function DailyReport({
         setSummary(null)
       } finally {
         setSummaryLoading(false)
+      }
+    }
+    // Tasks a manager assigned to this reporter — merged into the reporter's own
+    // task board (see the checklist section) and never written into `data`.
+    if (loadAssignedTasks) {
+      try {
+        setAssigned((await loadAssignedTasks(d)) || [])
+      } catch {
+        setAssigned([])
       }
     }
     // sections / loadSummary are module-level constants in every caller, so
@@ -469,7 +522,14 @@ export default function DailyReport({
                   <div key={f.id} className="dr-field full">
                     <span className="dr-field-label">{f.label}</span>
                     <div className="no-print">
-                      <ChecklistField value={items} onChange={(v) => setField(s.id, f.id, v)} placeholder={f.placeholder} />
+                      <ChecklistField
+                        value={items}
+                        onChange={(v) => setField(s.id, f.id, v)}
+                        placeholder={f.placeholder}
+                        assignedTasks={f.mergeAssigned ? assigned : []}
+                        onAssignedStatus={setAssignedStatus}
+                        updatingId={updatingId}
+                      />
                     </div>
                     <div className="dr-print-only">
                       {items.length === 0 ? (

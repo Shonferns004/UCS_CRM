@@ -209,7 +209,9 @@ function buildRoster(panel, workers, users, hrs) {
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function rosterForPanel(panel) {
+// Exported so the task-assignment controller can offer the same Social team
+// roster as the assignee picker.
+export async function rosterForPanel(panel) {
   const [workersRes, usersRes, hrsRes] = await Promise.all([
     db.from('workers').select('id, name, department, is_active, employment_status'),
     db.from('users').select('id, name, role, department, is_active'),

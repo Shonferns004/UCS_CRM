@@ -8,7 +8,7 @@ import { listImportantDays } from '../controllers/eventHeadController.js';
 const router = Router();
 router.get(
   '/',
-  authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head'),
+  authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head', 'social', 'digital'),
   listImportantDays,
 );
 

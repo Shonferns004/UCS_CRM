@@ -35,7 +35,8 @@ const ROLE_PATHS = {
   event_manager: '/event-head',
   'Event Manager': '/event-head',
   'Event Head': '/event-head',
-  digital: '/dev-panel',
+  digital: '/social',
+  developer: '/dev-panel',
   developers: '/dev-panel',
   social: '/social',
 }
@@ -51,7 +52,8 @@ const ROLE_PANELS = {
   event_manager: { panel: EventHeadPanel, cls: 'panel-event-head' },
   'Event Manager': { panel: EventHeadPanel, cls: 'panel-event-head' },
   'Event Head': { panel: EventHeadPanel, cls: 'panel-event-head' },
-  digital: { panel: DevPanel, cls: 'panel-dev' },
+  digital: { panel: SocialPanel, cls: 'panel-dev' },
+  developer: { panel: DevPanel, cls: 'panel-dev' },
   developers: { panel: DevPanel, cls: 'panel-dev' },
   social: { panel: SocialPanel, cls: 'panel-dev' },
 }
@@ -125,10 +127,22 @@ function AccessDenied() {
   )
 }
 
+function panelPathFor(user) {
+  if (!user) return null
+  // The backend collapses both 'digital' and any 'develop*' department to the
+  // role 'digital', so only the department string tells the two teams apart.
+  // Digital (Duars Digital) is reviewed/rostered under Social Media, so it opens
+  // the Social panel; developers keep the Developer panel.
+  const dept = String(user.department || '').toLowerCase().trim()
+  if (dept.includes('develop')) return ROLE_PATHS.developers
+  if (dept.includes('digital')) return ROLE_PATHS.digital
+  return ROLE_PATHS[dept] || ROLE_PATHS[user.role] || null
+}
+
 function RootRedirect() {
   const { user } = useUcs()
   if (!user) return <Navigate to="/login" replace />
-  const path = ROLE_PATHS[user.department] || ROLE_PATHS[user.role]
+  const path = panelPathFor(user)
   if (path) return <Navigate to={path} replace />
   return <AccessDenied />
 }
@@ -137,12 +151,11 @@ function LoginWrapper() {
   const { user } = useUcs()
   const navigate = useNavigate()
   if (user) {
-    const path = ROLE_PATHS[user.department] || ROLE_PATHS[user.role]
+    const path = panelPathFor(user)
     if (path) return <Navigate to={path} replace />
   }
-  return <Login onLogin={(role, path) => {
-    const target = path || ROLE_PATHS[role]
-    navigate(target || '/login', { replace: true })
+  return <Login onLogin={(role) => {
+    navigate(ROLE_PATHS[role] || '/', { replace: true })
   }} />
 }
 
@@ -220,13 +233,13 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/dev-panel/*" element={
-          <ProtectedRoute role={['digital', 'developers', 'super_admin']}>
-            <PanelWrapper roleKey="digital" />
+          <ProtectedRoute role={['developers', 'developer', 'digital', 'Developer', 'Developers', 'Digital', 'super_admin']}>
+            <PanelWrapper roleKey="developers" />
           </ProtectedRoute>
         } />
 
         <Route path="/social/*" element={
-          <ProtectedRoute role={['social', 'super_admin']}>
+          <ProtectedRoute role={['social', 'digital', 'Social', 'Social Media', 'Digital', 'super_admin']}>
             <PanelWrapper roleKey="social" />
           </ProtectedRoute>
         } />

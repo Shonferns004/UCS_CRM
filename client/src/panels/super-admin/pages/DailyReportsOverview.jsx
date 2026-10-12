@@ -7,9 +7,11 @@ import {
   fetchDepartmentRoster,
   saveDailyReportRemark,
 } from '../../../api/dailyReports'
+import { fetchTaskAssignments } from '../../../api/taskAssignments'
 import DailyReportDashboard from './DailyReportDashboard'
 import RecruitmentDashboard from './RecruitmentDashboard'
 import DeveloperDashboard from './DeveloperDashboard'
+import SocialDashboard from './SocialDashboard'
 import ReportView from '../../../components/DailyReport/ReportView'
 
 
@@ -42,6 +44,7 @@ export default function DailyReportsOverview() {
   const [openId, setOpenId] = useState(null)
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
+  const [assignedByName, setAssignedByName] = useState({})
 
   const load = useCallback(async (d, panel, empId) => {
     setLoading(true)
@@ -69,6 +72,26 @@ export default function DailyReportsOverview() {
       .catch(() => { if (alive) setRoster([]) })
     return () => { alive = false }
   }, [dept])
+
+  // Manager-assigned social tasks, grouped by assignee, so each member's
+  // expanded report can show them inside its "My Tasks" section.
+  useEffect(() => {
+    let alive = true
+    fetchTaskAssignments()
+      .then((res) => {
+        if (!alive) return
+        const map = {}
+        for (const a of (res?.assignments || [])) {
+          const name = String(a.assignee_name || '').trim()
+          if (!name) continue
+          if (!map[name]) map[name] = []
+          map[name].push(a)
+        }
+        setAssignedByName(map)
+      })
+      .catch(() => { if (alive) setAssignedByName({}) })
+    return () => { alive = false }
+  }, [])
 
   const pickDate = (next) => {
     const value = typeof next === 'string' ? next : (next?.target?.value ?? '')
@@ -106,6 +129,7 @@ export default function DailyReportsOverview() {
 
   const visiblePanels = [dept]
   const openReport = reports.find((r) => String(r.id) === String(openId)) || null
+  const assignedAll = useMemo(() => Object.values(assignedByName).flat(), [assignedByName])
 
   const openDetail = (report) => {
     setOpenId(report.id)
@@ -184,6 +208,10 @@ export default function DailyReportsOverview() {
         <RecruitmentDashboard date={date} recReports={byPanel['recruiter'] || []} />
       )}
 
+      {!loading && dept === 'social' && (
+        <SocialDashboard date={date} socialReports={byPanel['social'] || []} assignedTasks={assignedAll} />
+      )}
+
       {!loading && visiblePanels.map((panel) => {
         const panelReports = byPanel[panel] || []
         const summary = summaryMap[panel]
@@ -217,7 +245,11 @@ export default function DailyReportsOverview() {
                   </div>
                   {open && (
                     <div style={{ marginTop: 8, padding: 12, background: 'var(--surface-2, #f8fafc)', borderRadius: 8 }}>
-                      <ReportView panel={r.panel} data={r.data || {}} />
+                      <ReportView
+                        panel={r.panel}
+                        data={r.data || {}}
+                        assignedTasks={r.panel === 'social' ? (assignedByName[String(r.reporter_name || '').trim()] || []) : []}
+                      />
 
                       <div style={{ marginTop: 12 }}>
                         <label style={{ display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--text-muted, #6b7280)', marginBottom: 4 }}>

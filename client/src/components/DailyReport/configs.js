@@ -5,28 +5,28 @@
 // 'textarea', 'lines' or 'checklist' (an add → pending → Done task list).
 
 export const commonSections = [
-  {
-    id: 'completed',
-    label: 'Work Completed Today',
-    fields: [
-      { id: 'completed', label: 'Completed work', type: 'textarea', rows: 4, placeholder: 'What you finished today' },
-    ],
-  },
-  {
-    id: 'pending',
-    label: 'Pending Work',
-    description: 'Add a reason for anything still open',
-    fields: [
-      { id: 'pending', label: 'Pending work and why it is pending', type: 'textarea', rows: 4 },
-    ],
-  },
-  {
-    id: 'support',
-    label: 'Support Required from HOD',
-    fields: [
-      { id: 'support', label: 'Issues needing HOD support / approval', type: 'textarea', rows: 3, placeholder: 'Leave blank if none' },
-    ],
-  },
+  // {
+  //   id: 'completed',
+  //   label: 'Work Completed Today',
+  //   fields: [
+  //     { id: 'completed', label: 'Completed work', type: 'textarea', rows: 4, placeholder: 'What you finished today' },
+  //   ],
+  // },
+  // {
+  //   id: 'pending',
+  //   label: 'Pending Work',
+  //   description: 'Add a reason for anything still open',
+  //   fields: [
+  //     { id: 'pending', label: 'Pending work and why it is pending', type: 'textarea', rows: 4 },
+  //   ],
+  // },
+  // {
+  //   id: 'support',
+  //   label: 'Support Required from HOD',
+  //   fields: [
+  //     { id: 'support', label: 'Issues needing HOD support / approval', type: 'textarea', rows: 3, placeholder: 'Leave blank if none' },
+  //   ],
+  // },
   {
     id: 'nextday',
     label: 'Next Working Day Plan',
@@ -172,6 +172,14 @@ export const recruiterSections = [
 
 export const socialSections = [
   {
+    id: 'social_tasks',
+    label: 'My Tasks',
+    description: 'Add your own tasks and move them Pending / WIP / Done. Tasks assigned to you also appear here.',
+    fields: [
+      { id: 'tasks', label: 'Tasks', type: 'checklist', placeholder: 'e.g. Edit Diwali reel', mergeAssigned: true },
+    ],
+  },
+  {
     id: 'social_content',
     label: 'Content Created',
     fields: [
@@ -181,23 +189,23 @@ export const socialSections = [
       { id: 'platforms_managed', label: 'Platforms managed', type: 'text', placeholder: 'Instagram, Facebook, YouTube…' },
     ],
   },
-  {
-    id: 'social_metrics',
-    label: 'Reach & Engagement',
-    fields: [
-      { id: 'reach', label: 'Reach / impressions', type: 'text' },
-      { id: 'views', label: 'Views', type: 'text' },
-      { id: 'engagement', label: 'Engagement (likes, comments, shares)', type: 'text' },
-      { id: 'followers_gained', label: 'Followers gained', type: 'text' },
-    ],
-  },
-  {
-    id: 'social_pending',
-    label: 'Pending Content',
-    fields: [
-      { id: 'pending_content', label: 'Pending content / awaiting approval', type: 'lines', rows: 4 },
-    ],
-  },
+  // {
+  //   id: 'social_metrics',
+  //   label: 'Reach & Engagement',
+  //   fields: [
+  //     { id: 'reach', label: 'Reach / impressions', type: 'text' },
+  //     { id: 'views', label: 'Views', type: 'text' },
+  //     { id: 'engagement', label: 'Engagement (likes, comments, shares)', type: 'text' },
+  //     { id: 'followers_gained', label: 'Followers gained', type: 'text' },
+  //   ],
+  // },
+  // {
+  //   id: 'social_pending',
+  //   label: 'Pending Content',
+  //   fields: [
+  //     { id: 'pending_content', label: 'Pending content / awaiting approval', type: 'lines', rows: 4 },
+  //   ],
+  // },
 ]
 
 // Department sections followed by the four common sections every report shares.
