@@ -2303,7 +2303,7 @@ export default function Dashboard() {
               divider. Narrow: the same two sections stack — progress first,
               assignments second — and the divider turns horizontal, so nothing is
               hidden and no in-card view switch is needed. */}
-          <div className="stations-card__body" style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'grid', gridTemplateColumns: stationsNarrow ? 'minmax(0, 1fr)' : 'minmax(0, 1.5fr) minmax(0, 1fr)', gridTemplateRows: stationsNarrow ? 'auto minmax(0, 1fr)' : undefined, columnGap: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
+          <div className="stations-card__body" style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'grid', gridTemplateColumns: stationsNarrow ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1.6fr)', gridTemplateRows: stationsNarrow ? 'auto minmax(0, 1fr)' : undefined, columnGap: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
 
             {/* Left: one button per NGO. The count pill sits inside that same button,
                 so a click can never select the row twice. */}
