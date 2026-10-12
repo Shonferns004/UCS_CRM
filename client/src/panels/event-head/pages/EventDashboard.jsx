@@ -1,15 +1,40 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchDashboardStats, fetchDashboardOptions, fetchDeadlineNotifs, deadlineLabel, fetchCalendarEvents } from '../store'
-import { PageHeader, MetricCard, SectionCard, SearchInput, StatusPill, Empty } from '../components/ui'
+import { fetchDashboardStats, fetchDashboardOptions, fetchDeadlineNotifs, fetchCalendarEvents } from '../store'
+import { PageHeader, MetricCard, SectionCard } from '../components/ui'
 import RecentNotices from '../../../components/RecentNotices'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const TODAY_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const statusColor = (s) => {
-  const map = { Completed: 'green', Approved: 'blue', Draft: 'gray', Submitted: 'yellow', Rejected: 'red', Cancelled: 'red', Closed: 'green', Postponed: 'yellow' }
-  return map[s] || 'gray'
+// Status → colour. Draft amber, Approved green, Completed blue, Rejected/Cancelled red.
+const STATUS_TONES = {
+  Draft: ['#c98a00', '#fdf3dd'],
+  Submitted: ['#c98a00', '#fdf3dd'],
+  Pending: ['#c98a00', '#fdf3dd'],
+  Postponed: ['#c98a00', '#fdf3dd'],
+  Upcoming: ['#c98a00', '#fdf3dd'],
+  Approved: ['#12a150', '#e6f6ec'],
+  Closed: ['#12a150', '#e6f6ec'],
+  Completed: ['#2f6fed', '#e8f0fe'],
+  Rejected: ['#d92d4a', '#fdeaee'],
+  Cancelled: ['#d92d4a', '#fdeaee'],
+}
+const toneStyle = (status) => {
+  const [color, background] = STATUS_TONES[status] || ['#6b7280', '#eef0f6']
+  return { color, background }
+}
+
+const StatusBadge = ({ status }) =>
+  status ? <span className="ehd-status" style={toneStyle(status)}>{status}</span> : null
+
+function EmptyPanel({ icon = 'inbox', children }) {
+  return (
+    <div className="ehd-empty">
+      <span className="material-symbols-outlined">{icon}</span>
+      <div>{children}</div>
+    </div>
+  )
 }
 
 const fmtDate = (d) => {
@@ -74,7 +99,7 @@ export default function EventDashboard() {
     return () => { cancelled = true }
   }, [ngoFilter, sectorFilter, activityFilter, month, year])
 
-  /* Dynamic upcoming-deadline notifications (next 3 days), refreshed live. */
+  /* Dynamic upcoming-deadline notifications (next 5 days), refreshed live. */
   useEffect(() => {
     let cancelled = false
     const load = () => fetchDeadlineNotifs(5).then(d => { if (!cancelled) setDeadlines(d || []) }).catch(() => {})
@@ -122,8 +147,7 @@ export default function EventDashboard() {
 
   /* Month chosen for the next event. The day itself is always picked on the
      planner grid — this only decides which month Create Event and the planner
-     open on, so the two never disagree about which month is being planned.
-     Defaults to the month we are already in. */
+     open on, so the two never disagree about which month is being planned. */
   const [planMonth, setPlanMonth] = useState(() => {
     const n = new Date()
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
@@ -174,8 +198,7 @@ export default function EventDashboard() {
   const actions = (
     <>
       {/* Month leads the action row: pick the month, then either open the form to
-          fill in details or jump straight to the grid to click the exact day.
-          Both carry the same month through the URL. */}
+          fill in details or jump straight to the grid to click the exact day. */}
       <select
         className="eh-select"
         value={planMonth}
@@ -193,16 +216,13 @@ export default function EventDashboard() {
         Create Event
       </button>
       <button className="eh-btn" onClick={goPlanner}>Monthly Planner <Caret /></button>
-      <button className="eh-btn" onClick={() => navigate('/event-head/activities')}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Activity
-      </button>
+      <button className="eh-btn" onClick={() => navigate('/event-head/activities')}>Add Activity</button>
       <button className="eh-btn" onClick={() => navigate('/event-head/reports')}>Event Reports</button>
     </>
   )
 
   return (
-    <>
+    <div className="ehd">
       <PageHeader
         title="Event Management Overview"
         subtitle={stats?.generated_at
@@ -211,101 +231,80 @@ export default function EventDashboard() {
         actions={actions}
       />
 
-      <div className="eh-toolbar">
-        <SearchInput placeholder="Filter by NGO, sector or activity…" value="" onChange={() => {}} style={{ maxWidth: 420 }} />
-        <select className="eh-select" value={ngoFilter} onChange={e => onNgo(e.target.value)}>
+      <div className="ehd-filters">
+        <select className="eh-select" value={ngoFilter} onChange={e => onNgo(e.target.value)} aria-label="NGO">
           <option value="">All NGOs</option>
           {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
         </select>
-        <select className="eh-select" value={month} onChange={e => setMonth(e.target.value)}>
+        <select className="eh-select" value={month} onChange={e => setMonth(e.target.value)} aria-label="Month">
           <option value="">All Months</option>
           {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
         </select>
-        <select className="eh-select" value={year} onChange={e => setYear(e.target.value)}>
+        <select className="eh-select" value={year} onChange={e => setYear(e.target.value)} aria-label="Year">
           <option value="">All Years</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-        <select className="eh-select" value={sectorFilter} onChange={e => onSector(e.target.value)} disabled={!ngoFilter && relevantSectors.length === 0}>
+        <select className="eh-select" value={sectorFilter} onChange={e => onSector(e.target.value)} disabled={!ngoFilter && relevantSectors.length === 0} aria-label="Sector">
           <option value="">All Sectors</option>
           {relevantSectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <select className="eh-select" value={activityFilter} onChange={e => setActivityFilter(e.target.value)} disabled={!sectorFilter || relevantActivities.length === 0}>
+        <select className="eh-select" value={activityFilter} onChange={e => setActivityFilter(e.target.value)} disabled={!sectorFilter || relevantActivities.length === 0} aria-label="Activity">
           <option value="">All Activities</option>
           {relevantActivities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </div>
 
       {error && (
-        <div className="eh-section" style={{ borderLeft: '3px solid var(--eh-danger)', marginBottom: 16 }}>
-          <div className="eh-row" style={{ padding: '14px 18px', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--eh-danger)', fontWeight: 600 }}>Unable to load dashboard data.</span>
-            {error && error !== 'Unable to load dashboard data.' && (
-              <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)', flex: 1, minWidth: 160 }}>{error}</span>
-            )}
-            <button className="eh-btn eh-btn-primary" onClick={() => { setError(null); setLoading(true); fetchDashboardStats({
-              ngo_id: ngoFilter || undefined, sector_id: sectorFilter || undefined,
-              activity_id: activityFilter || undefined, month: month || undefined, year: year || undefined,
-            }).then(d => setStats(d || null)).catch(e => setError(e && e.message ? e.message : 'Unable to load dashboard data.')).finally(() => setLoading(false)) }}>
-              Retry
-            </button>
-          </div>
+        <div className="ehd-error">
+          <span>Unable to load dashboard data.</span>
+          {error !== 'Unable to load dashboard data.' && <small>{error}</small>}
+          <button className="eh-btn eh-btn-primary" onClick={() => { setError(null); setLoading(true); fetchDashboardStats({
+            ngo_id: ngoFilter || undefined, sector_id: sectorFilter || undefined,
+            activity_id: activityFilter || undefined, month: month || undefined, year: year || undefined,
+          }).then(d => setStats(d || null)).catch(e => setError(e && e.message ? e.message : 'Unable to load dashboard data.')).finally(() => setLoading(false)) }}>
+            Retry
+          </button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: 60, textAlign: 'center', color: 'var(--eh-ink-soft)' }}>Loading dashboard…</div>
+        <div className="ehd-loading">Loading dashboard…</div>
       ) : !error && stats ? (
         <>
           <div className="eh-metrics">
             <MetricCard index={0} number={k.total_events ?? 0} label="Total Events"
               icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
-              color="var(--eh-primary)" />
+              color="var(--d-purple)" />
             <MetricCard index={1} number={k.upcoming_events ?? 0} label="Upcoming Events"
               icon={<Icon path={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>} />}
-              color="var(--eh-secondary)" />
+              color="var(--d-blue)" />
             <MetricCard index={2} number={k.today_events ?? 0} label="Today's Events"
               icon={<Icon path={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />}
-              color="#eab308" />
+              color="var(--d-amber)" />
             <MetricCard index={3} number={k.completed_events ?? 0} label="Completed Events"
               icon={<Icon path={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>} />}
-              color="var(--eh-success)" />
+              color="var(--d-green)" />
             <MetricCard index={4} number={stats.this_month?.total ?? 0} label="This Month Events"
               icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
-              color="var(--eh-primary)" />
+              color="var(--d-purple)" />
           </div>
 
-          {/* Programmes: what is already planned in the selected month, with the
-              two actions that create more of it. Placed above Upcoming Deadlines
-              because picking a month and creating is the main thing done here. */}
           <SectionCard
             title="Programmes"
             sub={`${MONTHS[Number(planMonth.slice(5, 7)) - 1]} ${planMonth.slice(0, 4)} · ${monthProgs.length} planned`}
-            headRight={
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <select className="eh-select" value={planMonth} onChange={e => setPlanMonth(e.target.value)} aria-label="Month" style={{ minWidth: 120 }}>
-                  {planYears.map(y => MONTHS.map((m, i) => {
-                    const val = `${y}-${String(i + 1).padStart(2, '0')}`
-                    return <option key={val} value={val}>{m} {y}</option>
-                  }))}
-                </select>
-                <button className="eh-btn eh-btn-primary" onClick={goCreate}>+ Create Event</button>
-                <button className="eh-btn" onClick={goPlanner}>Monthly Planner <Caret /></button>
-              </div>
-            }
           >
             {progsLoading ? (
-              <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)', padding: '6px 0' }}>Loading programmes…</div>
+              <div className="ehd-muted">Loading programmes…</div>
             ) : progsByDay.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)', lineHeight: 1.55, padding: '4px 0' }}>
+              <EmptyPanel icon="calendar_month">
                 No programmes planned in {MONTHS[Number(planMonth.slice(5, 7)) - 1]} {planMonth.slice(0, 4)}.
-                Use <b>+ Create Event</b> to fill in the details, or <b>Monthly Planner</b> to pick the day on the grid.
-              </div>
+              </EmptyPanel>
             ) : (
-              <div className="eh-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 320, overflow: 'auto' }}>
+              <div className="ehd-prog-list">
                 {progsByDay.map(([day, items]) => (
                   <div key={day}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--eh-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>{labelOf(day)}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="ehd-prog-day">{labelOf(day).toUpperCase()}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {items.map(ev => {
                         const p = ev.extendedProps || {}
                         const time = String(p.startTime || '').slice(0, 5)
@@ -313,16 +312,18 @@ export default function EventDashboard() {
                           <button
                             key={ev.id}
                             type="button"
+                            className="ehd-prog"
                             onClick={() => navigate('/event-head/events/' + ev.id)}
                             title={p.description || ev.title}
-                            style={{ textAlign: 'left', cursor: 'pointer', width: '100%', border: '1px solid var(--eh-line)', borderRadius: 10, padding: '9px 11px', background: '#fff' }}
                           >
-                            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)', lineHeight: 1.35 }}>{ev.title}</div>
-                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
-                              {time && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)' }}>{time}</span>}
-                              {p.ngoName && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{p.ngoName}</span>}
-                              {p.status && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{p.status}</span>}
-                            </div>
+                            <span className="ehd-prog-body">
+                              <span className="ehd-prog-title">{ev.title}</span>
+                              <span className="ehd-prog-meta">
+                                {p.ngoName && <span className="ehd-chip">{p.ngoName}</span>}
+                                {time && <span className="ehd-time">{time}</span>}
+                              </span>
+                            </span>
+                            <StatusBadge status={p.status} />
                           </button>
                         )
                       })}
@@ -337,21 +338,19 @@ export default function EventDashboard() {
             <SectionCard title="Upcoming Deadlines" sub="Events due within the next 5 days · auto-updates"
               headRight={
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{deadlines.length} approaching</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--d-muted)' }}>{deadlines.length} approaching</span>
                   <button className="eh-btn" onClick={() => navigate('/event-head/notifications')}>View Notifications</button>
                 </div>
               }>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {deadlines.slice(0, 6).map(d => (
-                  <div key={d.key} onClick={() => open(d.eventId)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: d.urgent ? 'var(--eh-danger)' : 'var(--eh-primary)', color: '#fff', whiteSpace: 'nowrap' }}>{d.label}</span>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.title}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{d.body} · {d.date}</div>
+                  <div key={d.key} className="ehd-attn" onClick={() => open(d.eventId)}>
+                    <span className="ehd-attn-dot" style={{ background: d.urgent ? 'var(--d-red)' : 'var(--d-purple)' }} />
+                    <div className="ehd-attn-body">
+                      <div className="ehd-attn-title">{d.title}</div>
+                      <div className="ehd-attn-date">{d.body} · {d.date}</div>
                     </div>
+                    <span className="ehd-status" style={{ color: d.urgent ? 'var(--d-red)' : 'var(--d-purple)', background: d.urgent ? 'var(--d-red-soft)' : 'var(--d-purple-soft)' }}>{d.label}</span>
                   </div>
                 ))}
               </div>
@@ -362,26 +361,21 @@ export default function EventDashboard() {
             <SectionCard title="Today's Events" sub="Real events happening today"
               headRight={<button className="eh-btn" onClick={() => navigate('/event-head/events-today')}>Today's Events</button>}>
               {(stats.today_events || []).length === 0 ? (
-                <Empty>No events found today.</Empty>
+                <EmptyPanel icon="event_busy">No events today</EmptyPanel>
               ) : (
                 <div>
                   {(stats.today_events || []).map(ev => (
-                    <div key={ev.id} onClick={() => open(ev.id)}
-                      className="eh-row"
-                      style={{ padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ width: 58, flexShrink: 0, textAlign: 'center', background: 'var(--eh-tint-1)', borderRadius: 10, padding: '3px 0', border: '1px solid var(--eh-line)' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-primary)' }}>{fmtTime(ev.start_time)}</div>
+                    <div key={ev.id} onClick={() => open(ev.id)} className="ehd-attn">
+                      <div className="ehd-datebox">
+                        <div className="ehd-datebox-t">{fmtTime(ev.start_time)}</div>
                       </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{[ev.ngo_name, ev.sector_name, ev.activity_name].filter(Boolean).join(' · ')}</div>
-                        {ev.venue && <div style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>📍 {ev.venue}</div>}
+                      <div className="ehd-attn-body">
+                        <div className="ehd-attn-title">{ev.name || 'Untitled'}</div>
+                        <div className="ehd-attn-date">{[ev.ngo_name, ev.sector_name, ev.activity_name].filter(Boolean).join(' · ')}</div>
+                        {ev.venue && <div className="ehd-attn-date">📍 {ev.venue}</div>}
                       </div>
-                      <StatusPill status={ev.status} />
-                      <button className="eh-btn" title="Manage this event's media & banners" style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
-                        onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage Media/Banners</button>
+                      <StatusBadge status={ev.status} />
+                      <button className="eh-btn" onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage media</button>
                     </div>
                   ))}
                 </div>
@@ -389,29 +383,24 @@ export default function EventDashboard() {
             </SectionCard>
 
             <SectionCard title="Upcoming Events" sub="Next upcoming from the database"
-              headRight={<button className="eh-btn" onClick={() => navigate('/event-head/events')}>View All Events →</button>}>
+              headRight={<button className="eh-btn" onClick={() => navigate('/event-head/events')}>View all →</button>}>
               {(stats.upcoming_events || []).length === 0 ? (
-                <Empty>No upcoming events found.</Empty>
+                <EmptyPanel icon="event">No upcoming events</EmptyPanel>
               ) : (
                 <div>
                   {(stats.upcoming_events || []).slice(0, 8).map(ev => (
-                    <div key={ev.id} onClick={() => open(ev.id)}
-                      className="eh-row"
-                      style={{ padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ width: 46, flexShrink: 0, textAlign: 'center', background: 'var(--eh-tint-1)', borderRadius: 10, padding: '4px 0', border: '1px solid var(--eh-line)' }}>
-                        <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--eh-ink-faint)', fontWeight: 700 }}>{fmtDay(ev.date)}</div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--eh-primary)' }}>{fmtDate(ev.date).split(' ')[0]}</div>
+                    <div key={ev.id} onClick={() => open(ev.id)} className="ehd-attn">
+                      <div className="ehd-datebox">
+                        <div className="ehd-datebox-d">{fmtDay(ev.date)}</div>
+                        <div className="ehd-datebox-n">{fmtDate(ev.date).split(' ')[0]}</div>
                       </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{[ev.ngo_name, ev.sector_name, ev.activity_name].filter(Boolean).join(' · ')}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>{[fmtTime(ev.start_time), ev.venue].filter(Boolean).join(' · ')}</div>
+                      <div className="ehd-attn-body">
+                        <div className="ehd-attn-title">{ev.name || 'Untitled'}</div>
+                        <div className="ehd-attn-date">{[ev.ngo_name, ev.sector_name, ev.activity_name].filter(Boolean).join(' · ')}</div>
+                        <div className="ehd-attn-date">{[fmtTime(ev.start_time), ev.venue].filter(Boolean).join(' · ')}</div>
                       </div>
-                      <StatusPill status={ev.status} />
-                      <button className="eh-btn" title="Manage this event's media & banners" style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
-                        onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage Media/Banners</button>
+                      <StatusBadge status={ev.status} />
+                      <button className="eh-btn" onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage media</button>
                     </div>
                   ))}
                 </div>
@@ -419,59 +408,46 @@ export default function EventDashboard() {
             </SectionCard>
           </div>
 
-          <div className="eh-grid-2">
-            <SectionCard title="This Month"
-              sub={`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()} · from real event data`}
-              headRight={<div className="eh-m-icon" style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)', fontSize: 12, fontWeight: 700 }}>{MONTHS[new Date().getMonth()]}</div>}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-primary)' }}>{stats.this_month?.total ?? 0}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Total events</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: '#eab308' }}>{stats.this_month?.upcoming ?? 0}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Upcoming</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-success)' }}>{stats.this_month?.completed ?? 0}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Completed</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-ink)' }}>{stats.this_week?.count ?? 0}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>This week</div>
-                </div>
+          <SectionCard title="This Month"
+            sub={`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()} · from real event data`}
+            headRight={<div className="ehd-month-badge">{MONTHS[new Date().getMonth()]}</div>}>
+            <div className="ehd-month-grid">
+              <div>
+                <div className="ehd-m-num" style={{ color: 'var(--d-purple)' }}>{stats.this_month?.total ?? 0}</div>
+                <div className="ehd-m-lbl">Total</div>
               </div>
-            </SectionCard>
-
-            {/* Create Event and Monthly Planner live in the Programmes section above,
-                so they are not repeated here. This card keeps the two actions
-                that have no equivalent there. */}
-            <SectionCard title="Quick Actions">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 4 }}>
-                <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/activities')}>＋ Add Activity</button>
-                <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/reports')}>▣ Event Reports</button>
+              <div>
+                <div className="ehd-m-num" style={{ color: 'var(--d-amber)' }}>{stats.this_month?.upcoming ?? 0}</div>
+                <div className="ehd-m-lbl">Upcoming</div>
               </div>
-            </SectionCard>
-          </div>
+              <div>
+                <div className="ehd-m-num" style={{ color: 'var(--d-green)' }}>{stats.this_month?.completed ?? 0}</div>
+                <div className="ehd-m-lbl">Completed</div>
+              </div>
+              <div>
+                <div className="ehd-m-num" style={{ color: 'var(--eh-ink,#0f1128)' }}>{stats.this_week?.count ?? 0}</div>
+                <div className="ehd-m-lbl">This week</div>
+              </div>
+            </div>
+          </SectionCard>
 
           <div className="eh-grid-2">
             <SectionCard title="NGO Performance" sub="Real event counts per NGO">
               {(stats.events_by_ngo || []).length === 0 ? (
-                <Empty>No NGO data available.</Empty>
+                <EmptyPanel icon="bar_chart">No NGO data available</EmptyPanel>
               ) : (
-                <div style={{ padding: '12px 16px 16px' }}>
+                <div>
                   {(stats.events_by_ngo || []).map(n => (
-                    <div key={n.ngo_id} onClick={() => navigate(`/event-head/sectors?ngo=${n.ngo_id}`)}
+                    <div key={n.ngo_id} className="ehd-bar-row"
+                      onClick={() => navigate(`/event-head/sectors?ngo=${n.ngo_id}`)}
                       title={`Open ${n.ngo_name || ''} programs (Sector → Activity → Event)`}
-                      style={{ padding: '10px 0', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer', opacity: ngoFilter && String(n.ngo_id) !== String(ngoFilter) ? 0.5 : 1, transition: 'background .15s, opacity .15s' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--eh-tint-1)'; e.currentTarget.style.paddingLeft = '8px' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.paddingLeft = '0' }}>
-                      <div className="eh-row" style={{ justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{n.ngo_name || '—'}</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--eh-secondary)' }}>{n.count} ›</span>
+                      style={{ opacity: ngoFilter && String(n.ngo_id) !== String(ngoFilter) ? 0.5 : 1 }}>
+                      <div className="ehd-bar-top">
+                        <span className="ehd-bar-name">{n.ngo_name || '—'}</span>
+                        <span className="ehd-bar-count">{n.count}</span>
                       </div>
-                      <div style={{ height: 6, borderRadius: 99, background: 'var(--eh-line)', overflow: 'hidden', marginTop: 6 }}>
-                        <div style={{ height: '100%', width: `${Math.round((n.count / maxNgoCount) * 100)}%`, background: 'linear-gradient(90deg,var(--eh-primary),var(--eh-secondary))', borderRadius: 99, transition: 'width .3s' }} />
+                      <div className="ehd-bar-track">
+                        <div className="ehd-bar-fill" style={{ width: `${Math.round((n.count / maxNgoCount) * 100)}%` }} />
                       </div>
                     </div>
                   ))}
@@ -481,22 +457,19 @@ export default function EventDashboard() {
 
             <SectionCard title="Events by Sector" headRight={<button className="eh-btn" onClick={() => navigate('/event-head/sectors')}>Manage Sectors</button>}>
               {(stats.events_by_sector || []).length === 0 ? (
-                <Empty>No sector data available.</Empty>
+                <EmptyPanel icon="category">No sector data available</EmptyPanel>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, paddingTop: 4 }}>
+                <div className="ehd-sector-grid">
                   {(stats.events_by_sector || []).map(s => {
                     const active = sectorFilter && String(s.id) === String(sectorFilter)
                     return (
-                      <div key={s.id} onClick={() => navigate(`/event-head/activities?sector=${s.id}`)}
-                        style={{ border: '1px solid var(--eh-line)', borderRadius: 14, padding: '12px 14px', cursor: 'pointer', background: active ? 'var(--eh-primary-soft)' : 'var(--eh-surface-2)', transition: 'border-color .15s, transform .15s, box-shadow .15s' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--eh-secondary)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--eh-line)'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
-                        <div className="eh-row" style={{ justifyContent: 'space-between' }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', lineHeight: 1.3 }}>{s.name} {active && <StatusPill status="active" />}</span>
-                        </div>
-                        <div className="eh-row" style={{ marginTop: 8, gap: 14 }}>
-                          <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}><b style={{ color: 'var(--eh-primary)' }}>{s.activity_count ?? 0}</b> activities</span>
-                          <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}><b style={{ color: 'var(--eh-secondary)' }}>{s.event_count ?? 0}</b> events</span>
+                      <div key={s.id}
+                        className={`ehd-sector${(s.event_count ?? 0) > 0 ? ' has-events' : ''}`}
+                        onClick={() => navigate(`/event-head/activities?sector=${s.id}`)}>
+                        <div className="ehd-sector-name">{s.name}{active ? ' •' : ''}</div>
+                        <div className="ehd-sector-stats">
+                          <span><b>{s.activity_count ?? 0}</b> activities</span>
+                          <span><b>{s.event_count ?? 0}</b> events</span>
                         </div>
                       </div>
                     )
@@ -509,7 +482,7 @@ export default function EventDashboard() {
           <div className="eh-grid-2">
             <SectionCard title="Activities with Upcoming Events">
               {(stats.activities_with_upcoming_events || []).length === 0 ? (
-                <Empty>No activities have upcoming events.</Empty>
+                <EmptyPanel icon="event_available">No activities have upcoming events</EmptyPanel>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table>
@@ -519,10 +492,10 @@ export default function EventDashboard() {
                     <tbody>
                       {(stats.activities_with_upcoming_events || []).slice(0, 8).map(a => (
                         <tr key={a.activity_id} style={{ cursor: 'pointer' }} onClick={() => navigate('/event-head/activities/' + a.activity_id)}>
-                          <td style={{ fontWeight: 500 }}>{a.activity_name}</td>
+                          <td style={{ fontWeight: 600 }}>{a.activity_name}</td>
                           <td>{a.sector_name || '—'}</td>
                           <td>{a.ngo_name || 'All NGOs'}</td>
-                          <td><span className="eh-badge" style={{ background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)' }}>{a.upcoming_count}</span></td>
+                          <td><span className="ehd-status" style={{ color: 'var(--d-purple)', background: 'var(--d-purple-soft)' }}>{a.upcoming_count}</span></td>
                           <td>{fmtDate(a.next_event_date)}</td>
                         </tr>
                       ))}
@@ -532,42 +505,42 @@ export default function EventDashboard() {
               )}
             </SectionCard>
 
-            <SectionCard title="Events Needing Attention" headRight={<span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{stats.attention?.length || 0} items</span>}>
+            <SectionCard title="Events Needing Attention" headRight={<span style={{ fontSize: 12, color: 'var(--d-muted)' }}>{stats.attention?.length || 0} items</span>}>
               {(stats.attention || []).length === 0 ? (
-                <Empty>All events are in good shape.</Empty>
+                <EmptyPanel icon="check_circle">All events are in good shape</EmptyPanel>
               ) : (
                 <div>
-                  {(stats.attention || []).map(ev => (
-                    <div key={ev.id} onClick={() => open(ev.id)}
-                      className="eh-row"
-                      style={{ alignItems: 'flex-start', padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', marginTop: 5, flexShrink: 0, background: ev.attention_type === 'overdue' ? 'var(--eh-danger)' : ev.attention_type === 'info' ? 'var(--eh-primary)' : '#eab308' }} />
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{ev.name || 'Untitled'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)', marginTop: 1 }}>{fmtDate(ev.date)}{ev.venue ? ' · ' + ev.venue : ''}</div>
+                  {(stats.attention || []).map(ev => {
+                    const overdue = ev.attention_type === 'overdue'
+                    const info = ev.attention_type === 'info'
+                    const dot = overdue ? 'var(--d-red)' : info ? 'var(--d-purple)' : 'var(--d-amber)'
+                    const badge = overdue
+                      ? { color: 'var(--d-red)', background: 'var(--d-red-soft)', label: 'Overdue · mark completed' }
+                      : info
+                        ? { color: 'var(--d-purple)', background: 'var(--d-purple-soft)', label: ev.attention_reason }
+                        : { color: 'var(--d-amber)', background: 'var(--d-amber-soft)', label: ev.attention_reason || 'Pending approval' }
+                    return (
+                      <div key={ev.id} className="ehd-attn" onClick={() => open(ev.id)}>
+                        <span className="ehd-attn-dot" style={{ background: dot }} />
+                        <div className="ehd-attn-body">
+                          <div className="ehd-attn-title">{ev.name || 'Untitled'}</div>
+                          <div className="ehd-attn-date">{fmtDate(ev.date)}{ev.venue ? ' · ' + ev.venue : ''}</div>
+                        </div>
+                        <span className="ehd-status" style={{ color: badge.color, background: badge.background }}>{badge.label}</span>
+                        <button className="eh-btn" onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage media</button>
                       </div>
-                      <span className="eh-badge" style={{ background: ev.attention_type === 'overdue' ? 'var(--eh-danger-soft)' : ev.attention_type === 'info' ? 'var(--eh-primary-soft)' : 'var(--eh-warn-soft)', color: ev.attention_type === 'overdue' ? 'var(--eh-danger)' : ev.attention_type === 'info' ? 'var(--eh-primary)' : '#9a8200', whiteSpace: 'nowrap' }}>{ev.attention_reason}</span>
-                      <button
-                        className="eh-btn"
-                        title="Manage this event's media & banners"
-                        style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
-                        onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>
-                        Manage Media/Banners
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </SectionCard>
           </div>
 
-          <div style={{ marginBottom: 18 }}>
+          <div className="ehd-notices">
             <RecentNotices limit={5} title="Recent Notices" />
           </div>
         </>
       ) : null}
-    </>
+    </div>
   )
 }

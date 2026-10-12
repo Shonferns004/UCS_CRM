@@ -131,4 +131,26 @@ export async function ensureEventHeadSchema() {
       try { await db._pool.query(sql); } catch { /* column may already exist */ }
     }
   }
+
+  // Social-media publishing tracking (Instagram / Facebook / YouTube), one row
+  // per event per platform, linked to the event by event_id. UNIQUE(event_id,
+  // platform) keeps exactly one row per platform so completion is idempotent
+  // and cannot be bypassed by a second submission. Mirrors migration 184.
+  await db._pool.query(`CREATE TABLE IF NOT EXISTS event_head_social_tracking (
+       id                    SERIAL PRIMARY KEY,
+       event_id              INT NOT NULL REFERENCES event_head_events(id) ON DELETE CASCADE,
+       platform              TEXT NOT NULL,
+       status                TEXT NOT NULL DEFAULT 'Pending',
+       url                   TEXT,
+       content_type          TEXT,
+       upload_date           DATE,
+       upload_time           TEXT,
+       proof_url             TEXT,
+       not_applicable_reason TEXT,
+       created_at            TIMESTAMPTZ DEFAULT NOW(),
+       updated_at            TIMESTAMPTZ DEFAULT NOW(),
+       UNIQUE (event_id, platform)
+     )`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_event_head_social_event
+       ON event_head_social_tracking (event_id)`);
 }

@@ -607,6 +607,15 @@ export const fetchEventsByState = (state) => apiGet('/event-head/events/state/' 
 export const fetchEventPerformance = (id) => apiGet('/event-head/events/' + id + '/performance')
 export const updateEventStatus = (id, status) => apiPut('/event-head/events/' + id + '/status', { status })
 
+/* ── Social media publishing tracking ──
+   Captured when an event is completed: Instagram / Facebook / YouTube, each
+   Uploaded (with link, date, time, optional proof) or Not Applicable (reason).
+   Completion is validated server-side, so the client only assembles the payload. */
+export const fetchEventSocial = (id) => apiGet('/event-head/events/' + id + '/social')
+export const saveEventSocial = (id, platforms) => apiPut('/event-head/events/' + id + '/social', { platforms })
+export const completeEventWithSocial = (id, platforms) => apiPost('/event-head/events/' + id + '/complete', { platforms })
+export const uploadSocialProof = (id, formData) => api('/event-head/events/' + id + '/social/proof', { method: 'POST', body: formData, _prefix: 'ucs' })
+
 /* ── Monthly Planner · stored AI suggestions ──
    Selections persist server-side so a tick survives closing the modal and a page
    reload, and so the downloadable monthly report can list them later. */

@@ -7,6 +7,7 @@ import {
 } from '../store'
 import { SectionCard, Badge, Empty, StatusPill } from '../components/ui'
 import EditBannerModal from '../components/EditBannerModal'
+import EventCompletionModal from '../components/EventCompletionModal'
 import VoluntaryPicker from '../components/VoluntaryPicker'
 import { DistrictSelect, StateSelect } from '../../../components/LocationSelect'
 import { stateForDistrict, districtsOfState as districtsOf } from '../../../utils/indiaLocations'
@@ -85,10 +86,10 @@ export default function EventDetail() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [editBanner, setEditBanner] = useState(null)
-  const [downloading, setDownloading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [showCompletion, setShowCompletion] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -220,10 +221,19 @@ export default function EventDetail() {
   }
 
   const handleStatus = async (status) => {
+    // "Completed" runs through the social-media completion form instead of a
+    // bare status write; the form saves the tracking and then sets the status.
+    if (status === 'Completed') { setShowCompletion(true); return }
     try {
       await updateEventStatus(id, status)
       setEvent({ ...event, status })
     } catch (err) { alert('Failed to update status: ' + (err.message || 'Unknown error')) }
+  }
+
+  const handleCompleted = (updated) => {
+    setShowCompletion(false)
+    if (updated) setEvent(prev => ({ ...prev, ...updated }))
+    navigate('/event-head/reports?event=' + encodeURIComponent(id) + '&autodownload=1&completed=1')
   }
 
   const handleDelete = async () => {
@@ -234,23 +244,6 @@ export default function EventDetail() {
     } catch (err) {
       setDeleteError(err.message || 'Failed to delete the event')
       setDeleting(false)
-    }
-  }
-
-  // Build the "Daily Event Planning Form" PDF for this event. jspdf is imported
-  // lazily so it stays out of the main bundle until the button is used.
-  const handleDownloadPdf = async () => {
-    try {
-      setDownloading(true)
-      const { buildEventPlanningPdf } = await import('../components/eventPlanningPdf.mjs')
-      const doc = buildEventPlanningPdf(event)
-      const base = String(event.name || 'event-planning-form').trim().replace(/[^\w\-]+/g, '_').slice(0, 60) || 'event-planning-form'
-      doc.save(`${base}.pdf`)
-    } catch (err) {
-      console.error('Event planner PDF:', err)
-      alert('Could not create the PDF: ' + (err.message || 'Unknown error'))
-    } finally {
-      setDownloading(false)
     }
   }
 
@@ -287,16 +280,13 @@ export default function EventDetail() {
         {!editing && (
           <div className="eh-actions">
             {event.status !== 'Completed' && (
-              <button className="eh-btn" style={{ color: 'var(--eh-success)', borderColor: 'var(--eh-success-soft)' }} onClick={() => handleStatus('Completed')}>Mark Completed</button>
+              <button className="eh-btn" style={{ color: 'var(--eh-success)', borderColor: 'var(--eh-success-soft)' }} onClick={() => setShowCompletion(true)}>Mark Completed</button>
             )}
             <select className="eh-select" value={event.status} onChange={e => handleStatus(e.target.value)}>
               {EVENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <button className="eh-btn" onClick={startEdit}>Edit</button>
-            <button className="eh-btn" onClick={handleDownloadPdf} disabled={downloading}>
-              {downloading ? 'Preparing…' : 'Download PDF'}
-            </button>
-            <button className="eh-btn" onClick={() => navigate('/event-head/reports')}>Report</button>
+            <button className="eh-btn" onClick={() => navigate('/event-head/reports?event=' + encodeURIComponent(id))}>Report</button>
             <button className="eh-btn" style={{ color: 'var(--eh-danger)', borderColor: 'var(--eh-danger)' }} onClick={() => { setDeleteError(''); setConfirmDelete(true) }}>Delete</button>
           </div>
         )}
@@ -581,6 +571,14 @@ export default function EventDetail() {
           event={event}
           onClose={() => setEditBanner(null)}
           onSaved={() => { setEditBanner(null); load() }}
+        />
+      )}
+
+      {showCompletion && (
+        <EventCompletionModal
+          event={event}
+          onClose={() => setShowCompletion(false)}
+          onCompleted={handleCompleted}
         />
       )}
     </>
