@@ -36,6 +36,11 @@ const ROLE_ALIASES = {
   'digital': 'digital',
   'developer': 'developers',
   'developers': 'developers',
+  'social': 'social',
+  'social media': 'social',
+  'social_media': 'social',
+  'social-media': 'social',
+  'social media manager': 'social',
   'agent': 'agent',
   'viewer': 'viewer',
 };

@@ -36,8 +36,9 @@ export async function api(path, options = {}) {
   const headers = { ...options.headers }
   if (!isFormData) headers['Content-Type'] = 'application/json'
   if (token) headers['Authorization'] = `Bearer ${token}`
+  let timedOut = false
   const timeoutController = new AbortController()
-  const timeout = setTimeout(() => timeoutController.abort(), options.timeout || 120000)
+  const timeout = setTimeout(() => { timedOut = true; timeoutController.abort() }, options.timeout || 120000)
   const externalSignal = options.signal || null
   let combinedSignal = timeoutController.signal
   if (externalSignal) {
@@ -94,6 +95,24 @@ export async function api(path, options = {}) {
     }
     if (options.raw) return res
     return res.json()
+  } catch (err) {
+    // An aborted fetch rejects with a DOMException whose raw message is
+    // "signal is aborted without reason" — meaningless to users. It happens on
+    // the client timeout above, or when a caller passes its own signal and
+    // cancels a request that is no longer needed. Translate each into an
+    // actionable error and mark caller-initiated cancellations so components
+    // can ignore them silently.
+    if (err && err.name === 'AbortError') {
+      if (timedOut) {
+        const e = new Error('The request timed out. Please try again.')
+        e.status = 408
+        throw e
+      }
+      const e = new Error('Request cancelled')
+      e.cancelled = true
+      throw e
+    }
+    throw err
   } finally {
     clearTimeout(timeout)
   }

@@ -121,7 +121,18 @@ SELECT
   (SELECT COUNT(DISTINCT a.worker_id) FROM attendance a
      JOIN roster r ON r.id = a.worker_id
     WHERE a.date = $1::date AND a.status = 'half-day')::int AS half_day,
+  (SELECT COUNT(DISTINCT a.worker_id) FROM attendance a
+     JOIN roster r ON r.id = a.worker_id
+    WHERE a.date = $1::date AND a.status = 'late')::int AS late_coming,
   (SELECT COUNT(*) FROM on_leave)::int AS on_leave,
+  -- Workers whose profile row was created on the report date. The pooled
+  -- session is pinned to Asia/Kolkata in config/db.js, so created_at::date is
+  -- the IST calendar day. NULL created_at (backfilled rows) has no join date,
+  -- so it can never count as "joined today".
+  (SELECT COUNT(*) FROM workers w
+    WHERE COALESCE(w.is_test, false) = false
+      AND w.created_at IS NOT NULL
+      AND w.created_at::date = $1::date)::int AS new_joinings,
   (SELECT COUNT(*) FROM workers w
     WHERE COALESCE(w.is_active, true) = true
       AND COALESCE(w.employment_status, 'active') IS DISTINCT FROM 'terminated'
@@ -136,7 +147,9 @@ export async function attendanceSummary(req, res) {
     const totalStaff = Number(row.total_staff) || 0;
     const present = Number(row.present) || 0;
     const halfDay = Number(row.half_day) || 0;
+    const lateComing = Number(row.late_coming) || 0;
     const onLeave = Number(row.on_leave) || 0;
+    const newJoinings = Number(row.new_joinings) || 0;
 
     // Attendance stores no 'absent' rows — a missing punch IS the absence — so
     // absent is whatever is left of the roster. Clamped at 0 because a punch
@@ -149,8 +162,10 @@ export async function attendanceSummary(req, res) {
       total_staff: totalStaff,
       present,
       half_day: halfDay,
+      late_coming: lateComing,
       on_leave: onLeave,
       absent,
+      new_joinings: newJoinings,
       test_members: Number(row.test_members) || 0,
     });
   } catch (error) {

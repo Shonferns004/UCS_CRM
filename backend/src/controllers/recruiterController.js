@@ -63,14 +63,28 @@ export const getRecruiterStats = async (req, res) => {
 
 export const getRecruiterOverview = async (req, res) => {
   try {
+    // Serve the cached copy for the TTL window; only a cold start hits the DB.
+    const scopeDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : null;
+    const cacheKey = scopeDate || 'all';
+    if (overviewCache.data && overviewCache.key === cacheKey && Date.now() - overviewCache.at < OVERVIEW_TTL_MS) {
+      return res.json(overviewCache.data);
+    }
     const recruiters = await getRecruiterWorkers();
     const allLeads = await getAllLeads();
 
     const today = istDateString();
     const now = new Date();
 
+    const scopedLeads = scopeDate
+      ? allLeads.filter((l) => {
+          const created = istDateString(l.created_at ? new Date(l.created_at) : null);
+          const updated = istDateString(l.updated_at ? new Date(l.updated_at) : null);
+          return created === scopeDate || updated === scopeDate;
+        })
+      : allLeads;
+
     const recruiterStats = recruiters.map((r) => {
-      const rLeads = allLeads.filter((l) => leadBelongsTo(l, r));
+      const rLeads = scopedLeads.filter((l) => leadBelongsTo(l, r));
       const total = rLeads.length;
       const byStatus = {};
       rLeads.forEach((l) => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; });
@@ -87,7 +101,8 @@ export const getRecruiterOverview = async (req, res) => {
       const convBase = joined + rejected;
       const convRate = convBase > 0 ? parseFloat(((joined / convBase) * 100).toFixed(1)) : 0;
 
-      const todayLeads = rLeads.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === today).length;
+      const dayKey = scopeDate || today;
+      const todayLeads = rLeads.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === dayKey).length;
 
       const recentActivity = rLeads
         .filter((l) => l.updated_at)
@@ -117,17 +132,17 @@ export const getRecruiterOverview = async (req, res) => {
     });
 
     const totalRecruiters = recruiters.length;
-    const totalLeads = allLeads.length;
-    const totalScheduled = allLeads.filter((l) => l.status === 'scheduled').length;
-    const totalPending = allLeads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
-    const totalInterviewed = allLeads.filter((l) => l.status === 'selected').length;
-    const totalJoined = countConverted(allLeads);
-    const totalRejected = countRejected(allLeads);
-    const totalFollowUp = allLeads.filter((l) => ['followed_up', 'call_back'].includes(l.status)).length;
-    const overallConversionRate = conversionRate(allLeads);
+    const totalLeads = scopedLeads.length;
+    const totalScheduled = scopedLeads.filter((l) => l.status === 'scheduled').length;
+    const totalPending = scopedLeads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
+    const totalInterviewed = scopedLeads.filter((l) => l.status === 'selected').length;
+    const totalJoined = countConverted(scopedLeads);
+    const totalRejected = countRejected(scopedLeads);
+    const totalFollowUp = scopedLeads.filter((l) => ['followed_up', 'call_back'].includes(l.status)).length;
+    const overallConversionRate = conversionRate(scopedLeads);
 
     const statusBreakdown = {};
-    allLeads.forEach((l) => {
+    scopedLeads.forEach((l) => {
       const s = l.status || 'unknown';
       statusBreakdown[s] = (statusBreakdown[s] || 0) + 1;
     });
@@ -186,14 +201,14 @@ export const getRecruiterOverview = async (req, res) => {
     const activeRecruiters = recruiterStats.filter((r) => r.leadsCount > 0).length;
     const avgLeadsPerRecruiter = totalRecruiters > 0 ? parseFloat((totalLeads / totalRecruiters).toFixed(1)) : 0;
 
-    const totalLeadAge = allLeads.reduce((sum, l) => {
+    const totalLeadAge = scopedLeads.reduce((sum, l) => {
       const created = new Date(l.created_at);
       const diffDays = (now - created) / (1000 * 60 * 60 * 24);
       return sum + diffDays;
     }, 0);
     const avgHiringTime = totalLeads > 0 ? parseFloat((totalLeadAge / totalLeads).toFixed(1)) : 0;
 
-    return {
+    const body = {
       summary: {
         totalRecruiters,
         activeRecruiters,
@@ -214,14 +229,26 @@ export const getRecruiterOverview = async (req, res) => {
       analytics: {
         avgLeadsPerRecruiter,
         avgHiringTime,
-        avgResponseTime: calculateAvgResponseTime(allLeads),
+        avgResponseTime: calculateAvgResponseTime(scopedLeads),
         avgDailyLeads: last7Days.length > 0 ? parseFloat((totalLeads / 30).toFixed(1)) : 0,
       },
     };
+
+    overviewCache.key = cacheKey;
+    overviewCache.data = body;
+    overviewCache.at = Date.now();
+    return res.json(body);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// Recruiter/lead stats barely change minute-to-minute (they are read-only for
+// this panel), so a short TTL lets the Super-Admin Daily Reports Recruiter tab
+// render instantly on repeat visits instead of re-scanning leads + workers on
+// every tab switch — those scans cost seconds on the slow DB link.
+const OVERVIEW_TTL_MS = 60000;
+const overviewCache = { key: null, data: null, at: 0 };
 
 function calculateAvgResponseTime(leads) {
   const withUpdates = leads.filter((l) => l.created_at && l.updated_at && l.created_at !== l.updated_at);

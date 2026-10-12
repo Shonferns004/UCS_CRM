@@ -20,6 +20,7 @@ const EventHeadPanel = lazy(() => import('./panels/event-head/EventHeadPanel'))
 const DocumentationPanel = lazy(() => import('./panels/documentation/DocumentationPanel'))
 const WhatsAppPanel = lazy(() => import('./panels/whatsapp/WhatsAppPanel'))
 const DevPanel = lazy(() => import('./panels/dev-panel/DevPanel'))
+const SocialPanel = lazy(() => import('./panels/social/SocialPanel'))
 const SimCardPanel = lazy(() => import('./panels/sim-card/SimCardPanel'))
 
 const ROLE_PATHS = {
@@ -36,6 +37,7 @@ const ROLE_PATHS = {
   'Event Head': '/event-head',
   digital: '/dev-panel',
   developers: '/dev-panel',
+  social: '/social',
 }
 
 const ROLE_PANELS = {
@@ -51,6 +53,7 @@ const ROLE_PANELS = {
   'Event Head': { panel: EventHeadPanel, cls: 'panel-event-head' },
   digital: { panel: DevPanel, cls: 'panel-dev' },
   developers: { panel: DevPanel, cls: 'panel-dev' },
+  social: { panel: SocialPanel, cls: 'panel-dev' },
 }
 
 function ProtectedRoute({ role, children }) {
@@ -219,6 +222,12 @@ export default function App() {
         <Route path="/dev-panel/*" element={
           <ProtectedRoute role={['digital', 'developers', 'super_admin']}>
             <PanelWrapper roleKey="digital" />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/social/*" element={
+          <ProtectedRoute role={['social', 'super_admin']}>
+            <PanelWrapper roleKey="social" />
           </ProtectedRoute>
         } />
 

@@ -37,6 +37,7 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
 import { EMBED_PANELS, injectEmbedCss } from './embedPanels'
 import HrRecruitmentReport from './pages/HrRecruitmentReport'
+import DailyReportsOverview from './pages/DailyReportsOverview'
 
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', eyebrow: 'Super Admin', icon: GridFour },
@@ -61,6 +62,7 @@ const NAV = [
   { id: 'late-policy', path: '/sa/late-policy', label: 'Late Policy', eyebrow: 'HR', icon: Clock },
   { id: 'chat', path: '/sa/chat', label: 'Community', eyebrow: 'Team', icon: ChatIcon },
   { id: 'hr-report', path: '/sa/hr-report', label: 'HR & Recruitment Report', eyebrow: 'Reports', icon: Clipboard },
+  { id: 'daily-reports', path: '/sa/daily-reports', label: 'Daily Reports', eyebrow: 'Reports', icon: Clipboard },
 ]
 
 const navMap = {}
@@ -72,7 +74,7 @@ NAV.forEach(n => { navMap[n.id] = n })
 // It starts collapsed. To promote a page, move its id into another category.
 const CATEGORIES = [
   { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter'] },
-  { id: 'people', label: 'People', icon: Users, items: ['hr-report', 'organization', 'admin-attendance'] },
+  { id: 'people', label: 'People', icon: Users, items: ['hr-report', 'daily-reports', 'organization', 'admin-attendance'] },
   { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'data-management'] },
   { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
   { id: 'comms', label: 'Communication', icon: Megaphone, items: ['notices', 'chat'] },
@@ -428,6 +430,7 @@ export default function SuperAdminPanel() {
         <Route path="hr/*" element={<PanelFrame panel="hr" />} />
         <Route path="admin-attendance" element={<AdminAttendance />} />
         <Route path="hr-report" element={<HrRecruitmentReport />} />
+        <Route path="daily-reports" element={<DailyReportsOverview />} />
         <Route path="event-head/*" element={<PanelFrame panel="event-head" />} />
         <Route path="recruiter/*" element={<PanelFrame panel="recruiter" />} />
         <Route path="assets" element={<AssetOverview />} />

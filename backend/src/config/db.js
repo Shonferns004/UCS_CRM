@@ -25,7 +25,7 @@ pg.types.setTypeParser(1114, (v) => v);                        // timestamp -> r
 pg.types.setTypeParser(1082, (v) => v);                        // date -> string
 pg.types.setTypeParser(1083, (v) => v);                        // time -> string
 
-const poolConfig = { max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 20000, maxUses: 1000 };
+const poolConfig = { max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 20000, maxUses: 1000, query_timeout: 30000 };
 if (process.env.DATABASE_URL) {
   poolConfig.connectionString = process.env.DATABASE_URL;
   poolConfig.ssl = process.env.DATABASE_SSL !== 'false' ? { rejectUnauthorized: false } : false;

@@ -551,6 +551,7 @@ export const unifiedLogin = async (req, res) => {
       else if (dept === 'fro') role = 'fro';
       else if (dept === 'ngo admin') role = 'admin';
       else if (dept === 'digital' || dept.includes('develop')) role = 'digital';
+      else if (dept.includes('social') || dept.includes('media')) role = 'social';
       else if (dept.includes('event')) role = 'event_head';
       else role = 'worker';
       const token = jwt.sign(
@@ -657,6 +658,7 @@ export const unifiedLogin = async (req, res) => {
         else if (dept === 'fro') wRole = 'fro';
         else if (dept === 'ngo admin') wRole = 'admin';
         else if (dept === 'digital' || dept.includes('develop')) wRole = 'digital';
+        else if (dept.includes('social') || dept.includes('media')) wRole = 'social';
         else if (dept.includes('event')) wRole = 'event_head';
         else wRole = 'worker';
         const token = jwt.sign(
@@ -701,6 +703,7 @@ export const unifiedLogin = async (req, res) => {
         else if (eDept === 'fro') eRole = 'fro';
         else if (eDept === 'ngo admin') eRole = 'admin';
         else if (eDept === 'digital' || eDept.includes('develop')) eRole = 'digital';
+        else if (eDept.includes('social') || eDept.includes('media')) eRole = 'social';
         else if (eDept.includes('event')) eRole = 'event_head';
         else eRole = 'worker';
         const token = jwt.sign(
@@ -765,6 +768,7 @@ export const unifiedLogin = async (req, res) => {
     else if (dept === 'fro') role = 'fro';
     else if (dept === 'ngo admin') role = 'admin';
     else if (dept === 'digital' || dept.includes('develop')) role = 'digital';
+    else if (dept.includes('social') || dept.includes('media')) role = 'social';
     else if (dept.includes('event')) role = 'event_head';
     else role = 'worker';
     // name is included because lead ownership falls back to a name match for rows
