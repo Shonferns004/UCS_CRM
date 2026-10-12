@@ -231,6 +231,55 @@ const agentOptionLabel = (a) => {
   return fro ? `${handle} — ${fro}` : handle;
 };
 
+// Inline agent menu behind a station's Assign button. Deliberately NOT a floating
+// popup: every ancestor of this card clips overflow, so an absolutely-positioned
+// menu would be cut off. Instead the menu expands in place and scrolls inside
+// itself, which stays inside the card's own scroll region.
+function StationAgentMenu({ agents, saving, onPick }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? agents.filter((a) => agentOptionLabel(a).toLowerCase().includes(q) || String(a.login_id || '').toLowerCase().includes(q))
+    : agents;
+  const searchable = agents.length > 6;
+
+  return (
+    <div className="stations-agent-menu" style={{ marginTop: 6, minWidth: 0, boxSizing: 'border-box', border: '1px solid var(--stations-border, #DCE7F5)', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
+      {searchable && (
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search agents…"
+          aria-label="Search agents"
+          style={{ display: 'block', width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: '1px solid var(--stations-border, #DCE7F5)', padding: '6px 8px', fontSize: 11, font: 'inherit', color: 'var(--stations-text, #14233D)', outline: 'none', background: '#fff' }}
+        />
+      )}
+      <div style={{ maxHeight: 138, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {filtered.length === 0 ? (
+          <div style={{ fontSize: 10, color: 'var(--stations-muted, #496487)', padding: '7px 6px' }}>
+            {agents.length === 0 ? 'No agents available' : 'No agents match'}
+          </div>
+        ) : filtered.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className="stations-agent-opt"
+            disabled={saving}
+            onClick={() => onPick(a.id)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box', textAlign: 'left', padding: '6px 7px', borderRadius: 6, border: 'none', background: 'transparent', font: 'inherit', fontSize: 11, fontWeight: 600, cursor: saving ? 'default' : 'pointer', color: 'var(--stations-text, #14233D)', minWidth: 0, opacity: saving ? 0.6 : 1 }}
+          >
+            <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 6, background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }} aria-hidden="true">
+              {(a.label || a.agent_label || '?').charAt(0).toUpperCase()}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agentOptionLabel(a)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
   const [donors, setDonors] = useState([]);
   const [loadingDonors, setLoadingDonors] = useState(false);
@@ -2254,7 +2303,7 @@ export default function Dashboard() {
               divider. Narrow: the same two sections stack — progress first,
               assignments second — and the divider turns horizontal, so nothing is
               hidden and no in-card view switch is needed. */}
-          <div className="stations-card__body" style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'grid', gridTemplateColumns: stationsNarrow ? 'minmax(0, 1fr)' : 'minmax(0, 1.8fr) minmax(0, 1fr)', gridTemplateRows: stationsNarrow ? 'auto minmax(0, 1fr)' : undefined, columnGap: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
+          <div className="stations-card__body" style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'grid', gridTemplateColumns: stationsNarrow ? 'minmax(0, 1fr)' : 'minmax(0, 1.5fr) minmax(0, 1fr)', gridTemplateRows: stationsNarrow ? 'auto minmax(0, 1fr)' : undefined, columnGap: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
 
             {/* Left: one button per NGO. The count pill sits inside that same button,
                 so a click can never select the row twice. */}
@@ -2275,33 +2324,33 @@ export default function Dashboard() {
                     aria-pressed={selected}
                     aria-label={`${r.name} progress: ${r.active} of ${r.total}, ${r.unused.length} not in use`}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box',
-                      flex: '1 0 auto', minHeight: 38, marginBottom: 6, textAlign: 'left', font: 'inherit',
+                      display: 'flex', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box',
+                      flex: '1 0 auto', minHeight: 30, marginBottom: 4, textAlign: 'left', font: 'inherit',
                       background: selected ? hexA(r.color, 0.07) : '#fff',
                       border: selected ? `1px solid ${hexA(r.color, 0.45)}` : '1px solid var(--stations-border, #DCE7F5)',
-                      borderRadius: 14, padding: '6px 10px', cursor: 'pointer', minWidth: 0,
+                      borderRadius: 11, padding: '4px 8px', cursor: 'pointer', minWidth: 0,
                     }}
                   >
-                    <span style={{ width: 24, height: 24, flexShrink: 0, borderRadius: 8, background: r.color, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} aria-hidden="true">
+                    <span style={{ width: 19, height: 19, flexShrink: 0, borderRadius: 6, background: r.color, color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} aria-hidden="true">
                       {r.name.charAt(0).toUpperCase()}
                     </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flexShrink: 0, maxWidth: 46, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name}>{r.name}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--stations-text, #14233D)', flexShrink: 0, maxWidth: 42, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name}>{r.name}</span>
                     <span
                       role="progressbar"
                       aria-valuemin={0}
                       aria-valuemax={r.total || 0}
                       aria-valuenow={r.active || 0}
                       aria-label={`${r.name} progress: ${r.active} of ${r.total}`}
-                      style={{ flex: 1, minWidth: 0, height: 7, borderRadius: 4, background: 'var(--stations-track, #E5EAF2)', overflow: 'hidden' }}
+                      style={{ flex: 1, minWidth: 0, height: 5, borderRadius: 3, background: 'var(--stations-track, #E5EAF2)', overflow: 'hidden' }}
                     >
-                      <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 4, background: r.color }} />
+                      <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 3, background: r.color }} />
                     </span>
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--stations-muted, #496487)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{r.active}/{r.total}</span>
-                    <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, color: 'var(--stations-assign, #E52336)', background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', borderRadius: 999, padding: '1px 7px', lineHeight: 1.5, minWidth: 26, justifyContent: 'center' }}>
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} aria-hidden="true" />
+                    <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 800, color: 'var(--stations-assign, #E52336)', background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', borderRadius: 999, padding: '0 6px', lineHeight: 1.5, minWidth: 22, justifyContent: 'center' }}>
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} aria-hidden="true" />
                       {r.unused.length}
                     </span>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--stations-muted, #496487)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--stations-muted, #496487)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
                   </button>
                 );
               })}
@@ -2319,12 +2368,12 @@ export default function Dashboard() {
                     const open = assigningStation === s;
                     const saving = savingStation === s;
                     return (
-                      <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${open ? 'var(--stations-assign, #E52336)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 10, padding: '5px 7px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                          <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 6, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: open ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${open ? 'var(--stations-assign, #E52336)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                          <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                           </span>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
                           <button
                             type="button"
                             className="stations-assign-row"
@@ -2332,26 +2381,17 @@ export default function Dashboard() {
                             disabled={saving}
                             aria-expanded={open}
                             aria-label={open ? `Close the agent picker for ${s}` : `Assign an agent to station ${s}`}
-                            style={{ flexShrink: 0, minWidth: 60, minHeight: 26, padding: '3px 9px', borderRadius: 7, font: 'inherit', fontSize: 10, fontWeight: 700, cursor: saving ? 'default' : 'pointer', color: saving ? 'var(--stations-muted, #496487)' : 'var(--stations-assign, #E52336)', background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', opacity: saving ? 0.7 : 1, whiteSpace: 'nowrap' }}
+                            style={{ flexShrink: 0, minWidth: 68, minHeight: 30, padding: '5px 11px', borderRadius: 8, font: 'inherit', fontSize: 11, fontWeight: 700, cursor: saving ? 'default' : 'pointer', color: saving ? 'var(--stations-muted, #496487)' : 'var(--stations-assign, #E52336)', background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', opacity: saving ? 0.7 : 1, whiteSpace: 'nowrap' }}
                           >
                             {saving ? 'Saving…' : (open ? 'Close' : 'Assign')}
                           </button>
                         </div>
                         {open && (
-                          <div style={{ display: 'flex', gap: 5, marginTop: 6, minWidth: 0 }}>
-                            <select
-                              value=""
-                              disabled={saving}
-                              onChange={(e) => { if (e.target.value) handleAssignStationAgent(s, e.target.value, selectedNgo.ngoId); }}
-                              aria-label={`Pick an agent for station ${s}`}
-                              style={{ flex: 1, minWidth: 0, fontSize: 10, padding: '5px 6px', borderRadius: 7, border: '1px solid var(--stations-border, #DCE7F5)', background: '#fff', color: 'var(--stations-text, #14233D)', font: 'inherit', cursor: 'pointer' }}
-                            >
-                              <option value="">{stationAgents.length === 0 ? 'No agents available' : (saving ? 'Assigning…' : 'Select agent…')}</option>
-                              {stationAgents.map((a) => (
-                                <option key={a.id} value={a.id}>{agentOptionLabel(a)}</option>
-                              ))}
-                            </select>
-                          </div>
+                          <StationAgentMenu
+                            agents={stationAgents}
+                            saving={saving}
+                            onPick={(agentId) => handleAssignStationAgent(s, agentId, selectedNgo.ngoId)}
+                          />
                         )}
                       </div>
                     );
