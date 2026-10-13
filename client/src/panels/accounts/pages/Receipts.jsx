@@ -845,7 +845,7 @@ const agentCell = useCallback((d) => {
           </span>
           <span className="rx-upload-titles">
             <span className="rx-upload-title">Upload Receipts</span>
-            <span className="rx-upload-hint">Import…</span>
+            {/* <span className="rx-upload-hint">Import…</span>  */}
           </span>
           <svg className="rx-upload-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
         </button>

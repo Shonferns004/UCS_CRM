@@ -105,6 +105,56 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
 export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday, includeHolidayPay = false, compensatoryWorkdays = [], lateGraceMinutes }) {
   const lateGrace = resolveLateGrace(lateGraceMinutes);
   const lateThresholds = getLateThresholds(lateGrace);
+  // A Date of Joining after this month's last day means the worker was never on
+  // this month's roster (e.g. a fresh joiner seen while exporting an earlier
+  // month). Scoring them as employed for the whole month would invent absences,
+  // free Sundays and paid days out of nothing — return an honest zero instead.
+  const joinDateOnly = createdAt ? String(createdAt).slice(0, 10) : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(joinDateOnly) && joinDateOnly > `${year}-${pad(month + 1)}-${pad(daysInMonth)}`) {
+    return {
+      joinedThisMonth: false,
+      joinedAfterMonth: true,
+      joinDay: 1,
+      available: 0,
+      presentRaw: 0,
+      presentDays: 0,
+      halfDayCount: 0,
+      leaveCount: 0,
+      totalLateMinutes: 0,
+      lateDeductionDays: 0,
+      lateGraceMinutes: lateGrace,
+      lateThresholds,
+      joiningDeduction: 0,
+      sundayDeductionDays: 0,
+      deducted: new Set(),
+      deductedCount: 0,
+      absentDatesAfterJoin: [],
+      sundayAdd: 0,
+      extraSundays: [],
+      clubbedSundays: 0,
+      extraSundayCount: 0,
+      freeSundays: 0,
+      holidayPaidDays: 0,
+      compensatoryWorkDays: 0,
+      compensatedHolidayDays: 0,
+      requiredSundayWorkedDays: 0,
+      sundayReasons: [],
+      sundayStats: {
+        totalSundays: 0,
+        attendedSundays: 0,
+        attendedCancelledDates: [],
+        paidSundays: 0,
+        eligibleSundays: [],
+        eligibleNotWorked: 0,
+        cancelledSundays: [],
+        cancelledDetails: [],
+        extraSundays: [],
+        unpaidSundays: [],
+      },
+      paidDays: 0,
+      totalDueDays: 0,
+    };
+  }
   const joinDate = createdAt ? new Date(createdAt) : null;
   const joinedThisMonth = joinDate && !isNaN(joinDate.getTime())
     ? joinDate.getFullYear() === year && joinDate.getMonth() === month
