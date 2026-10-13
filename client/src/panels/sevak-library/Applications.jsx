@@ -895,13 +895,13 @@ export default function Applications({
             )}
           </div>
 
-          <button
+          {/* <button
             className="btn-export btn-export-pdf"
             onClick={printPdf}
             disabled={pdfBusy || filtered.filter((r) => r.status === 'APPROVED').length === 0}
           >
             {pdfBusy ? <Loader2 size={15} className="spin" /> : <FileText size={15} />} Print approved PDF
-          </button>
+          </button> */}
           <button className="btn-export" onClick={() => exportRows(filtered, 'applications')} disabled={filtered.length === 0}>
             <Download size={15} /> Export CSV
           </button>

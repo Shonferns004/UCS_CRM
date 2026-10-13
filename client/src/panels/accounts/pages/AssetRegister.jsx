@@ -1617,9 +1617,9 @@ export default function AssetRegister() {
           </div>
         </div>
         <div className="arx-hbtns">
-          <button className="arx-btn arx-btn-ghost" onClick={() => loadAssets(true)} disabled={refreshing} title="Refresh data">
+          {/* <button className="arx-btn arx-btn-ghost" onClick={() => loadAssets(true)} disabled={refreshing} title="Refresh data">
             <RefreshCw size={15} className={refreshing ? 'arx-spin' : ''} /><span className="lbl">Refresh</span>
-          </button>
+          </button> */}
           <button className="arx-btn arx-btn-ghost" onClick={() => { exportAssets(sorted); pushToast(`${sorted.length} assets exported to CSV`, 'ok') }}>
             <Download size={15} /><span className="lbl">Export CSV</span>
           </button>
