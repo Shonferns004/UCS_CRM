@@ -13,11 +13,13 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge';
 import { ToastProvider } from './components/Toast';
 
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'));
+const SuperAdminTicketSection = lazy(() => import('../../components/SuperAdminTicketSection'));
 
 const NAV = [
   { id: 'dashboard', path: '/dev-panel', label: 'Dashboard', icon: 'dashboard' },
   { id: 'tickets', path: '/dev-panel/tickets', label: 'All Tickets', icon: 'confirmation_number' },
   { id: 'my-tickets', path: '/dev-panel/my-tickets', label: 'My Tickets', icon: 'person' },
+  { id: 'to-super-admin', path: '/dev-panel/to-super-admin', label: 'To Super Admin', icon: 'confirmation_number' },
   { id: 'unassigned', path: '/dev-panel/unassigned', label: 'Unassigned', icon: 'assignment_late' },
   { id: 'daily-report', path: '/dev-panel/daily-report', label: 'Daily Report', icon: 'description' },
   { id: 'chat', path: '/dev-panel/chat', label: 'UCS Chat', icon: 'chat' },
@@ -97,6 +99,7 @@ export default function DevPanel() {
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="tickets/:id" element={<TicketDetail />} />
             <Route path="tickets/new" element={<Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>Loading...</div>}><TechnicalTickets panel="dev_panel" /></Suspense>} />
+            <Route path="to-super-admin" element={<Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>Loading...</div>}><SuperAdminTicketSection panel="dev_panel" /></Suspense>} />
             <Route path="*" element={<Navigate to="/dev-panel" replace />} />
           </Routes>
           </ToastProvider>

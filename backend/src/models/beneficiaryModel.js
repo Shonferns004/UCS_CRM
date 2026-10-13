@@ -229,6 +229,38 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
+// UDID / disability certificate numbers live in the child
+// `beneficiary_disabilities` table, so PostgREST cannot fold them into the
+// same `or` expression as the master columns. Resolve the matching
+// beneficiary ids first and OR on `id` instead. Stored certificates are
+// compact (spaces stripped), so the term is compacted too.
+const beneficiaryIdsByUdid = async (term) => {
+  const compact = term.replace(/[\s-]/g, '');
+  if (compact.length < 3) return [];
+  const { data, error } = await db
+    .from('beneficiary_disabilities')
+    .select('beneficiary_id')
+    .ilike('certificate_number', `%${compact}%`)
+    .limit(500);
+  if (error || !data) return [];
+  return [...new Set(data.map((r) => r.beneficiary_id).filter((v) => v != null))];
+};
+
+// Builds the PostgREST `or` expression used by the list/export/search paths so
+// a single typed term matches code, name, mobile, Aadhaar AND UDID.
+const beneficiarySearchOr = async (term) => {
+  const filters = [
+    `beneficiary_code.ilike.%${term}%`,
+    `full_name.ilike.%${term}%`,
+    `mobile.ilike.%${term}%`,
+    `aadhaar_number.ilike.%${term}%`,
+    `kit_event_name.ilike.%${term}%`,
+  ];
+  const udidIds = await beneficiaryIdsByUdid(term);
+  if (udidIds.length > 0) filters.push(`id.in.(${udidIds.join(',')})`);
+  return filters.join(',');
+};
+
 export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by, has_otp }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
@@ -241,9 +273,7 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
     // like "Diwali, Camp" must not reach the expression raw.
     const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
     if (term) {
-      query = query.or(
-        `beneficiary_code.ilike.%${term}%,full_name.ilike.%${term}%,mobile.ilike.%${term}%,kit_event_name.ilike.%${term}%`
-      );
+      query = query.or(await beneficiarySearchOr(term));
     }
   }
   if (status) query = query.eq('status', status);
@@ -285,18 +315,17 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
 // pulled in 1000-row pages so a PostgREST row cap can never silently truncate
 // the file.
 export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, created_by } = {}) => {
+  let searchOr = null;
+  if (search) {
+    const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (term) searchOr = await beneficiarySearchOr(term);
+  }
+
   const build = () => {
     let query = db.from('beneficiaries').select('*, ngos(name, code)');
 
     if (created_by) query = query.eq('created_by', created_by);
-    if (search) {
-      const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
-      if (term) {
-        query = query.or(
-          `beneficiary_code.ilike.%${term}%,full_name.ilike.%${term}%,mobile.ilike.%${term}%,kit_event_name.ilike.%${term}%`
-        );
-      }
-    }
+    if (searchOr) query = query.or(searchOr);
     if (status) query = query.eq('status', status);
     if (ngo_id) query = query.eq('ngo_id', ngo_id);
     if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
@@ -316,10 +345,12 @@ export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, cr
 
 export const searchBeneficiaries = async (q) => {
   if (!q || q.length < 2) return [];
+  const term = String(q).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!term) return [];
   const { data, error } = await db
     .from('beneficiaries')
     .select('id, beneficiary_code, full_name, mobile, status, city, photo, needed')
-    .or(`beneficiary_code.ilike.%${q}%,full_name.ilike.%${q}%,mobile.ilike.%${q}%`)
+    .or(await beneficiarySearchOr(term))
     .limit(20);
   if (error) throw error;
   return data || [];

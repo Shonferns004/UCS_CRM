@@ -25,6 +25,7 @@ const CATEGORIES = [
   { value: 'technical', label: 'Technical' },
   { value: 'digital_team', label: 'Digital Team' },
   { value: 'hr_issue', label: 'HR Related' },
+  { value: 'super_admin', label: 'Super Admin' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -63,6 +64,7 @@ const PANELS = [
   { key: 'accounts',   label: 'Accounts',   color: '#f59e0b' },
   { key: 'dev_panel',  label: 'Dev Panel',  color: '#ef4444' },
   { key: 'hr',         label: 'HR',         color: '#14b8a6' },
+  { key: 'super_admin', label: 'Super Admin', color: '#e11d48' },
   { key: 'other',      label: 'Other',      color: '#6b7280' },
 ];
 
@@ -96,7 +98,7 @@ function renderPanel(t) {
   );
 }
 
-export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false }) {
+export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false, toSuperAdmin = false, queueDepartment = null }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +134,8 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [deskLoading, setDeskLoading] = useState(false);
 
   const teamQueue = !!(department && category);
+  const toSA = !!toSuperAdmin;
+  const queueMode = !!queueDepartment;
 
   const loadTickets = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -139,12 +143,18 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     try {
       // In team-queue mode the page shows the team's Digital Team inbox *plus*
       // whatever this user raised themselves, so a ticket raised from the form
-      // here is never invisible on the page it was raised from.
-      const queueEndpoint = teamQueue
-        ? `/tickets?department=${encodeURIComponent(department)}&category=${encodeURIComponent(category)}`
-        : null;
-      const mineEndpoint = teamQueue ? '/tickets/my' : viewOnly ? '/tickets' : '/tickets/my';
-      const devEndpoint = teamQueue ? null : viewOnly ? '/developer-tickets' : '/developer-tickets/my';
+      // here is never invisible on the page it was raised from. toSuperAdmin
+      // shows the shared company-wide To-Super-Admin list; queueDepartment shows
+      // a single department queue (used by the SA support inbox).
+      const queueEndpoint = toSA
+        ? '/tickets/to-super-admin'
+        : queueMode
+          ? `/tickets?department=${encodeURIComponent(queueDepartment)}`
+          : teamQueue
+            ? `/tickets?department=${encodeURIComponent(department)}&category=${encodeURIComponent(category)}`
+            : null;
+      const mineEndpoint = toSA ? '/tickets/my' : queueMode ? null : teamQueue ? '/tickets/my' : viewOnly ? '/tickets' : '/tickets/my';
+      const devEndpoint = (toSA || queueMode) ? null : teamQueue ? null : viewOnly ? '/developer-tickets' : '/developer-tickets/my';
       const [queueTickets, regularTickets, devTickets] = await Promise.all([
         queueEndpoint ? apiGet(queueEndpoint).catch(() => []) : Promise.resolve([]),
         apiGet(mineEndpoint).catch(() => []),
@@ -172,7 +182,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
       setRefreshing(false);
       setLoading(false);
     }
-  }, [viewOnly, teamQueue, department, category]);
+  }, [viewOnly, teamQueue, department, category, toSA, queueMode, queueDepartment]);
 
   useEffect(() => {
     if (requireUnlock && !gateOpen) return;
@@ -227,8 +237,8 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
 
   const openRaise = () => {
     setForm({
-      department: 'accounts',
-      category: 'technical',
+      department: toSuperAdmin ? 'super_admin' : 'accounts',
+      category: toSuperAdmin ? 'super_admin' : 'technical',
       subject: '',
       description: '',
       reference_id: '',
@@ -244,7 +254,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const handleRaise = async () => {
     const errs = {};
     if (!form.subject.trim()) errs.subject = 'Subject is required';
-    if (!form.desk_number.trim()) errs.desk_number = 'Desk Number is required';
+    if (panel !== 'super_admin' && !form.desk_number.trim()) errs.desk_number = 'Desk Number is required';
     if (Object.keys(errs).length) { setFormErrors(errs); return; }
     setFormErrors({});
     setSubmitting(true);
@@ -309,9 +319,12 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     setSavingStatus(true);
     try {
       const endpoint = showDetail._source === 'developer' ? '/developer-tickets' : '/tickets';
+      const putUrl = toSA && showDetail._source !== 'developer'
+        ? `${endpoint}/${showDetail.id}/to-super-admin`
+        : `${endpoint}/${showDetail.id}`;
       const payload = { status: newStatus };
       if (newStatus === 'resolved') payload.resolution = resolutionNote.trim();
-      await apiPut(`${endpoint}/${showDetail.id}`, payload);
+      await apiPut(putUrl, payload);
       const refreshed = await apiGet(`${endpoint}/${showDetail.id}`).catch(() => null);
       setShowDetail(refreshed ? { ...refreshed, _source: showDetail._source } : null);
       if (refreshed) setReplies(refreshed.replies || []);
@@ -422,7 +435,7 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>
-          {viewOnly ? 'All Tickets' : 'My Tickets'}
+          {toSuperAdmin ? 'To Super Admin' : queueMode ? 'Support Inbox' : viewOnly ? 'All Tickets' : 'My Tickets'}
           <span style={{ fontWeight: 400, fontSize: 12, color: '#6b7280', marginLeft: 8 }}>({filteredByPanel.length} shown)</span>
           <span style={{ fontWeight: 400, fontSize: 11, color: refreshing ? '#2563eb' : '#16a34a', marginLeft: 10, verticalAlign: 'middle' }}>
             ● {refreshing ? 'Syncing…' : 'Live'} {lastUpdated ? '· ' + lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
@@ -674,7 +687,7 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
         <div className="modal-overlay" onClick={() => setShowRaise(false)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 580 }}>
             <div className="modal-head">
-              <h3 style={{ margin: 0, fontSize: 15 }}>Raise a Technical Ticket</h3>
+              <h3 style={{ margin: 0, fontSize: 15 }}>{toSuperAdmin ? 'Raise a Ticket to Super Admin' : 'Raise a Technical Ticket'}</h3>
               <button className="btn btn-sm btn-icon" onClick={() => setShowRaise(false)} style={{ padding: 4 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>

@@ -11,6 +11,7 @@ export const TICKET_ROUTES = {
   technical:      { system: 'regular',   department: 'event_head', dest: 'UFS Event Manager' },
   digital_team:   { system: 'regular',   department: 'event_head', label: 'Digital Team', dest: 'Digital Team' },
   hr_issue:       { system: 'regular',   department: 'hr',         dest: 'HR' },
+  super_admin:    { system: 'regular',   department: 'super_admin', dest: 'Super Admin' },
   other:          { system: 'developer', department: 'developers', dest: 'Developers' },
 }
 
@@ -19,6 +20,8 @@ const ROUTE_LABELS = {
   event_head: 'All Tickets',
   hr:         'HR',
   developers: 'Developers',
+  super_admin: 'To Super Admin',
+  all:         'All Panels',
 }
 
 const CATEGORY_LABELS = {
@@ -28,6 +31,7 @@ const CATEGORY_LABELS = {
   technical:     'Technical',
   digital_team:  'Digital Team',
   hr_issue:      'HR Related',
+  super_admin:   'Super Admin',
   other:         'Other',
 }
 

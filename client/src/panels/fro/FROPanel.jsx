@@ -42,6 +42,7 @@ import teleWav from '../../assets/audio/tele.wav'
 import followDueMp3 from '../../assets/audio/follow_due.mp3'
 import callLessMp3 from '../../assets/audio/call_less.mp3'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
+import SuperAdminTicketSection from '../../components/SuperAdminTicketSection'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import reelMp3 from '../../assets/audio/reel.mp3'
 import congratsMp3 from '../../assets/audio/congrats.mp3'
@@ -136,6 +137,7 @@ const NAV_BASE = [
   { id: 'my-idle', path: '/fro/my-idle', label: 'My Idle', Icon: Clock },
   { id: 'lead-incentive', path: '/fro/lead-incentive', label: 'Lead Incentive', Icon: Trophy },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
+  { id: 'to-super-admin', path: '/fro/to-super-admin', label: 'To Super Admin', Icon: Ticket },
   { id: 'chat', path: '/fro/chat', label: 'UCS Chat', Icon: MessagesSquare },
 ]
 
@@ -1353,6 +1355,7 @@ useEffect(() => onFroAction((action) => {
             <Route path="incentive-info" element={<IncentiveInfo />} />
             <Route path="lead-incentive" element={<LeadIncentive />} />
             <Route path="tickets" element={<FroTickets />} />
+            <Route path="to-super-admin" element={<SuperAdminTicketSection panel="fro" />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="whatsapp-chat" element={<WhatsAppComingSoon />} />
             <Route path="whatsapp-chat/:project" element={<WhatsAppComingSoon />} />
