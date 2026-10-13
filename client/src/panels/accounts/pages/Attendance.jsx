@@ -702,7 +702,7 @@ export default function Attendance() {
                 <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Punch In</th>
                 <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Punch Out</th>
                 <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Status</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151', textAlign: 'center' }}>Actions</th>
+                {/* <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151', textAlign: 'center' }}>Actions</th> */}
               </tr>
             </thead>
             <tbody>
@@ -779,7 +779,7 @@ export default function Attendance() {
                         <span style={{ padding: '2px 8px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontSize: 12, fontWeight: 500 }}>{r.status || 'present'}</span>
                       )}
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                    {/* <td style={{ padding: '10px 12px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                       {isPending ? (
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                           <button
@@ -798,7 +798,7 @@ export default function Attendance() {
                       ) : (
                         <span style={{ color: '#9ca3af', fontSize: 12 }}>View →</span>
                       )}
-                    </td>
+                    </td> */}
                   </tr>
                 );
               })}

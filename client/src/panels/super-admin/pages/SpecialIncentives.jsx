@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../../../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
+import { toast } from '../../../components/Toast'
+import ConfirmDialog from '../../../components/ConfirmDialog'
 import {
   Trophy, ClockCounterClockwise, Plus, X, PencilSimple, Trash,
   Camera, Sparkle, PaperPlaneTilt, CheckCircle, CaretRight, ArrowsClockwise,
@@ -588,6 +590,8 @@ export default function SpecialIncentives() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const [confirm, setConfirm] = useState(null) // pending destructive action | null
+  const [confirmBusy, setConfirmBusy] = useState(false)
   const [modal, setModal] = useState(null) // null | { mode: 'create' } | { mode: 'edit', inc }
   const [modalSaving, setModalSaving] = useState(false)
   const [modalError, setModalError] = useState('')
@@ -749,40 +753,71 @@ export default function SpecialIncentives() {
     } finally { setModalSaving(false) }
   }
 
-  const cancelInc = async (id) => {
+  const cancelInc = (id) => {
     if (busyId) return
-    if (!window.confirm('Cancel this incentive? It will be closed with no winner.')) return
-    setBusyId(id)
-    try {
-      await api(`/incentive/special/${id}/cancel`, { method: 'POST', _prefix: 'ucs', body: JSON.stringify({}) })
-      loadHistory()
-    } catch (e) { console.error(e) }
-    finally { setBusyId(null) }
+    setConfirm({
+      title: 'Cancel this incentive?',
+      message: 'It will be closed with no winner. This cannot be undone.',
+      confirmLabel: 'Cancel incentive',
+      variant: 'warning',
+      run: async () => {
+        setBusyId(id)
+        try {
+          await api(`/incentive/special/${id}/cancel`, { method: 'POST', _prefix: 'ucs', body: JSON.stringify({}) })
+          toast('Incentive cancelled', 'success')
+          loadHistory()
+        } catch (e) { toast(e.message || 'Could not cancel the incentive', 'error') }
+        finally { setBusyId(null) }
+      },
+    })
   }
 
-  const archiveInc = async (id) => {
+  const archiveInc = (id) => {
     if (busyId) return
-    if (!window.confirm('Archive this incentive? Its winner and photo popups will stop showing on all panels.')) return
-    setBusyId(id)
-    try {
-      await api(`/incentive/special/${id}/archive`, { method: 'POST', _prefix: 'ucs', body: JSON.stringify({}) })
-      loadHistory()
-    } catch (e) { console.error(e) }
-    finally { setBusyId(null) }
+    setConfirm({
+      title: 'Archive this incentive?',
+      message: 'Its winner and photo popups will stop showing on all panels.',
+      confirmLabel: 'Archive',
+      variant: 'primary',
+      run: async () => {
+        setBusyId(id)
+        try {
+          await api(`/incentive/special/${id}/archive`, { method: 'POST', _prefix: 'ucs', body: JSON.stringify({}) })
+          toast('Incentive archived', 'success')
+          loadHistory()
+        } catch (e) { toast(e.message || 'Could not archive the incentive', 'error') }
+        finally { setBusyId(null) }
+      },
+    })
   }
 
-  const removeInc = async (inc) => {
+  const removeInc = (inc) => {
     if (busyId) return
-    const msg = inc.status === 'active'
+    const message = inc.status === 'active'
       ? 'Stop this incentive on all FRO panels and delete it permanently? All live popups will be removed immediately. This cannot be undone.'
       : 'Delete this incentive permanently? This cannot be undone.'
-    if (!window.confirm(msg)) return
-    setBusyId(inc.id)
-    try {
-      await api(`/incentive/special/${inc.id}`, { method: 'DELETE', _prefix: 'ucs' })
-      loadHistory()
-    } catch (e) { console.error(e) }
-    finally { setBusyId(null) }
+    setConfirm({
+      title: 'Delete this incentive?',
+      message,
+      confirmLabel: 'Delete permanently',
+      variant: 'danger',
+      run: async () => {
+        setBusyId(inc.id)
+        try {
+          await api(`/incentive/special/${inc.id}`, { method: 'DELETE', _prefix: 'ucs' })
+          toast('Incentive deleted', 'success')
+          loadHistory()
+        } catch (e) { toast(e.message || 'Could not delete the incentive', 'error') }
+        finally { setBusyId(null) }
+      },
+    })
+  }
+
+  const runConfirm = async () => {
+    if (!confirm) return
+    setConfirmBusy(true)
+    try { await confirm.run() }
+    finally { setConfirmBusy(false); setConfirm(null) }
   }
 
   const ngoOptions = useMemo(
@@ -921,6 +956,17 @@ export default function SpecialIncentives() {
         const meta = buckets.find((b) => b.key === viewAll) || buckets[0]
         return <ViewAllModal meta={meta} rows={boards[meta.key] || []} onClose={() => setViewAll(null)} />
       })()}
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        variant={confirm?.variant}
+        busy={confirmBusy}
+        onConfirm={runConfirm}
+        onCancel={() => { if (!confirmBusy) setConfirm(null) }}
+      />
     </div>
   )
 }
