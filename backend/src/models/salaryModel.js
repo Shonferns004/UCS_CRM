@@ -8,6 +8,15 @@ import { LIVE_LOAN_STATUSES } from './loanModel.js';
 
 const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
 
+// A month-scoped export must only list the roster that month actually had:
+// anyone whose Date of Joining (workers.created_at) falls after the month's
+// last day — e.g. fresh joiners appearing while exporting a previous month —
+// was never employed in it. NULL created_at is kept so backfilled rows do not
+// silently vanish (same rule as the HR daily report roster CTE). The date is
+// sliced the same way as the exported DOJ column so filter and display agree.
+const joinedAfterMonth = (createdAt, endDate) =>
+  !!createdAt && String(createdAt).slice(0, 10) > endDate;
+
 // Sums the loan/advance amounts actually recovered in `monthDate` (a
 // 'YYYY-MM-01' value) per worker, from the rows written by
 // loanModel.settleMonthlyLoanDeductions.
@@ -210,12 +219,13 @@ export const getPayrollData = async (month, extended = false) => {
 
   const selectFields = extended
     ? 'id, name, account_number, ifsc_code, account_holder_name, bank_name, department, created_at'
-    : 'id, name, account_number, ifsc_code';
-  const { data: workers, error: wErr } = await db
+    : 'id, name, account_number, ifsc_code, created_at';
+  let { data: workers, error: wErr } = await db
     .from('workers')
     .select(selectFields)
     .order('name');
   if (wErr) throw wErr;
+  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
 
   const { data: salaries, error: sErr } = await db
     .from('salary_history')
@@ -440,10 +450,11 @@ export const getPresentDaysByMonth = async (month) => {
   const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
   const endDate = `${monthStr}-${pad(daysInMonth)}`;
 
-  const { data: workers, error: wErr } = await db
+  let { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, created_at');
   if (wErr) throw wErr;
+  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
   let graceByWorker = {};
@@ -569,11 +580,13 @@ export const getPagarExportData = async (month) => {
 
   const akiranges = await getAKISlabs();
 
-  // 1. Workers with basic info
-  const { data: workers, error: wErr } = await db
+  // 1. Workers with basic info — scoped to the exported month so future joiners
+  // never leak into a previous month's file.
+  let { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id, documents_submitted');
   if (wErr) throw wErr;
+  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
   let graceByWorker = {};
