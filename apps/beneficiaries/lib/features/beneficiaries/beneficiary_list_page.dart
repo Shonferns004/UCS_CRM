@@ -41,7 +41,12 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
   String? _error;
   Map<String, int> _programCounts = {};
   bool get _hasMore => _members.length < _total;
-  bool get _searched => _query.length == 10;
+
+  // A search term can be a 10-digit mobile, a 12-digit Aadhaar, a UDID /
+  // certificate number (`MH01234567890123`), or a name — so trigger once a few
+  // characters are typed rather than only at exactly 10 digits.
+  static const int _minQueryLength = 4;
+  bool get _searched => _query.length >= _minQueryLength;
 
   @override
   void initState() {
@@ -71,15 +76,15 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     final q = value.trim();
     setState(() {
       _query = q;
-      if (q.length != 10) {
-        // 10 digit poore nahi -> list khali, koi request nahi
+      if (q.length < _minQueryLength) {
+        // Bahut chhota term -> list khali, koi request nahi
         _members.clear();
         _total = 0;
         _error = null;
         _loading = false;
       }
     });
-    if (q.length == 10) {
+    if (q.length >= _minQueryLength) {
       _debounce = Timer(const Duration(milliseconds: 250), () {
         if (!mounted) return;
         _load();
@@ -302,13 +307,13 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
         controller: _searchController,
         onChanged: _onSearchChanged,
         textInputAction: TextInputAction.search,
-        keyboardType: TextInputType.number,
+        keyboardType: TextInputType.text,
+        textCapitalization: TextCapitalization.characters,
         inputFormatters: [
-          FilteringTextInputFormatter.digitsOnly,
-          LengthLimitingTextInputFormatter(10),
+          LengthLimitingTextInputFormatter(24),
         ],
         decoration: InputDecoration(
-          hintText: 'Enter 10-digit mobile number',
+          hintText: 'Search by mobile, Aadhaar or UDID',
           prefixIcon: const Icon(LucideIcons.search, size: 20),
           suffixIcon: _searchController.text.isEmpty
               ? null
@@ -382,7 +387,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
           EmptyState(
             icon: LucideIcons.userCircle,
             title: 'No matches',
-            message: 'No beneficiary found with number "$_query".',
+            message: 'No beneficiary found for "$_query".',
             dashed: true,
           ),
         ],
@@ -462,7 +467,7 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Enter the 10-digit mobile number to see\nthe beneficiary details.',
+          'Enter the mobile number, Aadhaar number or\nUDID to see the beneficiary details.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13.5,
@@ -481,7 +486,9 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              '$typed / 10 digits',
+              typed < _minQueryLength
+                  ? 'Type at least $_minQueryLength characters'
+                  : '$typed characters',
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
@@ -532,6 +539,9 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
     final code = m['beneficiary_code']?.toString().trim() ?? '';
     final ngo = m['ngos'] is Map ? (m['ngos']['name']?.toString() ?? '') : '';
     final photo = m['photo']?.toString();
+    final biometricDone =
+        (m['fingerprint_status']?.toString().trim().toUpperCase() ?? '') ==
+            'REGISTERED';
 
     final ImageProvider? avatar = isInlinePhoto(photo)
         ? MemoryImage(dataUrlBytes(photo!))
@@ -615,29 +625,37 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
                     ),
                   ],
                 ),
-                if (code.isNotEmpty || ngo.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  const Divider(height: 1),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (code.isNotEmpty)
-                        _pill(
-                          code,
-                          AppColors.surfaceSoft,
-                          AppColors.textSecondary,
-                        ),
-                      if (ngo.isNotEmpty)
-                        _pill(
-                          ngo,
-                          AppColors.primaryBlueSoft,
-                          AppColors.primaryBlue,
-                        ),
-                    ],
-                  ),
-                ],
+                const SizedBox(height: 14),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (code.isNotEmpty)
+                      _pill(
+                        code,
+                        AppColors.surfaceSoft,
+                        AppColors.textSecondary,
+                      ),
+                    if (ngo.isNotEmpty)
+                      _pill(
+                        ngo,
+                        AppColors.primaryBlueSoft,
+                        AppColors.primaryBlue,
+                      ),
+                    _pill(
+                      biometricDone ? 'Biometric: Done' : 'Biometric: Not done',
+                      biometricDone
+                          ? AppColors.successGreenSoft
+                          : AppColors.surfaceSoft,
+                      biometricDone
+                          ? AppColors.successGreen
+                          : AppColors.textSecondary,
+                      icon: LucideIcons.fingerprint,
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
