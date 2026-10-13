@@ -20,6 +20,7 @@ const CATEGORIES = [
   { value: 'technical', label: 'Technical' },
   { value: 'digital_team', label: 'Digital Team' },
   { value: 'hr_issue', label: 'HR Related' },
+  { value: 'super_admin', label: 'Super Admin' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -44,6 +45,7 @@ const PANEL_LABELS = {
   ngo_admin: 'Admin',
   event_head: 'Event Head',
   recruiter: 'Recruiter',
+  super_admin: 'Super Admin',
   other: 'Other',
 };
 

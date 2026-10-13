@@ -2,6 +2,34 @@ import db from '../config/db.js';
 import { getSenderPanel, getSenderName } from '../utils/panel.js';
 import { isEventTeam, normalizeRole } from '../middleware/authMiddleware.js';
 
+// Role (or users.department) -> the support_tickets.department value that
+// panel owns. listMyTickets unions in SA broadcasts and panel-targeted SA
+// tickets through it; super_admin owns the 'super_admin' queue itself.
+const PANEL_DEPARTMENT = {
+  accounts: 'accounts',
+  hr: 'hr',
+  event_head: 'event_head',
+  event_manager: 'event_head',
+  ngo_admin: 'ngo_admin',
+  admin: 'ngo_admin',
+  recruiter: 'recruiter',
+  fro: 'fro',
+  digital: 'developers',
+  developers: 'developers',
+  super_admin: 'super_admin',
+};
+
+export const myDepartment = (user) => {
+  const role = normalizeRole(user?.role);
+  if (PANEL_DEPARTMENT[role]) return PANEL_DEPARTMENT[role];
+  const raw = user?.department != null ? String(user.department).trim() : '';
+  if (raw) {
+    const byDept = PANEL_DEPARTMENT[normalizeRole(raw.toLowerCase())];
+    if (byDept) return byDept;
+  }
+  return null;
+};
+
 export const listTickets = async (req, res) => {
   try {
     const { status, department, category, priority, search, date_from, date_to } = req.query;
@@ -43,10 +71,21 @@ export const listTickets = async (req, res) => {
 export const listMyTickets = async (req, res) => {
   try {
     const workerId = req.user.id;
+
+    // My queue = tickets I raised PLUS anything aimed at my panel: SA broadcasts
+    // (department 'all') and SA tickets targeted at my department. SA itself
+    // keeps an own queue via myDepartment('super_admin') -> 'super_admin'.
+    // Unusable for super admin auth (id 0, and raised_by only ever holds a real
+    // worker UUID), so leave its clause out.
+    const clauses = ['department.eq.all'];
+    if (isUuid(workerId)) clauses.push(`raised_by.eq.${workerId}`);
+    const dept = myDepartment(req.user);
+    if (dept) clauses.push(`department.eq.${dept}`);
+
     const { data, error } = await db
       .from('support_tickets')
       .select('*')
-      .eq('raised_by', workerId)
+      .or(clauses.join(','))
       .order('created_at', { ascending: false });
     if (error) throw error;
     const tickets = data || [];
@@ -77,6 +116,94 @@ export const listMyTickets = async (req, res) => {
   }
 };
 
+// Every ticket raised TO the Super Admin, company-wide. Panels use this as
+// their shared "To Super Admin" section; the SA panel shows the same list as
+// its incoming queue.
+export const listToSuperAdmin = async (req, res) => {
+  try {
+    const { status } = req.query;
+    let query = db
+      .from('support_tickets')
+      .select('*, workers!support_tickets_raised_by_fkey(name, login_id)')
+      .eq('department', 'super_admin')
+      .order('created_at', { ascending: false });
+    if (status) query = query.eq('status', status);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const tickets = data || [];
+
+    let comments = [];
+    if (tickets.length) {
+      const rc = await db
+        .from('ticket_replies')
+        .select('ticket_id, count')
+        .neq('sender_type', 'resolution')
+        .in('ticket_id', tickets.map(t => t.id));
+      comments = rc.data || [];
+    }
+    const commentMap = Object.fromEntries(comments.map(c => [c.ticket_id, c.count]));
+    return res.json(tickets.map(t => ({ ...t, comment_count: commentMap[t.id] || 0 })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Scoped update for To-Super-Admin tickets only. Any authenticated user may
+// update them (the section offers reply + resolve) but a department-change or
+// resolve attempt on any other ticket is rejected — the main routes keep those
+// powers where they already were.
+export const updateSuperAdminTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, resolution, priority } = req.body;
+
+    const { data: owned, error: ownedError } = await db
+      .from('support_tickets')
+      .select('department, status')
+      .eq('id', id)
+      .maybeSingle();
+    if (ownedError) throw ownedError;
+    if (!owned) return res.status(404).json({ message: 'Ticket not found' });
+    if (owned.department !== 'super_admin') {
+      return res.status(403).json({ message: 'You can only update tickets raised to the Super Admin' });
+    }
+
+    if (status === 'resolved') {
+      const { data: prev } = await db.from('support_tickets').select('status').eq('id', id).maybeSingle();
+      owned.status = prev?.status;
+    }
+
+    const updates = {};
+    if (status !== undefined) updates.status = status;
+    if (resolution !== undefined) updates.resolution = resolution;
+    if (priority !== undefined) updates.priority = priority;
+    if (status === 'resolved' || status === 'closed') {
+      // resolved_by is FK'd to users(id); SA auth uses id 0 and panels may
+      // authenticate as workers (id in workers, not users). Only store a value
+      // that satisfies the FK.
+      const { data: resolver } = await db.from('users').select('id').eq('id', req.user.id).maybeSingle();
+      updates.resolved_by = resolver ? resolver.id : null;
+    }
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await db
+      .from('support_tickets')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+
+    if (status === 'resolved' && owned.status !== 'resolved') {
+      await postResolutionReply(id, req.user, resolution);
+    }
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getTicket = async (req, res) => {
   try {
     const { id } = req.params;
@@ -99,8 +226,15 @@ export const getTicket = async (req, res) => {
     // the accounts team who resolves it, and to the UFS / Event Manager team
     // working its own queue — otherwise a responder sees "No replies yet" for
     // the thread it is replying in.
-    const isResolverTeam = ['accounts', 'super_admin'].includes(req.user.role) || isEventTeam(req.user);
-    const isRaiser = req.user.id === ticket.raised_by;
+    const isResolverTeam = ['accounts', 'super_admin'].includes(normalizeRole(req.user.role)) || isEventTeam(req.user);
+    // String compare: a token id may be a number while raised_by is a UUID text
+    // column — a strict === would miss the raiser and hide the resolve message
+    // (and, for non-company-wide queues, the whole thread) from the person who
+    // actually raised the ticket.
+    const isRaiser = ticket.raised_by != null && String(req.user.id) === String(ticket.raised_by);
+    // To-Super-Admin threads are company-wide: every panel sees them, and the
+    // raiser always sees the replies and the resolve message on their ticket.
+    const isToSuperAdmin = ticket.department === 'super_admin';
     // The resolve message (sender_type 'resolution') is private: only the person
     // who raised the ticket and the resolver who wrote it may see it — other
     // staff opening the same ticket must not see it.
@@ -108,7 +242,7 @@ export const getTicket = async (req, res) => {
       if (r.sender_type === 'resolution') {
         return isRaiser || (!!r.sender_id && String(r.sender_id) === String(req.user.id));
       }
-      return isResolverTeam || isRaiser;
+      return isResolverTeam || isRaiser || isToSuperAdmin;
     });
 
     return res.json({ ...ticket, replies: visibleReplies });
@@ -121,12 +255,22 @@ export const createTicket = async (req, res) => {
   try {
     const { department, category, subject, description, reference_id, priority, status, desk_number, ngo, raised_by_panel } = req.body;
     if (!subject) return res.status(400).json({ message: 'Subject is required' });
-    if (!desk_number || !String(desk_number).trim()) return res.status(400).json({ message: 'Desk Number is required' });
+    // SA broadcasts and SA->panel sends have no desk of their own, so the hard
+    // desk-number rule only applies to regular staff raising from their desk.
+    const isSuperAdmin = normalizeRole(req.user?.role) === 'super_admin';
+    if (!isSuperAdmin && (!desk_number || !String(desk_number).trim())) {
+      return res.status(400).json({ message: 'Desk Number is required' });
+    }
+
+    // Super admin auth uses id 0 and has no workers row, so its rows cannot hold
+    // a raised_by UUID — keep the display name in raised_by_name instead.
+    const canStoreRaiser = isUuid(req.user.id);
 
     const { data, error } = await db
       .from('support_tickets')
       .insert({
-        raised_by: req.user.id,
+        raised_by: canStoreRaiser ? req.user.id : null,
+        raised_by_name: getSenderName(req.user) || null,
         department: department || 'accounts',
         category: category || 'other',
         subject,
@@ -136,7 +280,7 @@ export const createTicket = async (req, res) => {
         status: status || 'open',
         desk_number: desk_number || null,
         ngo: ngo || null,
-        raised_by_panel: raised_by_panel || null,
+        raised_by_panel: raised_by_panel || getSenderPanel(req.user) || null,
       })
       .select()
       .single();
@@ -255,7 +399,9 @@ export const addReply = async (req, res) => {
       .from('ticket_replies')
       .insert({
         ticket_id: id,
-        sender_id: req.user.id,
+        // sender_id is a UUID FK — super admin auth uses id 0, which cannot be
+        // stored; that identity lives in sender_name / sender_panel instead.
+        sender_id: isUuid(req.user.id) ? req.user.id : null,
         sender_type: req.user.role === 'fro' ? 'worker' : 'user',
         sender_name: getSenderName(req.user) || null,
         sender_panel: getSenderPanel(req.user),
@@ -326,6 +472,10 @@ const TARGET_DEPARTMENTS = {
   event_manager: 'event_head',
   digital: 'developers',
   developers: 'developers',
+  fro: 'fro',
+  recruiter: 'recruiter',
+  ngo_admin: 'ngo_admin',
+  admin: 'ngo_admin',
 };
 
 // Supervisors watch every queue through their own dashboards; popping each
@@ -334,6 +484,10 @@ const NO_POPUP_ROLES = new Set(['super_admin', 'admin', 'master']);
 
 const targetDepartment = (user) => {
   const role = normalizeRole(user?.role);
+  // The SA panel watches the queue raised TO it (its popups live /sa entirely).
+  // 'master' is an admin-level role too, so it watches the same To-Super-Admin
+  // queue rather than getting no popups at all.
+  if (role === 'super_admin' || role === 'master') return 'super_admin';
   const mapped = TARGET_DEPARTMENTS[role];
   if (mapped) return mapped;
   if (NO_POPUP_ROLES.has(role)) return null;
@@ -397,28 +551,35 @@ export const getPendingTicketPopups = async (req, res) => {
     const since = new Date(floorMs).toISOString();
 
     let tickets = [];
-    if (department === 'developers') {
-      const { data, error } = await db
-        .from('developer_tickets')
-        .select('id, subject, description, category, priority, status, reference_id, desk_number, ngo, raised_by_panel, raised_by_name, created_at')
-        .not('status', 'in', DEV_CLOSED_STATUSES)
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      tickets = (data || []).map(t => ({ ...t, _source: 'dev' }));
-    } else {
-      const { data, error } = await db
-        .from('support_tickets')
-        .select('*, workers!support_tickets_raised_by_fkey(name, login_id)')
-        .eq('department', department)
-        .in('status', OPEN_STATUSES)
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      tickets = (data || []).map(t => ({ ...t, _source: 'sup' }));
-    }
+    // SA broadcasts (department 'all') belong in every panel's popups; the
+    // developers stack reads support_tickets for those while keeping its own
+    // developer_tickets queue, so fetch and merge both branches.
+    const supportDepts = department === 'developers' ? ['all'] : [department, 'all'];
+    const supPromise = db
+      .from('support_tickets')
+      .select('*, workers!support_tickets_raised_by_fkey(name, login_id)')
+      .in('department', supportDepts)
+      .in('status', OPEN_STATUSES)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    const devPromise = department === 'developers'
+      ? db
+          .from('developer_tickets')
+          .select('id, subject, description, category, priority, status, reference_id, desk_number, ngo, raised_by_panel, raised_by_name, created_at')
+          .not('status', 'in', DEV_CLOSED_STATUSES)
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [], error: null });
+
+    const [supRes, devRes] = await Promise.all([supPromise, devPromise]);
+    if (supRes.error) throw supRes.error;
+    if (devRes.error) throw devRes.error;
+    tickets = [
+      ...(supRes.data || []).map(t => ({ ...t, _source: 'sup' })),
+      ...(devRes.data || []).map(t => ({ ...t, _source: 'dev' })),
+    ];
 
     const seen = await readSeenIds(req.user.id);
     if (seen === null) return res.json([]);

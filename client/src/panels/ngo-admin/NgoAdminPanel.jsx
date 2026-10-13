@@ -30,6 +30,7 @@ const NAV = [
   { id: 'agents', path: '/ngo-admin/agents', label: 'Agents', icon: 'agents' },
   { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
+  { id: 'to-super-admin', path: '/ngo-admin/to-super-admin', label: 'To Super Admin', icon: 'tickets' },
   { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
 ]
 
@@ -533,6 +534,7 @@ export default function NgoAdminPanel() {
             <Route path="codes" element={<Codes />} />
             <Route path="agents" element={<Agents />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="ngo_admin" />} />
+            <Route path="to-super-admin" element={<TechnicalTickets panel="ngo_admin" toSuperAdmin canResolve canRaise={false} />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
