@@ -1,9 +1,9 @@
 -- 182: operator attribution for FRO logs.
 --
 -- fro_donor_logs.fro_worker_id and .created_by are BOTH foreign-keyed to
--- workers(id). Under a work-as session the operator is not a worker: a CRM agent
--- has no workers row (their identity lives in crm_agents) and an admin work-as
--- carries a users.id. Writing the operator into either column therefore raised
+-- workers(id). Under a work-as session the operator is not a worker: an admin
+-- work-as carries a users.id. Writing the operator into either column therefore
+-- raised
 --
 --   insert or update on table "fro_donor_logs" violates foreign key constraint
 --   "fro_donor_logs_created_by_fkey"
@@ -13,9 +13,9 @@
 -- simply exposed the second.
 --
 -- Both workers-keyed columns now carry the COVERED FRO, and operator_id carries
--- the actor. operator_id has NO foreign key, deliberately: it spans three id
--- spaces (workers for a manual cover, users for an admin, crm_agents for an
--- agent) and none of them can serve as a constraint target.
+-- the actor. operator_id has NO foreign key, deliberately: it spans two id
+-- spaces (workers for a manual cover, users for an admin) and neither can serve
+-- as a constraint target.
 --
 -- Readers match operator_id OR fro_worker_id, so rows written before this column
 -- existed -- where a manual cover's operator was a real worker and legitimately

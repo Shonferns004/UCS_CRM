@@ -1388,21 +1388,12 @@
   --stations-success:#16a765;
   --stations-success-soft:#ecfbf2;
 }
-/* The NGO rows and Assign buttons are real buttons; the default UA ring is fine
-   but this keeps a clear, high-contrast ring on keyboard focus regardless of any
-   global UA reset. */
-.panel-ngo-admin .stations-ngo-row:focus-visible,
-.panel-ngo-admin .stations-assign-row:focus-visible,
-.panel-ngo-admin .stations-agent-opt:focus-visible {
+/* The NGO rows are real buttons; the default UA ring is fine but this keeps a
+   clear, high-contrast ring on keyboard focus regardless of any global UA reset. */
+.panel-ngo-admin .stations-ngo-row:focus-visible {
   outline:2px solid var(--sage);
   outline-offset:1px;
 }
-.panel-ngo-admin .stations-agent-menu input:focus-visible {
-  outline:2px solid var(--sage);
-  outline-offset:-2px;
-}
-/* Keep the inline agent menu readable at the card's compact size. */
-.panel-ngo-admin .stations-agent-opt:hover { background:var(--stations-assign-surface, #FFF4F6); }
 .panel-event-head, .panel-accounts, .panel-ngo-admin, .panel-fro { --sage:#5B6B4E; --sage-light:#7A8F6A; --ink:#1a1a2e; --ink-soft:#6b7280; --line:#e5e7eb; --danger:#d9534f; --warning:#e67e22; --success:#16a34a; --bg:#f5f6fa; --card-bg:#ffffff; --radius:12px; --radius-sm:8px; --shadow:0 1px 3px rgba(0,0,0,0.06); --shadow-md:0 4px 12px rgba(0,0,0,0.08); background:var(--bg); color:var(--ink); }
 .panel-beneficiaries { --sage:#5B6B4E; --sage-light:#E8EDE1; --sage-soft:#E8EDE1; --ink:#1a1a2e; --ink-soft:#6b7280; --line:#e5e7eb; --danger:#d9534f; --warning:#e67e22; --success:#16a34a; --bg:#f5f6fa; --card-bg:#ffffff; --radius:12px; --radius-sm:8px; --shadow:0 1px 3px rgba(0,0,0,0.06); --shadow-md:0 4px 12px rgba(0,0,0,0.08); background:var(--bg); color:var(--ink); min-height:100vh; padding:24px; box-sizing:border-box; }
 .panel-beneficiaries a { color:inherit; }

@@ -48,6 +48,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   List<Map<String, dynamic>> _notifications = [];
   int _unreadCount = 0;
   List<dynamic> _pendingLoans = [];
+  bool _isAdmin = false;
+  List<dynamic> _absenceDays = [];
+  bool _absenceGraceForfeited = false;
+  List<dynamic> _pendingAbsenceProofs = [];
 
   @override
   void initState() {
@@ -117,6 +121,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       _workerId = worker?['id']?.toString() ?? '';
       final isAdmin = (worker?['role']?.toString().toLowerCase() == 'admin' ||
           worker?['department']?.toString().toLowerCase() == 'ngo admin');
+      _isAdmin = isAdmin;
 
       if (_workerId.isNotEmpty) {
         try {
@@ -142,6 +147,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             });
           }
         }
+      } catch (_) {}
+
+      try {
+        await _loadAbsenceProofs();
       } catch (_) {}
     } catch (_) {}
 
@@ -394,9 +403,239 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       case RealtimeEvent.corrections:
       case RealtimeEvent.loans:
         _fetchStatus();
+      case RealtimeEvent.absenceProofs:
+        _loadAbsenceProofs();
       default:
         break;
     }
+  }
+
+  Future<void> _loadAbsenceProofs() async {
+    try {
+      final data = await ApiService.getAbsenceProofActionable();
+      if (!mounted) return;
+      setState(() {
+        _absenceDays = (data['unauthorizedAbsences'] as List?) ?? [];
+        _absenceGraceForfeited = data['graceForfeited'] == true;
+      });
+    } catch (_) {}
+    if (_isAdmin) {
+      try {
+        final proofs = await ApiService.getPendingAbsenceProofs();
+        if (!mounted) return;
+        setState(() => _pendingAbsenceProofs = proofs);
+      } catch (_) {}
+    }
+  }
+
+  String _fmtAbsenceDate(String dateStr) {
+    final d = DateTime.tryParse(dateStr);
+    if (d == null) return dateStr;
+    return DateFormat('d MMM yyyy').format(d);
+  }
+
+  Widget _buildAbsenceProofBanner(ColorScheme sc, AppColors colors) {
+    final needsProofCount = _absenceDays.where((d) => d['needsProof'] == true).length;
+    return Container(
+      padding: EdgeInsets.all(Responsive.pad(context, 16)),
+      decoration: BoxDecoration(
+        color: sc.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF93000a)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFffdad6),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Icon(LucideIcons.calendarX, size: Responsive.sp(context, 22), color: const Color(0xFF93000a)),
+              ),
+              SizedBox(width: Responsive.pad(context, 16)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Unauthorized Absence', style: GoogleFonts.hankenGrotesk(
+                      fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                    )),
+                    Text(
+                      _absenceGraceForfeited
+                          ? 'Late grace forfeited this month'
+                          : needsProofCount > 0
+                              ? 'Late grace at risk \u00B7 $needsProofCount proof${needsProofCount == 1 ? '' : 's'} needed'
+                              : '${_absenceDays.length} day${_absenceDays.length == 1 ? '' : 's'} without approved leave',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                        color: const Color(0xFF93000a),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: Responsive.pad(context, 12)),
+          ..._absenceDays.map((day) {
+            final date = day['date']?.toString() ?? '';
+            final trigger = day['trigger']?.toString() ?? 'no_leave';
+            final needsProof = day['needsProof'] == true;
+            final proofPending = day['proofPending'] == true;
+            final proofStatus = day['proofStatus']?.toString();
+            final triggerLabel = switch (trigger) {
+              'rejected' => 'Leave rejected',
+              'pending' => 'Leave pending',
+              _ => 'No leave filed',
+            };
+            return Padding(
+              padding: EdgeInsets.only(bottom: Responsive.pad(context, 8)),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_fmtAbsenceDate(date), style: TextStyle(
+                          fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600, color: sc.onSurface,
+                        )),
+                        Text(triggerLabel, style: TextStyle(
+                          fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w500, color: sc.onSurfaceVariant,
+                        )),
+                      ],
+                    ),
+                  ),
+                  if (needsProof)
+                    InkWell(
+                      onTap: () => _openProofUploadSheet(day),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 6)),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF93000a),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(LucideIcons.camera, size: Responsive.sp(context, 14), color: Colors.white),
+                            SizedBox(width: Responsive.pad(context, 6)),
+                            Text('Add proof', style: TextStyle(
+                              fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w600, color: Colors.white,
+                            )),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (proofPending)
+                    _absenceChip(sc, Icons.hourglass_top, 'Under review', const Color(0xFF856404), const Color(0xFFfff3cd))
+                  else if (proofStatus == 'approved')
+                    _absenceChip(sc, Icons.check_circle_outline, 'Approved', const Color(0xFF146c2e), const Color(0xFFd3f5db))
+                  else if (proofStatus == 'rejected')
+                    _absenceChip(sc, Icons.cancel_outlined, 'Rejected', const Color(0xFF93000a), const Color(0xFFffdad6))
+                  else
+                    _absenceChip(sc, Icons.gavel_outlined, 'Forfeited', const Color(0xFF93000a), const Color(0xFFffdad6)),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _absenceChip(ColorScheme sc, IconData icon, String label, Color fg, Color bg) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 4)),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: Responsive.sp(context, 12), color: fg),
+          SizedBox(width: Responsive.pad(context, 4)),
+          Text(label, style: TextStyle(
+            fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w600, color: fg,
+          )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdminProofCard(ColorScheme sc, AppColors colors) {
+    return InkWell(
+      onTap: _openProofReviewSheet,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.all(Responsive.pad(context, 16)),
+        decoration: BoxDecoration(
+          color: sc.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors.outline),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+              decoration: BoxDecoration(
+                color: const Color(0xFFd1e4ff),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Icon(LucideIcons.fileSearch, size: Responsive.sp(context, 22), color: const Color(0xFF00152a)),
+            ),
+            SizedBox(width: Responsive.pad(context, 16)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Absence Proofs', style: GoogleFonts.hankenGrotesk(
+                    fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                  )),
+                  Text(
+                    '${_pendingAbsenceProofs.length} awaiting review',
+                    style: TextStyle(
+                      fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                      color: sc.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openProofUploadSheet(Map<String, dynamic> day) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProofUploadSheet(
+        date: day['date']?.toString() ?? '',
+        leaveId: day['leaveId']?.toString(),
+        onUploaded: _loadAbsenceProofs,
+      ),
+    );
+  }
+
+  void _openProofReviewSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProofReviewSheet(
+        proofs: List<dynamic>.from(_pendingAbsenceProofs),
+        onReviewed: (id) {
+          setState(() => _pendingAbsenceProofs = _pendingAbsenceProofs.where((p) => p['id'] != id).toList());
+        },
+      ),
+    );
   }
 
   String _friendlyNetworkError(Object e) {
@@ -592,6 +831,21 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
+            if (_absenceDays.isNotEmpty || (_isAdmin && _pendingAbsenceProofs.isNotEmpty))
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 0)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_absenceDays.isNotEmpty) _buildAbsenceProofBanner(sc, colors),
+                      if (_absenceDays.isNotEmpty && _isAdmin && _pendingAbsenceProofs.isNotEmpty)
+                        SizedBox(height: Responsive.pad(context, 12)),
+                      if (_isAdmin && _pendingAbsenceProofs.isNotEmpty) _buildAdminProofCard(sc, colors),
+                    ],
+                  ),
+                ),
+              ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 0), Responsive.pad(context, 16), Responsive.pad(context, 0)),
@@ -1681,6 +1935,327 @@ class _SelfiePunchSheetState extends State<_SelfiePunchSheet> {
               child: _submitting
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : Text(isPunchIn ? 'Submit Punch In' : 'Submit Punch Out'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProofUploadSheet extends StatefulWidget {
+  final String date;
+  final String? leaveId;
+  final Future<void> Function()? onUploaded;
+  const _ProofUploadSheet({required this.date, this.leaveId, this.onUploaded});
+
+  @override
+  State<_ProofUploadSheet> createState() => _ProofUploadSheetState();
+}
+
+class _ProofUploadSheetState extends State<_ProofUploadSheet> {
+  XFile? _image;
+  bool _uploading = false;
+
+  Future<void> _pick(ImageSource source) async {
+    try {
+      final picked = await ImagePicker().pickImage(source: source, imageQuality: 70);
+      if (picked != null) setState(() => _image = picked);
+    } catch (_) {}
+  }
+
+  Future<void> _submit() async {
+    if (_image == null || _uploading) return;
+    setState(() => _uploading = true);
+    try {
+      final bytes = await _image!.readAsBytes();
+      await ApiService.uploadAbsenceProof(
+        date: widget.date,
+        proofBase64: base64Encode(bytes),
+        mimeType: _image!.mimeType ?? 'image/jpeg',
+        leaveId: widget.leaveId,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      await widget.onUploaded?.call();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Proof uploaded — awaiting review'),
+        backgroundColor: Color(0xFF146c2e),
+      ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: const Color(0xFFDC2626),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String displayDate = widget.date;
+    final d = DateTime.tryParse(widget.date);
+    if (d != null) displayDate = DateFormat('d MMM yyyy').format(d);
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.6,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Upload Absence Proof',
+                style: GoogleFonts.hankenGrotesk(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text('For $displayDate \u00B7 the leave on this day was rejected or is pending review',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+            const SizedBox(height: 16),
+            if (_image != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Image.file(File(_image!.path), fit: BoxFit.cover),
+                ),
+              )
+            else
+              Container(
+                height: 180,
+                decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(12)),
+                child: const Center(child: Icon(Icons.photo_outlined, size: 40, color: Color(0xFF9CA3AF))),
+              ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pick(ImageSource.camera),
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Camera'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pick(ImageSource.gallery),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Gallery'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _image == null || _uploading ? null : _submit,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF93000a),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _uploading
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Submit Proof'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProofReviewSheet extends StatefulWidget {
+  final List<dynamic> proofs;
+  final void Function(dynamic id) onReviewed;
+  const _ProofReviewSheet({required this.proofs, required this.onReviewed});
+
+  @override
+  State<_ProofReviewSheet> createState() => _ProofReviewSheetState();
+}
+
+class _ProofReviewSheetState extends State<_ProofReviewSheet> {
+  late List<dynamic> _items;
+  final Map<String, TextEditingController> _remarks = {};
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = List<dynamic>.from(widget.proofs);
+    for (final p in _items) {
+      _remarks[p['id'].toString()] = TextEditingController();
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _remarks.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _review(dynamic proof, String status) async {
+    if (_busy) return;
+    final id = proof['id']?.toString() ?? '';
+    final remark = _remarks[id]?.text.trim();
+    setState(() => _busy = true);
+    try {
+      await ApiService.reviewAbsenceProof(id, status, remark: remark);
+      if (!mounted) return;
+      widget.onReviewed(proof['id']);
+      setState(() => _items = _items.where((p) => p['id'] != proof['id']).toList());
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(status == 'approved'
+            ? 'Proof approved — worker grace is safe'
+            : 'Proof rejected — this month\u2019s grace is forfeited'),
+        backgroundColor: status == 'approved' ? const Color(0xFF146c2e) : const Color(0xFF93000a),
+      ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: const Color(0xFFDC2626),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _viewFull(dynamic proof) {
+    final bytes = base64Decode((proof['proof_data'] ?? '').toString());
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: InteractiveViewer(
+          child: Image.memory(bytes, fit: BoxFit.contain),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Absence Proofs',
+                style: GoogleFonts.hankenGrotesk(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text('${_items.length} awaiting review \u00B7 approving keeps the worker\u2019s late grace',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _items.isEmpty
+                  ? const Center(
+                      child: Text('All caught up', style: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF))),
+                    )
+                  : ListView.separated(
+                      itemCount: _items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 16),
+                      itemBuilder: (context, i) {
+                        final proof = _items[i];
+                        final worker = proof['workers'];
+                        final name = worker is Map ? (worker['name'] ?? 'Worker').toString() : 'Worker';
+                        final loginId = worker is Map ? worker['login_id']?.toString() : null;
+                        String dateStr = proof['date']?.toString() ?? '';
+                        final d = DateTime.tryParse(dateStr);
+                        if (d != null) dateStr = DateFormat('d MMM yyyy').format(d);
+                        final id = proof['id'].toString();
+                        Uint8List? imgBytes;
+                        try {
+                          imgBytes = base64Decode((proof['proof_data'] ?? '').toString());
+                        } catch (_) {}
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(name, style: GoogleFonts.hankenGrotesk(
+                                fontSize: 15, fontWeight: FontWeight.w700,
+                              )),
+                              Text(
+                                [dateStr, ?loginId].join(' \u00B7 '),
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                              ),
+                              const SizedBox(height: 10),
+                              if (imgBytes != null)
+                                InkWell(
+                                  onTap: () => _viewFull(proof),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.memory(imgBytes, height: 160, width: double.infinity, fit: BoxFit.cover),
+                                  ),
+                                )
+                              else
+                                Container(
+                                  height: 80,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(8)),
+                                  child: const Text('Proof image unavailable', style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                                ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: _remarks[id],
+                                decoration: InputDecoration(
+                                  hintText: 'Remark (optional)',
+                                  isDense: true,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: _busy ? null : () => _review(proof, 'rejected'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFF93000a),
+                                        side: const BorderSide(color: Color(0xFF93000a)),
+                                      ),
+                                      child: const Text('Reject'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: _busy ? null : () => _review(proof, 'approved'),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: const Color(0xFF146c2e),
+                                      ),
+                                      child: const Text('Approve'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),

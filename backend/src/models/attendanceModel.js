@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { isVoluntarySunday } from '../utils/sundayRules.js';
 
 function istDateStr(date = new Date()) {
   const offset = 5.5 * 60 * 60 * 1000;
@@ -98,14 +99,15 @@ export const getMonthlyLateMinutes = async (worker_id) => {
 
   const { data, error } = await db
     .from('attendance')
-    .select('late_minutes')
+    .select('late_minutes, date')
     .eq('worker_id', worker_id)
     .not('status', 'in', '(absent,leave)')
     .gte('date', startOfMonth)
     .lte('date', endOfMonth);
   if (error) throw error;
 
-  return data.reduce((sum, row) => sum + (row.late_minutes || 0), 0);
+  // A voluntary Sunday (SUNDAY_RULES_FROM onward) can never carry late minutes.
+  return data.reduce((sum, row) => sum + (isVoluntarySunday(row.date) ? 0 : (row.late_minutes || 0)), 0);
 };
 
 export const getAttendanceHistory = async (worker_id) => {

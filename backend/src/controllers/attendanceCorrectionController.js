@@ -13,6 +13,7 @@ import { getWorkerById } from '../models/workerModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave } from '../models/leaveModel.js';
 import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
+import { isVoluntarySunday } from '../utils/sundayRules.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -64,6 +65,8 @@ async function calculateLateMinutes(punchInTime, workerId) {
   const ist = getIstTime(new Date(punchInTime));
   const h = ist.getUTCHours();
   const m = ist.getUTCMinutes();
+  // A voluntary Sunday has no office start time — arriving late is impossible.
+  if (isVoluntarySunday(istDateStr(new Date(punchInTime)))) return 0;
   let effectiveStart = await getOfficeStart(workerId);
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) {

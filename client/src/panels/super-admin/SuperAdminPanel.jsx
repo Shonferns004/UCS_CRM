@@ -377,9 +377,9 @@ function EmployeePage() {
 }
 
 // Shows another panel's *page* inside the Super Admin layout. The part of the
-// URL after /sa/<panel>/ picks the page, so /sa/ngo-admin/agents loads the Admin
-// panel's Agents page. The iframe stays hidden until its own sidebar/topbar have
-// been stripped, so there is no flash of a second layout.
+// URL after /sa/<panel>/ picks the page, so /sa/ngo-admin/station-mgmt loads the
+// Admin panel's Stations page. The iframe stays hidden until its own
+// sidebar/topbar have been stripped, so there is no flash of a second layout.
 function PanelFrame({ panel }) {
   const location = useLocation()
   const ref = useRef(null)

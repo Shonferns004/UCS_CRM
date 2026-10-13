@@ -11,6 +11,7 @@ enum RealtimeEvent {
   notifications,
   corrections,
   codes,
+  absenceProofs,
 }
 
 class RealtimeService extends ChangeNotifier {
@@ -30,6 +31,7 @@ class RealtimeService extends ChangeNotifier {
     'notification_log': RealtimeEvent.notifications,
     'attendance_corrections': RealtimeEvent.corrections,
     'impersonation_codes': RealtimeEvent.codes,
+    'absence_proofs': RealtimeEvent.absenceProofs,
   };
 
   RealtimeEvent? get lastEvent => _lastEvent;

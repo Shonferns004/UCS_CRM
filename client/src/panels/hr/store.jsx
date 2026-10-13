@@ -30,6 +30,7 @@ export function useHR() {
     fetchPayments, createPayment, updatePaymentStatus,
     fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport, fetchNgoSalaryReportFallback,
     fetchSalaryHold, setSalaryHold, releaseSalaryHold,
+    fetchWorkerAbsenceGrace,
     fetchVotingDepartments, fetchVotingDepartment, saveVotingDepartment, saveVotingMembers, searchVotingWorkers,
     fetchVotingSessions, createVotingSession, fetchVotingBoard, startVotingSession, closeVotingTurn, completeVotingSession,
   }
@@ -193,6 +194,9 @@ export const fetchNgoReport = (ngoId, month) => apiGet('/ngo-allocations/report/
 export const fetchSalaryHold = (workerId, month) => apiGet('/salary/hold/' + workerId + '?month=' + month);
 export const setSalaryHold = (workerId, month, reason) => apiPut('/salary/hold', { worker_id: workerId, salary_month: month, reason });
 export const releaseSalaryHold = (workerId, month) => apiDelete('/salary/hold/' + workerId + '?month=' + month);
+// Unauthorized-absence grace state for a worker's month — the HR salary
+// mirror charges the grace (Option A) exactly like the payroll engine.
+export const fetchWorkerAbsenceGrace = (workerId, month) => apiGet('/absence-proofs/worker/' + workerId + '?month=' + month);
 export const fetchLoans = () => apiGet('/loans');
 export const createLoanApi = (data) => apiPost('/loans/create', data);
 export const fetchPendingLoans = () => apiGet('/loans/pending');
