@@ -20,6 +20,7 @@ import QuickReplyBar from './QuickReplyBar'
 import TemplateBar from './TemplateBar'
 import MessageSearchModal from './MessageSearch'
 import { MediaUploadPreview } from './MediaPreview'
+import { findExistingThread } from '../../utils/contactPhoneMatch'
 
 // Statuses the standalone inbox lets a thread move through. Sent to the server
 // only when the user picks one, so the list stays unpinned by default.
@@ -216,13 +217,35 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   // A conversation can be reassigned while this screen is open. Do not leave
   // its thread accessible after it is no longer assigned to this FRO.
+  //
+  // The freshly-created thread is the exception: handleNewConv opens it before
+  // the invalidated list query has come back, so it is briefly absent from
+  // `filteredByTab` even though it is legitimately this agent's. Clearing on
+  // that gap made "Start Conversation" appear to do nothing.
+  const pendingSelectRef = useRef(null)
   useEffect(() => {
+    if (activeConv && activeConv.id === pendingSelectRef.current) {
+      if (filteredByTab.some(conversation => conversation.id === activeConv.id)) pendingSelectRef.current = null
+      else return
+    }
     if (activeConv && !filteredByTab.some(conversation => conversation.id === activeConv.id)) {
       setActiveConv(null)
     }
   }, [activeConv, filteredByTab])
 
-  useEffect(() => {
+  // Did this donor already write in, and if so on WHICH number?
+//
+// This cannot be answered from `filteredByTab`: that list is already narrowed to
+// the active tab, so a donor whose thread lives on the agent's other number reads
+// as "never contacted" and the New Conversation sheet opens instead -- which then
+// starts a second thread for a number they already had. Search the unfiltered
+// fetch for the current tab plus everything already loaded.
+const existingThreadFor = useCallback((phoneParam) => {
+  const seen = [...allConversations, ...conversations]
+  return findExistingThread(seen, phoneParam, activeTab !== 'all' ? activeTab : null)
+}, [allConversations, conversations, activeTab])
+
+useEffect(() => {
     const phoneParam = searchParams.get('phone')
     const projectParam = searchParams.get('project')
     const routeTarget = `${projectParam || ''}:${phoneParam || ''}`
@@ -237,25 +260,24 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     }
     if (handledRouteTargetRef.current === routeTarget) return
 
-    if (filteredByTab.length > 0) {
-      const match = filteredByTab.find(c => {
-        const p = c.contact?.phone_normalized || c.contact?.phone || ''
-        return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
-      })
-      if (match) {
-        setActiveConv(match)
-        handledRouteTargetRef.current = routeTarget
-      } else {
-        setNewConvPhone(phoneParam)
-        setShowNewConv(true)
-        handledRouteTargetRef.current = routeTarget
-      }
-    } else if (!loadingConv) {
-      setNewConvPhone(phoneParam)
-      setShowNewConv(true)
+    const existing = existingThreadFor(phoneParam)
+    if (existing) {
+      // Follow the thread to the number it actually lives on.
+      if (existing.project && existing.project !== activeTab) setActiveTab(existing.project)
+      setActiveConv(existing)
       handledRouteTargetRef.current = routeTarget
+      return
     }
-  }, [searchParams, filteredByTab, activeTab, loadingConv])
+
+    // Only default the number to the active tab when the agent holds exactly
+    // one; with several, picking for them silently opens the wrong thread.
+    setNewConvPhone(phoneParam)
+    setNewConvProject(activeTab !== 'all'
+      ? activeTab
+      : (myAccounts.length === 1 ? myAccounts[0].project : ''))
+    setShowNewConv(true)
+    handledRouteTargetRef.current = routeTarget
+  }, [searchParams, conversations, allConversations, activeTab, loadingConv, existingThreadFor, myAccounts])
 
   const { data: messages = null } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
@@ -370,13 +392,26 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       setShowNewConv(false)
       setNewConvPhone('')
       queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-      if (result.conversation) handleSelect(result.conversation)
+
+      // The thread just opened belongs to the number the agent picked in the
+      // dialog, which is frequently NOT the tab that is currently showing. The
+      // list query is scoped by activeTab, so on the next fetch this
+      // conversation is not in it and the effect above would immediately clear
+      // activeConv again -- the chat blinked and vanished. Move the tab to the
+      // conversation's own project first so the list and the open thread agree.
+      const conv = result?.conversation
+      if (conv) {
+        if (conv.project && conv.project !== activeTab) setActiveTab(conv.project)
+        setActiveConv(null)
+        pendingSelectRef.current = conv.id
+        await handleSelect(conv)
+      }
     } catch (err) {
       alert('Failed: ' + err.message)
     } finally {
       setSendingNew(false)
     }
-  }, [newConvPhone, sendingNew, waUser, agentToken, queryClient, handleSelect])
+  }, [newConvPhone, sendingNew, waUser, agentToken, newConvProject, activeTab, queryClient, handleSelect])
 
   const handleQuickReply = async (text) => { await handleSend(text) }
 

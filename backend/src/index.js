@@ -73,10 +73,6 @@ import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
 import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
 import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
-import whatsappAutomationRoutes from './routes/whatsappAutomationRoutes.js';
-import whatsappAccountsRoutes from './routes/whatsappAccountsRoutes.js';
-import whatsappCallingRoutes from './routes/whatsappCallingRoutes.js';
-import whatsappPerformanceRoutes from './routes/whatsappPerformanceRoutes.js';
 import simCardRoutes from './routes/simCardRoutes.js';
 import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import reminderRoutes from './routes/reminderRoutes.js';
@@ -285,10 +281,6 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappEnhancementsRoutes);
-app.use('/api/whatsapp/automation', whatsappAutomationRoutes);
-app.use('/api/whatsapp/accounts', whatsappAccountsRoutes);
-app.use('/api/whatsapp/calling', whatsappCallingRoutes);
-app.use('/api/whatsapp/performance', whatsappPerformanceRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
@@ -1210,16 +1202,6 @@ await ensureFroTimeSessionsAgentSchema().catch(e => console.error('ensureFroTime
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
     await ensureStationAgentOfRecordSchema().catch(e => console.error('ensureStationAgentOfRecordSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
-    // resetStaleWhatsAppOwners() deliberately NOT called here.
-    //
-    // It ran `UPDATE conversations SET assigned_agent_id = NULL` over every
-    // row, once, on first boot after deploy, guarded only by a row in
-    // backend_one_shot_tasks. That is a production mass-update of live donor
-    // ownership and it is out of scope: conversation ownership is now read
-    // defensively instead (see services/whatsappScope.js, which treats an
-    // unrecognised owner as "not mine" rather than relying on the column having
-    // been wiped). The file is left on disk, unreferenced, so the decision stays
-    // reversible -- but nothing invokes it.
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

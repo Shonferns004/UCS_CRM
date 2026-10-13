@@ -1,6 +1,19 @@
 // End-to-end check of the reported bug against the live database: a donor
 // record that canonicalises to `bsct`, opened by an FRO whose only assigned
 // WhatsApp account is `bsct2` (Ankita Chavan). Read-only.
+//
+// Run from backend/:  node scripts/check-wa-live-deeplink.mjs
+//
+// db.js prefers DATABASE_URL over PGHOST/PGPORT when both are set, so when
+// DATABASE_URL exists it points straight at the RDS address and this script has
+// to redirect it at the local tunnel (127.0.0.1:15432) or it gets ECONNRESET on
+// a network that cannot reach the RDS IP directly. Only the host and port are
+// rewritten; credentials are untouched.
+const tunneled = new URL(process.env.DATABASE_URL)
+if (process.env.DATABASE_URL && !['127.0.0.1', 'localhost'].includes(tunneled.hostname)) {
+  process.env.DATABASE_URL = `postgresql://${tunneled.username}:${tunneled.password}@127.0.0.1:15432${tunneled.pathname}`
+}
+
 import assert from 'node:assert/strict'
 import { default as db } from '../src/config/db.js'
 import { getWhatsAppChatUrl, resolveWhatsAppProject, getWhatsAppProject } from '../../client/src/panels/fro/utils/whatsappProject.js'

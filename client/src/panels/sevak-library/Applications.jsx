@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Search, Download, ChevronLeft, ChevronRight, ArrowUpDown, Inbox, FileText, Loader2,
   SlidersHorizontal, RefreshCw, Copy, Check, MoreVertical, Eye, Pencil, ShieldCheck,
   BadgeCheck, Mail, Ban, Trash2, Tag, ChevronDown, Clock, Users, IndianRupee,
-  Bell, AlertTriangle, CircleCheck
+  Bell, AlertTriangle, CircleCheck, CalendarDays
 } from 'lucide-react'
+import DatePicker from 'react-datepicker'
+import 'react-datepicker/dist/react-datepicker.css'
 import {
   STATUS_ORDER, statusLabel, PLAN_COLORS, isRenewalDue, daysUntil,
   daysRemainingForRow, membershipState, toLocalIso
@@ -119,10 +121,15 @@ export default function Applications({
     return c
   }, [rows])
 
-  const planList = useMemo(
-    () => Object.keys(planCounts).filter((p) => p !== 'ALL'),
-    [planCounts]
-  )
+  // Always show every known plan (including Yearly) even before an application
+  // uses it, plus any extra plan values that appear in the data. Deriving the
+  // list from the rows instead left the plan filter empty until the first
+  // membership of that plan existed.
+  const planList = useMemo(() => {
+    const known = Object.keys(PLAN_COLORS)
+    const extra = Object.keys(planCounts).filter((p) => p !== 'ALL' && !known.includes(p))
+    return [...known, ...extra]
+  }, [planCounts])
 
   // Moved from the removed Dashboard tab: totals + revenue for the CURRENT
   // time filter (from/to, same bounds the table uses). The delta badge compares
@@ -152,9 +159,11 @@ export default function Applications({
     }).length
     const revenue = paidInRange(from, to)
 
-    // Previous equal-length window for the delta badge — only when the period
+    // Previous equal-length window for the delta badge ΓÇö only when the period
     // has a start (pickTime sets from; custom ranges set both ends; '' = all).
     let revDelta = null
+    let revDiff = null
+    let prevRevenue = null
     if (from) {
       const startMs = new Date(`${from}T00:00:00`).getTime()
       const endMs = new Date(`${to || todayIso}T00:00:00`).getTime()
@@ -162,6 +171,8 @@ export default function Applications({
       const prevEndIso = toLocalIso(new Date(startMs - 86400000)).slice(0, 10)
       const prevStartIso = toLocalIso(new Date(startMs - spanDays * 86400000)).slice(0, 10)
       const prev = paidInRange(prevStartIso, prevEndIso)
+      prevRevenue = prev
+      revDiff = revenue - prev
       if (prev > 0) revDelta = Math.round(((revenue - prev) / prev) * 100)
     }
 
@@ -172,7 +183,23 @@ export default function Applications({
       return toLocalIso(d).slice(0, 7)
     }
     const thisMonth = paidInRange(monthKey(0), `${monthKey(0)}-31`)
-    return { total, newTotal, revenue, revDelta, thisMonth }
+
+    // Approved memberships split by whether the term is still running. These back
+    // the Ongoing / Expired stat cards, which the revenue delta alone cannot say.
+    const ongoing = rows.filter((r) => {
+      if (r.status !== 'APPROVED') return false
+      const d = daysUntil(r.end_date)
+      return d !== null && d >= 0
+    }).length
+    const expired = rows.filter((r) => {
+      if (r.status !== 'APPROVED') return false
+      const d = daysUntil(r.end_date)
+      return d !== null && d < 0
+    }).length
+
+    return {
+      total, newTotal, revenue, revDelta, revDiff, prevRevenue, thisMonth, ongoing, expired
+    }
   }, [rows, from, to])
 
   // Bell-icon alerts: renewals due (expiring soon / overdue / expired) + queued work.
@@ -240,7 +267,7 @@ export default function Applications({
     setPage(1)
   }, [q, statuses, plans, renewal, membership, from, to, expiryFrom, expiryTo, pageSize])
 
-  // Keep bulk selection scoped to the current view — never act on unseen rows.
+  // Keep bulk selection scoped to the current view ΓÇö never act on unseen rows.
   useEffect(() => {
     setSelected(new Set())
     setMenuFor(null)
@@ -393,6 +420,30 @@ export default function Applications({
     TIME_OPTIONS.find((t) => t.key === timeKey)?.label || 'Custom dates'
   const planLabel =
     plans.length === 0 ? 'All plans' : plans.length === 1 ? plans[0] : `${plans.length} plans`
+  const dateLabel =
+    from && to
+      ? `${formatDate(from)} → ${formatDate(to)}`
+      : from
+        ? `From ${formatDate(from)}`
+        : to
+          ? `Till ${formatDate(to)}`
+          : 'Application date'
+
+  // Revenue delta for the card: absolute rupee difference against the immediately
+  // preceding equal-length window, with the percentage alongside it. The old
+  // badge could only show a percentage, which read as "200%" with no amount.
+  const revTrend = (() => {
+    if (!from) return { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
+    if (hero.revDiff === null) return { label: 'No previous period to compare', color: '#5f6368' }
+    if (hero.revDiff === 0) return { label: 'No change vs previous period', color: '#5f6368' }
+    const up = hero.revDiff > 0
+    const pct = hero.revDelta !== null ? ` (${hero.revDelta > 0 ? '+' : ''}${hero.revDelta}%)` : ''
+    return {
+      up,
+      label: `${up ? '+' : '−'}${formatINR(Math.abs(hero.revDiff))}${pct} vs previous period`,
+      color: up ? '#15803d' : '#b91c1c'
+    }
+  })()
 
   const toggleDraft = (field, value) => {
     setDraft((d) => ({
@@ -630,7 +681,7 @@ export default function Applications({
         await removeApplication(r.id)
         ok++
       } catch {
-        // keep going — report partial failures below
+        // keep going ΓÇö report partial failures below
       }
     }
     if (ok === list.length) toast(`Deleted ${ok} application${ok === 1 ? '' : 's'}.`)
@@ -674,7 +725,7 @@ export default function Applications({
           <div className="row-menu row-menu-box" style={menuStyle}>
             <strong>Approve Application?</strong>
             <div className="menu-kv"><span>Applicant</span><b>{r.full_name}</b></div>
-            <div className="menu-kv"><span>Plan</span><b>{r.membership_type || '—'}</b></div>
+            <div className="menu-kv"><span>Plan</span><b>{r.membership_type || 'ΓÇö'}</b></div>
             <div className="menu-kv"><span>Fee</span><b>{formatINR(r.membership_fee)}</b></div>
             <label className="menu-check">
               <input
@@ -705,10 +756,10 @@ export default function Applications({
           <div className="row-menu row-menu-box" style={menuStyle}>
             <strong>Renew membership?</strong>
             <div className="menu-kv"><span>Member</span><b>{r.full_name}</b></div>
-            <div className="menu-kv"><span>Plan</span><b>{r.membership_type || '—'}</b></div>
+            <div className="menu-kv"><span>Plan</span><b>{r.membership_type || 'ΓÇö'}</b></div>
             <div className="menu-kv">
               <span>New period</span>
-              <b>{dateOk ? `${formatDate(from)} → ${formatDate(to)}` : '—'}</b>
+              <b>{dateOk ? `${formatDate(from)} ΓåÆ ${formatDate(to)}` : 'ΓÇö'}</b>
             </div>
             <label className="menu-field">
               Renewal start date *
@@ -719,7 +770,7 @@ export default function Applications({
               />
             </label>
             <label className="menu-field">
-              Fee (₹)
+              Fee (Γé╣)
               <input
                 type="number"
                 min="0"
@@ -743,10 +794,10 @@ export default function Applications({
             <p className="menu-hint">
               {p && from === p.from
                 ? p.keeps
-                  ? 'Remaining days are kept — the plan is added to the current end date.'
+                  ? 'Remaining days are kept ΓÇö the plan is added to the current end date.'
                   : 'Membership already expired, so the new period starts from today.'
                 : 'The plan duration is added to the chosen start date.'}{' '}
-              Records {feeOk ? formatINR(feeNum) : '—'} as renewal fee.
+              Records {feeOk ? formatINR(feeNum) : 'ΓÇö'} as renewal fee.
             </p>
             <div className="menu-btns">
               <button className="btn-mini" onClick={() => setMenuConfirm(null)} disabled={!!actionBusy}>Cancel</button>
@@ -848,9 +899,9 @@ export default function Applications({
       for (let i = 1; i <= pages; i++) arr.push(i)
     } else {
       arr.push(1)
-      if (safePage > 3) arr.push('…')
+      if (safePage > 3) arr.push('ΓÇª')
       for (let i = Math.max(2, safePage - 1); i <= Math.min(pages - 1, safePage + 1); i++) arr.push(i)
-      if (safePage < pages - 2) arr.push('…')
+      if (safePage < pages - 2) arr.push('ΓÇª')
       arr.push(pages)
     }
     return arr
@@ -907,9 +958,9 @@ export default function Applications({
                           >
                             <span className={`alert-dot ${days < 0 ? 'red' : 'amber'}`} />
                             <span className="alert-main">
-                              <strong>{row.full_name || '—'}</strong>
+                              <strong>{row.full_name || 'ΓÇö'}</strong>
                               <small>
-                                {row.ref} ·{' '}
+                                {row.ref} ┬╖{' '}
                                 {days < 0
                                   ? `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago`
                                   : days === 0
@@ -1018,20 +1069,20 @@ export default function Applications({
               sub={`${hero.newTotal} new this week`}
             />
             <StatCard
+              icon={<Clock size={20} />} label="Ongoing memberships" value={hero.ongoing}
+              color="#16a34a"
+              sub="Approved, not yet expired"
+            />
+            <StatCard
+              icon={<AlertTriangle size={20} />} label="Expired memberships" value={hero.expired}
+              color="#b91c1c"
+              sub="Approved, term ended"
+            />
+            <StatCard
               icon={<IndianRupee size={20} />} label="Revenue collected" value={hero.revenue}
               color="#8b5cf6"
               sub={formatINR(hero.revenue)}
-              trend={
-                hero.revDelta !== null
-                  ? {
-                      up: hero.revDelta >= 0,
-                      label: `${Math.abs(hero.revDelta)}% vs previous period`,
-                      color: hero.revDelta >= 0 ? '#15803d' : '#b91c1c'
-                    }
-                  : from
-                    ? { label: 'No revenue in previous period', color: '#5f6368' }
-                    : { label: `${formatINR(hero.thisMonth)} this month`, color: '#5f6368' }
-              }
+              trend={revTrend}
             />
           </div>
 
@@ -1071,7 +1122,7 @@ export default function Applications({
                       onClick={() => pickPlan(p)}
                     >
                       <i className="sel-dot" style={{ background: PLAN_COLORS[p] || '#9aa0a6' }} />
-                      {p} <span>{planCounts[p]}</span>
+                      {p} <span>{planCounts[p] || 0}</span>
                     </button>
                   ))}
                 </div>
@@ -1100,6 +1151,32 @@ export default function Applications({
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Exact application-date range. The Time presets above cover the
+                common cases; picking a range by hand was only possible through
+                the Filters popover, which has to be opened first. */}
+            <div className="sel-wrap date-filter-wrap">
+              <DatePicker
+                selectsRange
+                startDate={from ? new Date(`${from}T00:00:00`) : null}
+                endDate={to ? new Date(`${to}T00:00:00`) : null}
+                onChange={(dates) => {
+                  const [start, end] = dates
+                  setFrom(start ? toLocalIso(start).slice(0, 10) : '')
+                  setTo(end ? toLocalIso(end).slice(0, 10) : '')
+                  setTimeKey(keyForFrom(start ? toLocalIso(start).slice(0, 10) : ''))
+                }}
+                isClearable
+                maxDate={new Date()}
+                dateFormat="dd MMM yyyy"
+                placeholderText="Application date"
+                customInput={
+                  <button type="button" className={`sel-btn ${from || to ? 'active' : ''}`}>
+                    <CalendarDays size={14} /> {dateLabel} <ChevronDown size={14} />
+                  </button>
+                }
+              />
             </div>
             </div>
 
@@ -1144,7 +1221,7 @@ export default function Applications({
                           onChange={() => toggleDraft('plans', p)}
                         />
                         {p}
-                        <em>{planCounts[p]}</em>
+                        <em>{planCounts[p] || 0}</em>
                       </label>
                     ))}
                   </div>
@@ -1172,7 +1249,7 @@ export default function Applications({
                         onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
                         aria-label="Application from date"
                       />
-                      <span>→</span>
+                      <span>ΓåÆ</span>
                       <input
                         type="date"
                         value={draft.to}
@@ -1191,7 +1268,7 @@ export default function Applications({
                         onChange={(e) => setDraft((d) => ({ ...d, expiryFrom: e.target.value }))}
                         aria-label="Expiry from date"
                       />
-                      <span>→</span>
+                      <span>ΓåÆ</span>
                       <input
                         type="date"
                         value={draft.expiryTo}
@@ -1344,7 +1421,7 @@ export default function Applications({
                               className="plan-tag"
                               style={{ '--pc': PLAN_COLORS[r.membership_type] || '#9aa0a6' }}
                             >
-                              {r.membership_type || '—'}
+                              {r.membership_type || 'ΓÇö'}
                             </span>
                           </td>
                           <td className="col-fee num-td">{formatINR(r.membership_fee)}</td>
@@ -1361,7 +1438,7 @@ export default function Applications({
                               <span className={`days-pill tone-${dri.tone}`}>
                                 <i className="days-dot" />{dri.text}
                               </span>
-                            ) : '—'}
+                            ) : 'ΓÇö'}
                           </td>
                           <td className="date-cell col-expire">
                             {r.end_date ? (
@@ -1369,7 +1446,7 @@ export default function Applications({
                                 {formatDate(r.end_date)}
                                 {expired && <small className="exp-tag">Expired</small>}
                               </>
-                            ) : '—'}
+                            ) : 'ΓÇö'}
                           </td>
                           <td className="actions-cell col-actions" onClick={(e) => e.stopPropagation()}>
                             <button className="btn-view" onClick={() => openApp(r)}>View</button>
@@ -1424,14 +1501,14 @@ export default function Applications({
                           className="plan-tag"
                           style={{ '--pc': PLAN_COLORS[r.membership_type] || '#9aa0a6' }}
                         >
-                          {r.membership_type || '—'}
+                          {r.membership_type || 'ΓÇö'}
                         </span>
                         <span className="mono">{formatINR(r.membership_fee)}</span>
                       </div>
                       <dl className="app-card-rows">
                         <div>
                           <dt>Applied</dt>
-                          <dd>{formatDate(r.created_at)}{formatTime(r.created_at) ? ` · ${formatTime(r.created_at)}` : ''}</dd>
+                          <dd>{formatDate(r.created_at)}{formatTime(r.created_at) ? ` ┬╖ ${formatTime(r.created_at)}` : ''}</dd>
                         </div>
                         <div>
                           <dt>Remaining</dt>
@@ -1440,12 +1517,12 @@ export default function Applications({
                               <span className={`days-pill tone-${dri.tone}`}>
                                 <i className="days-dot" />{dri.text}
                               </span>
-                            ) : '—'}
+                            ) : 'ΓÇö'}
                           </dd>
                         </div>
                         <div>
                           <dt>Expires</dt>
-                          <dd>{r.end_date ? formatDate(r.end_date) : '—'}</dd>
+                          <dd>{r.end_date ? formatDate(r.end_date) : 'ΓÇö'}</dd>
                         </div>
                       </dl>
                       <button
@@ -1467,7 +1544,7 @@ export default function Applications({
           {filtered.length > 0 && (
             <div className="pagination pagination-split">
               <span className="page-range">
-                Showing {rangeStart}–{rangeEnd} of {filtered.length} application{filtered.length === 1 ? '' : 's'}
+                Showing {rangeStart}ΓÇô{rangeEnd} of {filtered.length} application{filtered.length === 1 ? '' : 's'}
               </span>
               <div className="page-right">
                 <button
@@ -1479,8 +1556,8 @@ export default function Applications({
                   <ChevronLeft size={16} />
                 </button>
                 {pageNums.map((n, i) =>
-                  n === '…' ? (
-                    <span key={`gap-${i}`} className="page-ellipsis">…</span>
+                  n === 'ΓÇª' ? (
+                    <span key={`gap-${i}`} className="page-ellipsis">ΓÇª</span>
                   ) : (
                     <button
                       key={n}
