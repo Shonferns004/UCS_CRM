@@ -458,6 +458,58 @@ class ApiService {
     return body;
   }
 
+  // ---- Absence proofs (unauthorized-absence grace flow) ----
+  static Future<Map<String, dynamic>> getAbsenceProofActionable({String? month}) async {
+    final uri = Uri.parse('$baseUrl/absence-proofs/actionable'
+        '${month != null ? '?month=$month' : ''}');
+    final res = await _get(uri, headers: await _headers());
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to load absence proofs') : 'Failed to load absence proofs');
+    return body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{};
+  }
+
+  static Future<Map<String, dynamic>> uploadAbsenceProof({
+    required String date,
+    required String proofBase64,
+    String mimeType = 'image/jpeg',
+    String? leaveId,
+  }) async {
+    final res = await _post(
+      Uri.parse('$baseUrl/absence-proofs'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'date': date,
+        'proof_base64': proofBase64,
+        'mime_type': mimeType,
+        if (leaveId != null) 'leave_id': leaveId,
+      }),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to upload proof');
+    return body;
+  }
+
+  static Future<List<dynamic>> getPendingAbsenceProofs() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/absence-proofs/pending'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch proofs') : 'Failed to fetch proofs');
+    return (body is Map ? body['proofs'] : null) ?? [];
+  }
+
+  static Future<Map<String, dynamic>> reviewAbsenceProof(String id, String status, {String? remark}) async {
+    final res = await _put(
+      Uri.parse('$baseUrl/absence-proofs/$id/status'),
+      headers: await _headers(),
+      body: jsonEncode({'status': status, if (remark != null && remark.isNotEmpty) 'admin_remark': remark}),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to review proof') : 'Failed to review proof');
+    return body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{};
+  }
+
   static Future<Map<String, dynamic>> applyAdvance(String amount, String reason, {String type = 'advance'}) async {
     final res = await _post(
       Uri.parse(type == 'loan' ? '$baseUrl/loans/apply' : '$baseUrl/advances/apply'),

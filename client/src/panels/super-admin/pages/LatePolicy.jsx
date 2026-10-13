@@ -114,6 +114,7 @@ export default function LatePolicy() {
         <strong>How it works:</strong> pick an employee, set their free late grace (default 180 min/month).
         The half-day and full-day limits shrink or grow in the same ratio automatically.
         Example: grace <strong>100</strong> → half-day at <strong>133</strong>, full-day at <strong>267</strong>.
+        Once a person's total late minutes cross the half-day limit, the free grace is charged too — added once to the total, never repeatedly.
       </div>
 
       {err && <div className="sa-err-card">{err}</div>}

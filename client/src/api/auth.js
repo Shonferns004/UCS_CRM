@@ -133,7 +133,7 @@ export async function logout() {
   return api('/auth/logout', { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
 }
 
-export async function impersonateFRO(workerId, code, imposterWorkerId, stations, options = {}) {
+export async function impersonateFRO(workerId, code, imposterWorkerId, stations) {
   return api('/auth/impersonate', {
     method: 'POST',
     body: JSON.stringify({
@@ -141,7 +141,6 @@ export async function impersonateFRO(workerId, code, imposterWorkerId, stations,
       code,
       imposter_worker_id: imposterWorkerId || undefined,
       stations: Array.isArray(stations) ? stations : undefined,
-      takeover: options?.takeover === true,
     }),
     _prefix: 'ucs',
   })
@@ -180,8 +179,8 @@ export function startImpersonation(token, user) {
   // Save the original session only once. On a chained switch (already working as
   // someone else) the current token is itself a cover, and overwriting the saved
   // original would make "Exit Acting FRO" restore the previous proxy instead of
-  // the agent's / operator's own account. It also lets a second switch from a
-  // shared terminal keep the exit point the person started from.
+  // the operator's own account. It also lets a second switch from a shared
+  // terminal keep the exit point the person started from.
   if (!isImpersonating()) {
     const origToken = getToken('ucs')
     const origUser = getUser('ucs')

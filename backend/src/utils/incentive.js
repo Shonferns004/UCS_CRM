@@ -1,4 +1,5 @@
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
+import { isVoluntarySunday } from './sundayRules.js';
 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -68,7 +69,11 @@ export function getDayName(dateStr) {
   return DAY_NAMES[new Date(y, m - 1, d).getDay()];
 }
 
-export function calculateAKI(amount, dayName, ranges) {
+export function calculateAKI(amount, dayName, ranges, dateStr) {
+  // From SUNDAY_RULES_FROM a Sunday earns no AKI at all — the Sunday slab only
+  // applies to Sundays before that date. Callers that pass no date keep the
+  // historic (slab-based) behaviour.
+  if (dateStr && isVoluntarySunday(dateStr)) return 0;
   const dayRanges = (ranges || AKI_RANGES)[dayName];
   if (!dayRanges) return 0;
   const range = dayRanges.find(r => amount >= r.min && amount <= r.max);

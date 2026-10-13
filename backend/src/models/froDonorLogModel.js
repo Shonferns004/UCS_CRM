@@ -51,7 +51,7 @@ export const createDonorLog = async (data) => {
 // split by session type: a self-service save records the worker in
 // fro_worker_id, while a work-as save records the covered FRO there and the
 // operator in operator_id. fro_worker_id is foreign-keyed to workers, so it can
-// never hold an agent's or an admin's id.
+// never hold an admin's id.
 export const findDispositionLogToday = async (assignmentId, actorId, detail, dayStart) => {
   const { data, error } = await db
     .from('fro_donor_logs')
@@ -194,11 +194,11 @@ const getWorkerAliasNames = async (workerId) => {
 // you" for any colleague. Category labels and blanks are absent by
 // construction: they are not workers.
 //
-// Returns a Map of normalized name -> worker id rather than a bare Set, because
-// a CRM agent label ('Agent 21') is only a competing claim once it resolves to
-// somebody — worker_aliases maps every label to the login's worker, and the
-// caller needs to know whether that somebody is itself (a work-as receipt
-// carries the ACTOR's label while the log's fro_worker_id is the COVERED FRO).
+ // Returns a Map of normalized name -> worker id rather than a bare Set, because
+ // a label is only a competing claim once it resolves to somebody —
+ // worker_aliases maps every alias to its worker, and the caller needs to know
+ // whether that somebody is itself (a work-as receipt carries the ACTOR's name
+ // while the log's fro_worker_id is the COVERED FRO).
 const getAllWorkerNameResolvers = async () => {
   const resolvers = new Map();
   const claim = (name, workerId) => {
@@ -249,11 +249,11 @@ const getAllWorkerNameResolvers = async () => {
  * Receipt form. The log is used only when the name is blank or is a category
  * label, where there is no name evidence at all.
  *
- * agent_name still cannot be trusted blindly -- a CRM agent's work-as switch
- * stamps the label "Agent 13" rather than a name (authController.js:960), and the
- * bank-audit and suspense paths write 'Suspense'/'PG'/free text -- so the name
- * query is alias-expanded (migration 080) and category labels are excluded
- * outright, leaving unreconciled bank money credited to nobody.
+ * agent_name still cannot be trusted blindly -- historical rows carry labels
+ * rather than a name, and the bank-audit and suspense paths write
+ * 'Suspense'/'PG'/free text -- so the name query is alias-expanded (migration
+ * 080) and category labels are excluded outright, leaving unreconciled bank
+ * money credited to nobody.
  *
  * Category labels ('Suspense', 'PG', 'Library', 'NA') are never matched, so
  * unreconciled bank money is not credited to an FRO who never collected it.
@@ -274,12 +274,11 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
   const run = opts.allowStale ? (t, p) => replicaSql(t, p, { replicaOptional: true }) : sql;
 
   // The id handed in here is creditWorkerId from the FRO panel, which is the
-  // OPERATOR (req.user.imposter_id), not always a workers row: under an agent
-  // login it is a crm_agents uuid. Querying workers/logs with that uuid matched
-  // nothing, so every agent session's Collected card read zero however much had
-  // been verified. Resolve it once — window 1 runs against the linked worker,
-  // window 2 matches the linked worker's name plus the label this session
-  // stamps into receipts.agent_name.
+  // OPERATOR (req.user.imposter_id), not always a workers row — an admin
+  // work-as carries a users id, which matches nothing in workers/logs.
+  // Resolve it once: window 1 runs against the resolved worker, window 2
+  // matches the resolved worker's name plus the label this session stamps
+  // into receipts.agent_name.
   const credit = await resolveCreditTarget(workerId);
   const queryWorkerId = credit?.workerId || workerId;
 
@@ -350,9 +349,9 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd,
   // and wants them.
   const { startDay: monthStartDay, endDay: monthEndDay } = receiptDayBounds(monthStart, monthEnd, opts);
 
-  // Same operator-vs-worker resolution as the card loader: creditWorkerId may be
-  // a crm_agents uuid under an agent login, and a workers-keyed lookup against
-  // it returns nothing.
+  // Same operator-vs-worker resolution as the card loader: creditWorkerId may
+  // be an operator id rather than a workers id, and a workers-keyed lookup
+  // against it returns nothing.
   const credit = await resolveCreditTarget(workerId);
   const queryWorkerId = credit?.workerId || workerId;
 
@@ -580,9 +579,9 @@ export const getRangeCollectionByWorker = async (workerIds, startDay, endDay) =>
     (byName[k] = byName[k] || []).push(w.id);
   }
   // Widen the map with each worker's curated aliases. Without this, a receipt
-  // stamped "Agent 13" (the label an agent's work-as switch writes, see
-  // authController.js:960) matched no name here and was invisible to this
-  // batch total even though worker_aliases still maps it to its FRO.
+  // stamped with an alias rather than the canonical name matched no name here
+  // and was invisible to this batch total even though worker_aliases still maps
+  // it to its FRO.
   if (workerIds.length > 0) {
     try {
       const { data: aliasRows } = await db
@@ -717,11 +716,9 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
 //     it is the same rule the receipt loader applies by name, so the Verified
 //     figure sits with the same person the Collected figure sits with.
 //
-// Under an agent login creditWorkerId is a crm_agents uuid, which matches
-// nothing in fro_worker_id — that alone made both cards read zero for every
-// agent session. resolveCreditTarget maps it to the linked worker for the
-// no-cover half; the cover half has to match the id as handed in, because
-// operator_id holds the agent's uuid.
+// resolveCreditTarget maps an operator id to its worker for the no-cover half;
+// the cover half has to match the id as handed in, because operator_id holds
+// the ACTOR's id.
 const loadClaimRows = async ({ workerId, startDate, endDate, dateCol, status, attribution }) => {
   const scoped = () => db
     .from('fro_donor_logs')

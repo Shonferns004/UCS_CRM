@@ -4,6 +4,8 @@ import { Dropdown } from './ui';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../../lib/apiBase';
 import { deptLabel } from '../../../lib/labels';
+import { isVoluntarySunday, newSundayRulesMonth } from '../../../lib/sundayRules';
+import { calcLateDeductionDays } from '../../../lib/latePolicy';
 import { useRealtime } from '../../../hooks/useRealtime';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
@@ -527,26 +529,22 @@ export default function Attendance() {
       const joinDate = (w.created_at || '').slice(0, 10);
       const covered = new Set(records.map(r => r.date));
       let present = 0, late = 0, halfDay = 0, leave = 0, absent = 0;
-      const totalLateMinutes = records.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
-      const _lg = Number(w.late_grace_minutes);
-      const _grace = Number.isFinite(_lg) && _lg >= 30 && _lg <= 480 ? Math.round(_lg) : 180;
-      const _half = Math.max(1, Math.round(240 * (_grace / 180)));
-      const _full = Math.max(_half + 1, Math.round(480 * (_grace / 180)));
-      let lateDeductionDays = 0;
-      if (totalLateMinutes > _full) {
-        lateDeductionDays = Math.round((totalLateMinutes / _full) * 2) / 2;
-      } else if (totalLateMinutes > _half) {
-        lateDeductionDays = 1;
-      } else if (totalLateMinutes > _grace) {
-        lateDeductionDays = 0.5;
-      }
+      const totalLateMinutes = records.reduce((sum, r) => sum + (isVoluntarySunday(r.date) ? 0 : (r.late_minutes || 0)), 0);
+      // Bulk table has no leave/proof context — clawback only; the backend
+      // payroll engine is authoritative for forfeiture (Option A single budget).
+      const lateDeductionDays = calcLateDeductionDays(totalLateMinutes, w.late_grace_minutes);
       const halfDayDates = [];
       const absentDates = [];
       for (const r of records) {
         if (r.date < (joinDate || '0000-00-00')) continue;
+        // A voluntary Sunday (SUNDAY_RULES_FROM onward) is never late/half-day.
+        const voluntarySunday = isVoluntarySunday(r.date);
         if (r.status === 'present') present++;
-        else if (r.status === 'late') { present++; late++; }
-        else if (r.status === 'half-day') { halfDay++; halfDayDates.push(r.date); }
+        else if (r.status === 'late') { present++; if (!voluntarySunday) late++; }
+        else if (r.status === 'half-day') {
+          if (voluntarySunday) present++;
+          else { halfDay++; halfDayDates.push(r.date); }
+        }
         else if (r.status === 'leave') leave++;
         else if (r.status === 'absent') {
           if (!isSunday(r.date)) { absent++; absentDates.push(r.date); }
@@ -611,9 +609,18 @@ export default function Attendance() {
         const attendedAll = attended.length + attendedCancelled;
         const eligibleNotWorked = eligible.length - attended.length;
         const cleanMonth = regularAbsences === 0 && !(joinedThisMonth && joinDay > 10);
-        const freeCount = Math.max(0, Math.min(cleanMonth ? sundays.length : sundays.length - 1, eligibleNotWorked));
-        const paid = attendedAll + freeCount;
-        sundayCount = Math.max(0, paid - attendedAll);
+        // New rules (from SUNDAY_RULES_FROM): every eligible Sunday is paid,
+        // there is no (total − 1) cap and a worked-but-cancelled Sunday comes
+        // back off the paid total instead of being added on top.
+        const useNewSundayRules = newSundayRulesMonth(
+          parseInt(startDate.slice(0, 4), 10),
+          parseInt(startDate.slice(5, 7), 10),
+        );
+        const freeCount = useNewSundayRules
+          ? eligibleNotWorked
+          : Math.max(0, Math.min(cleanMonth ? sundays.length : sundays.length - 1, eligibleNotWorked));
+        const paid = useNewSundayRules ? attended.length + freeCount : attendedAll + freeCount;
+        sundayCount = useNewSundayRules ? paid - attendedAll : Math.max(0, paid - attendedAll);
       }
       const matches = !statusActive || (
         (statusFilter === 'present' && present - late > 0)
