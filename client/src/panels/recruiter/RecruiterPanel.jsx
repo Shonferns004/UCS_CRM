@@ -19,6 +19,7 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
 
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
+const SuperAdminTicketSection = lazy(() => import('../../components/SuperAdminTicketSection'))
 
 const NAV = [
   { id:'dashboard',  path:'/recruiter/dashboard',  label:'Dashboard',  icon:Grid,   eyebrow:'Overview',  sub:'Your hiring at a glance' },
@@ -26,6 +27,7 @@ const NAV = [
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
   { id:'daily-report', path:'/recruiter/daily-report', label:'Daily Report', icon:FileTxt, eyebrow:'Daily', sub:'Your hiring report for the day' },
   { id:'tickets',    path:'/recruiter/tickets',    label:'Tickets',    icon:FileTxt, eyebrow:'Support',   sub:'Raise and track your tickets' },
+  { id:'to-super-admin', path:'/recruiter/to-super-admin', label:'To Super Admin', icon:FileTxt, eyebrow:'Support', sub:'All tickets raised to the Super Admin' },
   { id:'chat',       path:'/recruiter/chat',       label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 
@@ -173,6 +175,7 @@ function AppShell() {
             <Route path="candidates" element={<Candidates />} />
             <Route path="daily-report" element={<RecruiterDailyReport />} />
             <Route path="tickets" element={<TechnicalTickets panel="recruiter" />} />
+            <Route path="to-super-admin" element={<SuperAdminTicketSection panel="recruiter" />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>

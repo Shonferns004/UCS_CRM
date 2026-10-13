@@ -11,7 +11,7 @@ const PANEL_MAP = {
   event_head: 'event_head',
   digital: 'dev_panel',
   developers: 'dev_panel',
-  super_admin: 'dev_panel',
+  super_admin: 'super_admin',
   worker: 'other',
   user: 'other',
 };
