@@ -55,7 +55,6 @@ import {
   getVerifiedCollection,
   getUnverifiedCollection,
   getDailyCollectionByWorker,
-  COLLECTION_DATE_OR,
   logCollectionDate,
   paymentDiscriminant,
   inRange,
@@ -63,7 +62,6 @@ import {
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js';
 import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '../services/froCounterDay.js';
-import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
 import redis from '../config/redis.cjs';
@@ -717,6 +715,50 @@ const STATUS_PRIORITY = [
   'donation_collected',
 ];
 
+// Exclusive cadence buckets for the Active Donors card and its donor-list
+// modal. A donor's cadence is the WIDEST gap in their donation pattern this
+// FY: the max of the gaps between consecutive donations AND the open gap
+// from the last donation to now — a monthly donor who vanished five months
+// ago stops counting as monthly. Each button shows EXACTLY that cadence:
+// 1M = monthly donors (gaps ~1 month), 2M = 2-month donors, and so on to
+// yearly; 'all' = every cadence combined. Half a month of grace per bucket
+// so a 33-day gap does not fail the monthly bucket.
+const CADENCE_MONTH_MS = 30.44 * 24 * 60 * 60 * 1000;
+const CADENCE_BUCKETS = [1, 2, 3, 6, 8, 12];
+
+const groupDonationDatesByDonor = (logs) => {
+  const byDonor = new Map();
+  for (const l of logs || []) {
+    if (!l.donor_id || !l.created_at) continue;
+    const t = new Date(l.created_at).getTime();
+    if (Number.isNaN(t)) continue;
+    const arr = byDonor.get(l.donor_id);
+    if (arr) arr.push(t);
+    else byDonor.set(l.donor_id, [t]);
+  }
+  for (const arr of byDonor.values()) arr.sort((a, b) => a - b);
+  return byDonor;
+};
+
+const widestDonationGapMs = (byDonor, donorId, nowMs) => {
+  const dates = byDonor.get(donorId);
+  if (!dates || dates.length === 0) return Infinity;
+  let widest = nowMs - dates[dates.length - 1];
+  for (let i = 1; i < dates.length; i++) {
+    widest = Math.max(widest, dates[i] - dates[i - 1]);
+  }
+  return Math.max(0, widest);
+};
+
+// Smallest bucket whose limit covers the widest gap; null = wider than a
+// year (no cadence). Donors with no FY donation at all also get null.
+const cadenceBucketMonths = (widestGapMs) => {
+  for (const b of CADENCE_BUCKETS) {
+    if (widestGapMs <= CADENCE_MONTH_MS * (b + 0.5)) return b;
+  }
+  return null;
+};
+
 export const getDashboard = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -724,11 +766,10 @@ export const getDashboard = async (req, res) => {
     // This handler fans out to a dozen read-all-then-count-in-JS queries over the
     // FRO's whole assignment history, and the dashboard is refetched on every
     // visit. Serve the last payload while it is fresh instead.
-    // activeWindow scopes the active/inactive donor split to the last 1, 2 or
-    // 3 months (default 1 month). A donor with no donation in the window is
-    // inactive; past 3 months with no donation they stay inactive. Part of the
-    // cache key — monthly counts differ across windows.
-    const activeWindow = ['1', '2', '3'].includes(String(req.query.activeWindow)) ? String(req.query.activeWindow) : '1';
+    // activeWindow scopes the active/inactive donor split to the last 1, 2, 3,
+    // 6, 8 or 12 months (default 1 month). A donor with no donation in the
+    // window is inactive. Part of the cache key — counts differ across windows.
+    const activeWindow = ['all', '1', '2', '3', '6', '8', '12'].includes(String(req.query.activeWindow)) ? String(req.query.activeWindow) : '1';
     const dashKey = `fro:dash:${workerId}:${req.query.month || 'cur'}:${activeWindow}`;
     const hitDash = cacheGet(dashKey, FRO_DASHBOARD_TTL_MS);
     if (hitDash !== undefined) return res.json(hitDash);
@@ -835,45 +876,28 @@ export const getDashboard = async (req, res) => {
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
 
-    // Active donors: those who donated within the last activeWindow months
-    // (1, 2 or 3). No donation in the window = inactive; after 3 months with
-    // no donation a donor remains inactive.
-    const windowCutoff = new Date();
-    windowCutoff.setMonth(windowCutoff.getMonth() - Number(activeWindow));
-
-    // The year-long active-donor scan and today's punch-in lookup are
-    // independent of the 9 aggregations below, so they ride in the same
+    // The year-long donation scan and today's punch-in lookup are
+    // independent of the 8 aggregations below, so they ride in the same
     // Promise.all instead of costing two extra sequential round-trips.
     const [
-      monthlyConnectedRes, dailyConnectedRes, dailyDonationsRes, totalDonationsRes, assignmentsRes,
-      leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes, activeDonorsRes,
+      monthlyConnectedRes, dailyConnectedRes, totalDonationsRes, assignmentsRes,
+      leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes,
     ] = stationNames.length > 0
       ? await Promise.all([
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or(COLLECTION_DATE_OR(todayStart.toISOString(), todayEnd.toISOString())), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, amount_collected, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'), myScope),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(
-            db
-              .from('fro_donor_logs')
-              .select('donor_id, fro_assignments!inner(station, ngo_id)')
-              .in('fro_assignments.station', stationNames)
-              .eq('action', 'donation')
-              .gte('created_at', windowCutoff.toISOString()),
-            myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-          ),
         ])
-      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
+      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
     const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
     monthlyConnectedRes.data = filterByScope(monthlyConnectedRes.data, myScope, pairOf);
     dailyConnectedRes.data = filterByScope(dailyConnectedRes.data, myScope, pairOf);
-    dailyDonationsRes.data = filterByScope(dailyDonationsRes.data, myScope, pairOf);
     totalDonationsRes.data = filterByScope(totalDonationsRes.data, myScope, pairOf);
     leadDoneAllRes.data = filterByScope(leadDoneAllRes.data, myScope, pairOf);
     fyDonorsRes.data = filterByScope(fyDonorsRes.data, myScope, pairOf);
@@ -898,25 +922,28 @@ export const getDashboard = async (req, res) => {
 
     const monthlyDonorIds = new Set((monthlyConnectedRes.data || []).map(l => l.donor_id).filter(Boolean));
     const dailyDonorIds = new Set((dailyConnectedRes.data || []).map(l => l.donor_id).filter(Boolean));
-    const todayISO = todayStart.toISOString();
-    const todayEndISO = todayEnd.toISOString();
+    // Today's collection from the same receipts rows as the month total, keyed
+    // by receipt_date (an IST calendar day). Log-based counting here missed
+    // receipts whose log date/attribution differed — the card showed 3k while
+    // the receipt book said 5.7k.
+    const todayDay = istNow.toISOString().slice(0, 10);
     let dailyDonations = 0;
     const dailyDonatedIds = new Set();
-    for (const l of dailyDonationsRes.data || []) {
-      if (!inRange(logCollectionDate(l), todayISO, todayEndISO)) continue;
-      dailyDonations += parseFloat(l.amount_collected || 0);
-      if (l.donor_id) dailyDonatedIds.add(l.donor_id);
+    for (const r of collectedRows || []) {
+      if (String(r.receipt_date || '').slice(0, 10) !== todayDay) continue;
+      dailyDonations += Number(r.amount || 0);
+      const rid = r.donor_id || r.donor_mobile;
+      if (rid) dailyDonatedIds.add(rid);
     }
-    // FY total plus a current-month slice (same rows, filtered by created_at)
-    // so the Monthly donation view has its own amount and donor count without
-    // another query.
+    // FY total plus the current-month distinct donor count (same rows, filtered
+    // by created_at). The monthly AMOUNT shown on the card is the receipts-
+    // based `collected` figure, not a log sum — logs can double-count a
+    // donation recorded by more than one flow.
     let totalDonations = 0;
-    let monthlyDonations = 0;
     const monthDonatedIds = new Set();
     for (const l of totalDonationsRes.data || []) {
       totalDonations += parseFloat(l.amount_collected || 0);
       if (l.created_at >= monthStart && l.created_at <= monthEnd) {
-        monthlyDonations += parseFloat(l.amount_collected || 0);
         if (l.donor_id) monthDonatedIds.add(l.donor_id);
       }
     }
@@ -980,21 +1007,22 @@ export const getDashboard = async (req, res) => {
       froReactivatedMonthly = [...froMonthDonorSet].filter(id => !fyBeforeMonthDonorsSet.has(id)).length;
     }
 
-    // Active donors: those who donated within the last 1 year (fetched in the
-    // batch above; only the scope filter + counting happen here).
-    const donorsWithRecentDonations = stationNames.length > 0
-      ? filterByScope(
-          activeDonorsRes.data || [],
-          myScope,
-          l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`
-        )
-      : [];
-
-    const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
+    // Active donors by EXCLUSIVE donation cadence: each window button counts
+    // exactly that cadence (1M = monthly donors only, 2M = 2-month donors
+    // only, …; 'all' = every cadence combined). Inactive is FIXED and does
+    // not follow the pills: every assigned donor who did not donate in the
+    // past one month — including donors who have never donated a single
+    // rupee — is inactive.
+    const donationDatesByDonor = groupDonationDatesByDonor(totalDonationsRes.data);
+    const cadenceNowMs = Date.now();
+    const activeWindowMonths = activeWindow === 'all' ? null : Number(activeWindow);
     let activeDonors = 0, inactiveDonors = 0;
     for (const [donorId] of donorInfo) {
-      if (activeDonorIds.has(donorId)) activeDonors++;
-      else inactiveDonors++;
+      const dates = donationDatesByDonor.get(donorId);
+      const lastDonationMs = dates && dates.length ? dates[dates.length - 1] : 0;
+      const bucket = lastDonationMs ? cadenceBucketMonths(widestDonationGapMs(donationDatesByDonor, donorId, cadenceNowMs)) : null;
+      if (activeWindow === 'all' ? bucket !== null : bucket === activeWindowMonths) activeDonors++;
+      if (!lastDonationMs || (cadenceNowMs - lastDonationMs) > CADENCE_MONTH_MS) inactiveDonors++;
     }
 
     const { data: myAtt } = await db
@@ -1026,9 +1054,15 @@ export const getDashboard = async (req, res) => {
       },
       donations: {
         daily: dailyDonations,
-        daily_donors: dailyDonatedIds.size,
-        monthly: monthlyDonations,
-        monthly_donors: monthDonatedIds.size,
+        // Distinct donors (donor_id, falling back to mobile) — not receipt
+        // counts, so one donor with 5 receipts still counts once.
+        daily_donors: new Set((collectedRows || [])
+          .filter(r => String(r.receipt_date || '').slice(0, 10) === todayDay)
+          .map(r => r.donor_id || r.donor_mobile)
+          .filter(Boolean)).size,
+        monthly_donors: new Set((collectedRows || [])
+          .map(r => r.donor_id || r.donor_mobile)
+          .filter(Boolean)).size,
         total: totalDonations,
         new_donors: {
           today: newDonorsToday,
@@ -1078,7 +1112,11 @@ export const getDonorSplitList = async (req, res) => {
   try {
     const workerId = req.user.id;
     const status = ['active', 'inactive', 'total'].includes(req.query.status) ? req.query.status : 'active';
-    const windowN = ['1', '2', '3'].includes(String(req.query.window)) ? Number(req.query.window) : 1;
+    const windowParam = String(req.query.window);
+    const isAllWindow = windowParam === 'all';
+    const windowN = ['all', '1', '2', '3', '6', '8', '12'].includes(windowParam)
+      ? (isAllWindow ? 12 : Number(windowParam))
+      : 1;
     const limit = Math.min(Number(req.query.limit) || 500, 1000);
 
     const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
@@ -1113,21 +1151,40 @@ export const getDonorSplitList = async (req, res) => {
       const donorSet = new Set((logs || []).map(l => l.donor_id).filter(Boolean));
       ids = assignedIds.filter(id => donorSet.has(id));
     } else {
-      const cutoff = new Date();
-      cutoff.setMonth(cutoff.getMonth() - windowN);
+      // Active = cadence fits the selected window (widest FY gap, consecutive
+      // donations plus the open gap to now). Inactive is FIXED — did not
+      // donate in the past one month — the window pills never apply to it.
+      const now = new Date();
+      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
+      const fyStart = new Date(fyYear, 3, 1);
       const { data: logs } = await withStationNgoPairs(
         db
           .from('fro_donor_logs')
-          .select('donor_id, fro_assignments!inner(station, ngo_id)')
+          .select('donor_id, created_at, fro_assignments!inner(station, ngo_id)')
           .in('fro_assignments.station', stationNames)
-          .eq('action', 'donation')
-          .gte('created_at', cutoff.toISOString()),
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .gte('created_at', fyStart.toISOString()),
         myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
       );
-      const activeSet = new Set((logs || []).map(l => l.donor_id).filter(Boolean));
+      const donationDatesByDonor = groupDonationDatesByDonor(logs);
+      const nowMs = Date.now();
+      // Active = EXCLUSIVE cadence bucket ('all' = any bucket). Inactive is
+      // FIXED — every assigned donor who did not donate in the past one
+      // month, including those who have never donated at all — the window
+      // pills never apply to it.
       ids = status === 'active'
-        ? assignedIds.filter(id => activeSet.has(id))
-        : assignedIds.filter(id => !activeSet.has(id));
+        ? assignedIds.filter(id => {
+            const dates = donationDatesByDonor.get(id);
+            if (!dates || !dates.length) return false;
+            const bucket = cadenceBucketMonths(widestDonationGapMs(donationDatesByDonor, id, nowMs));
+            return isAllWindow ? bucket !== null : bucket === windowN;
+          })
+        : assignedIds.filter(id => {
+            const dates = donationDatesByDonor.get(id);
+            const lastMs = dates && dates.length ? dates[dates.length - 1] : 0;
+            return !lastMs || (nowMs - lastMs) > CADENCE_MONTH_MS;
+          });
     }
 
     const total = ids.length;
@@ -4248,8 +4305,6 @@ export const getMyTarget = async (req, res) => {
     };
     try {
       const ranges = await getAKISlabs();
-      const achievements = await getAchievements(creditWorkerId, monthStart, monthEnd);
-      const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
       const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd, { startDay, endDay });
       const akiPerDay = Object.entries(dailyCollection || {})
         .map(([date, collection]) => ({
@@ -4260,16 +4315,16 @@ export const getMyTarget = async (req, res) => {
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
       const totalCollectionAKI = akiPerDay.reduce((sum, r) => sum + r.aki, 0);
-      const totalAKI = achievements.reduce((sum, r) => {
-        return sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date), ranges, r.date);
-      }, 0);
+      // Use receipts-based collected (same figure as the Collection card and
+      // calendar) for the target check — daily_achievements is often empty.
+      const monthlyAchievement = collected;
       const monthlyTargetMet = target > 0 && monthlyAchievement >= target;
       if (monthlyTargetMet) {
-        const akiPayout = incentive.isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
+        const akiPayout = incentive.isNewJoiner ? totalCollectionAKI : Math.round(totalCollectionAKI / 2);
         const monthlyIncentive = Math.round((monthlyAchievement - target) * 0.1);
-        incentive = { totalAKI, akiPayout, monthlyIncentive, totalIncentive: akiPayout + monthlyIncentive, targetMet: true, isNewJoiner: incentive.isNewJoiner, akiPerDay, totalCollectionAKI };
+        incentive = { totalAKI: totalCollectionAKI, akiPayout, monthlyIncentive, totalIncentive: akiPayout + monthlyIncentive, targetMet: true, isNewJoiner: incentive.isNewJoiner, akiPerDay, totalCollectionAKI };
       } else {
-        incentive.totalAKI = totalAKI;
+        incentive.totalAKI = totalCollectionAKI;
         incentive.akiPerDay = akiPerDay;
         incentive.totalCollectionAKI = totalCollectionAKI;
       }

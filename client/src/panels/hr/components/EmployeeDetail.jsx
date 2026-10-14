@@ -21,9 +21,11 @@ const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 function fmtTime(iso) {
   if (!iso) return '\u2014';
   const d = new Date(new Date(iso).getTime() + IST_OFFSET);
-  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const h24 = d.getUTCHours();
+  const h = h24 % 12 || 12;
   const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
+  const ap = h24 < 12 ? 'AM' : 'PM';
+  return `${h}:${mm} ${ap}`;
 }
 
 
@@ -39,7 +41,7 @@ function Badge({ status }) {
   return <span className={`badge ${cls}`}>{lbl}</span>;
 }
 
-export default function EmployeeDetail({ worker, onBack, onOffboard }) {
+export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMode = false }) {
   const { teams: teamOptions } = useTeams();
   const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary, maskSalary } = useSalaryPrivacy();
   const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, fetchSalaryHold, setSalaryHold, releaseSalaryHold, fetchWorkerAbsenceGrace } = useHR();
@@ -57,8 +59,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [form, setForm] = useState({});
-  const [tab, setTab] = useState('overview');
-  const [attStatus, setAttStatus] = useState('');
+  const [tab, setTab] = useState(accountsMode ? 'attendance' : 'overview');
   const [salaries, setSalaries] = useState([]);
   const [salaryForm, setSalaryForm] = useState({ salary: '' });
   const [salarySubmitting, setSalarySubmitting] = useState(false);
@@ -385,20 +386,43 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const sigStatus = signatureStatusPill(data);
 
   const empAttendance = attendance.filter(a => a.worker_id === worker.id);
-  const filteredAttendance = attStatus ? empAttendance.filter(a => a.status === attStatus) : empAttendance;
+  const filteredAttendance = empAttendance;
 
   const empLeaves = leaves.filter(l => l.worker_id === worker.id);
 
   const ngoName = ngos.find(n => n.id === data.ngo_id)?.name || 'NA';
 
-  const TABS = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'attendance', label: 'Attendance' },
-    { key: 'salary', label: 'Salary' },
-    { key: 'leaves', label: 'Leaves' },
-    { key: 'loans', label: 'Loans & Advances' },
-    { key: 'settings', label: 'Settings' },
-  ];
+  // Accounts' Salary section keeps a lean strip: no Overview, Leaves or
+  // Settings — Bank Details moved to the top of the page instead (below).
+  // Loans & Advances lives on its own full page in the Salary & Advances
+  // strip (/accounts/volunteers/loans), not in this detail view.
+  const TABS = accountsMode
+    ? [
+        { key: 'attendance', label: 'Attendance' },
+        { key: 'salary', label: 'Salary' },
+      ]
+    : [
+        { key: 'overview', label: 'Overview' },
+        { key: 'attendance', label: 'Attendance' },
+        { key: 'salary', label: 'Salary' },
+        { key: 'leaves', label: 'Leaves' },
+        { key: 'loans', label: 'Loans & Advances' },
+        { key: 'settings', label: 'Settings' },
+      ];
+
+  // Lives outside the Overview tab so Accounts can show it pinned at the top of
+  // the page; HR still renders it inside Overview exactly where it was.
+  const bankDetailsCard = (
+    <div className="card" style={{ marginBottom:16 }}>
+      <div className="card-head"><h3>Bank Details</h3></div>
+      <div className="detail-grid">
+        {editing ? <EditField label="Account Holder" value={form.account_holder_name} onChange={setField('account_holder_name')} /> : <Field label="Account Holder" value={data.account_holder_name} />}
+        {editing ? <EditField label="Bank Name" value={form.bank_name} onChange={setField('bank_name')} /> : <Field label="Bank Name" value={data.bank_name} />}
+        {editing ? <EditField label="IFSC Code" value={form.ifsc_code} onChange={setField('ifsc_code')} /> : <Field label="IFSC Code" value={data.ifsc_code} />}
+        {editing ? <EditField label="Account Number" value={form.account_number} onChange={setField('account_number')} /> : <Field label="Account Number" value={data.account_number} />}
+      </div>
+    </div>
+  );
 
   const now = new Date();
   const istNow = new Date(now.getTime() + IST_OFFSET);
@@ -769,13 +793,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
             </div>
           </div>
           <div className="side-fields">
-            <SideField label="Email" value={data.email} />
+            {!accountsMode && <SideField label="Email" value={data.email} />}
             <SideField label="Phone" value={data.phone || '\u2014'} />
-            <SideField label="Gender" value={data.gender || '\u2014'} />
-            <SideField label="Date of Birth" value={data.dob || '\u2014'} />
+            {!accountsMode && <SideField label="Gender" value={data.gender || '\u2014'} />}
+            {!accountsMode && <SideField label="Date of Birth" value={data.dob || '\u2014'} />}
             <SideField label="Joined" value={data.created_at ? new Date(data.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '\u2014'} />
             {/* Resolved so the profile never shows a raw JSON array string. */}
-            <SideField label="Documents Submitted" value={joinDocumentLabels(parseDocumentsValue(data.documents_value, data.documents_other).selected, data.documents_other) || '\u2014'} />
+            {!accountsMode && <SideField label="Documents Submitted" value={joinDocumentLabels(parseDocumentsValue(data.documents_value, data.documents_other).selected, data.documents_other) || '\u2014'} />}
           </div>
           </div>
         </div>
@@ -865,15 +889,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                 </div>
               </div>
 
-              <div className="card" style={{ marginBottom:16 }}>
-                <div className="card-head"><h3>Bank Details</h3></div>
-                <div className="detail-grid">
-                  {editing ? <EditField label="Account Holder" value={form.account_holder_name} onChange={setField('account_holder_name')} /> : <Field label="Account Holder" value={data.account_holder_name} />}
-                  {editing ? <EditField label="Bank Name" value={form.bank_name} onChange={setField('bank_name')} /> : <Field label="Bank Name" value={data.bank_name} />}
-                  {editing ? <EditField label="IFSC Code" value={form.ifsc_code} onChange={setField('ifsc_code')} /> : <Field label="IFSC Code" value={data.ifsc_code} />}
-                  {editing ? <EditField label="Account Number" value={form.account_number} onChange={setField('account_number')} /> : <Field label="Account Number" value={data.account_number} />}
-                </div>
-              </div>
+              {bankDetailsCard}
 
               <Field label="Onboarding" value={data.onboarding_completed ? 'Completed' : 'Pending'} />
 
@@ -998,126 +1014,94 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       <ArrowRight width={14} />
                     </button>
                   </div>
-                  <Dropdown className="filter-select" value={attStatus} onChange={val => setAttStatus(val?.target?.value ?? val)}
-                     options={[{value:'',label:'All'},{value:'present',label:'Present'},{value:'late',label:'Late'},{value:'absent',label:'Absent'},{value:'leave',label:'Leave'},{value:'half-day',label:'Half Day'}]} />
-                </div>
-
-                {(() => {
-                  const mLate = payAttendance.reduce((s, a) => s + (a.late_minutes || 0), 0);
-                  const lt = lateThresholds(data?.late_grace_minutes ?? worker?.late_grace_minutes ?? null);
-                  const activeIdx = mLate > lt.full ? 3 : mLate > lt.half ? 2 : mLate > lt.grace ? 1 : 0;
-                  const tiers = [
-                    { label:'None', sub:`≤${lt.grace} min`, color:'var(--sage)' },
-                    { label:'Half', sub:`${lt.grace + 1}–${lt.half} min`, color:'var(--gold)' },
-                    { label:'1 Day', sub:`${lt.half + 1}–${lt.full} min`, color:'#e67e22' },
-                    { label:'Proportional', sub:`>${lt.full} min`, color:'var(--danger)' },
-                  ];
-                  return (
-                    <div style={{ marginBottom:16, padding:'12px 16px', background:'var(--bg)', borderRadius:'var(--radius-sm)' }}>
-                      <div style={{ fontWeight:600, fontSize:12, color:'var(--ink)', marginBottom:8 }}>Late Deduction Threshold</div>
-                      <div style={{ display:'flex', gap:0 }}>
-                        {tiers.map((t, i) => {
-                          const active = i === activeIdx;
-                          return (
-                            <div key={t.label}
-                              style={{
-                                flex:1, textAlign:'center', padding:'6px 2px', fontSize:10,
-                                background: active ? t.color : 'var(--paper)',
-                                color: active ? '#fff' : 'var(--ink-soft)',
-                                fontWeight: active ? 700 : 400,
-                                border: '1px solid ' + (active ? t.color : 'var(--line)'),
-                                borderLeft: i > 0 ? 'none' : '1px solid ' + (active ? t.color : 'var(--line)'),
-                                borderRight: i < 3 ? 'none' : '1px solid ' + (active ? t.color : 'var(--line)'),
-                                position:'relative',
-                              }}>
-                              {t.label}
-                              <div style={{ fontSize:8, opacity:0.8 }}>{t.sub}</div>
-                              {active && <div style={{ position:'absolute', bottom:-14, left:'50%', marginLeft:-5, width:0, height:0, borderLeft:'5px solid transparent', borderRight:'5px solid transparent', borderTop:'6px solid ' + t.color }} />}
-                            </div>
-                          );
-                        })}
+                  {/* Late tally rides the month-filter line so the calendar keeps a
+                      clean body — no status dropdown; the cells show status themselves. */}
+                  {(() => {
+                    const mLate = payAttendance.reduce((s, a) => s + (a.late_minutes || 0), 0);
+                    return (
+                      <div style={{ display:'flex', alignItems:'baseline', gap:7, padding:'7px 13px', background:'var(--bg)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)' }}>
+                        <span style={{ fontWeight:600, fontSize:12, color:'var(--ink)' }}>Late this month</span>
+                        <span style={{ fontWeight:700, fontSize:16, color: mLate > 0 ? 'var(--danger)' : 'var(--sage)' }}>{mLate}</span>
+                        <span style={{ fontSize:11, color:'var(--ink-soft)' }}>actual late minutes</span>
                       </div>
-                    </div>
-                  );
-                })()}
+                    );
+                  })()}
+                </div>
 
                 <div style={{ display:'flex', gap:24, alignItems:'flex-start' }}>
                   {/* Calendar */}
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:1, background:'var(--line)', border:'1px solid var(--line)', borderRadius:6, overflow:'hidden', fontSize:11 }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2, background:'var(--line)', border:'1px solid var(--line)', borderRadius:6, overflow:'hidden', fontSize:12 }}>
                       {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d =>
-                        <div key={d} style={{ textAlign:'center', fontWeight:600, color:'var(--ink-soft)', padding:'4px 0', background:'var(--bg)' }}>{d}</div>
+                        <div key={d} style={{ textAlign:'center', fontWeight:600, color:'var(--ink-soft)', padding:'7px 0', background:'var(--bg)' }}>{d}</div>
                       )}
                       {(() => {
                         const firstDay = new Date(yr, mo - 1, 1).getDay();
                         const cells = [];
-                        for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} style={{ background:'#fff' }} />);
+                        for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} style={{ background:'#fff', minHeight:52 }} />);
                         for (const md of monthDays) {
                           const s = md.status;
-                          let bg, lbl;
-                          if (s === 'present') { bg = '#d4edda'; lbl = '✓'; }
-                          else if (s === 'late') { bg = '#fef3c7'; lbl = '⚠'; }
-                          else if (s === 'absent') { bg = '#ffe0e0'; lbl = '✗'; }
-                          else if (s === 'leave' || s === 'Leave') { bg = '#f3e8ff'; lbl = '✋'; }
-                          else if (s === 'half-day') { bg = '#e8d5f5'; lbl = 'HD'; }
-                          else if (md.dayName === 'Sun') { bg = '#f0f0f0'; lbl = '—'; }
-                          else { bg = '#fff'; lbl = ''; }
+                          // Salary-calculator logic lives HERE now that the
+                          // salary tab's own day grid is gone: days before the
+                          // join date are muted, payroll-deducted days read red
+                          // with a Deducted note, then normal attendance status.
+                          const beforeJoin = joinedThisMonth && md.date < joinCutoff;
+                          const isDeducted = deducted.has(md.date);
+                          let bg;
+                          if (beforeJoin) { bg = '#e8e8e8'; }
+                          else if (isDeducted) { bg = '#ffe0e0'; }
+                          else if (s === 'present') { bg = '#d4edda'; }
+                          else if (s === 'late') { bg = '#fef3c7'; }
+                          else if (s === 'absent') { bg = '#ffe0e0'; }
+                          else if (s === 'leave' || s === 'Leave') { bg = '#f3e8ff'; }
+                          else if (s === 'half-day') { bg = '#e8d5f5'; }
+                          else if (md.dayName === 'Sun') { bg = '#f0f0f0'; }
+                          else { bg = '#fff'; }
+                          // Punch times replace the old status icons: the cell
+                          // says when the day started and ended. Text fallback
+                          // only for days with no punches (absent/leave/Sunday).
+                          const inT = md.att?.punch_in_time ? fmtTime(md.att.punch_in_time) : '';
+                          const outT = md.att?.punch_out_time ? fmtTime(md.att.punch_out_time) : '';
+                          const fallback = beforeJoin ? '—'
+                            : isDeducted ? 'Deducted'
+                            : s === 'absent' ? 'Absent'
+                            : (s === 'leave' || s === 'Leave') ? 'Leave'
+                            : s === 'half-day' ? 'HD'
+                            : (md.dayName === 'Sun' && !s) ? '—'
+                            : '';
                           cells.push(
-                            <div key={md.date} style={{ textAlign:'center', padding:'4px 0', background:bg, fontSize:10 }}>
-                              <div style={{ fontWeight:600 }}>{md.day}</div>
-                              <div>{lbl}</div>
+                            <div key={md.date} title={beforeJoin ? 'Before join' : isDeducted ? 'Deducted' : s || ''}
+                              style={{ textAlign:'center', padding:'7px 2px', background:bg, fontSize:11, minHeight:58, boxSizing:'border-box' }}>
+                              <div style={{ fontWeight:700, fontSize:13, color: beforeJoin ? '#9ca3af' : '#111827' }}>{md.day}</div>
+                              {inT || outT ? (
+                                <div style={{ fontSize:11, lineHeight:1.5, color:'#111827', fontVariantNumeric:'tabular-nums', fontWeight:700, marginTop:1 }}>
+                                  <div><span style={{ fontSize:9, fontWeight:800, color:'#16a34a', marginRight:3 }}>IN</span>{inT || '—'}</div>
+                                  <div><span style={{ fontSize:9, fontWeight:800, color:'#6b7280', marginRight:3 }}>OUT</span>{outT || '—'}</div>
+                                </div>
+                              ) : fallback ? (
+                                <div style={{ fontSize:10, fontWeight:700, color:'#374151', marginTop:2 }}>{fallback}</div>
+                              ) : null}
                             </div>
                           );
                         }
                         return cells;
                       })()}
                     </div>
-                    <div style={{ display:'flex', gap:12, marginTop:6, fontSize:10, color:'var(--ink-soft)', flexWrap:'wrap' }}>
-                      <span><span style={{ display:'inline-block', width:10, height:10, background:'#d4edda', borderRadius:2, marginRight:3, verticalAlign:'middle' }} />Present</span>
-                      <span><span style={{ display:'inline-block', width:10, height:10, background:'#fef3c7', borderRadius:2, marginRight:3, verticalAlign:'middle' }} />Late</span>
-                      <span><span style={{ display:'inline-block', width:10, height:10, background:'#ffe0e0', borderRadius:2, marginRight:3, verticalAlign:'middle' }} />Absent</span>
-                      <span><span style={{ display:'inline-block', width:10, height:10, background:'#f3e8ff', borderRadius:2, marginRight:3, verticalAlign:'middle' }} />Leave</span>
-                      <span><span style={{ display:'inline-block', width:10, height:10, background:'#f0f0f0', borderRadius:2, marginRight:3, verticalAlign:'middle' }} />Sun</span>
-                    </div>
-                  </div>
-
-                  {/* Chart */}
-                  <div style={{ flexShrink:0 }}>
-                    {filteredAttendance.length > 0 && <AttendanceChart records={filteredAttendance} />}
                   </div>
                 </div>
-
-                {prevSalaryRec && (
-                <div className="card" style={{ marginTop:16, padding:'14px 18px' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
-                    <div>
-                      <span style={{ color:'var(--ink-soft)', fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>Previous Month</span>
-                      <div style={{ fontWeight:600, fontSize:15 }}>{fmtMonthYear(prevMonthDate)}</div>
-                    </div>
-                    <div style={{ textAlign:'right' }}>
-                      <div style={{ fontWeight:700, fontSize:16 }}>
-                        {prevSalaryRec.paid_at
-                          ? formatSalary(prevSalaryRec.salary)
-                          : formatSalary(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0))
-                        }
-                      </div>
-                      <div style={{ fontSize:12, color: prevSalaryRec.paid_at ? 'var(--sage)' : 'var(--danger)' }}>
-                        {prevSalaryRec.paid_at
-                          ? `✓ Paid on ${new Date(prevSalaryRec.paid_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`
-                          : `⏳ Due by ${payDateStr}${extendDays > 0 ? ` (delayed ${extendDays}d)` : ''}`
-                        }
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                )}
               </div>
             </div>
           )}
 
           {tab === 'salary' && (
             <div>
-              {/* Confidential Salary Access Bar */}
+              {/* Accounts keeps Bank Details here at the top of Salary — the
+                  Overview tab it used to live in does not exist in this panel. */}
+              {accountsMode && bankDetailsCard}
+
+              {/* Confidential Salary Access Bar — HR only. Accounts gets a
+                  lock icon in the profile instead of this banner. */}
+              {!accountsMode && (
               <div style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
                 marginBottom: 16, padding: '10px 16px', borderRadius: 8,
@@ -1145,31 +1129,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   </button>
                 )}
               </div>
-
-              {prevSalaryRec && (
-              <div className="card" style={{ marginBottom:16, padding:'14px 18px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
-                  <div>
-                    <span style={{ color:'var(--ink-soft)', fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>Previous Month</span>
-                    <div style={{ fontWeight:600, fontSize:15 }}>{fmtMonthYear(prevMonthDate)}</div>
-                  </div>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontWeight:700, fontSize:16 }}>
-                      {prevSalaryRec.paid_at
-                        ? formatSalary(prevSalaryRec.salary)
-                        : formatSalary(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0))
-                      }
-                    </div>
-                    <div style={{ fontSize:12, color: prevSalaryRec.paid_at ? 'var(--sage)' : 'var(--danger)' }}>
-                      {prevSalaryRec.paid_at
-                        ? `✓ Paid on ${new Date(prevSalaryRec.paid_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`
-                        : `⏳ Due by ${payDateStr}${extendDays > 0 ? ` (delayed ${extendDays}d)` : ''}`
-                      }
-                    </div>
-                  </div>
-                </div>
-              </div>
               )}
+
               {/* Salary Calculator — auto for current month */}
               <div className="card" style={{ marginBottom:16 }}>
                 <div className="card-head">
@@ -1327,41 +1288,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         );
                       })()}
 
-                      {/* Key metrics */}
-                      <div className="salary-metrics">
-                        <div className="salary-metric">
-                          <div className="salary-metric-num">{formatSalary(activeSalary.salary)}</div>
-                          <div className="salary-metric-lbl">Monthly Salary</div>
-                        </div>
-                        <div className="salary-metric">
-                          <div className="salary-metric-num">{daysInMonth}</div>
-                          <div className="salary-metric-lbl">Days in Month</div>
-                        </div>
-                        <div className="salary-metric">
-                          <div className="salary-metric-num">{daysWorked}</div>
-                          <div className="salary-metric-lbl">Days Worked</div>
-                        </div>
-                        <div className="salary-metric">
-                          <div className="salary-metric-num" style={{ color:'#f59e0b' }}>{paidSundayCount}/{sundayCount}</div>
-                          <div className="salary-metric-lbl">Sundays Paid</div>
-                        </div>
-                        <div className="salary-metric">
-                          <div className="salary-metric-num" style={{ color:'var(--danger)' }}>{totalLateMinutes}</div>
-                          <div className="salary-metric-lbl">Late Minutes</div>
-                        </div>
-                        {lateDeductionDays > 0 && (
-                          <div className="salary-metric">
-                            <div className="salary-metric-num" style={{ color:'var(--danger)' }}>{lateDeductionDays}d</div>
-                            <div className="salary-metric-lbl">Late Deduction</div>
-                          </div>
-                        )}
-                        {joiningDeduction > 0 && (
-                          <div className="salary-metric">
-                            <div className="salary-metric-num" style={{ color:'#8B5CF6' }}>{joiningDeduction}d</div>
-                            <div className="salary-metric-lbl">Joining Deduction</div>
-                          </div>
-                        )}
-                      </div>
+                      {/* Key metrics removed — the figures live in the breakdown
+                          above and in the calculator rows below. */}
 
                       {/* Extra Amount row */}
                       <div className="salary-extra-row">
@@ -1656,71 +1584,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         );
                       })()}
 
-                      {/* Day grid */}
-                      <div style={{ marginBottom:12 }}>
-                        <div style={{ color:'var(--ink-soft)', marginBottom:6, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>Day-by-day status</div>
-                        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2, fontSize:10 }}>
-                          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d =>
-                            <div key={d} style={{ textAlign:'center', fontWeight:600, color:'var(--ink-soft)', padding:'2px 0' }}>{d}</div>
-                          )}
-                          {(() => {
-                            const firstDay = new Date(yr, mo - 1, 1).getDay();
-                            const cells = [];
-                            for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} />);
-                            for (const md of monthDays) {
-                              const isDeducted = deducted.has(md.date);
-                              const isWeekend = md.dayName === 'Sun';
-                              const beforeJoin = joinedThisMonth && md.date < joinCutoff;
-                              let bg, label, title;
-                              if (beforeJoin) { bg = '#e8e8e8'; label = '—'; title = 'Before join'; }
-                              else if (isDeducted) { bg = '#ffe0e0'; label = '✗'; title = 'Deducted'; }
-                              else if (md.status === 'present' || md.status === 'late') { bg = '#d4edda'; label = '✓'; title = 'Present/Late'; }
-                              else if (md.status === 'half-day') { bg = '#e8d5f5'; label = 'HD'; title = 'Half Day'; }
-                              else if (isWeekend) { bg = '#f0f0f0'; label = '—'; title = 'Weekend'; }
-                              else { bg = '#fff'; label = ''; title = ''; }
-                              cells.push(
-                                <div key={md.date} style={{ textAlign:'center', padding:'3px 0', borderRadius:3, background:bg, fontSize:9, position:'relative' }}>
-                                  <div>{md.day}</div>
-                                  <div style={{ fontWeight:600 }} title={title}>{label}</div>
-                                </div>
-                              );
-                            }
-                            return cells;
-                          })()}
-                        </div>
-                        <div style={{ display:'flex', gap:16, marginTop:6, fontSize:10, color:'var(--ink-soft)', flexWrap:'wrap' }}>
-                          <span><span style={{ display:'inline-block', width:10, height:10, background:'#d4edda', borderRadius:2, marginRight:4, verticalAlign:'middle' }} />Present/Late</span>
-                          <span><span style={{ display:'inline-block', width:10, height:10, background:'#ffe0e0', borderRadius:2, marginRight:4, verticalAlign:'middle' }} />Deducted</span>
-                          <span><span style={{ display:'inline-block', width:10, height:10, background:'#f0f0f0', borderRadius:2, marginRight:4, verticalAlign:'middle' }} />Weekend</span>
-                          {joinedThisMonth && <span><span style={{ display:'inline-block', width:10, height:10, background:'#e8e8e8', borderRadius:2, marginRight:4, verticalAlign:'middle' }} />Before join</span>}
-                          <span><span style={{ display:'inline-block', width:10, height:10, background:'#fff', border:'1px solid #ddd', borderRadius:2, marginRight:4, verticalAlign:'middle' }} />No record</span>
-                        </div>
-                      </div>
-
-                      {/* Summary totals */}
-                      <div style={{ borderTop:'2px solid var(--line)', paddingTop:12, marginTop:12 }}>
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 16px', fontSize:12 }}>
-                          <span style={{ color:'var(--ink-soft)' }}>Days in month</span><span style={{ textAlign:'right' }}>{daysInMonth}</span>
-                          {joinedThisMonth && <><span style={{ color:'var(--ink-soft)' }}>Available (from join date)</span><span style={{ textAlign:'right' }}>{availableDays}</span></>}
-                          <span style={{ color:'var(--ink-soft)' }}>Days worked (present + late)</span><span style={{ textAlign:'right' }}>{daysWorked}</span>
-                          <span style={{ color:'var(--danger)' }}>Absent days (on/after join)</span><span style={{ textAlign:'right' }}>{absentDatesAfterJoin.length}</span>
-                          <span style={{ color:'var(--danger)' }}>Total deducted days</span><span style={{ textAlign:'right' }}>{deducted.size}</span>
-                          {lateDeductionDays > 0 && (
-                            <>
-                              <span style={{ color:'var(--danger)' }}>Late deduction</span><span style={{ textAlign:'right' }}>{lateDeductionDays} day{lateDeductionDays > 1 ? 's' : ''}</span>
-                              <span style={{ color:'var(--ink-soft)' }}>Late minutes</span><span style={{ textAlign:'right' }}>{totalLateMinutes}</span>
-                            </>
-                          )}
-                          {joiningDeduction > 0 && (
-                            <><span style={{ color:'#8B5CF6' }}>Joining deduction</span><span style={{ textAlign:'right', color:'#8B5CF6' }}>{joiningDeduction} day{joiningDeduction > 1 ? 's' : ''}</span></>
-                          )}
-                          <span style={{ borderTop:'1px solid var(--line)', paddingTop:4, fontWeight:600 }}>Paid days</span>
-                          <span style={{ borderTop:'1px solid var(--line)', paddingTop:4, textAlign:'right', fontWeight:600 }}>{paidDays}</span>
-{loanDeductionTotal > 0 && (
-                             <><span style={{ color:'#e67e22' }}>Loan/Advance deduction</span><span style={{ textAlign:'right', color:'#e67e22' }}>−₹{loanDeductionTotal.toLocaleString('en-IN')}</span></>
-                           )}
-                         </div>
-                       </div>
+                      {/* Day grid removed — the attendance tab's calendar now
+                          carries this logic (deducted / before-join / weekend). */}
                        </div>
                      </>
                    )}
@@ -1828,122 +1693,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   )}
                 </div>
               </div>
-
-              {/* NGO Allocations Breakdown */}
-              {allocations.length > 0 && (
-              <div className="card" style={{ marginBottom:16 }}>
-                <div className="card-head"><h3>NGO Allocations</h3></div>
-                <div className="card-pad" style={{ overflow:'hidden' }}>
-                  <table style={{ width:'100%', tableLayout:'fixed', borderCollapse:'collapse', fontSize:10, fontVariantNumeric:'tabular-nums' }}>
-                    <colgroup>
-                      <col style={{ width:'25%' }} />
-                      <col style={{ width:'11%' }} />
-                      <col style={{ width:'10%' }} />
-                      <col style={{ width:'16%' }} />
-                      <col style={{ width:'12%' }} />
-                      <col style={{ width:'13%' }} />
-                      <col style={{ width:'13%' }} />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th style={{ textAlign:'left', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>NGO</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>Portion</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>Day</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>Salary</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10, color:'#92400e' }}>AKI</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10, color:'#92400e' }}>Mon.</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const totalSalaryVal = parseFloat(activeSalary?.salary || 0);
-                        const totAKI = sundayBonus?.incentiveAKI || 0;
-                        const totMonthly = sundayBonus?.incentiveMonthly || 0;
-                        const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0);
-
-                        return allocations.map(a => {
-                          const portion = parseFloat(a.salary_portion);
-                          const ratio = totalSalaryVal > 0 ? portion / totalSalaryVal : 0;
-                          const allocPerDay = portion / daysInMonth;
-                          const allocDue = allocPerDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
-                          const allocAKI = isIncentive ? Math.round(totAKI * ratio) : 0;
-                          const allocMonthly = isIncentive ? Math.round(totMonthly * ratio) : 0;
-                          const allocGrand = Math.round(allocDue) + allocAKI + allocMonthly;
-                          const ngoName = ngos.find(n => n.id === a.ngo_id)?.name || a.ngo_name || 'Unknown';
-
-                          return (
-                            <tr key={a.id || a.ngo_id}>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontSize:10 }}>{ngoName}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(portion)}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(Math.round(allocPerDay))}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:600, whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(Math.round(allocDue))}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', color: allocAKI > 0 ? '#f59e0b' : 'var(--ink-soft)', whiteSpace:'nowrap', fontSize:10 }}>
-                                {allocAKI > 0 ? '₹' + allocAKI.toLocaleString('en-IN') : '₹0'}
-                              </td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', color: allocMonthly > 0 ? '#f59e0b' : 'var(--ink-soft)', whiteSpace:'nowrap', fontSize:10 }}>
-                                {allocMonthly > 0 ? '₹' + allocMonthly.toLocaleString('en-IN') : '₹0'}
-                              </td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:700, color: allocGrand > Math.round(allocDue) ? '#16a34a' : 'var(--sage)', whiteSpace:'nowrap', fontSize:10 }}>
-                                {formatSalary(allocGrand)}
-                              </td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                    <tfoot>
-                      {(() => {
-                        const totalSalaryVal = parseFloat(activeSalary?.salary || 0);
-                        const totAKI = sundayBonus?.incentiveAKI || 0;
-                        const totMonthly = sundayBonus?.incentiveMonthly || 0;
-                        const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0);
-                        const sumDue = Math.round(allocations.reduce((s, a) => {
-                          const portion = parseFloat(a.salary_portion);
-                          const allocPerDay = portion / daysInMonth;
-                          return s + allocPerDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
-                        }, 0));
-                        const sumAKI = isIncentive ? Math.round(totAKI) : 0;
-                        const sumMonthly = isIncentive ? Math.round(totMonthly) : 0;
-                        const sumGrand = sumDue + sumAKI + sumMonthly;
-
-                        return (
-                          <>
-                            <tr>
-                              <td style={{ padding:'5px 3px', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>Merged Total</td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>
-                                {formatSalary(totalSalaryVal)}
-                              </td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>
-                                {formatSalary(Math.round(perDay))}
-                              </td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color:'var(--sage)' }}>
-                                {formatSalary(sumDue)}
-                              </td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color: sumAKI > 0 ? '#f59e0b' : 'var(--ink-soft)' }}>
-                                {sumAKI > 0 ? '₹' + sumAKI.toLocaleString('en-IN') : '₹0'}
-                              </td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color: sumMonthly > 0 ? '#f59e0b' : 'var(--ink-soft)' }}>
-                                {sumMonthly > 0 ? '₹' + sumMonthly.toLocaleString('en-IN') : '₹0'}
-                              </td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:800, fontSize:11, borderTop:'2px solid var(--line)', color:'#16a34a' }}>
-                                {formatSalary(sumGrand)}
-                              </td>
-                            </tr>
-                          </>
-                        );
-                      })()}
-                    </tfoot>
-                  </table>
-                  <div style={{ marginTop:8, fontSize:11, color:'var(--ink-soft)' }}>
-                    Attendance is shared across all allocations. Deductions affect each portion equally.
-                    {data.department === 'FRO' && (sundayBonus?.incentiveAKI > 0 || sundayBonus?.incentiveMonthly > 0) && (
-                      <> Incentives (AKI, Monthly) are split proportionally by salary portion.</>
-                    )}
-                  </div>
-                </div>
-              </div>
-              )}
 
               <div className="card" style={{ marginBottom:16 }}>
                 <div className="card-head"><h3>Add Salary</h3></div>
@@ -2242,24 +1991,25 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                     </div>
                   )}
 
-                  {incSummary && (
-                    <div style={{ marginBottom:12, padding:'10px 14px', borderRadius:8, background: incSummary.monthlyTargetMet ? '#f0fdf4' : '#fef2f2', border:'1px solid', borderColor: incSummary.monthlyTargetMet ? '#bbf7d0' : '#fecaca' }}>
-                      <div style={{ fontWeight:600, fontSize:13, color: incSummary.monthlyTargetMet ? '#16a34a' : '#ef4444', marginBottom:4 }}>
-                        {incSummary.monthlyTargetMet ? '✓ Target Met' : '✗ Target Not Met — AKI forfeited'}
-                      </div>
-                      <div style={{ fontSize:12, color:'var(--ink-soft)' }}>
-                        Achieved: ₹{(incSummary.monthlyAchievement || 0).toLocaleString('en-IN')} / ₹{(incSummary.monthlyTarget || 0).toLocaleString('en-IN')}
-                        {' | '}AKI Payout: ₹{(incSummary.akiPayout || 0).toLocaleString('en-IN')} ({incSummary.isNewJoiner ? 'Full' : 'Half'})
-                        {' | '}Monthly: ₹{(incSummary.monthlyIncentive || 0).toLocaleString('en-IN')}
-                        {' | '}<strong style={{ color: incSummary.monthlyTargetMet ? '#16a34a' : '#ef4444' }}>Total: ₹{(incSummary.totalIncentive || 0).toLocaleString('en-IN')}</strong>
-                      </div>
-                    </div>
-                  )}
-
                   <div className="salary-metrics" style={{ marginBottom:8 }}>
                     <div className="salary-metric">
-                      <div className="salary-metric-num">{formatSalary(incSummary?.totalAKI || 0)}</div>
-                      <div className="salary-metric-lbl">Total AKI</div>
+                      {/* Accounts shows the AKI the member actually earns: new
+                          joiners (first 3 months) get the full figure, older
+                          members get half — the original full amount stays
+                          visible beside it, faded, so nothing is hidden. */}
+                      <div className="salary-metric-num">
+                        {formatSalary(
+                          accountsMode
+                            ? (incSummary?.isNewJoiner ? (incSummary?.totalAKI || 0) : Math.round((incSummary?.totalAKI || 0) / 2))
+                            : (incSummary?.totalAKI || 0)
+                        )}
+                        {accountsMode && !incSummary?.isNewJoiner && (incSummary?.totalAKI || 0) > 0 && (
+                          <span style={{ fontSize:12, fontWeight:600, color:'var(--ink-soft)', marginLeft:6, opacity:0.7 }}>
+                            ({formatSalary(incSummary?.totalAKI || 0)})
+                          </span>
+                        )}
+                      </div>
+                      <div className="salary-metric-lbl">Total AKI {accountsMode && (incSummary ? (incSummary.isNewJoiner ? '(Full)' : '(Half)') : '')}</div>
                     </div>
                     <div className="salary-metric">
                       <div className="salary-metric-num">{formatSalary(incSummary?.monthlyIncentive || 0)}</div>
@@ -2271,6 +2021,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       </div>
                       <div className="salary-metric-lbl">Total Incentive</div>
                     </div>
+                    {accountsMode && (
+                      <div className="salary-metric">
+                        <div className="salary-metric-num" style={{ color: incSummary?.monthlyTargetMet ? 'var(--sage)' : 'var(--danger)' }}>
+                          {formatSalary(incSummary?.monthlyAchievement || 0)}
+                        </div>
+                        <div className="salary-metric-lbl">Total Collected</div>
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ borderTop:'1px solid var(--line)', paddingTop:12 }}>
@@ -2774,64 +2532,6 @@ function StatusPill({ status }) {
     : s === 'leave' ? 'pill-gray'
     : 'pill-gray';
   return <span className={`pill ${cls}`}>{status}</span>;
-}
-
-function AttendanceChart({ records }) {
-  const present = records.filter(r => r.status === 'present').length;
-  const late = records.filter(r => r.status === 'late').length;
-  const absent = records.filter(r => r.status === 'absent').length;
-  const leave = records.filter(r => r.status === 'leave' || r.status === 'Leave').length;
-  const total = present + late + absent + leave;
-  if (!total) return null;
-
-  const segments = [
-    { label:'Present', count:present, color:'var(--sage)' },
-    { label:'Late', count:late, color:'var(--gold)' },
-    { label:'Absent', count:absent, color:'var(--clay)' },
-    { label:'Leave', count:leave, color:'#8b5cf6' },
-  ].filter(s => s.count > 0);
-
-  const r = 40;
-  const circ = 2 * Math.PI * r;
-  let offset = 0;
-
-  return (
-    <div className="att-chart">
-      <svg width="140" height="140" viewBox="0 0 120 120">
-        {segments.map((s, i) => {
-          const pct = s.count / total;
-          const dash = pct * circ;
-          const segOffset = -offset;
-          offset += dash;
-          return (
-            <circle key={s.label}
-              cx="60" cy="60" r={r} fill="none"
-              stroke={s.color} strokeWidth="16"
-              strokeDasharray={`${dash} ${circ - dash}`}
-              strokeDashoffset={segOffset}
-              strokeLinecap="round"
-              transform="rotate(-90 60 60)"
-              style={{ transition:'stroke-dasharray 0.6s ease' }}
-            />
-          );
-        })}
-        <text x="60" y="54" textAnchor="middle" fill="var(--ink)"
-          fontSize="22" fontWeight="700">{total}</text>
-        <text x="60" y="70" textAnchor="middle" fill="var(--ink-soft)"
-          fontSize="10">total</text>
-      </svg>
-      <div className="att-legend">
-        {segments.map(s => (
-          <div key={s.label} className="att-legend-item">
-            <span className="att-dot" style={{ background:s.color }} />
-            <span className="att-lbl">{s.label}</span>
-            <span className="att-cnt">{s.count}</span>
-            <span className="att-pct">{Math.round(s.count / total * 100)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function Box({ num, label, color, big }) {

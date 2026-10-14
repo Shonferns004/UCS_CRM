@@ -27,10 +27,12 @@ export default function IdleNoticeHost() {
 
   useEffect(() => {
     if (!isIdle || !idleSince || !seenKey) return
+    const startedMs = Date.parse(idleSince)
+    if (!Number.isFinite(startedMs)) return
+    const dueAtMs = startedMs + IDLE_NOTICE_SECONDS * 1000
+
     const check = () => {
-      const startedMs = Date.parse(idleSince)
-      if (!Number.isFinite(startedMs)) return
-      if (Date.now() - startedMs < IDLE_NOTICE_SECONDS * 1000) return
+      if (Date.now() < dueAtMs) return
       let seen = null
       try { seen = localStorage.getItem(seenKey) } catch (_) { /* private mode */ }
       if (seen === istDateString()) return
@@ -38,9 +40,24 @@ export default function IdleNoticeHost() {
       try { localStorage.setItem(seenKey, istDateString()) } catch (_) { /* private mode */ }
       setShow(true)
     }
+
+    // Exact timer for the 1-hour mark — the modal must fire the moment idle
+    // touches 1h, not on the next poll boundary.
+    const exact = setTimeout(check, Math.max(0, dueAtMs - Date.now()))
+    // Safety net: browsers throttle timers in background tabs, so keep a light
+    // tick and re-check the instant the FRO comes back to the tab.
+    const tick = setInterval(check, TICK_MS)
+    const onWake = () => { if (!document.hidden) check() }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    // Already past 1h on mount (panel reopened mid-stretch) — fire now.
     check()
-    const t = setInterval(check, TICK_MS)
-    return () => clearInterval(t)
+    return () => {
+      clearTimeout(exact)
+      clearInterval(tick)
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+    }
   }, [isIdle, idleSince, seenKey])
 
   if (!show) return null

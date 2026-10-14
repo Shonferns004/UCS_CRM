@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
 import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X, MoreHorizontal, Eye, PencilLine, History, UserMinus, Search, ChevronDown, ChevronUp } from 'lucide-react'
@@ -58,25 +58,25 @@ const donorMeta = (d) => {
   return { name, secondary, initial: String(name[0] || '?').toUpperCase() }
 }
 
-const donorCategory = (d) => String(d.data_category || d.category || '').trim()
-
 const AssignmentBlock = ({ list, isOpen, onToggle }) => {
   const hasMore = list.length > 3
   const visible = isOpen ? list : list.slice(0, 3)
   return (
     <div className="assign-cell-inner">
-      <div className="assign-list">
-        {visible.map((a, i) => (
-          <Fragment key={a.id ?? `${a.name}|${a.station}|${i}`}>
-            {i > 0 && <div className="assign-sep" />}
-            <div className="assign-item">
-              <span className="assign-name" title={a.name}>{a.name || '—'}</span>
-              <span className={`station-chip${a.station && String(a.station).trim() ? '' : ' missing'}`}>
-                {a.station && String(a.station).trim() ? a.station : '—'}
-              </span>
-            </div>
-          </Fragment>
-        ))}
+      <div className="assign-pills">
+        {visible.map((a, i) => {
+          const station = a.station && String(a.station).trim() ? String(a.station).trim() : ''
+          return (
+            <span
+              key={a.id ?? `${a.name}|${a.station}|${i}`}
+              className={`assign-pill${station ? '' : ' missing'}`}
+              title={`${a.name || '—'}${station ? ` · ${station}` : ' · no station'}`}
+            >
+              <span className="assign-pill-name">{a.name || '—'}</span>
+              {station && <span className="assign-pill-station">· {station}</span>}
+            </span>
+          )
+        })}
       </div>
       {hasMore && (
         <button className="assign-expand" onClick={onToggle} aria-label={isOpen ? 'Show less assignments' : 'Show more assignments'} title={isOpen ? 'Show less assignments' : 'Show more assignments'}>
@@ -86,16 +86,6 @@ const AssignmentBlock = ({ list, isOpen, onToggle }) => {
     </div>
   )
 }
-
-const StatCard = ({ icon, label, value, color, loading: l }) => (
-  <div className="stat-card">
-    <div className="stat-icon" style={{ background: color + '18', color }}>{icon}</div>
-    <div className="stat-info">
-      {l ? <SkeletonNum w={72} /> : <div className="stat-num">{value}</div>}
-      <div className="stat-lbl">{label}</div>
-    </div>
-  </div>
-)
 
 const DONOR_FIELDS = [
   ['name', 'Full Name'], ['mobile_number', 'Mobile Number'], ['mobile_2', 'Mobile 2'], ['email', 'Email'],
@@ -111,7 +101,7 @@ const fieldVal = (d, key) => {
 
 const inputStyle = { width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, color: 'var(--ink)', background: '#fff', boxSizing: 'border-box' }
 
-const filterSelectStyle = (has) => ({ padding: '6px 9px', borderRadius: 8, border: `1px solid ${has ? 'var(--sage)' : 'var(--line)'}`, fontSize: 12, background: has ? 'var(--sage-soft, #E8EDE1)' : '#fff', color: 'var(--ink)', maxWidth: 170 })
+const filterSelectStyle = (has) => ({ padding: '7px 10px', borderRadius: 8, border: `1px solid ${has ? 'var(--sage)' : 'var(--line)'}`, fontSize: 12.5, background: has ? 'var(--sage-soft, #E8EDE1)' : '#fff', color: 'var(--ink)', minWidth: 150, maxWidth: 190, fontFamily: 'inherit' })
 
 function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
   const { user } = useUcs()
@@ -779,13 +769,8 @@ export default function Donors() {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const [exportingDup, setExportingDup] = useState(false)
   const [ngoFilter, setNgoFilter] = useState('')
   const [ngoOptions, setNgoOptions] = useState([])
-  const [restoring, setRestoring] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [backfilling, setBackfilling] = useState(false)
-  const [missingOnly, setMissingOnly] = useState(false)
   const [stationDonor, setStationDonor] = useState(null)
   const [agentFilter, setAgentFilter] = useState('')
   const [agentOptions, setAgentOptions] = useState([])
@@ -793,10 +778,11 @@ export default function Donors() {
   const [stationOptions, setStationOptions] = useState([])
   const [expanded, setExpanded] = useState({})
   const [rowMenu, setRowMenu] = useState(new Set())
-  const [moreOpen, setMoreOpen] = useState(false)
   const [removeDonorId, setRemoveDonorId] = useState(null)
   const canManage = ['accounts', 'admin', 'super_admin'].includes(user?.role) || ['accounts', 'admin'].includes(user?.department)
-  const limit = 100
+  // Each server fetch is one screenful: 12 rows, then Load More appends the
+  // next batch — never re-renders the whole donor table at once.
+  const limit = 12
 
   useEffect(() => {
     apiGet('/accounts/ngos').then(res => setNgoOptions(Array.isArray(res) ? res : [])).catch(() => {})
@@ -824,36 +810,25 @@ export default function Donors() {
       .catch(() => {})
   }, [])
 
-  const load = useCallback(async (q, pg, ngo, ms, ag, st) => {
-    setLoading(true)
+  const load = useCallback(async (q, pg, ngo, ag, st) => {
+    // Page 1 replaces the list; later pages append (Load More).
+    if (pg === 1) setLoading(true)
     try {
       const params = new URLSearchParams()
       if (q) params.set('search', q)
       if (ngo) params.set('ngo', ngo)
-      if (ms) params.set('missing_station', 'true')
       if (ag) params.set('agent', ag)
       if (st) params.set('station', st)
       params.set('limit', String(limit))
       params.set('page', String(pg))
       const res = await apiGet('/accounts/donors?' + params.toString())
-      setDonors(res.data || [])
+      setDonors(prev => (pg === 1 ? (res.data || []) : [...prev, ...(res.data || [])]))
       setTotal(res.total || 0)
     } catch (err) { console.error('Error:', err.message) }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter) }, [load, search, page, ngoFilter, missingOnly, agentFilter, stationFilter])
-
-  const stats = useMemo(() => {
-    let amount = 0, count = 0
-    for (const d of donors) {
-      amount += parseFloat(d.total_amount || 0)
-      count += d.donation_count || 0
-    }
-    return { amount, count }
-  }, [donors])
-
-  const totalPages = Math.ceil(total / limit)
+  useEffect(() => { load(search, page, ngoFilter, agentFilter, stationFilter) }, [load, search, page, ngoFilter, agentFilter, stationFilter])
 
   const handleSearch = (e) => {
     setSearch(e.target.value)
@@ -888,76 +863,7 @@ export default function Donors() {
     }
   }
 
-  const handleExportDuplicates = async () => {
-    setExportingDup(true)
-    try {
-      const res = await apiGet('/accounts/donors/export-duplicates')
-      const rows = res.data || []
-      if (rows.length === 0) {
-        alert('No same-NGO FRO overlaps found.')
-        return
-      }
-      const cols = res.columns || (rows.length > 0 ? Object.keys(rows[0]) : [])
-      const wb = XLSX.utils.book_new()
-      const ws = XLSX.utils.json_to_sheet([cols, ...rows.map(r => cols.map(c => r[c] ?? ''))], { skipHeader: true })
-      XLSX.utils.book_append_sheet(wb, ws, 'Donor-NGO Overlaps')
-      const details = res.details || []
-      if (details.length > 0) {
-        const wsD = XLSX.utils.json_to_sheet(details)
-        XLSX.utils.book_append_sheet(wb, wsD, 'Assignment Detail')
-      }
-      XLSX.writeFile(wb, `fro_overlaps_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    } catch (err) {
-      console.error('Overlap export error:', err.message)
-      alert('Export failed: ' + err.message)
-    } finally {
-      setExportingDup(false)
-    }
-  }
-
-  const handleRestoreWrong = async () => {
-    if (!window.confirm('This will remove donors who were manually assigned to FROs they don\'t belong to (no station). Continue?')) return
-    setRestoring(true)
-    try {
-      const res = await apiPost('/accounts/donors/restore-wrong-assignments')
-      alert(`Restored ${res?.restored || 0} wrong assignments`)
-      load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter)
-    } catch (e) {
-      alert('Failed: ' + e.message)
-    } finally {
-      setRestoring(false)
-    }
-  }
-
-  const handleRepairSync = async () => {
-    if (!window.confirm('This sets each donor\'s NGO & station from their latest agent assignment, repairing profiles that were never kept in sync. Continue?')) return
-    setSyncing(true)
-    try {
-      const res = await apiPost('/accounts/donors/repair-sync' + (ngoFilter ? `?ngo=${encodeURIComponent(ngoFilter)}` : ''))
-      alert(`Repaired ${res?.repaired || 0} donor record(s)`)
-      load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter)
-    } catch (e) {
-      alert('Failed: ' + e.message)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  const handleBackfillReceipts = async () => {
-    if (!window.confirm('Create assignments for donors whose donations exist but have no FRO agent assigned yet (they are currently invisible in FRO My Leads). Each donor gets one assignment for the NGO their receipt belongs to. Continue?')) return
-    setBackfilling(true)
-    try {
-      const res = await apiPost('/accounts/donors/backfill-receipt-assignments')
-      alert(`Created ${res?.created_count || 0} assignment(s)\nSkipped (already assigned): ${res?.skipped_already_assigned || 0}\nSkipped (agent not found): ${res?.skipped_unresolved || 0}`)
-      load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter)
-    } catch (e) {
-      alert('Failed: ' + e.message)
-    } finally {
-      setBackfilling(false)
-    }
-  }
-
-  const closeMenus = () => { setRowMenu(new Set()); setMoreOpen(false) }
+  const closeMenus = () => { setRowMenu(new Set()) }
 
   const toggleRowMenu = (e, id) => {
     e.stopPropagation()
@@ -967,13 +873,6 @@ export default function Donors() {
       else next.add(id)
       return next
     })
-    setMoreOpen(false)
-  }
-
-  const openMore = (e) => {
-    e.stopPropagation()
-    setMoreOpen(v => !v)
-    setRowMenu(new Set())
   }
 
   const buildRowMenu = (d) => (
@@ -995,28 +894,18 @@ export default function Donors() {
 
   return (
     <div className="donors-page">
-      <div className="donors-hero">
-        <div>
-          <div className="eyebrow">ACCOUNTS</div>
-          <h1>Donors</h1>
-          <p>Manage donor records and assignments</p>
-        </div>
-        {user && <div className="user-chip" title={(user.name || user.email || '').trim() || 'User'}>{initialsOf(user?.name)}</div>}
-      </div>
-      <div className="stats-grid">
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>} label="Total Donors" value={total} color="#5B6B4E" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>} label="Total Donation Amount" value={currency(stats.amount)} color="#16a34a" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/></svg>} label="Total Donations" value={stats.count.toLocaleString('en-IN')} color="#e67e22" loading={loading} />
-      </div>
-
       <div className="card donors-panel">
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginRight: 'auto' }}>
-            <button className={`btn btn-sm${ngoFilter === '' ? ' btn-primary' : ''}`} onClick={() => handleNgoChange('')}>All</button>
-            {ngoOptions.map(n => (
-              <button key={n.id} className={`btn btn-sm${ngoFilter === n.name ? ' btn-primary' : ''}`} onClick={() => handleNgoChange(n.name)}>{n.name}</button>
-            ))}
-            <span className="pill-divider" />
+            <select
+              value={ngoFilter}
+              onChange={e => handleNgoChange(e.target.value)}
+              title="Filter donors by NGO"
+              style={filterSelectStyle(ngoFilter)}
+            >
+              <option value="">All NGOs</option>
+              {ngoOptions.map(n => <option key={n.id} value={n.name}>{n.name}</option>)}
+            </select>
             <select
               value={agentFilter}
               onChange={e => { setAgentFilter(e.target.value); setPage(1) }}
@@ -1035,13 +924,6 @@ export default function Donors() {
               <option value="">All stations</option>
               {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button
-              className={`btn btn-sm issue-btn${missingOnly ? ' active' : ''}`}
-              onClick={() => { setMissingOnly(v => !v); setPage(1) }}
-              title="Donors whose agent is assigned but station is blank"
-            >
-              Missing station
-            </button>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
             <div style={{ position: 'relative' }}>
@@ -1058,22 +940,6 @@ export default function Donors() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               {exporting ? 'Exporting...' : 'Export Excel'}
             </button>
-            <div style={{ position: 'relative' }}>
-              <button className="btn" onClick={openMore} aria-label="More actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                <MoreHorizontal size={15} /> More
-              </button>
-              {moreOpen && (
-                <>
-                  <div style={{ position: 'fixed', inset: 0, zIndex: 70 }} onClick={closeMenus} />
-                  <div className="act-menu">
-                    <button onClick={() => { closeMenus(); handleExportDuplicates() }} disabled={exportingDup}>{exportingDup ? 'Exporting...' : 'Export FRO Overlaps'}</button>
-                    <button onClick={() => { closeMenus(); handleRestoreWrong() }} disabled={restoring}>{restoring ? 'Restoring...' : 'Restore Wrong Assignments'}</button>
-                    <button onClick={() => { closeMenus(); handleRepairSync() }} disabled={syncing}>{syncing ? 'Repairing...' : 'Repair Donor Sync'}</button>
-                    <button onClick={() => { closeMenus(); handleBackfillReceipts() }} disabled={backfilling}>{backfilling ? 'Backfilling...' : 'Repair donation-only leads'}</button>
-                  </div>
-                </>
-              )}
-            </div>
           </div>
         </div>
         {isMobile ? (
@@ -1083,11 +949,10 @@ export default function Donors() {
             ) : donors.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</div>
             ) : donors.map(d => {
-              const assignments = parseAssignments(d, ngoFilter, agentFilter, !!missingOnly)
+              const assignments = parseAssignments(d, ngoFilter, agentFilter, false)
               if (assignments.length === 0) return null
               const isOpen = !!expanded[d.id]
               const { name, secondary, initial } = donorMeta(d)
-              const category = donorCategory(d)
               return (
                 <div key={d.id} className="donor-card" onClick={() => setSelectedId(d.id)}>
                   <div className="donor-card-head">
@@ -1107,7 +972,6 @@ export default function Donors() {
                   </div>
                   <div className="donor-card-sub">
                     <span className="donor-card-mobile">{d.mobile_number || '-'}</span>
-                    <span className={`cat-badge${category ? '' : ' empty'}`}>{category || '—'}</span>
                   </div>
                   <div className="assign-label">Assignments</div>
                   <AssignmentBlock
@@ -1123,59 +987,45 @@ export default function Donors() {
           <div className="table-wrap">
             <table className="donors-table">
               <colgroup>
-                <col style={{ width: '29%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '13%' }} />
-                <col style={{ width: '36%' }} />
-                <col style={{ width: '8%' }} />
+                <col style={{ width: '32%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '52%' }} />
               </colgroup>
               <thead>
                 <tr>
                   <th>Donor</th>
                   <th>Mobile</th>
-                  <th>Category</th>
                   <th>Assignments</th>
-                  <th className="th-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={5} />)
+                  Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={3} />)
                 ) : donors.length === 0 ? (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
+                  <tr><td colSpan={3} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
                 ) : donors.map(d => {
-                  const assignments = parseAssignments(d, ngoFilter, agentFilter, !!missingOnly)
+                  const assignments = parseAssignments(d, ngoFilter, agentFilter, false)
                   if (assignments.length === 0) return null
                   const isOpen = !!expanded[d.id]
                   const { name, secondary, initial } = donorMeta(d)
-                  const category = donorCategory(d)
                   return (
                     <tr key={d.id} className="clickable-row" onClick={() => setSelectedId(d.id)}>
                       <td className="donor-cell">
-                        <div className="donor-avatar">{initial}</div>
-                        <div className="donor-info">
-                          <div className="donor-name" title={name}>{name}</div>
-                          {secondary && <div className="donor-sub" title={secondary}>{secondary}</div>}
+                        <div className="donor-cell-inner">
+                          <div className="donor-avatar">{initial}</div>
+                          <div className="donor-info">
+                            <div className="donor-name" title={name}>{name}</div>
+                            {secondary && <div className="donor-sub" title={secondary}>{secondary}</div>}
+                          </div>
                         </div>
                       </td>
                       <td className="mobile-cell">{d.mobile_number || '-'}</td>
-                      <td className="cat-cell"><span className={`cat-badge${category ? '' : ' empty'}`}>{category || '—'}</span></td>
                       <td className="assign-cell">
                         <AssignmentBlock
                           list={assignments}
                           isOpen={isOpen}
                           onToggle={e => { e.stopPropagation(); setExpanded(s => ({ ...s, [d.id]: !isOpen })) }}
                         />
-                      </td>
-                      <td className="action-cell">
-                        <span className="action-wrap">
-                          <button className="kebab" onClick={e => toggleRowMenu(e, d.id)} aria-label="Row actions"><MoreHorizontal size={16} /></button>
-                          {rowMenu.has(d.id) && (
-                            <div className="row-menu" onClick={e => e.stopPropagation()}>
-                              {buildRowMenu(d)}
-                            </div>
-                          )}
-                        </span>
                       </td>
                     </tr>
                   )
@@ -1186,34 +1036,25 @@ export default function Donors() {
         )}
       </div>
 
-      {!loading && totalPages > 1 && (
-        <div className="pagination">
-          <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}</span>
-          <div>
-            <button className="btn btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              let p
-              if (totalPages <= 7) p = i + 1
-              else if (page <= 4) p = i + 1
-              else if (page >= totalPages - 3) p = totalPages - 6 + i
-              else p = page - 3 + i
-              return <button key={p} className={`btn btn-sm${p === page ? ' btn-primary' : ''}`} onClick={() => setPage(p)}>{p}</button>
-            })}
-            <button className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
-          </div>
+      {!loading && donors.length < total && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14, marginBottom: 6 }}>
+          <button className="btn btn-outline" onClick={() => setPage(p => p + 1)}
+            style={{ gap: 10, padding: '9px 24px', borderRadius: 8, fontWeight: 600, fontSize: 13, border: '1px solid var(--line)', boxShadow: '0 1px 3px rgba(16,24,40,.06)' }}>
+            Load more <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>({total - donors.length} more)</span>
+          </button>
         </div>
       )}
 
       {rowMenu.size > 0 && <div style={{ position: 'fixed', inset: 0, zIndex: 60 }} onClick={closeMenus} />}
 
-      {selectedId && <DonorDetail donorId={selectedId} ngoOptions={ngoOptions} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter)} />}
+      {selectedId && <DonorDetail donorId={selectedId} ngoOptions={ngoOptions} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter, agentFilter, stationFilter)} />}
 
       {stationDonor && (
         <SetStationModal
           donor={stationDonor}
           ngoOptions={ngoOptions}
           onClose={() => setStationDonor(null)}
-          onSaved={() => { setStationDonor(null); load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter) }}
+          onSaved={() => { setStationDonor(null); load(search, page, ngoFilter, agentFilter, stationFilter) }}
         />
       )}
 
@@ -1224,35 +1065,34 @@ export default function Donors() {
             donor={donor}
             ngoOptions={ngoOptions}
             onClose={() => setRemoveDonorId(null)}
-            onChanged={() => load(search, page, ngoFilter, missingOnly, agentFilter, stationFilter)}
+            onChanged={() => load(search, page, ngoFilter, agentFilter, stationFilter)}
           />
         ) : null
       })()}
 
       <style>{`
         .donors-page { min-width: 0; }
-        .donors-hero { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 18px; }
-        .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 1.2px; color: #4f6ef7; text-transform: uppercase; margin-bottom: 3px; }
-        .donors-hero h1 { font-size: 22px; font-weight: 800; color: var(--ink); margin: 0; letter-spacing: .2px; }
-        .donors-hero p { font-size: 12.5px; color: var(--ink-soft); margin: 3px 0 0; }
-        .user-chip { width: 34px; height: 34px; border-radius: 50%; background: var(--sage); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,.08); cursor: default; }
-        .pill-divider { width: 1px; height: 24px; background: var(--line); margin: 0 2px; flex-shrink: 0; }
-        .issue-btn { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
-        .issue-btn:hover { background: #ffedd5; border-color: #f59e0b; }
-        .issue-btn.active { background: #ea580c; border-color: #ea580c; color: #fff; }
         .donors-panel { overflow: visible; }
         .donors-panel > .filter-bar { padding: 14px 16px; margin: 0; border-bottom: 1px solid var(--line); background: #fff; }
         .table-wrap { overflow-x: auto; }
         /* The shared Accounts table rules are more specific than the generic
            table styles below. Keep this table scoped so every cell shares the
            same row track when the assignment list contains multiple items. */
-        .panel-accounts .donors-table { table-layout: fixed; width: 100%; min-width: 760px; border-collapse: separate !important; border-spacing: 0; }
-        .panel-accounts .donors-table th { font-size: 10.5px; font-weight: 700; letter-spacing: .8px; color: var(--ink-soft); text-transform: uppercase; padding: 11px 14px; text-align: left; background: #fafbf8; border-bottom: 1px solid var(--line); }
-        .panel-accounts .donors-table td { padding: 11px 14px; vertical-align: top; border-bottom: 1px solid var(--line); background: #fff; }
-        .panel-accounts .donors-table tbody tr:hover td { background: #fbfcfa; }
-        .panel-accounts .donors-table tr:last-child td { border-bottom: none; }
-        .th-actions { text-align: center !important; }
-        .donor-cell { position: relative; display: flex; align-items: center; gap: 10px; }
+        .panel-accounts .donors-table { table-layout: fixed; width: 100%; min-width: 820px; border-collapse: separate !important; border-spacing: 0; }
+        .panel-accounts .donors-table th { font-size: 10px; font-weight: 700; letter-spacing: .7px; color: var(--ink-soft); text-transform: uppercase; padding: 12px 16px; text-align: left; background: #f7f9f6; border-bottom: 1px solid var(--line); }
+        .panel-accounts .donors-table td { padding: 13px 16px; vertical-align: middle; border-bottom: 1px solid #eef1ec; background: #fff; }
+        /* Every row gets the same height so the table reads as a neat grid —
+           cells stretch, content stays vertically centered. */
+        .panel-accounts .donors-table tbody tr { height: 64px; }
+        .donors-table th, .donors-table td { border-right: 1px solid #eef1ec; }
+        .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
+        .panel-accounts .donors-table tbody tr:hover td { background: #fafbf8; }
+        .panel-accounts .donors-table tbody tr:last-child td { border-bottom: none; }
+        /* The donor cell must stay a real table-cell so every cell in a row
+           shares the row's height (the tallest cell wins); the flex layout
+           lives on an inner wrapper instead of the <td> itself. */
+        .donor-cell { vertical-align: middle !important; }
+        .donor-cell-inner { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .donor-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--sage); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
         .donor-info { flex: 1; min-width: 0; }
         .donor-name { font-weight: 600; font-size: 13px; color: var(--ink); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; max-height: calc(1.35em * 2); }
@@ -1269,31 +1109,21 @@ export default function Donors() {
         .row-menu button.danger:hover { background: #fef2f2; }
         .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
         .mobile-cell { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: var(--ink); vertical-align: middle !important; }
-        .cat-cell { vertical-align: middle !important; }
-        .cat-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--sage-soft, #E8EDE1); color: #44543a; border: 1px solid #cdd9c2; white-space: nowrap; }
-        .cat-badge.empty { background: #f4f4f5; color: #71717a; border-color: #e4e4e7; }
-        .assign-cell-inner { position: relative; }
-        .assign-list { display: flex; flex-direction: column; }
-        .assign-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; }
-        .assign-name { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .station-chip { font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap; flex-shrink: 0; }
-        .station-chip.missing { background: #fff7ed; color: #9a3412; border-color: #fdba74; }
-        .assign-sep { height: 1px; background: var(--line); opacity: .45; margin: 2px 2px 2px 0; }
-        .assign-expand { display: flex; align-items: center; justify-content: center; margin: 4px 0 0 auto; background: none; border: none; color: var(--ink-soft); padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+        .assign-cell-inner { position: relative; padding-right: 22px; }
+        .assign-pills { display: flex; flex-wrap: wrap; gap: 5px 6px; }
+        .assign-pill { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; font-size: 11.5px; padding: 3px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .assign-pill-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .assign-pill-station { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .assign-pill.missing { background: #fff7ed; color: #9a3412; border-color: #fdba74; }
+        .assign-expand { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; background: none; border: none; color: var(--ink-soft); padding: 2px 4px; border-radius: 6px; cursor: pointer; }
         .assign-expand:hover { background: var(--sage-soft, #E8EDE1); color: var(--sage); }
         .assign-label { font-size: 9.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 4px; }
-        .act-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 80; min-width: 200px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 26px rgba(0,0,0,.12); padding: 5px; display: flex; flex-direction: column; }
-        .act-menu button { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; text-align: left; padding: 8px 10px; font-size: 12.5px; color: var(--ink); border-radius: 7px; cursor: pointer; }
-        .act-menu button:hover { background: var(--sage-soft, #E8EDE1); }
-        .act-menu button:disabled { color: var(--ink-soft); cursor: default; background: none; }
-        .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
-        .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
         .donor-cards-list { display: flex; flex-direction: column; gap: 10px; }
         .donor-card { position: relative; border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 12px 14px; box-shadow: 0 1px 3px rgba(30,41,59,.06); }
         .donor-card-head { display: flex; align-items: center; gap: 10px; }
         .donor-card-sub { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; flex-wrap: wrap; }
         .donor-card-mobile { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: var(--ink); }
-        .donor-card .assign-expand { position: absolute; right: 14px; bottom: 6px; }
+        .donor-card .assign-expand { position: absolute; right: 14px; bottom: 6px; top: auto; transform: none; }
         @media (max-width: 900px) {
           .donors-panel > .filter-bar { align-items: stretch; }
           .donors-panel > .filter-bar > div { width: 100%; }
