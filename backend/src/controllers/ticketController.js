@@ -2,6 +2,8 @@ import db from '../config/db.js';
 import { getSenderPanel, getSenderName } from '../utils/panel.js';
 import { isEventTeam, normalizeRole } from '../middleware/authMiddleware.js';
 
+export const SOCIAL_TEAM_ROLES = new Set(['social', 'digital']);
+
 // Role (or users.department) -> the support_tickets.department value that
 // panel owns. listMyTickets unions in SA broadcasts and panel-targeted SA
 // tickets through it; super_admin owns the 'super_admin' queue itself.
