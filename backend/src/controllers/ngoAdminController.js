@@ -633,8 +633,31 @@ export const getFroWorkers = async (req, res) => {
       }
     }
 
-    const result = await Promise.all(froWorkers.map(async (w) => {
+let agentLabelMap = {};
+    let agentIdMap = {};
+    if (workerIds.length > 0) {
+      const { data: agentRows, error: agentErr } = await db
+        .from('crm_agents')
+        .select('id, worker_id, label')
+        .in('worker_id', workerIds)
+        .eq('is_active', true);
+      if (agentErr) throw agentErr;
+      for (const a of agentRows || []) {
+        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
+        if (a.worker_id && !agentIdMap[a.worker_id]) agentIdMap[a.worker_id] = a.id;
+      }
+    }
+
+    // Only FROs that actually have an agent show here. `name` stays the volunteer's
+    // real name -- it used to be overwritten with the agent label, which made every
+    // row read "Agent 1" and left the station picker unable to say whose account it
+    // was. The label is reported as agent_label, and the agent as agent_id, so a
+    // caller can show "Agent 1 -- Maya Jadhao" and assign by agent.
+    const coveredFroWorkers = froWorkers.filter(w => agentLabelMap[w.id]);
+
+    const result = await Promise.all(coveredFroWorkers.map(async (w) => {
       const salary = await getActiveSalaryByWorker(w.id);
+      const agentName = agentLabelMap[w.id];
       return {
         id: w.id,
         name: w.name,
@@ -648,6 +671,9 @@ export const getFroWorkers = async (req, res) => {
         salary: salary ? parseFloat(salary.salary) : 0,
         salary_from_month: salary ? salary.from_month : null,
         allocated_ngo_ids: allocMap[w.id] || [],
+        fro_name: w.name,
+        agent_label: agentName || null,
+        agent_id: agentIdMap[w.id] || null,
       };
     }));
 
@@ -1837,6 +1863,7 @@ export const getStations = async (req, res) => {
 
     for (const a of assignments) {
       const s = a.station.trim();
+      const agentLabel = agentLabelFor(a);
       if (!stationMap[s]) {
         stationMap[s] = {
           station: s,
@@ -1855,6 +1882,12 @@ export const getStations = async (req, res) => {
         stationMap[s].fro_worker_id = displayFroId(a);
         stationMap[s].fro_worker_name = displayFroName(a);
       }
+      if (!stationMap[s].crm_agent_id && a.crm_agent_id) {
+        stationMap[s].crm_agent_id = a.crm_agent_id;
+      }
+      if (!stationMap[s].agent_label && agentLabel) {
+        stationMap[s].agent_label = agentLabel;
+      }
     }
 
     // Also add stations from donor_profiles not in fro_station_assignments
@@ -1865,6 +1898,8 @@ export const getStations = async (req, res) => {
           ngos: [],
           fro_worker_id: null,
           fro_worker_name: null,
+          crm_agent_id: null,
+          agent_label: null,
         };
       }
     }
@@ -2029,6 +2064,52 @@ export const createStationHandler = async (req, res) => {
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
+};
+
+// The station row is the relationship of record for NGO + Station -> Agent.
+// Every donor sitting in that station must therefore show that agent as its
+// current FRO, which is what every read path (donor detail, FRO lists,
+// dashboards, filters, search, credit/salary) resolves through
+// fro_assignments.fro_worker_id. Updating the station row alone would only
+// change the station page.
+//
+// The pre-existing FRO is parked in original_fro_worker_id on the first
+// change only, so history survives but can never override the station agent.
+const syncStationAgentToFro = async (client, ngoId, station, agentId) => {
+  const PAGE = 1000;
+  for (;;) {
+    const { data: pending, error: selErr } = await client
+      .from('fro_assignments')
+      .select('id, fro_worker_id')
+      .eq('ngo_id', ngoId)
+      .eq('station', station)
+      .not('status', 'eq', 'reassigned')
+      .is('original_fro_worker_id', null)
+      .not('fro_worker_id', 'is', null)
+      .limit(PAGE);
+    if (selErr) throw selErr;
+    const rows = (pending || []).filter(r => r.fro_worker_id);
+    if (rows.length === 0) break;
+
+    const byWorker = {};
+    for (const r of rows) (byWorker[r.fro_worker_id] ||= []).push(r.id);
+    for (const [wid, ids] of Object.entries(byWorker)) {
+      const { error } = await client
+        .from('fro_assignments')
+        .update({ original_fro_worker_id: wid })
+        .in('id', ids);
+      if (error) throw error;
+    }
+    if (rows.length < PAGE) break;
+  }
+
+  const { error } = await client
+    .from('fro_assignments')
+    .update({ fro_worker_id: agentId })
+    .eq('ngo_id', ngoId)
+    .eq('station', station)
+    .not('status', 'eq', 'reassigned');
+  if (error) throw error;
 };
 
 export const updateStationNgos = async (req, res) => {

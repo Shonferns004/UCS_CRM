@@ -1,0 +1,6 @@
+1) cd backend-enter
+2) cd scripts- enter
+3) node .\tunnel-db.mjs ui-enter
+   |__link pe click karo yeh upar wala command run kanr eke baad ayega 
+4) link open hoga click on start local wait till the tunnel and the backend both shows green color 
+5) backend started k123 na

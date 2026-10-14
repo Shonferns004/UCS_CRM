@@ -572,6 +572,13 @@ await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid password' });
     }
+    // Fourth and last way into a worker account (bare login_id, no @). Same
+    // block, same reason: every remaining door has to be shut or the covered FRO
+    // simply walks in through whichever one was missed.
+    if (!isHrFormLogin && String(worker.department || '').toLowerCase().trim() === 'fro') {
+      const covered = await rejectIfCoveredFro(worker);
+      if (covered) return res.status(403).json(covered);
+    }
     const dept = (worker.department || '').toLowerCase().trim();
     if (dept === 'fro' && !isHrFormLogin) {
       await reconcileSessionHandover(worker.id);
