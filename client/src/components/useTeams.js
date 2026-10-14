@@ -25,11 +25,21 @@ export function useTeams() {
     return () => { mounted.current = false; };
   }, []);
 
+  // Every instance re-reads the shared cache when any instance saves, so two
+  // screens (e.g. the Teams modal and the salary table behind it) never show
+  // different team lists after a rename or add.
+  useEffect(() => {
+    const onTeamsUpdated = () => { if (cache) setTeams(cache.teams); };
+    window.addEventListener('teams-updated', onTeamsUpdated);
+    return () => window.removeEventListener('teams-updated', onTeamsUpdated);
+  }, []);
+
   const saveTeams = useCallback(async (list) => {
     const res = await api('/teams', { method: 'PUT', body: JSON.stringify({ teams: list }), _prefix: 'ucs' });
     const next = Array.isArray(res?.teams) ? res.teams.filter(Boolean) : list.filter(Boolean);
     cache = { teams: next };
     setTeams(next);
+    window.dispatchEvent(new Event('teams-updated'));
     return next;
   }, []);
 

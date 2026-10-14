@@ -58,6 +58,10 @@ export const createNotice = async (data) => {
   return result;
 };
 
+// Notices are never auto-deleted. The panel shows one day at a time (a date
+// filter, defaulting to today) so old notices simply sit out of view instead
+// of being purged from the DB.
+
 export const getAllNotices = async (ngo_id, target_role, user) => {
   let query = db
     .from('notices')

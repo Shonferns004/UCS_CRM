@@ -22,6 +22,7 @@ import IncentiveVerification from './pages/IncentiveVerification'
 import TeamsSection from './components/TeamsSection'
 import DonorSection from './components/DonorSection'
 import PageTabs from './components/PageTabs'
+import TeamsManageModal from './components/TeamsManageModal'
 import AssetRegister from './pages/AssetRegister'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
 import EmailAccountsView from './components/EmailAccountsView'
@@ -271,7 +272,7 @@ function VolunteersListPage({ theme }) {
   const navigate = useNavigate()
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
-      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Attendance" showPagarExport={true} showPayExports={false}
+      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Attendance" showPagarExport={true} showPayExports={false} salaryMode
         onSelect={(w) => navigate(`/accounts/volunteers/${w.id}`)}
         onOffboard={(w) => navigate(`/accounts/volunteers/${w.id}/offboard`)} />
     </div>
@@ -283,7 +284,7 @@ function VolunteerDetailPage({ theme }) {
   const navigate = useNavigate()
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
-      <EmployeeDetail worker={{ id }} onBack={() => navigate('/accounts/volunteers')} onOffboard={() => navigate(`/accounts/volunteers/${id}/offboard`)} />
+      <EmployeeDetail worker={{ id }} accountsMode onBack={() => navigate('/accounts/volunteers')} onOffboard={() => navigate(`/accounts/volunteers/${id}/offboard`)} />
     </div>
   )
 }
@@ -309,6 +310,9 @@ function VolunteerOffboardPage({ theme }) {
 
 function PayrollSection({ theme }) {
   const { pathname } = useLocation()
+  const [teamsOpen, setTeamsOpen] = useState(false)
+  // Loan & Advance is a full page in this strip again — Accounts reconciles
+  // those deductions here, not inside a volunteer's detail view.
   const tabs = [
     { label: 'Salary', path: '/accounts/volunteers' },
     { label: 'Loan & Advance', path: '/accounts/volunteers/loans' },
@@ -319,13 +323,27 @@ function PayrollSection({ theme }) {
     && here !== '/accounts/volunteers/loans'
   return (
     <>
-      {!onDetail && <PageTabs tabs={tabs} ariaLabel="Salary & Advances" />}
+      {!onDetail && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <PageTabs tabs={tabs} ariaLabel="Salary & Advances" />
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+            onClick={() => setTeamsOpen(true)}
+            title="Add, rename or remove teams"
+          >
+            <Users size={14} /> Manage Teams
+          </button>
+        </div>
+      )}
       <Routes>
         <Route index element={<VolunteersListPage theme={theme} />} />
         <Route path="loans" element={<Loans />} />
         <Route path=":id" element={<VolunteerDetailPage theme={theme} />} />
         <Route path=":id/offboard" element={<VolunteerOffboardPage theme={theme} />} />
       </Routes>
+      {teamsOpen && <TeamsManageModal onClose={() => setTeamsOpen(false)} />}
     </>
   )
 }

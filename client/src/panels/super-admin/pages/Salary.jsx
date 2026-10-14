@@ -39,23 +39,6 @@ export default function Salary() {
           </div>
         </div>
 
-        {detail.allocations?.length > 0 && (
-          <div className="sa-card">
-            <h3 className="sa-card-title">NGO Allocations</h3>
-            <table className="sa-table">
-              <thead><tr><th>NGO</th><th>Portion</th></tr></thead>
-              <tbody>
-                {detail.allocations.map(a => (
-                  <tr key={a.id}>
-                    <td>{a.ngo_name || `NGO #${a.ngo_id}`}</td>
-                    <td>{formatMoney(a.salary_portion)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
         {detail.sundayBonus?.incentiveAKI != null && (
           <div className="sa-card">
             <h3 className="sa-card-title">Incentives & Bonus</h3>
