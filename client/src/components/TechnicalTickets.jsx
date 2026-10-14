@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/auth';
 import { deptLabel } from '../lib/labels';
 import { routeFor, routeLabel, categoryLabel } from '../lib/ticketRouting';
+import { toast } from './Toast';
 
 const AUTO_REFRESH_MS = 30000;
 

@@ -135,7 +135,6 @@ const NAV_BASE = [
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'lead-incentive', path: '/fro/lead-incentive', label: 'Lead Incentive', Icon: Trophy },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
-  { id: 'to-super-admin', path: '/fro/to-super-admin', label: 'To Super Admin', Icon: Ticket },
   { id: 'chat', path: '/fro/chat', label: 'UCS Chat', Icon: MessagesSquare },
 ]
 
