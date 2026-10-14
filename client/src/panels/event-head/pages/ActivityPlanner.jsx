@@ -903,7 +903,7 @@ function PlanModal({ entry, ngo, month, onClose, onSaved }) {
   const days = useMemo(() => daysInMonth(month), [month])
 
   const [name, setName] = useState(suggestion?.title || activity?.name || '')
-  const [date, setDate] = useState(days[0] || '')
+  const [date, setDate] = useState(entry?.date || days[0] || '')
   const [startTime, setStartTime] = useState('10:00')
   const [endTime, setEndTime] = useState('13:00')
   const [venue, setVenue] = useState('')
@@ -1024,6 +1024,357 @@ function PlanModal({ entry, ngo, month, onClose, onSaved }) {
           </div>
         )}
 
+        {error && (
+          <div style={{ padding: '10px 13px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13 }}>{error}</div>
+        )}
+      </div>
+    </ModalShell>
+  )
+}
+
+/* ── Event Detail Sheet (PDF) ────────────────────────────────────────────────
+   The download the Social head gets once the event is created: an A4 detail
+   sheet branded with the NGO's logo/colour — Title, Date, NGO, Activity,
+   Beneficiary, Venue, Description and the 4–6 uploaded images. Built straight
+   with jsPDF (vector text + images), so the same-origin /logo asset and the
+   picked image data-URLs embed without a DOM capture. */
+const pickFileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = () => reject(new Error('Could not read the image.'))
+  reader.readAsDataURL(file)
+})
+
+/* Same-origin logo file → data URL (jsPDF needs the bytes). Any failure just
+   drops the logo; the sheet still renders. */
+const urlToDataUrl = async (url) => {
+  try {
+    const res = await fetch(url)
+    const blob = await res.blob()
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('read failed'))
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return ''
+  }
+}
+
+const hexToRgb = (hex) => {
+  const h = String(hex || '').replace('#', '')
+  const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const n = parseInt(v || '2036bd', 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+const dataUrlFormat = (u) => (u.startsWith('data:image/png') ? 'PNG' : u.startsWith('data:image/webp') ? 'WEBP' : 'JPEG')
+
+/* ── Event Poster PDF (Being Sevak style, 1 page A4) ─────────────────────────
+   Replaces the old "Event Detail" sheet. Same arguments as before, plus the
+   optional `subtitle` and `teamMembers`. Drawn directly with jsPDF. */
+const POSTER = {
+  blue: [11, 79, 168], lime: [228, 245, 15], green: [47, 143, 58],
+  greenText: [233, 247, 160], white: [255, 255, 255], soft: [238, 242, 248],
+}
+const ordinal = (n) => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0] }
+
+async function buildPosterDoc(jsPDF, { name, subtitle, date, ngoLabel, activityName, venue, description, teamMembers, images, brand, logoData }) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const P = POSTER, W = 210, H = 297, B = 4
+  const fill = (c) => doc.setFillColor(c[0], c[1], c[2])
+  const ink = (c) => doc.setTextColor(c[0], c[1], c[2])
+  const draw = (c) => doc.setDrawColor(c[0], c[1], c[2])
+  const fmtOf = (u) => (u.startsWith('data:image/png') ? 'PNG' : u.startsWith('data:image/webp') ? 'WEBP' : 'JPEG')
+
+  // page background
+  fill(P.blue); doc.rect(0, 0, W, H, 'F')
+
+  // ── header ──
+  draw(P.white); doc.setLineWidth(0.4); doc.rect(B + 2, B + 2, W - 2 * B - 4, 30)
+  const textMaxW = W - 2 * B - 4 - 16 - 30
+  ink(P.lime); doc.setFont('times', 'bold'); doc.setFontSize(24)
+  const tl = doc.splitTextToSize(String(name || 'Event'), textMaxW).slice(0, 2)
+  const sub = subtitle || activityName || ngoLabel || ''
+  const titleH = tl.length * 9
+  let ty = B + 2 + (30 - titleH - (sub ? 8 : 0)) / 2 + 7
+  doc.text(tl, B + 10, ty)
+  if (sub) {
+    ink(P.white); doc.setFontSize(14)
+    doc.text(doc.splitTextToSize(String(sub), textMaxW)[0], B + 10, ty + titleH - 1)
+  }
+  const cx = W - B - 10 - 12, cy = B + 2 + 15
+  fill(P.white); doc.circle(cx, cy, 12.5, 'F')
+  if (logoData) { try { doc.addImage(logoData, fmtOf(logoData), cx - 10, cy - 10, 20, 20) } catch { /* skip */ } }
+
+  // ── date band ──
+  fill(P.green); doc.roundedRect(B, 41, W - 2 * B, 16, 1, 1, 'F')
+  const d = date ? new Date(`${String(date).slice(0, 10)}T00:00:00`) : null
+  if (d && !isNaN(d)) {
+    const day = String(d.getDate()), suf = ordinal(d.getDate())
+    const rest = ` ${d.toLocaleString('en-GB', { month: 'long' })}, ${d.getFullYear()}`
+    ink(P.greenText); doc.setFont('times', 'bold'); doc.setFontSize(25)
+    const w1 = doc.getTextWidth(`Date:-${day}`), w2 = doc.getTextWidth(rest)
+    doc.setFontSize(14); const ws = doc.getTextWidth(suf)
+    let x = W / 2 - (w1 + ws + w2) / 2
+    doc.setFontSize(25); doc.text(`Date:-${day}`, x, 52); x += w1
+    doc.setFontSize(14); doc.text(suf, x, 49.5); x += ws
+    doc.setFontSize(25); doc.text(rest, x, 52)
+  }
+
+  // ── white body ──
+  const bodyY = 60, bodyB = H - B
+  fill(P.white); doc.rect(B, bodyY, W - 2 * B, bodyB - bodyY, 'F')
+
+  // description box (measured first so photos can use the space above it)
+  const dx = B + 6, dw = W - 2 * B - 12
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11)
+  const descLines = doc.splitTextToSize(String(description || ''), dw - 12).slice(0, 7)
+  const venueLines = venue ? doc.splitTextToSize(`VENUE : ${venue}`, dw - 12).slice(0, 2) : []
+  const teamLines = teamMembers?.length ? doc.splitTextToSize(`Team: ${teamMembers.join(', ')}`, dw - 12).slice(0, 2) : []
+  const lh = 5.2
+  const descH = 8 + (descLines.length + venueLines.length + teamLines.length) * lh + (venueLines.length ? 1.5 : 0) + (teamLines.length ? 1.5 : 0)
+  const footTop = bodyB - 16
+  const descY = footTop - 4 - descH
+
+  // photos
+  const imgs = (images || []).slice(0, 6)
+  const n = imgs.length
+  const gx = dx, gw = dw
+  const gap = 3
+  const cols = n <= 4 ? 2 : 3
+  const rows = Math.max(1, Math.ceil(n / cols))
+  const gy = bodyY + 6
+  const availH = Math.max(40, descY - 6 - gy)
+  const cellW = (gw - gap * (cols - 1)) / cols
+  const cellH = Math.max(28, Math.min(cellW * 1.3, (availH - gap * (rows - 1)) / rows))
+  if (n === 0) console.warn('Event poster: no images to draw')
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols), c = i % cols
+    const inRow = Math.min(cols, n - r * cols)
+    const x = gx + c * (cellW + gap) + (cols - inRow) * (cellW + gap) / 2
+    const y = gy + r * (cellH + gap)
+    fill(P.soft); doc.roundedRect(x, y, cellW, cellH, 5, 5, 'F')
+    // Fit the photo INSIDE the frame (no clipping): the JS cover+crop trick
+    // relies on saveGraphicsState/clip, which silently aborted the draw and
+    // left empty frames. Contain always shows the image; a decode failure still
+    // fills the frame so nothing looks broken.
+    let iw = cellW, ih = cellH
+    try {
+      const props = doc.getImageProperties(imgs[i])
+      if (props?.width && props?.height) {
+        const s = Math.min(cellW / props.width, cellH / props.height)
+        iw = props.width * s
+        ih = props.height * s
+      }
+    } catch (e) {
+      console.error('Event poster: could not read image properties', e)
+    }
+    try {
+      doc.addImage(imgs[i], fmtOf(imgs[i]), x + (cellW - iw) / 2, y + (cellH - ih) / 2, iw, ih, undefined, 'FAST')
+    } catch (e) {
+      console.error('Event poster: could not draw image', e)
+    }
+    draw(P.blue); doc.setLineWidth(1); doc.roundedRect(x, y, cellW, cellH, 5, 5, 'S')
+  }
+
+  // description
+  fill(P.blue); doc.rect(dx, descY, dw, descH, 'F')
+  fill(P.lime); doc.rect(dx, descY, 2.2, descH, 'F')
+  let yy = descY + 8
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); ink(P.lime)
+  doc.text(descLines, dx + 8, yy); yy += descLines.length * lh
+  if (venueLines.length) { yy += 1.5; doc.setFont('helvetica', 'bold'); doc.text(venueLines, dx + 8, yy); yy += venueLines.length * lh }
+  if (teamLines.length) { yy += 1.5; doc.setFont('helvetica', 'normal'); doc.setFontSize(10); ink([219, 232, 255]); doc.text(teamLines, dx + 8, yy) }
+
+  // footer
+  draw(P.blue); doc.setLineWidth(0.4); doc.line(dx, footTop, dx + dw, footTop)
+  fill(P.blue); doc.circle(W / 2, footTop + 7, 4, 'F')
+  ink(P.white); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('1', W / 2, footTop + 8.3, { align: 'center' })
+  ink([8, 58, 128]); doc.setFont('times', 'bold'); doc.setFontSize(13)
+  doc.text(String(brand?.fullName || 'NGO').toUpperCase().slice(0, 28), dx + dw, footTop + 8, { align: 'right' })
+  return doc
+}
+
+
+async function buildEventDetailPdf({ name, subtitle, date, ngoLabel, activityName, venue, description, teamMembers, images, brand }) {
+  const { default: jsPDF } = await import('jspdf')
+  const logoData = brand?.logo ? await urlToDataUrl(brand.logo) : ''
+  const doc = await buildPosterDoc(jsPDF, { name, subtitle, date, ngoLabel, activityName, venue, description, teamMembers, images, brand, logoData })
+  const safe = String(name || 'event').replace(/[^A-Za-z0-9-_]+/g, '_').slice(0, 40)
+  doc.save(`event-${safe}${date ? '-' + date : ''}.pdf`)
+}
+
+/* ── Create the real event from a done programme ─────────────────────────────
+   Shown from the "Team member" cell once ALL five deliverables of a planned
+   programme are Done (the Social head accepted each member's report). Prefills
+   the programme's name, its PLANNED date and NGO so the head only reviews and
+   confirms; venue + description + 4–6 images are filled here. Saving creates a
+   Draft event (linked to the selected suggestion) and downloads the branded
+   Event Detail Sheet PDF. */
+function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSaved }) {
+  const [name, setName] = useState(entry?.name || '')
+  const [date] = useState(entry?.date || '')
+  const [ngoId, setNgoId] = useState(entry?.ngoId ? String(entry.ngoId) : '')
+  const [venue, setVenue] = useState('')
+  const [description, setDescription] = useState('')
+  const [images, setImages] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const ngo = useMemo(() => ngos.find((n) => String(n.id) === String(ngoId)) || null, [ngos, ngoId])
+
+  // The suggestion's activity (when there is one) owns the sector, so the event
+  // is created against the exact NGO ➜ Sector ➜ Activity the programme belongs
+  // to. A typed programme has no activity; Draft needs none.
+  const activity = useMemo(
+    () => activities.find((a) => String(a.id) === String(entry?.suggestion?.activity_id)) || null,
+    [activities, entry],
+  )
+
+  const onPickImages = async (e) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    const room = 6 - images.length
+    if (room <= 0) { setError('Maximum 6 images.'); return }
+    const added = []
+    for (const f of files.slice(0, room)) {
+      if (!f.type.startsWith('image/')) continue
+      try { added.push({ name: f.name, url: await pickFileToDataUrl(f) }) } catch { /* skip */ }
+    }
+    if (!added.length) { setError('Please choose image files (JPG / PNG / WebP).'); return }
+    setError('')
+    setImages((cur) => [...cur, ...added].slice(0, 6))
+  }
+
+  const removeImage = (i) => setImages((cur) => cur.filter((_, idx) => idx !== i))
+
+  const submit = async () => {
+    if (!name.trim()) return setError('Event name is required.')
+    if (!ngoId) return setError('Choose an NGO.')
+    if (!date) return setError('This programme has no planned date.')
+    if (images.length < 4) return setError('Please upload at least 4 images (4–6).')
+    if (images.length > 6) return setError('Please upload at most 6 images.')
+    setBusy(true); setError('')
+    try {
+      const event = await createEvent({
+        name: name.trim(),
+        ngo_id: ngoId,
+        sector_id: activity?.sector_id ?? null,
+        activity_ids: activity?.id ? [Number(activity.id)] : [],
+        date,
+        venue: venue.trim() || null,
+        description: description.trim() || null,
+        images: images.map((im) => im.url),
+        status: 'Draft',
+      })
+      if (entry?.suggestion?.id && event?.id) {
+        try {
+          await setFestivalSuggestionSelected(Number(entry.suggestion.id), true, Number(event.id))
+        } catch {
+          // The event is created either way; only the planner link is less precise.
+        }
+      }
+      // The detail sheet is the download the head asked for. A PDF failure must
+      // never lose the event that was already created. The same payload is handed
+      // back to the planner so the row's "Download" button can re-issue it later.
+      const pdfArgs = {
+        name: name.trim(),
+        date,
+        ngoLabel: ngo?.name || '',
+        activityName: activity?.name || '',
+        beneficiary: entry?.beneficiary || '',
+        venue: venue.trim(),
+        description: description.trim(),
+        images: images.map((im) => im.url),
+        brand: ngoBrandFor(ngo),
+      }
+      try {
+        await buildEventDetailPdf(pdfArgs)
+      } catch (pdfErr) {
+        console.error('Event detail PDF failed', pdfErr)
+      }
+      onSaved({ key: entry?.key, event, pdf: pdfArgs })
+    } catch (e) {
+      setError(e?.message || 'Could not create the event.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <ModalShell
+      title="Create Event"
+      subtitle="All five deliverables are done — turn this programme into an event"
+      onClose={() => { if (!busy) onClose() }}
+      width={600}
+      footer={
+        <>
+          <button className="eh-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="eh-btn eh-btn-primary" onClick={submit} disabled={busy}>
+            {busy ? 'Creating…' : 'Create Event & Download'}
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Event name">
+          <input className="eh-select" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Date (planned)" hint="From the planner — the day this programme is planned for.">
+            <input className="eh-select" value={date ? shortDate(date) : '—'} readOnly disabled />
+          </Field>
+          <Field label="Venue" hint="Optional">
+            <input className="eh-select" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g. Community hall" />
+          </Field>
+        </div>
+        <Field label="NGO">
+          <FestivalNgoSelect ngos={ngos} value={ngoId} disabled={busy} onChange={setNgoId} />
+        </Field>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={LABEL}>Activity</span>
+          <Badge tone="secondary">{activity?.name || '—'}</Badge>
+        </div>
+        <Field label="Description" hint="Optional — printed on the Event Detail Sheet.">
+          <textarea
+            className="fest-manual"
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What the event is about…"
+          />
+        </Field>
+        <Field label="Photos" hint="Upload 4 to 6 images — they are placed on the Event Detail Sheet.">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <label className="eh-btn eh-btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: images.length >= 6 ? 'not-allowed' : 'pointer', opacity: images.length >= 6 ? 0.5 : 1 }}>
+                + Add images
+                <input type="file" accept="image/*" multiple disabled={images.length >= 6} onChange={onPickImages} style={{ display: 'none' }} />
+              </label>
+              <span style={{ fontSize: 12, color: images.length >= 4 ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)' }}>
+                {images.length} / 6 selected {images.length < 4 ? '(min 4)' : ''}
+              </span>
+            </div>
+            {images.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>
+                {images.map((im, i) => (
+                  <div key={`${im.name}-${i}`} style={{ position: 'relative', border: '1px solid var(--eh-line-strong, #ddd9f0)', borderRadius: 8, overflow: 'hidden' }}>
+                    <img src={im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(i)}
+                      title="Remove"
+                      style={{ position: 'absolute', top: 2, right: 2, border: 'none', borderRadius: 6, background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11, lineHeight: 1, padding: '3px 6px', cursor: 'pointer' }}
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Field>
         {error && (
           <div style={{ padding: '10px 13px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13 }}>{error}</div>
         )}
@@ -1224,6 +1575,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // A planned deliverable is shown done/green only when its reporter's report for
   // that day is in here — the member's own "done" never turns the cell green.
   const [acceptedDays, setAcceptedDays] = useState(() => new Set())
+  // The done programme whose "Create Event" button was clicked (prefills the
+  // modal), and the row keys whose event was created THIS session — so a row
+  // without a stored suggestion to link to still hides its button at once.
+  const [createEventFor, setCreateEventFor] = useState(null)
+  const [createdKeys, setCreatedKeys] = useState(() => new Set())
+  // Payload of the Event Detail Sheet for each row whose event was created THIS
+  // session, so its "Download" button can re-issue the same PDF (no second event).
+  const [pdfCache, setPdfCache] = useState(() => new Map())
 
   const [year, setYear] = useState(() => new Date().getFullYear())
   const yearOptions = useMemo(() => {
@@ -1408,6 +1767,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // festival row can be pointed at a different NGO than the page-wide pick.
   // Keyed by the same "date::festival" key the row itself uses.
   const [festNgo, setFestNgo] = useState(() => ({}))
+  /* Extra programme rows the user added with "+ Add another programme", so one
+     date can carry more than one programme. Session-only; each entry is the
+     unique suffix of a "date::+#suffix" key. */
+  const [festExtra, setFestExtra] = useState(() => ({}))
 
   const loadImportantDays = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1454,7 +1817,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => { setFestBenef({}) }, [ngoId])
   useEffect(() => { setFestLoc({}) }, [ngoId])
   useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
-
+  useEffect(() => { setFestExtra({}) }, [ngoId, month])
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
 
@@ -2777,24 +3140,234 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   //     </td>
   //   )
   // }
-  const taskCell = (date, label, rowSpan) => {
+  /* The programme name a row will create/scheduled its event under: the selected
+     AI suggestion, else a linked suggestion, else the typed programme, else the
+     festival name. Shared by the create modal and the "already scheduled?" check
+     so both always agree on the event's name. */
+  const programmeNameForKey = (key, label) => {
+    const sugg = key ? rowSuggestionsFor(key) : []
+    const named = sugg.find((s) => s.is_selected) || sugg.find((s) => Number(s.suggested_event_id) > 0) || null
+    const manual = scopedManual[key]
+    const typed = String(manual?.text || '').trim().split('\n')[0]
+    return String(named?.title || typed || (manual?.name || '').trim() || label || 'Programme').trim()
+  }
+
+  /* The date a row's event is created on — the selected suggestion's own date
+     when it has one, else the programme's day. Shared so the "already
+     scheduled?" match lines up with what was actually stored. */
+  const programmeDateForKey = (key, date) => {
+    const sugg = key ? rowSuggestionsFor(key).find((s) => s.is_selected) : null
+    return String(sugg?.observance_date || date || (key || '').slice(0, 10)).slice(0, 10)
+  }
+
+  /* The event a planner row already produced. Found ONLY through the suggestion's
+     own recorded link (suggested_event_id) so it survives a refresh. The row
+     offers the download only once its event was genuinely created through the
+     planner — never because some unrelated event happens to share a date, name
+     or NGO. */
+  const findScheduledEvent = (key) => {
+    const link = key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0) : null
+    if (!link) return null
+    return monthEvents.find((ev) => String(ev?.id) === String(link.suggested_event_id)) || null
+  }
+
+  /* Open the "Create Event" confirm modal for a programme whose five
+     deliverables are all Done. Prefills the programme's name (its selected AI
+     suggestion, or the typed programme, or the festival name), its date and its
+     NGO, so the head only reviews and confirms. */
+  const openCreateEvent = (key, date, label) => {
+    const sugg = rowSuggestionsFor(key).find((s) => s.is_selected) || null
+    const name = programmeNameForKey(key, label)
+    const benef = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean) || festBenef[key] || ''
+    setCreateEventFor({ key, date: programmeDateForKey(key, date), name, ngoId: rowNgoId(key), suggestion: sugg, beneficiary: benef })
+  }
+
+  /* "+ Add another programme": adds a fresh programme ROW under this date, so a
+     day can carry more than one programme. Seeded with the row's NGO so the new
+     row starts on the same NGO. Session-only, like the other row decisions. */
+  const addExtraRow = (date, key) => {
+    const suffix = `+${Date.now().toString(36).slice(-4)}${Math.floor(Math.random() * 1296).toString(36)}`
+    const extraKey = `${date}::${suffix}`
+    const seed = key ? rowNgoId(key) : ''
+    setFestExtra((cur) => ({ ...cur, [date]: [...(cur[date] || []), suffix] }))
+    if (seed) setFestNgo((cur) => ({ ...cur, [extraKey]: String(seed) }))
+  }
+  const removeExtraRow = (date, key) => {
+    setFestExtra((cur) => ({ ...cur, [date]: (cur[date] || []).filter((s) => `${date}::${s}` !== key) }))
+    setFestNgo((cur) => { const n = { ...cur }; delete n[key]; return n })
+    setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
+    setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
+  }
+  const addAnotherProgrammeBtn = (date, key) => (
+    <button
+      className="eh-btn eh-btn-sm"
+      style={{ marginTop: 6 }}
+      disabled={festBusy}
+      title={`Add another programme row under ${shortDate(date)} — a second programme on the same day`}
+      onClick={() => addExtraRow(date, key)}
+    >
+      + Add another programme
+    </button>
+  )
+
+  /* A user-added programme row: same columns as every other row, with an
+     editable name in the Festival / Day column, an NGO that starts on the row it
+     was added from, and a ✕ that removes it. */
+  const festExtraRow = (date, key) => {
+    const manual = scopedManual[key]
+    const manualChecked = Boolean(manual?.selected)
+    return (
+      <tr key={key} className={`sel-row${manualChecked ? ' sel' : ''}`}>
+        <td className="dd divider">{shortDate(date)}</td>
+        <td className="ff divider" style={{ whiteSpace: 'normal' }}>
+          <input
+            className="eh-input"
+            value={manual?.name || ''}
+            disabled={festBusy}
+            placeholder="Event name (e.g. Community kitchen drive)…"
+            title="Name this programme — it is what the downloads call it"
+            onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
+            style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
+          />
+          <button
+            className="eh-btn eh-btn-sm"
+            style={{ marginTop: 6 }}
+            disabled={festBusy}
+            title="Remove this programme row"
+            onClick={() => removeExtraRow(date, key)}
+          >
+            ✕ Remove row
+          </button>
+        </td>
+        <td className="ng divider">
+          <FestivalNgoSelect
+            ngos={ngos}
+            value={rowNgoId(key)}
+            disabled={festBusy}
+            title="Which NGO this programme belongs to"
+            onChange={(v) => changeRowNgo(key, v)}
+          />
+        </td>
+        <td className="bn divider">
+          <FestivalBeneficiarySelect
+            value={festivalBeneficiaryFor(key)}
+            disabled={festBusy || festGenerating !== null}
+            title="Who this programme is aimed at"
+            onChange={(v) => handleFestivalBeneficiary(key, v)}
+          />
+        </td>
+        <td className="ai divider">
+          <div className="sug-sec-label">Write manually</div>
+          <textarea
+            className="fest-manual"
+            rows={2}
+            value={manual?.text || ''}
+            disabled={festBusy}
+            placeholder="Type your own programme for this row…"
+            title="Your own programme for this row"
+            onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+          />
+        </td>
+        <td className="lc divider">
+          <FestivalLocationSelect
+            value={festivalLocationFor(key)}
+            list={ngoLocationList(rowNgo(key))}
+            disabled={festBusy || festGenerating !== null}
+            title="Where this event happens"
+            onChange={(v) => handleFestivalLocation(key, v)}
+          />
+        </td>
+        <td className="sel divider">
+          <input
+            type="checkbox"
+            checked={manualChecked}
+            disabled={festBusy}
+            title={manualChecked ? 'Included in the download. Untick to leave it out.' : 'Include this programme in the download.'}
+            onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
+          />
+        </td>
+        {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
+      </tr>
+    )
+  }
+
+  /* After the event is created: remember the row (so Create Event never returns)
+     and cache the sheet it just downloaded, refresh the month's tasks and
+     calendar so the new event shows, and say so. */
+  const afterEventCreated = ({ key, event, pdf } = {}) => {
+    if (key) {
+      setCreatedKeys((cur) => { const next = new Set(cur); next.add(key); return next })
+      if (pdf) setPdfCache((cur) => new Map(cur).set(key, pdf))
+    }
+    setCreateEventFor(null)
+    showToast(event?.name ? `Event “${event.name}” created.` : 'Event created.')
+    loadMonthTasks()
+    loadMonthEvents()
+  }
+
+  /* Re-issue a row's Event Detail Sheet. Uses the sheet built at creation time
+     when this tab still has it; otherwise rebuilds it from the stored event (its
+     images live on the event), so the download works after a refresh too. */
+  const downloadEventSheet = async (key, date, label) => {
+    let args = pdfCache.get(key)
+    if (!args) {
+      const ev = findScheduledEvent(key)
+      const p = ev?.extendedProps || {}
+      const sugg = key ? rowSuggestionsFor(key) : []
+      const linked = sugg.find((s) => s.is_selected) || sugg.find((s) => Number(s.suggested_event_id) > 0) || null
+      const ngo = ngos.find((n) => String(n.id) === String(rowNgoId(key))) || null
+      const actIds = (Array.isArray(p.activities) ? p.activities : []).map((a) => Number(a.id))
+      const activity = activities.find((a) => actIds.includes(Number(a.id))) || null
+      args = {
+        name: String(ev?.title || '').split(' · ')[0].trim() || programmeNameForKey(key, label),
+        date: String(p.date || date || '').slice(0, 10),
+        ngoLabel: ngo?.name || '',
+        activityName: activity?.name || '',
+        beneficiary: sugg.map((s) => s.beneficiary).find(Boolean) || festBenef[key] || '',
+        venue: p.venue || '',
+        description: p.description || '',
+        images: Array.isArray(p.images) ? p.images : [],
+        brand: ngoBrandFor(ngo),
+      }
+    }
+    if (!args) { showToast('Nothing to download yet.'); return }
+    try {
+      await buildEventDetailPdf(args)
+    } catch (e) {
+      console.error('Event sheet download failed', e)
+      showToast('Could not download the sheet.')
+    }
+  }
+
+  const taskCell = (date, label, rowSpan, key) => {
   if (!taskAssignment) return null
+  // Green only when the Social head accepted that member's report for the day
+  // the WORK was done — a member's own "done" never turns the planner green. A
+  // programme can be done on a day other than its own, so the completion day is
+  // matched too.
+  const deliverableDone = (row) => {
+    if (!row) return false
+    const doneDay = String(row.completed_date || '').slice(0, 10)
+    return acceptedDays.has(`${row.assignee_id}::${date}`) ||
+      (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
+  }
+  // All five deliverables green is what unlocks the "Create Event" button. Only
+  // after the event is actually created (recorded this session or linked on the
+  // suggestion) does the cell offer the download — and only while the five
+  // deliverables are still done. An unsigned row never shows a download.
+  const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
+  const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
+  const alreadyScheduled = Boolean(key && createdKeys.has(key)) || Boolean(findScheduledEvent(key))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {CONTENT_TYPES.map((ct) => {
+        {/* Once all five are done the green Done rows are dropped — the cell
+            carries just the action: create the event, or download its sheet
+            again if the file is needed later. */}
+        {!allDone && CONTENT_TYPES.map((ct) => {
           const row = taskMap[`${date}::${label}::${ct.value}`]
           const value = row ? String(row.assignee_id) : ''
-          // Done/green only when the Social head accepted that member's report
-          // for the day the WORK was done — so a member's own "done" on their
-          // board never turns the planner green. A programme can be done on a day
-          // other than its own, so the completion day is matched too. Also close
-          // out the spent rework task.
-          const doneDay = String(row?.completed_date || '').slice(0, 10)
-          const done = !!row && (
-            acceptedDays.has(`${row.assignee_id}::${date}`) ||
-            (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
-          )
+          const done = deliverableDone(row)
           return (
             <label
               key={ct.value}
@@ -2842,6 +3415,35 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             </label>
           )
         })}
+        {allDone && !alreadyScheduled && (
+          <button
+            className="eh-btn eh-btn-primary"
+            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5 }}
+            title="All five deliverables are done — create the event and download its detail sheet"
+            onClick={() => openCreateEvent(key, date, label)}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14" />
+              <path d="M5 12h14" />
+            </svg>
+            Create Event
+          </button>
+        )}
+        {alreadyScheduled && allDone && (
+          <button
+            className="eh-btn eh-btn-primary"
+            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5 }}
+            title="Download this event's detail sheet (photos included)"
+            onClick={() => downloadEventSheet(key, date, label)}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+            Download
+          </button>
+        )}
       </div>
     </td>
   )
@@ -2878,15 +3480,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
 
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-          {/* <Field label="NGO">
-           
-            <Select value={ngoId} onChange={(v) => { setNgoId(v); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }} style={{ minWidth: 210 }}>
-              <option value="">All NGOs</option>
-              {ngos.map((n) => (
-                <option key={n.id} value={n.id}>{ngoShortLabel(n)}</option>
-              ))}
-            </Select>
-          </Field> */}
+            <Field label="NGO">
+            
+              <Select value={ngoId} onChange={(v) => { setNgoId(v); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }} style={{ minWidth: 210 }}>
+                <option value="">All NGOs</option>
+                {ngos.map((n) => (
+                  <option key={n.id} value={n.id}>{ngoShortLabel(n)}</option>
+                ))}
+              </Select>
+            </Field>
 
           <Field label="Month">
             <div style={{ display: 'flex', gap: 8 }}>
@@ -3126,6 +3728,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             <tbody>
               {festivalDates.map((date) => {
                 const obs = observancesByDate[date] || []
+                const rows = []
                 if (!obs.length) {
                   /* No festival falls on this date — but sometimes a date still
                      needs an event, so the row is a manual entry rather than a
@@ -3137,7 +3740,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                   const manual = scopedManual[key]
                   const manualChecked = Boolean(manual?.selected)
                   const on = manualExportText(key)
-                  return (
+                  rows.push(
                     <tr key={date} className={`sel-row${manualChecked ? ' sel' : ''}`}>
                       <td className="dd divider">{shortDate(date)}</td>
                       <td className="ff divider" style={{ whiteSpace: 'normal' }}>
@@ -3151,6 +3754,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
                           style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
                         />
+                        {addAnotherProgrammeBtn(date, key)}
                       </td>
                       <td className="ng divider">
                         <FestivalNgoSelect
@@ -3205,7 +3809,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
                         />
                       </td>
-                      {taskCell(date, (manual?.name || '').trim() || 'Programme', 1)}
+                      {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
                     </tr>
                   )
                 }
@@ -3225,7 +3829,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     {o.type && <span className="ff-type"><span className="ff-dot" />{capFirst(o.type)}</span>}
                   </>
                 )
-                return obs.map((o) => {
+                rows.push(...obs.map((o) => {
                   const key = `${date}::${o.name}`
                   // Only THIS row's NGO's stored ideas — the editable NGO column
                   // decides the owner, so NGOs never mix inside a block.
@@ -3307,6 +3911,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             >
                               ✍ Write Manually
                             </button>
+                            {addAnotherProgrammeBtn(date, key)}
                           </div>
                         </td>
                         <td className="lc divider">
@@ -3319,7 +3924,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           />
                         </td>
                         <td className="sel divider" />
-                        {taskCell(date, o.name, 1)}
+                        {taskCell(date, o.name, 1, key)}
                       </tr>
                     )
                     return trs
@@ -3374,6 +3979,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                         >
                           {generating ? 'Generating…' : sugg.length ? '✦ Suggest again' : '✦ Suggest programmes'}
                         </button>
+                        {addAnotherProgrammeBtn(date, key)}
                       </td>,
                     )
                     return cells
@@ -3470,7 +4076,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             }}
                           />
                         </td>
-                        {i === 0 ? taskCell(date, o.name, rowCount) : null}
+                        {i === 0 ? taskCell(date, o.name, rowCount, key) : null}
                       </tr>
                     )
                   }
@@ -3510,7 +4116,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             onChange={() => selectFestivalSuggestion(s)}
                           />
                         </td>,
-                        ...(si === 0 ? [taskCell(date, o.name, rowCount)] : []),
+                        ...(si === 0 ? [taskCell(date, o.name, rowCount, key)] : []),
                       )
                       trs.push(<tr key={String(s.id)} className={`sel-row${s.is_selected ? ' sel' : ''}`}>{cells}</tr>)
                     })
@@ -3553,7 +4159,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           onClick={() => unselectFestivalSuggestion(chosen)}
                         >✓</button>
                       </td>,
-                      taskCell(date, o.name, rowCount),
+                      taskCell(date, o.name, rowCount, key),
                     )
                     trs.push(<tr key={`sel-${chosen.id}`} className="sel-row sel">{cells}</tr>)
 
@@ -3579,7 +4185,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     trs.push(manualRow(rowCount - 1, rowCount))
                     return trs
                   }
-                })
+                }))
+                for (const suffix of (festExtra[date] || [])) {
+                  rows.push(festExtraRow(date, `${date}::${suffix}`))
+                }
+                
+                return rows
               })}
             </tbody>
           </table>
@@ -3710,10 +4321,20 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       {planEntry && (
         <PlanModal
           entry={planEntry}
-          ngo={ngo}
+          ngo={planEntry?.ngo || ngo}
           month={month}
           onClose={() => setPlanEntry(null)}
           onSaved={afterPlanned}
+        />
+      )}
+
+      {createEventFor && (
+        <CreateEventFromProgrammeModal
+          entry={createEventFor}
+          ngos={ngos}
+          activities={activities}
+          onClose={() => setCreateEventFor(null)}
+          onSaved={afterEventCreated}
         />
       )}
 

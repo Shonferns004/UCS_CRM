@@ -174,7 +174,7 @@ export const socialSections = [
   {
     id: 'social_tasks',
     label: 'My Tasks',
-    description: 'Add your own tasks and move them Pending / WIP / Done. Tasks assigned to you also appear here.',
+    description: 'Add your own tasks and move them Pending / WIP / Done. Tasks assigned to you for the selected date also appear here.',
     fields: [
       { id: 'tasks', label: 'Tasks', type: 'checklist', placeholder: 'e.g. Edit Diwali reel', mergeAssigned: true },
     ],

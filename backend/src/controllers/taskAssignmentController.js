@@ -67,12 +67,10 @@ export async function listMyAssignments(req, res) {
     const assigned_to_me = rows.filter((r) => String(r.assignee_id) === me);
     const created_by_me = rows.filter((r) => String(r.assigned_by_id) === me);
     const body = { panel: PANEL, date, month, assigned_to_me, created_by_me };
-    // The raw list (the planner maps each row's programme to its assignee, and
-    // the Super-Admin overview shows every assignment with its status) is only
-    // returned to the head and admins; other members never see who else is
-    // assigned what.
-    const role = String(req.user?.role || '');
-    if (isTaskHead(req.user) || ['super_admin', 'admin'].includes(role)) body.assignments = rows;
+    // The Social team works as one unit, so every Social user (not only the head)
+    // can see the team's date-wise task schedule in their Daily Report. The raw
+    // list is the same rows the head already saw; no cross-panel data is exposed.
+    body.assignments = rows;
     return res.json(body);
   } catch (error) {
     console.error('[task-assignments] list failed:', error.message);
