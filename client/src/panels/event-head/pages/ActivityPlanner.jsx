@@ -4189,6 +4189,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 for (const suffix of (festExtra[date] || [])) {
                   rows.push(festExtraRow(date, `${date}::${suffix}`))
                 }
+                
                 return rows
               })}
             </tbody>
