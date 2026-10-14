@@ -4556,6 +4556,15 @@
 .dr-task-btn-pending.on { background: #f59e0b; }
 .dr-task-btn-wip.on { background: #3b82f6; }
 .dr-task-btn-done.on { background: #22c55e; }
+/* Team task schedule (date-wise) shown in the daily report */
+.dr-team-day { margin-bottom: 12px; }
+.dr-team-date { font-size: 12px; font-weight: 800; color: #334155; margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border, #e5e7eb); }
+.dr-team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.dr-team-meta { font-size: 11px; color: var(--text-muted, #6b7280); }
+.dr-team-status { align-self: flex-start; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 7px; border-radius: 999px; background: #eef2f7; color: #475569; }
+.dr-team-status-pending { background: #fef3c7; color: #92400e; }
+.dr-team-status-wip { background: #dbeafe; color: #1e40af; }
+.dr-team-status-done { background: #dcfce7; color: #166534; }
 /* Pending-task table (Task, Reason for pending, Expected completion) */
 .dr-rows { display: flex; flex-direction: column; gap: 8px; }
 .dr-rows-head { display: grid; grid-template-columns: 2fr 1.6fr 1.4fr 28px; gap: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #94a3b8; padding: 0 2px; }

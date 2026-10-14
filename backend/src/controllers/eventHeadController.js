@@ -71,6 +71,7 @@ const EVENT_COLUMNS = new Set([
   'organizer', 'event_manager', 'coordinator', 'csr_partner', 'donor',
   'funding_source', 'expected_beneficiaries', 'budget', 'description', 'notes',
   'status', 'approval_status', 'priority', 'banner', 'created_by', 'volunteers',
+  'images',
 ]);
 
 // Only pass through columns that actually exist on event_head_events. The live
@@ -625,6 +626,7 @@ export const getEventHeadCalendar = async (req, res) => {
           startTime: e.start_time || null,
           endTime: e.end_time || null,
           banner: e.banner || null,
+          images: Array.isArray(e.images) ? e.images : [],
         },
       };
     }));
