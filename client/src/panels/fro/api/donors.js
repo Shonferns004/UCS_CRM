@@ -76,8 +76,8 @@ export async function uploadPaymentScreenshot(fileBase64, mimeType, opts = {}) {
 // The panel holds a full-screen skeleton on this call, so it uses a much shorter
 // timeout than the 120s default. A queued-out dashboard should surface as a
 // failed load the FRO can retry, not two minutes of an ambiguous shimmer.
-// activeWindow ('1' | '2' | '3' — last N months) scopes the active/inactive
-// donor split; omitted means the backend default (1 month).
+// window ('1' | '2' | '3' | '6' | '8' | '12' — last N months) scopes the
+// active/inactive donor split; omitted means the backend default (1 month).
 export async function getMyDashboard(activeWindow) {
   const qs = activeWindow ? `?activeWindow=${encodeURIComponent(activeWindow)}` : ''
   return api(`/fro/dashboard${qs}`, { _prefix: 'ucs', timeout: 20000 })

@@ -197,11 +197,16 @@ export function SalaryPrivacyProvider({ children }) {
               </p>
             </div>
 
-            <form onSubmit={handleModalSubmit}>
+            <form onSubmit={handleModalSubmit} autoComplete="off">
               <div style={{ padding: 20 }}>
                 <input
-                  type="password"
+                  type="text"
                   inputMode="numeric"
+                  name="accessCode"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   autoFocus
                   value={code}
                   onChange={(e) => {
@@ -220,6 +225,7 @@ export function SalaryPrivacyProvider({ children }) {
                     borderRadius: 12,
                     outline: 'none',
                     color: '#0f172a',
+                    WebkitTextSecurity: 'disc',
                     border: error ? '1px solid #ef4444' : '1px solid #d1d9e4',
                     background: error ? '#fef2f2' : '#f8fafc',
                     transition: 'border-color .15s, box-shadow .15s',

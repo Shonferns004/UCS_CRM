@@ -336,17 +336,13 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd, 
 
 // Same attribution as getWorkerCollectionReceipts -- name first, log as a
 // fallback -- so the daily AKI chart and the Collected card can never disagree
-// about who collected what. It cannot simply reuse that loader because the two
-// bucket by different dates: the card counts a collection in the transaction
-// month, while this has historically credited a backdated receipt to the day it
-// was VERIFIED, so the daily AKI days line up with the Verified Today card.
-// That day choice is the only difference; ownership comes from the shared
-// helpers so it cannot drift.
+// about who collected what, OR on WHICH day. Both bucket by receipt_date (the
+// IST calendar day on the receipt book): a Sep-30 collection claimed/verified
+// on Oct 1 used to land on Oct 1 here while the card dated it Sep 30, so the
+// calendar and the card never added up.
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd, opts = {}) => {
   // receipt_date bounds must be IST days for the same reason as in
-  // getWorkerCollectionReceipts -- see receiptDayBounds(). The verified_at
-  // window below keeps the raw instants, because that column is a timestamptz
-  // and wants them.
+  // getWorkerCollectionReceipts -- see receiptDayBounds().
   const { startDay: monthStartDay, endDay: monthEndDay } = receiptDayBounds(monthStart, monthEnd, opts);
 
   // Same operator-vs-worker resolution as the card loader: creditWorkerId may
@@ -355,19 +351,18 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd,
   const credit = await resolveCreditTarget(workerId);
   const queryWorkerId = credit?.workerId || workerId;
 
-  // Authoritative window: linked to this worker's log, in the verified window so
-  // the bucket day can be the verification date. Fallback only, for receipts whose
-  // name resolved to nobody.
+  // Authoritative window: receipts linked to this worker's log, bounded by
+  // receipt_date so the bucket day and the card day are the same day.
+  // Fallback only, for receipts whose name resolved to nobody.
   let byLogId = [];
   try {
     byLogId = await sql(
-      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id,
-              l.verified_at AS verified_at
+      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id
        FROM receipts r
        JOIN fro_donor_logs l ON l.id = r.log_id
        WHERE l.fro_worker_id = $1
-         AND l.verified_at >= $2 AND l.verified_at <= $3`,
-      [queryWorkerId, monthStart, monthEnd]
+         AND r.receipt_date >= $2 AND r.receipt_date <= $3`,
+      [queryWorkerId, monthStartDay, monthEndDay]
     );
   } catch (e) { byLogId = []; }
 
@@ -393,11 +388,11 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd,
     }
   }
 
-  // Every receipt credited here is in the window by whichever date applies, and
+  // Every receipt credited here is in the window by receipt_date, and
   // deduplicated once across both windows before bucketing.
   const merged = mergeAttributedReceipts(
-    byName.map((r) => ({ ...r, verified_at: null })),
-    byLogId.map((r) => ({ ...r, verified_at: r.verified_at || null })),
+    byName,
+    byLogId,
     await getAllWorkerNameResolvers(),
     queryWorkerId,
   );
@@ -407,9 +402,9 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd,
   for (const r of merged) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
-    const vDay = r.verified_at ? String(r.verified_at).slice(0, 10) : null;
-    const rDay = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
-    const day = (vDay && vDay >= monthStartDay && vDay <= monthEndDay) ? vDay : rDay;
+    // receipt_date is the day the money was taken in — the same day the
+    // Collection card counts it on, so calendar and card always add up.
+    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
     if (!day) continue;
     const identity = paymentIdentity(r);
     if (seenPayments.has(identity)) continue;

@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
+﻿import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Wallet, Smartphone, BookOpen, Boxes } from 'lucide-react'
+import { Users, Wallet, Smartphone, BookOpen, Boxes, Target, CalendarCheck, CalendarClock, Unlock, Lock } from 'lucide-react'
 import { useUcs } from '../../store'
+import { useSalaryPrivacy } from '../../context/SalaryPrivacyContext'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -19,9 +20,9 @@ import IncentiveVerification from './pages/IncentiveVerification'
 // Teams + FRO Targets, Donors + Address and New/Old Data are each rendered by one
 // section component that owns the tab strip, so the panel itself no longer imports
 // the individual pages.
-import TeamsSection from './components/TeamsSection'
 import DonorSection from './components/DonorSection'
 import PageTabs from './components/PageTabs'
+import TeamsManageModal from './components/TeamsManageModal'
 import AssetRegister from './pages/AssetRegister'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
 import EmailAccountsView from './components/EmailAccountsView'
@@ -40,7 +41,6 @@ import AudienceVoting from './pages/AudienceVoting'
 import Awards from '../hr/components/Awards'
 import { Trophy } from '../hr/icons'
 import { fetchWorkerById } from '../hr/store'
-import AttendancePage from './pages/Attendance'
 import SimSection from './components/SimSection'
 import Certificates from './pages/Certificates'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
@@ -73,33 +73,22 @@ const NAV_GROUPS = [
     title: 'Workforce',
     icon: <Users size={18} />,
     items: [
-      { id: 'attendance', path: '/accounts/attendance', label: 'Attendance',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14l2 2 4-4"/></svg> },
-      { id: 'payroll', path: '/accounts/volunteers', label: 'Salary & Advances',
+      // Attendance and Teams and Target were folded into Operations —
+      // attendance lives on the volunteer detail's Attendance tab (plus the
+      // Export Excel modal) and teams/targets on this page's own strip. Old
+      // URLs redirect there.
+      { id: 'payroll', path: '/accounts/volunteers', label: 'Operations',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
         match: (p) => p.startsWith('/accounts/volunteers') || p === '/accounts/loans' },
-      { id: 'teams', path: '/accounts/teams', label: 'Teams and Target',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-        match: (p) => p.startsWith('/accounts/teams') },
-      { id: 'incentive', path: '/accounts/incentive', label: 'Incentive',
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg> },
-      { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify', hidden: true,
-        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-      // FRO Targets used to be its own entry here. It is now a tab on the Teams
-      // page, where the target sits next to the team it is aimed at;
-      // /accounts/fro-targets still resolves by redirect.
-      { id: 'incentives', path: '/accounts/incentives', label: 'NGO wise Incentive',
+      // The Incentive setup page is now a tab inside Incentives below
+      // ("Incentive Daily Chart"); /accounts/incentive redirects there.
+      { id: 'incentives', path: '/accounts/incentives', label: 'Incentives',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
-        match: (p) => p.startsWith('/accounts/incentives') },
-    ],
-  },
-  {
-    title: 'Finance & Records',
-    icon: <Wallet size={18} />,
-    items: [
+        match: (p) => p.startsWith('/accounts/incentives') || p === '/accounts/incentive' },
+      // Master Data and Asset Register moved here from Finance & Records.
+      DONOR_NAV,
       { id: 'asset-register', path: '/accounts/asset-register', label: 'Asset Register',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
-      DONOR_NAV,
     ],
   },
   {
@@ -215,9 +204,16 @@ const SIDEBAR_SECTIONS = [
     heading: 'Main',
     items: [
       ...NAV_TOP,
-      { id: 'g-workforce', label: NAV_GROUPS[0].title, icon: NAV_GROUPS[0].icon, storageKey: 'workforce', items: NAV_GROUPS[0].items },
-      { id: 'g-asset', label: NAV_GROUPS[1].title, icon: NAV_GROUPS[1].icon, storageKey: 'asset_finance', items: NAV_GROUPS[1].items },
-      { id: 'g-ceremony', label: NAV_GROUPS[2].title, icon: NAV_GROUPS[2].icon, storageKey: 'ceremony', items: NAV_GROUPS[2].items },
+      // Derived from NAV_GROUPS rather than hard-coded indices: groups come
+      // and go (Finance & Records was merged into Workforce), and a stale
+      // index crashes the whole panel on ".title of undefined".
+      ...NAV_GROUPS.map((g) => ({
+        id: `g-${g.title.toLowerCase().replace(/[^a-z]+/g, '-')}`,
+        label: g.title,
+        icon: g.icon,
+        storageKey: g.title.toLowerCase().replace(/[^a-z]+/g, '_'),
+        items: g.items,
+      })),
       { id: 'g-modules', label: 'Modules', icon: <Boxes size={18} />, storageKey: 'modules', items: MODULES_NAV },
     ],
   },
@@ -265,11 +261,12 @@ function hrScopeStyle(theme) {
   return style
 }
 
-function VolunteersListPage({ theme }) {
+function VolunteersListPage({ theme, onWorkersAction }) {
   const navigate = useNavigate()
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
-      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Attendance" showPagarExport={true} showPayExports={false}
+      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Volunteers" showPagarExport={true} showPayExports={false} salaryMode
+        onActionsReady={onWorkersAction}
         onSelect={(w) => navigate(`/accounts/volunteers/${w.id}`)}
         onOffboard={(w) => navigate(`/accounts/volunteers/${w.id}/offboard`)} />
     </div>
@@ -281,7 +278,7 @@ function VolunteerDetailPage({ theme }) {
   const navigate = useNavigate()
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
-      <EmployeeDetail worker={{ id }} onBack={() => navigate('/accounts/volunteers')} onOffboard={() => navigate(`/accounts/volunteers/${id}/offboard`)} />
+      <EmployeeDetail worker={{ id }} accountsMode onBack={() => navigate('/accounts/volunteers')} onOffboard={() => navigate(`/accounts/volunteers/${id}/offboard`)} />
     </div>
   )
 }
@@ -307,6 +304,14 @@ function VolunteerOffboardPage({ theme }) {
 
 function PayrollSection({ theme }) {
   const { pathname } = useLocation()
+  const [teamsOpen, setTeamsOpen] = useState(false)
+  // Export/manage actions the Workers table owns (targets, attendance Excel,
+  // Salary File, Compensations). It hands them up once so the top strip can
+  // render the buttons next to Manage Teams while the list page is mounted.
+  const [workersActions, setWorkersActions] = useState(null)
+  const { isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy()
+  // Loan & Advance is a full page in this strip again — Accounts reconciles
+  // those deductions here, not inside a volunteer's detail view.
   const tabs = [
     { label: 'Salary', path: '/accounts/volunteers' },
     { label: 'Loan & Advance', path: '/accounts/volunteers/loans' },
@@ -317,13 +322,58 @@ function PayrollSection({ theme }) {
     && here !== '/accounts/volunteers/loans'
   return (
     <>
-      {!onDetail && <PageTabs tabs={tabs} ariaLabel="Salary & Advances" />}
+      {!onDetail && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <PageTabs tabs={tabs} ariaLabel="Operations" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+            {workersActions && (
+              <>
+                <button className="btn btn-sm btn-primary" onClick={() => { if (isSalaryUnlocked) lockSalary(); else promptUnlock(); }}
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap', background: isSalaryUnlocked ? undefined : '#2563eb', borderColor: '#2563eb' }}
+                  title={isSalaryUnlocked ? 'Hide salary figures again' : 'Enter your access code to view salary figures'}>
+                  {isSalaryUnlocked ? <><Lock size={14} /> Hide Salary</> : <><Unlock size={14} /> Unlock Salary</>}
+                </button>
+                <button className="btn btn-sm btn-outline" onClick={workersActions.downloadFroTargets}
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
+                  title="Download this month's FRO targets (FRO department only) as Excel">
+                  <Target size={14} /> Targets
+                </button>
+                <button className="btn btn-sm btn-outline" onClick={workersActions.openAttExport}
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
+                  title="Export a month's attendance sheet (In/Out per day) to Excel">
+                  <CalendarCheck size={14} /> Attendance
+                </button>
+                <button className="btn btn-sm btn-outline" onClick={workersActions.openPagar}
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
+                  title="Download Salary File (July format)">
+                  <Wallet size={14} /> Salary
+                </button>
+                <button className="btn btn-sm btn-outline" onClick={workersActions.openCompensations}
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
+                  title="Manage compensatory Sundays and holidays">
+                  <CalendarClock size={14} /> Compensations
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+              onClick={() => setTeamsOpen(true)}
+              title="Add, rename or remove teams"
+            >
+              <Users size={14} /> Manage Teams
+            </button>
+          </div>
+        </div>
+      )}
       <Routes>
-        <Route index element={<VolunteersListPage theme={theme} />} />
+        <Route index element={<VolunteersListPage theme={theme} onWorkersAction={setWorkersActions} />} />
         <Route path="loans" element={<Loans />} />
         <Route path=":id" element={<VolunteerDetailPage theme={theme} />} />
         <Route path=":id/offboard" element={<VolunteerOffboardPage theme={theme} />} />
       </Routes>
+      {teamsOpen && <TeamsManageModal onClose={() => setTeamsOpen(false)} />}
     </>
   )
 }
@@ -467,7 +517,7 @@ export default function AccountsPanel() {
             <Route path="receipt-history" element={<Navigate to="/accounts/receipt-generator" replace />} />
             <Route path="receipt-generator" element={<Receipts />} />
             <Route path="volunteers/*" element={<PayrollSection theme={themes[themeName]} />} />
-            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="attendance" element={<Navigate to="/accounts/volunteers" replace />} />
             <Route path="tickets" element={<AccountsTickets />} />
             <Route path="to-super-admin" element={<SuperAdminTicketSection panel="accounts" />} />
             <Route path="chat" element={<ChatWorkspace />} />
@@ -478,15 +528,18 @@ export default function AccountsPanel() {
             <Route path="template-settings" element={<TemplateSettings />} />
             <Route path="asset-register" element={<AssetRegister />} />
             <Route path="reports" element={<Reports />} />
-            <Route path="teams/*" element={<TeamsSection />} />
+            <Route path="teams/*" element={<Navigate to="/accounts/volunteers" replace />} />
             {/* FRO Targets moved into Teams as a tab; the old URL redirects. */}
-            <Route path="fro-targets" element={<Navigate to="/accounts/teams/targets" replace />} />
-            <Route path="incentive" element={<IncentiveSetup />} />
+            <Route path="fro-targets" element={<Navigate to="/accounts/volunteers" replace />} />
+            {/* The standalone Incentive page moved into the Incentives page as
+                the "Incentive Daily Chart" tab; old URL redirects. */}
+            <Route path="incentive" element={<Navigate to="/accounts/incentives/setup" replace />} />
             <Route path="incentive-verify" element={<IncentiveVerification />} />
             <Route path="incentives" element={<IncentivesPage />}>
               <Route index element={<Navigate to="sir" replace />} />
               <Route path="sir" element={<SpecialIncentives />} />
               <Route path="lead" element={<LeadIncentive />} />
+              <Route path="setup" element={<IncentiveSetup />} />
             </Route>
             {/* The Data page was removed from this panel. The routes below now
                 redirect rather than 404: the links are plain URLs that old

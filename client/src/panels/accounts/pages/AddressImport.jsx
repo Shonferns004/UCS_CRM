@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 import * as XLSX from 'xlsx'
+import { X } from 'lucide-react'
 import { apiGet, apiPost, apiPatch } from '../api/auth'
 
 const COLUMNS = [
@@ -68,8 +69,20 @@ export default function AddressImport() {
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
   const [dragOver, setDragOver] = useState(false)
+  const [uploadModal, setUploadModal] = useState(false)
   const fileRef = useRef(null)
   const resultRef = useRef(null)
+
+  const openUploadModal = () => {
+    setFileName(''); setRows([]); setColMap({}); setError(null); setResult(null); setParsing(false)
+    setUploadModal(true)
+  }
+
+  useEffect(() => {
+    const handler = () => openUploadModal()
+    window.addEventListener('open-upload-sheet-modal', handler)
+    return () => window.removeEventListener('open-upload-sheet-modal', handler)
+  }, [])
 
   // ── Receipts list (search by mobile / receipt no. + date range) ──
   const RECEIPT_EDIT_FIELDS = [
@@ -92,10 +105,9 @@ export default function AddressImport() {
   ]
   const RECEIPT_MONO = ['donor_mobile', 'mobile_2', 'pan_number', 'payment_id']
 
-  const LIST_LIMIT = 50
+  const LIST_LIMIT = 20
   const [receipts, setReceipts] = useState([])
   const [receiptTotal, setReceiptTotal] = useState(0)
-  const [receiptPage, setReceiptPage] = useState(1)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [fromDate, setFromDate] = useState('')
@@ -130,7 +142,6 @@ export default function AddressImport() {
   ]
 
   const toggleSort = (key) => {
-    setReceiptPage(1)
     if (sortKey !== key) { setSortKey(key); setSortDir('asc') }
     else if (sortDir === 'asc') setSortDir('desc')
     else { setSortKey(''); setSortDir('') }
@@ -161,14 +172,14 @@ export default function AddressImport() {
   }, [receipts, sortKey, sortDir])
 
   useEffect(() => {
-    const t = setTimeout(() => { setSearch(searchInput); setReceiptPage(1) }, 400)
+    const t = setTimeout(() => { setSearch(searchInput) }, 400)
     return () => clearTimeout(t)
   }, [searchInput])
 
   useEffect(() => {
     let cancelled = false
     setReceiptsLoading(true)
-    const params = new URLSearchParams({ limit: '0' })
+    const params = new URLSearchParams({ limit: String(LIST_LIMIT), page: '1' })
     if (search.trim()) params.set('search', search.trim())
     if (fromDate) params.set('from_date', fromDate)
     if (toDate) params.set('to_date', toDate)
@@ -185,11 +196,25 @@ export default function AddressImport() {
     return () => { cancelled = true }
   }, [search, fromDate, toDate, filterProject, listReload])
 
-  const listPages = Math.max(1, Math.ceil(receiptTotal / LIST_LIMIT))
-  const safePage = Math.min(receiptPage, listPages)
-  const listFrom = receiptTotal === 0 ? 0 : (safePage - 1) * LIST_LIMIT + 1
-  const listTo = Math.min(safePage * LIST_LIMIT, receiptTotal)
-  const visibleReceipts = sortedReceipts.slice((safePage - 1) * LIST_LIMIT, safePage * LIST_LIMIT)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const hasMore = receipts.length < receiptTotal
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      const nextPage = Math.floor(receipts.length / LIST_LIMIT) + 1
+      const params = new URLSearchParams({ limit: String(LIST_LIMIT), page: String(nextPage) })
+      if (search.trim()) params.set('search', search.trim())
+      if (fromDate) params.set('from_date', fromDate)
+      if (toDate) params.set('to_date', toDate)
+      if (filterProject) params.set('project', filterProject)
+      const res = await apiGet(`/accounts/receipts?${params.toString()}`)
+      setReceipts(prev => [...prev, ...(Array.isArray(res?.data) ? res.data : [])])
+    } catch { /* keep what we have */ }
+    finally { setLoadingMore(false) }
+  }
+
+  const visibleReceipts = sortedReceipts
 
   const startEdit = (r) => {
     setEditingId(r.id)
@@ -317,132 +342,146 @@ export default function AddressImport() {
 
   return (
     <div>
+      {uploadModal && (
+        <div className="modal-overlay" onClick={() => setUploadModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div
+            className="modal"
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 760, maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(15,23,42,.25)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Upload Address Sheet</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
+                  Matched by Mobile No. — only blank donor fields are filled; existing values are never overwritten.
+                </div>
+              </div>
+              <button className="btn btn-sm" onClick={() => setUploadModal(false)} title="Close" style={{ padding: '6px 8px' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', padding: 16 }}>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) processFile(f) }}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  border: `2px dashed ${dragOver ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 'var(--radius)',
+                  padding: 36, textAlign: 'center', cursor: 'pointer', background: dragOver ? 'rgba(91,107,78,.06)' : 'transparent',
+                  transition: 'all .15s ease',
+                }}
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ color: 'var(--ink-soft)', marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{parsing ? 'Parsing...' : fileName || 'Drop Excel file here or click to browse'}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>Supported columns: Mobile No. (required), Donor Name, Address-1, Address-2, PAN No., Mail Id &nbsp;&middot;&nbsp; .xlsx / .xls / .csv</div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files[0]; if (f) processFile(f); e.target.value = '' }} style={{ display: 'none' }} />
+              </div>
+
+              {error && <div style={{ margin: '14px 0 0', padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13 }}>{error}</div>}
+
+              {rows.length > 0 && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, margin: '14px 0' }}>
+                    <Chip value={rows.length} label="Total Rows" color="var(--ink)" />
+                    <Chip value={validCount} label="Valid Mobiles" color="#16a34a" />
+                    <Chip value={invalidCount} label="Missing / Bad Mobile" color="#dc2626" />
+                  </div>
+
+                  <div style={{ margin: '0 0 6px', fontSize: 11, color: 'var(--ink-soft)' }}>
+                    Mapped columns: {COLUMNS.filter(c => colMap[c.key]).map(c => `${c.label} \u2190 "${colMap[c.key]}"`).join(' · ') || 'none'}
+                  </div>
+
+                  <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    <table className="donors-table">
+                      <thead><tr><th>Row</th>{COLUMNS.map(c => <th key={c.key}>{c.label}</th>)}<th>Status</th></tr></thead>
+                      <tbody>
+                        {rows.slice(0, 50).map(r => {
+                          const st = statusMap.get(r._row)
+                          return (
+                            <tr key={r._row} style={!r._valid ? { background: '#fef2f2' } : undefined}>
+                              <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r._row}</td>
+                              {COLUMNS.map(c => <td key={c.key} style={{ fontFamily: c.key === 'mobile_number' || c.key === 'pan_number' ? 'monospace' : undefined }}>{r[c.key] || '\u2014'}{!r._valid && c.key === 'mobile_number' ? ' ⚠' : ''}</td>)}
+                              <td>
+                                {st ? (
+                                  <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', ...(STATUS_STYLES[st] || {}) }}>
+                                    {(STATUS_LABELS[st] || st).toUpperCase()}
+                                  </span>
+                                ) : <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>—</span>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {rows.length > 50 && <tr><td colSpan={COLUMNS.length + 2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>…and {rows.length - 50} more rows (see full report below)</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {result && (
+                <div ref={resultRef} style={{ marginTop: 16 }}>
+                  <div style={{
+                    padding: '14px 18px', borderRadius: 10, marginBottom: 14,
+                    background: ((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#f0fdf4' : '#fffbeb',
+                    border: `1px solid ${((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#bbf7d0' : '#fde68a'}`,
+                  }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: ((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#15803d' : '#b45309' }}>
+                      {((s.updated ?? 0) + (s.created ?? 0)) > 0
+                        ? `\u2713 Import finished — ${s.updated ?? 0} donor${s.updated !== 1 ? 's' : ''} updated, ${s.created ?? 0} new donor${s.created !== 1 ? 's' : ''} created`
+                        : 'Import finished — no donors needed changes'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
+                      {s.matchedNoChange ?? 0} already had all details &middot; {(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} invalid/duplicate row{(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0) !== 1 ? 's' : ''} &middot; file: {result.fileName}
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
+                    <Chip value={s.updated ?? 0} label="Donors Updated" color="#16a34a" />
+                    <Chip value={s.created ?? 0} label="New Donors Created" color="#1d4ed8" />
+                    <Chip value={s.matchedNoChange ?? 0} label="Already Complete" color="var(--ink)" />
+                    <Chip value={(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} label="Invalid / Duplicate" color="#dc2626" />
+                  </div>
+                  <button className="btn btn-sm" onClick={downloadReport}>Download Full Report (all rows)</button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              {rows.length > 0 && !importing && (
+                <button className="btn btn-primary" onClick={handleImport} disabled={importing}>
+                  {importing ? 'Importing...' : `Import ${validCount} Rows`}
+                </button>
+              )}
+              <button className="btn" onClick={() => setUploadModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
-        <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ marginRight: 'auto' }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Donor Address Import</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
-              Upload an Excel sheet with <strong>Mobile No.</strong> — donors are matched by mobile and only their <em>blank</em> fields (Name, Address-1, Address-2, PAN No., Mail Id) are filled. Existing values are never overwritten. Numbers not found in DB are added as new donors.
-            </div>
-          </div>
-          {rows.length > 0 && !importing && (
-            <button className="btn btn-primary" onClick={handleImport} disabled={importing}>
-              {importing ? 'Importing...' : `Import ${validCount} Rows`}
-            </button>
-          )}
-        </div>
-
-        <div
-          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) processFile(f) }}
-          onClick={() => fileRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragOver ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 'var(--radius)',
-            padding: 36, textAlign: 'center', cursor: 'pointer', background: dragOver ? 'rgba(91,107,78,.06)' : 'transparent',
-            transition: 'all .15s ease', margin: '14px 16px',
-          }}
-        >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ color: 'var(--ink-soft)', marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{parsing ? 'Parsing...' : fileName || 'Drop Excel file here or click to browse'}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>Supported columns: Mobile No. (required), Donor Name, Address-1, Address-2, PAN No., Mail Id &nbsp;&middot;&nbsp; .xlsx / .xls / .csv</div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files[0]; if (f) processFile(f); e.target.value = '' }} style={{ display: 'none' }} />
-        </div>
-
-        {error && <div style={{ margin: '0 16px 14px', padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13 }}>{error}</div>}
-
-        {rows.length > 0 && (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, margin: '0 16px 14px' }}>
-              <Chip value={rows.length} label="Total Rows" color="var(--ink)" />
-              <Chip value={validCount} label="Valid Mobiles" color="#16a34a" />
-              <Chip value={invalidCount} label="Missing / Bad Mobile" color="#dc2626" />
-            </div>
-
-            <div style={{ margin: '0 16px 6px', fontSize: 11, color: 'var(--ink-soft)' }}>
-              Mapped columns: {COLUMNS.filter(c => colMap[c.key]).map(c => `${c.label} \u2190 "${colMap[c.key]}"`).join(' · ') || 'none'}
-            </div>
-
-            <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
-              <table className="donors-table">
-                <thead><tr><th>Row</th>{COLUMNS.map(c => <th key={c.key}>{c.label}</th>)}<th>Status</th></tr></thead>
-                <tbody>
-                  {rows.slice(0, 50).map(r => {
-                    const st = statusMap.get(r._row)
-                    return (
-                      <tr key={r._row} style={!r._valid ? { background: '#fef2f2' } : undefined}>
-                        <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r._row}</td>
-                        {COLUMNS.map(c => <td key={c.key} style={{ fontFamily: c.key === 'mobile_number' || c.key === 'pan_number' ? 'monospace' : undefined }}>{r[c.key] || '\u2014'}{!r._valid && c.key === 'mobile_number' ? ' ⚠' : ''}</td>)}
-                        <td>
-                          {st ? (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', ...(STATUS_STYLES[st] || {}) }}>
-                              {(STATUS_LABELS[st] || st).toUpperCase()}
-                            </span>
-                          ) : <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>—</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {rows.length > 50 && <tr><td colSpan={COLUMNS.length + 2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>…and {rows.length - 50} more rows (see full report below)</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {result && (
-          <div ref={resultRef} style={{ margin: 14 }}>
-            <div style={{
-              padding: '14px 18px', borderRadius: 10, marginBottom: 14,
-              background: ((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#f0fdf4' : '#fffbeb',
-              border: `1px solid ${((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#bbf7d0' : '#fde68a'}`,
-            }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: ((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#15803d' : '#b45309' }}>
-                {((s.updated ?? 0) + (s.created ?? 0)) > 0
-                  ? `\u2713 Import finished — ${s.updated ?? 0} donor${s.updated !== 1 ? 's' : ''} updated, ${s.created ?? 0} new donor${s.created !== 1 ? 's' : ''} created`
-                  : 'Import finished — no donors needed changes'}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
-                {s.matchedNoChange ?? 0} already had all details &middot; {(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} invalid/duplicate row{(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0) !== 1 ? 's' : ''} &middot; file: {result.fileName}
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
-              <Chip value={s.updated ?? 0} label="Donors Updated" color="#16a34a" />
-              <Chip value={s.created ?? 0} label="New Donors Created" color="#1d4ed8" />
-              <Chip value={s.matchedNoChange ?? 0} label="Already Complete" color="var(--ink)" />
-              <Chip value={(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} label="Invalid / Duplicate" color="#dc2626" />
-            </div>
-            <button className="btn btn-sm" onClick={downloadReport}>Download Full Report (all rows)</button>
-          </div>
-        )}
-      </div>
-
-      <div className="card" style={{ marginTop: 14 }}>
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 10 }}>
           <div style={{ marginRight: 'auto' }}>
             <div style={{ fontSize: 14, fontWeight: 600 }}>Receipts</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
-              {receiptTotal.toLocaleString('en-IN')} receipt{receiptTotal !== 1 ? 's' : ''} · search by mobile no. or receipt no. · edit inline (amount, date &amp; receipt no. are locked)
-            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
               NGO
-              <select value={filterProject} onChange={e => { setFilterProject(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, maxWidth: 180, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }}>
+              <select value={filterProject} onChange={e => { setFilterProject(e.target.value) }} style={{ display: 'block', height: 32, maxWidth: 180, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }}>
                 <option value="">All NGOs</option>
                 {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </label>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
               From
-              <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
+              <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
             </label>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
               To
-              <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
+              <input type="date" value={toDate} onChange={e => { setToDate(e.target.value) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
             </label>
             {(fromDate || toDate) && (
-              <button className="btn btn-sm" onClick={() => { setFromDate(''); setToDate(''); setReceiptPage(1) }}>Clear dates</button>
+              <button className="btn btn-sm" onClick={() => { setFromDate(''); setToDate('') }}>Clear dates</button>
             )}
             <input
               type="text"
@@ -538,14 +577,25 @@ export default function AddressImport() {
 
         {editError && <div style={{ fontSize: 12, color: '#b91c1c', padding: '8px 16px' }}>Save failed: {editError}</div>}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft)' }}>
-          <span>Showing {listFrom}–{listTo} of {receiptTotal.toLocaleString('en-IN')}</span>
-          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="btn btn-sm" disabled={safePage <= 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
-            <span style={{ alignSelf: 'center' }}>Page {safePage} / {listPages}</span>
-            <button className="btn btn-sm" disabled={safePage >= listPages} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px 6px', fontSize: 12, color: 'var(--ink-soft)' }}>
+          <span>
+            {receiptsLoading
+              ? 'Loading receipts…'
+              : `Showing 1–${visibleReceipts.length.toLocaleString('en-IN')} of ${receiptTotal.toLocaleString('en-IN')}`}
           </span>
         </div>
+        {!receiptsLoading && hasMore && (
+          <div style={{ textAlign: 'center', paddingBottom: 8 }}>
+            <button
+              className="btn btn-outline"
+              style={{ borderRadius: 8, padding: '9px 24px' }}
+              onClick={loadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading…' : `Load More (${(receiptTotal - receipts.length).toLocaleString('en-IN')} more)`}
+            </button>
+          </div>
+        )}
       </div>
 
       <style>{`

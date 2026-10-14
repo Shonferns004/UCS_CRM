@@ -26,6 +26,7 @@ import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
 import IncentivesPage from './pages/IncentivesPage'
+import IncentiveSetup from '../accounts/pages/IncentiveSetup'
 import Notices from './pages/Notices'
 import LatePolicy from './pages/LatePolicy'
 import LiveFroStatus from './pages/LiveFroStatus'
@@ -442,6 +443,8 @@ export default function SuperAdminPanel() {
           <Route index element={<Navigate to="sir" replace />} />
           <Route path="sir" element={<SpecialIncentives />} />
           <Route path="lead" element={<LeadIncentivePage />} />
+          {/* Shared third tab: the Daily AKI slab editor. */}
+          <Route path="setup" element={<IncentiveSetup />} />
         </Route>
         <Route path="special-incentive" element={<Navigate to="../incentives/sir" replace />} />
         <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
