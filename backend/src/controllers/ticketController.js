@@ -14,6 +14,7 @@ const PANEL_DEPARTMENT = {
   admin: 'ngo_admin',
   recruiter: 'recruiter',
   fro: 'fro',
+  social: 'social',
   digital: 'developers',
   developers: 'developers',
   super_admin: 'super_admin',
@@ -21,6 +22,13 @@ const PANEL_DEPARTMENT = {
 
 export const myDepartment = (user) => {
   const role = normalizeRole(user?.role);
+  // Role 'digital' covers two teams; the department string discriminates:
+  // 'develop*' → Developer panel, otherwise → Social Media panel.
+  if (role === 'digital') {
+    const raw = user?.department != null ? String(user.department).trim() : '';
+    if (/\bdevelop\b/i.test(raw)) return 'developers';
+    return 'social';
+  }
   if (PANEL_DEPARTMENT[role]) return PANEL_DEPARTMENT[role];
   const raw = user?.department != null ? String(user.department).trim() : '';
   if (raw) {
@@ -226,7 +234,7 @@ export const getTicket = async (req, res) => {
     // the accounts team who resolves it, and to the UFS / Event Manager team
     // working its own queue — otherwise a responder sees "No replies yet" for
     // the thread it is replying in.
-    const isResolverTeam = ['accounts', 'super_admin'].includes(normalizeRole(req.user.role)) || isEventTeam(req.user);
+    const isResolverTeam = ['accounts', 'super_admin'].includes(normalizeRole(req.user.role)) || isEventTeam(req.user) || SOCIAL_TEAM_ROLES.has(normalizeRole(req.user.role));
     // String compare: a token id may be a number while raised_by is a UUID text
     // column — a strict === would miss the raiser and hide the resolve message
     // (and, for non-company-wide queues, the whole thread) from the person who
@@ -337,6 +345,20 @@ export const updateTicket = async (req, res) => {
       }
     }
 
+    const socialTeam = req.user.role === 'social' || req.user.role === 'digital';
+    if (socialTeam) {
+      const { data: owned, error: ownedError } = await db
+        .from('support_tickets')
+        .select('department')
+        .eq('id', id)
+        .maybeSingle();
+      if (ownedError) throw ownedError;
+      if (!owned) return res.status(404).json({ message: 'Ticket not found' });
+      if (owned.department !== 'social') {
+        return res.status(403).json({ message: 'You can only update tickets routed to your team' });
+      }
+    }
+
     // Remember the previous status so re-saving an already-resolved ticket
     // never posts a second resolve message.
     let previousStatus;
@@ -348,7 +370,7 @@ export const updateTicket = async (req, res) => {
     const updates = {};
     if (status !== undefined) updates.status = status;
     if (resolution !== undefined) updates.resolution = resolution;
-    if (!eventTeam) {
+    if (!eventTeam && !socialTeam) {
       if (department !== undefined) updates.department = department;
       if (category !== undefined) updates.category = category;
       if (priority !== undefined) updates.priority = priority;
@@ -476,6 +498,7 @@ const TARGET_DEPARTMENTS = {
   recruiter: 'recruiter',
   ngo_admin: 'ngo_admin',
   admin: 'ngo_admin',
+  social: 'social',
 };
 
 // Supervisors watch every queue through their own dashboards; popping each
@@ -488,6 +511,13 @@ const targetDepartment = (user) => {
   // 'master' is an admin-level role too, so it watches the same To-Super-Admin
   // queue rather than getting no popups at all.
   if (role === 'super_admin' || role === 'master') return 'super_admin';
+  // Role 'digital' covers two teams; the department string discriminates:
+  // 'develop*' → Developer panel popups, otherwise → Social Media panel popups.
+  if (role === 'digital') {
+    const raw = user?.department != null ? String(user.department).trim() : '';
+    if (raw && /social|media/i.test(raw)) return 'social';
+    return 'developers';
+  }
   const mapped = TARGET_DEPARTMENTS[role];
   if (mapped) return mapped;
   if (NO_POPUP_ROLES.has(role)) return null;

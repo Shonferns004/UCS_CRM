@@ -15,6 +15,7 @@ const PANEL_TARGETS = [
   { value: 'ngo_admin', label: 'NGO Admin' },
   { value: 'recruiter', label: 'Recruiter' },
   { value: 'developers', label: 'Developers' },
+  { value: 'social', label: 'Social Media' },
 ];
 
 const PANEL_LABELS = Object.fromEntries(PANEL_TARGETS.map(p => [p.value, p.label]));

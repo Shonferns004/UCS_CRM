@@ -2,6 +2,7 @@ import { useState, lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useUcs } from '../../store'
 import SocialDailyReport from './pages/SocialDailyReport'
+import TechnicalTickets from '../../components/TechnicalTickets'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import ToastContainer from '../../components/Toast'
@@ -19,12 +20,14 @@ const ActivityPlanner = lazy(() => import('../event-head/pages/ActivityPlanner')
 const NAV = [
   { id: 'daily-report', path: '/social/daily-report', label: 'Daily Report', icon: 'description' },
   { id: 'planner', path: '/social/planner', label: 'Monthly Planner', icon: 'planner' },
+  { id: 'tickets', path: '/social/tickets', label: 'Tickets', icon: 'ticket' },
   { id: 'chat', path: '/social/chat', label: 'Community', icon: 'chat' },
 ]
 
 const ICONS = {
   description: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>,
   planner: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  ticket: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3 2 2 0 0 0 0 6 3 3 0 0 1-3 3H6a3 3 0 0 1-3-3 2 2 0 0 0 0-6Z"/><line x1="13" y1="6" x2="13" y2="18"/></svg>,
   chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg>,
 }
 
@@ -32,6 +35,7 @@ export default function SocialPanel() {
   const location = useLocation()
   const { user, logout } = useUcs()
   const [collapsed, setCollapsed] = useState(false)
+  const isSuperAdmin = user?.role === 'super_admin'
 
   // Assign UI is for the Social head only; everyone else sees the plan read-only
   // (their tasks still show in the Daily Report). Starts hidden so no member ever
@@ -51,8 +55,10 @@ export default function SocialPanel() {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       <ToastContainer />
       <aside style={{
-        width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
-        display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
+        ...(isSuperAdmin ? { display: 'none' } : {
+          width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
+          display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
+        }),
       }}>
         <div style={{ padding: collapsed ? '16px 12px' : '16px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #ec4899, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
@@ -106,6 +112,7 @@ export default function SocialPanel() {
                 </Suspense>
               </div>
             } />
+            <Route path="tickets" element={<TechnicalTickets panel="social" canResolve />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="/social/daily-report" replace />} />
           </Routes>

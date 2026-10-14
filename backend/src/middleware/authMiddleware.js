@@ -115,7 +115,7 @@ export const authenticateAccountsOrEventTeam = (req, res, next) => {
   try {
     const decoded = applyNormalizedRole(jwt.verify(token, process.env.JWT_SECRET));
     const role = normalizeRole(decoded.role);
-    if (role === 'accounts' || role === 'super_admin' || isEventTeam(decoded)) {
+    if (role === 'accounts' || role === 'super_admin' || isEventTeam(decoded) || role === 'social' || role === 'digital') {
       req.user = decoded;
       return next();
     }

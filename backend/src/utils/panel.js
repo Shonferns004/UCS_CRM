@@ -9,7 +9,7 @@ const PANEL_MAP = {
   recruiter: 'recruiter',
   hr: 'hr',
   event_head: 'event_head',
-  digital: 'dev_panel',
+  social: 'social',
   developers: 'dev_panel',
   super_admin: 'super_admin',
   worker: 'other',
@@ -26,7 +26,8 @@ export const getSenderPanel = (user) => {
   if (dept.includes('recruit')) return 'recruiter';
   if (dept === 'account' || dept === 'accounts' || dept === 'admin') return 'accounts';
   if (dept === 'ngo admin') return 'ngo_admin';
-  if (dept === 'digital' || dept.includes('develop')) return 'dev_panel';
+  if (dept.includes('develop')) return 'dev_panel';
+  if (dept.includes('social') || dept.includes('media')) return 'social';
   if (dept.includes('event')) return 'event_head';
 
   return 'other';

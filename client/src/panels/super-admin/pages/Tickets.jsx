@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { getHrVerifiedTickets, getAllTickets, getPendingCount, approveTicket, rejectTicketSA } from '../api/endpoints'
+import { getHrVerifiedTickets, getAllTickets, getPendingCount, approveTicket, rejectTicketSA, deleteTicket } from '../api/endpoints'
 import { toast } from '../../../components/Toast'
 import { deptLabel } from '../../../lib/labels'
 
@@ -366,11 +366,20 @@ export default function Tickets() {
                       <td className="sa-muted" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {t.hr_remark || '\u2014'}
                       </td>
-                      <td>
-                        <button className="btn btn-sm" onClick={() => setActionTicketId(t.id)}>
-                          Review
-                        </button>
-                      </td>
+<td>
+                          <button className="btn btn-sm" onClick={() => setActionTicketId(t.id)}>
+                            Review
+                          </button>
+                          {t.status !== 'resolved' && t.status !== 'closed' && (
+                            <button className="btn btn-sm btn-danger" onClick={async () => {
+                              if (window.confirm('Are you sure you want to delete this ticket?')) {
+                                setLoading(true)
+                                try { await deleteTicket(t.id); load(); toast('Ticket deleted successfully', 'success') } catch (e) { toast(e.message || 'Failed to delete ticket', 'error') }
+                                setLoading(false)
+                              }
+                            }} disabled={loading}>Delete</button>
+                          )}
+                        </td>
                     </tr>
                   )
                 })}
