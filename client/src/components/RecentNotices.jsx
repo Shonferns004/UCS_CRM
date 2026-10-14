@@ -178,10 +178,20 @@ const dayKey = (iso) => {
 }
 const todayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 
+// The day before a YYYY-MM-DD key, as a string — plain calendar math in UTC,
+// so DST/timezones can't nudge it across a boundary.
+const prevDayKey = (key) => {
+  if (!key) return ''
+  const [y, m, d] = key.split('-').map(Number)
+  if (!y || !m || !d) return ''
+  return new Date(Date.UTC(y, m - 1, d) - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle, fill = false }) {
   const [allNotices, setAllNotices] = useState([])
-  // Fresh every day: the filter opens on today, so only today's notices show
-  // and an empty day reads "No notices". Picking a past date views that day.
+  // Fresh every day: the filter opens on today, so the window is today +
+  // yesterday (the selected day always includes the day before it). Picking
+  // a past date views that day plus its previous day.
   const [dateFilter, setDateFilter] = useState(todayKey)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
@@ -212,9 +222,15 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
       .finally(() => setLoading(false))
   }, [role])
 
-  // Day view: only the notices created on the selected IST day, newest first.
+  // Rolling two-day view: the selected day AND the day before it — on the
+  // 12th you see the 11th's and 12th's notices, on the 13th the 12th's and
+  // 13th's. Newest first.
   const notices = allNotices
-    .filter(n => n.created_at && dayKey(n.created_at) === dateFilter)
+    .filter(n => {
+      if (!n.created_at) return false
+      const k = dayKey(n.created_at)
+      return k === dateFilter || k === prevDayKey(dateFilter)
+    })
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, limit)
 
@@ -402,7 +418,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
             type="date"
-            aria-label="Show notices from this date"
+            aria-label="Show notices from this date and the day before"
             value={dateFilter}
             max={todayKey()}
             onChange={e => setDateFilter(e.target.value || todayKey())}
@@ -442,7 +458,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
         <div style={{ textAlign: 'center', padding: '22px 0 12px' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#e2e8f0' }}>campaign</span>
           <p style={{ color: '#94a3b8', fontSize: 12, margin: '6px 0 0' }}>
-            {dateFilter === todayKey() ? 'No notices for today' : 'No notices on this date'}
+            {dateFilter === todayKey() ? 'No notices today or yesterday' : 'No notices on this or the previous day'}
           </p>
         </div>
       ) : (

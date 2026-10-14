@@ -6,7 +6,8 @@ import { useTeams } from '../../../components/useTeams';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check, Flask } from '../icons';
 import { api } from '../../../api/auth';
-import { istMonthKey } from '../../../utils/istDate';
+import { istMonthKey, istDayKey } from '../../../utils/istDate';
+import { exportAttendanceSheet } from '../../accounts/pages/Attendance';
 import { parseDocumentsValue, joinDocumentLabels } from '../../../lib/documents';
 import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
@@ -49,6 +50,14 @@ const targetSourceLabel = (t) => {
   if (t.target_source === 'carried_forward') return `Carried over from ${fmtMonthShort(t.target_source_month)}`;
   return 'Not set';
 };
+
+// The filter dropdowns have a fixed width so they don't resize when a longer
+// option (e.g. "Absconded") is picked — the selected label gets ellipsised.
+const clipValue = (fallback) => (selected) => (
+  <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+    {selected ? (typeof selected === 'string' ? selected : selected.label) : fallback}
+  </span>
+);
 
 function isComplete(w) {
   const val = (v) => v && typeof v === 'string' && v.trim() !== '';
@@ -142,7 +151,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
   );
 }
 
-export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false, showPayExports = true, salaryMode = false }) {
+export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false, showPayExports = true, salaryMode = false, onActionsReady }) {
   const { addWorker, DEPTS, deptLabel, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
@@ -168,6 +177,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [showTest, setShowTest] = useState(load().showTest || false);
   const [entityFilter, setEntityFilter] = useState('All');
   const [page, setPage] = useState(load().page || 1);
+  // Accounts loads the table incrementally: 10 rows now, +10 per "Load more".
+  const [visibleCount, setVisibleCount] = useState(10);
   const [created, setCreated] = useState(null);
   const [salaryMap, setSalaryMap] = useState({});
   const [ngos, setNgos] = useState([]);
@@ -176,6 +187,25 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [workerDetails, setWorkerDetails] = useState({});
   const [pagarMonth, setPagarMonth] = useState('');
   const [showPagarModal, setShowPagarModal] = useState(false);
+  // Attendance Excel export: month picker modal (defaults to the current IST
+  // month each time it opens) driving the shared sheet builder.
+  const [attExportMonth, setAttExportMonth] = useState('');
+  const [showAttExportModal, setShowAttExportModal] = useState(false);
+
+  const doAttExport = async () => {
+    if (!attExportMonth || !/^\d{4}-\d{2}$/.test(attExportMonth)) return;
+    setShowAttExportModal(false);
+    const [y, m] = attExportMonth.split('-').map(Number);
+    const from = `${attExportMonth}-01`;
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const monthEnd = `${attExportMonth}-${String(lastDay).padStart(2, '0')}`;
+    const today = istDayKey();
+    // A future month, or the tail of the current one, stops at today — the
+    // sheet leaves future days blank anyway.
+    const to = monthEnd > today ? today : monthEnd;
+    if (to < from) { alert('No attendance to export for that month yet.'); return; }
+    await exportAttendanceSheet(from, to);
+  };
   const [salaryCompensations, setSalaryCompensations] = useState([]);
   const [showCompensationModal, setShowCompensationModal] = useState(false);
   const [compensationMonth, setCompensationMonth] = useState('');
@@ -305,6 +335,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const visibleRows = salaryMode ? filtered.slice(0, visibleCount) : paginated;
 
   const CLIENTS = [...new Set([
     ...(ngos || []).filter(n => (n.name || '').trim().toUpperCase() !== 'TESTING')
@@ -458,6 +489,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   useEffect(() => { if (!mountedRole.current) { mountedRole.current = true; return; } save({ roleFilter, page: 1 }); setPage(1); }, [roleFilter]);
   const mountedStatus = useRef(false);
   useEffect(() => { if (!mountedStatus.current) { mountedStatus.current = true; return; } save({ statusFilter, page: 1 }); setPage(1); }, [statusFilter]);
+  useEffect(() => { setVisibleCount(10); }, [search, roleFilter, statusFilter, entityFilter, teamFilter]);
   useEffect(() => { save({ page }); }, [page]);
   useEffect(() => {
     if (tableRef.current) tableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -589,6 +621,34 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     setPagarMonth(defaultMonth);
     setShowPagarModal(true);
   };
+
+  // In salary mode these four buttons live on the page's top strip next to
+  // Manage Teams (AccountsPanel) instead of the card head. The strip can't
+  // reach this component's state directly, so the handlers are handed up
+  // once — through a ref that always holds the latest closures, so stale
+  // captures (an empty targetMap on first render) never leak out. HR keeps
+  // the same buttons down in the card head.
+  const actionsRef = useRef(null);
+  actionsRef.current = {
+    downloadFroTargets,
+    openAttExport: () => { setAttExportMonth(istMonthKey()); setShowAttExportModal(true); },
+    openPagar: handlePagarExport,
+    openCompensations: () => {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      setCompensationMonth(pagarMonth || currentMonth);
+      setShowCompensationModal(true);
+    },
+  };
+  useEffect(() => {
+    if (!onActionsReady) return undefined;
+    onActionsReady({
+      downloadFroTargets: (...a) => actionsRef.current?.downloadFroTargets(...a),
+      openAttExport: (...a) => actionsRef.current?.openAttExport(...a),
+      openPagar: (...a) => actionsRef.current?.openPagar(...a),
+      openCompensations: (...a) => actionsRef.current?.openCompensations(...a),
+    });
+    return () => onActionsReady(null);
+  }, [onActionsReady]);
 
   const doPagarExport = async (month) => {
     try {
@@ -1144,6 +1204,15 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             .target-input { -moz-appearance: textfield; }
             .target-input::-webkit-outer-spin-button, .target-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
             .target-input:focus { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-soft); outline: none; }
+            .status-filter { width: 150px; }
+            .org-filter { width: 160px; }
+            .role-filter { width: 175px; }
+            .status-filter .dropdown-trigger { padding: 8px 12px; font-size: 13.5px; }
+            .org-filter .dropdown-trigger, .role-filter .dropdown-trigger { padding: 8px 12px; font-size: 13.5px; }
+            .status-filter .dropdown-menu { max-height: none; overflow: visible; }
+            .org-filter .dropdown-menu, .role-filter .dropdown-menu { min-width: 240px; }
+            .status-filter .dropdown-item { padding: 11px 14px; font-size: 14px; }
+            .wf-table thead th { background: var(--sand); }
           `}</style>
 
           {teamMsg && (
@@ -1152,16 +1221,46 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           {teamErr && (
             <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#FBDBD6', color: '#B3392B', fontSize: 13 }}>{teamErr}</div>
           )}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:12, marginBottom: needsTargetCount > 0 || unassignedFroNames.length > 0 ? 14 : 0 }}>
           {needsTargetCount > 0 && (
-            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', fontSize: 13 }}>
-              <strong>{needsTargetCount}</strong> FRO{needsTargetCount === 1 ? '' : 's'} still {needsTargetCount === 1 ? 'has' : 'have'} no target for {fmtMonthShort(istMonthKey())}: <strong>{needsTargetNames.join(', ')}</strong>. Set one so their incentive and leaderboard rank calculate.
+            <div style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--line)', background:'var(--sand)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, fontWeight:700, fontSize:13, color:'var(--ink)' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ color:'var(--ink-soft)', flexShrink:0 }}>
+                  <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
+                  <path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
+                </svg>
+                <span>{needsTargetCount} FRO{needsTargetCount === 1 ? '' : 's'} still {needsTargetCount === 1 ? 'has' : 'have'} no target · {fmtMonthShort(istMonthKey())}</span>
+              </div>
+              <div style={{ marginTop:3, fontSize:12, color:'var(--ink-soft)' }}>
+                Set one so their incentive and leaderboard rank calculate.
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:9 }}>
+                {needsTargetNames.map(n => (
+                  <span key={n} style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:6, background:'var(--paper)', border:'1px solid var(--line)', color:'var(--ink)' }}>{n}</span>
+                ))}
+              </div>
             </div>
           )}
           {unassignedFroNames.length > 0 && (
-            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', fontSize: 13 }}>
-              <strong>{unassignedFroNames.length}</strong> FRO{unassignedFroNames.length === 1 ? '' : 's'} {unassignedFroNames.length === 1 ? 'is' : 'are'} not in any team: <strong>{unassignedFroNames.join(', ')}</strong>. Assign a team with the dropdown below.
+            <div style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--line)', background:'var(--sage-soft)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, fontWeight:700, fontSize:13, color:'var(--ink)' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color:'var(--ink-soft)', flexShrink:0 }}>
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <span>{unassignedFroNames.length} FRO{unassignedFroNames.length === 1 ? '' : 's'} {unassignedFroNames.length === 1 ? 'is' : 'are'} not in any team</span>
+              </div>
+              <div style={{ marginTop:3, fontSize:12, color:'var(--ink-soft)' }}>
+                Assign a team with the dropdown below.
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:9 }}>
+                {unassignedFroNames.map(n => (
+                  <span key={n} style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:6, background:'var(--paper)', border:'1px solid var(--line)', color:'var(--ink)' }}>{n}</span>
+                ))}
+              </div>
             </div>
           )}
+          </div>
 
           {teamOverview.length > 0 && (
             <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', padding: '4px 0', marginBottom: 14 }}>
@@ -1192,11 +1291,13 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       <div className="card" ref={tableRef}>
         <div className="card-head"><h3>{title}</h3>
           <div className="search-input-wrap">
-            {salaryMode && <button className="btn btn-outline btn-sm" onClick={downloadFroTargets} title="Download this month's FRO targets (FRO department only) as Excel">Download Targets</button>}
+            {/* Download Targets + Export Excel moved to the top strip (see
+                onActionsReady above); Salary File and Compensations go there
+                too in salary mode and stay here for HR. */}
             {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             {showPayExports && <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>}
-            {showPagarExport && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
-            {showPagarExport && <button className="btn btn-outline btn-sm" onClick={() => {
+            {showPagarExport && !salaryMode && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
+            {showPagarExport && !salaryMode && <button className="btn btn-outline btn-sm" onClick={() => {
               const currentMonth = new Date().toISOString().slice(0, 7);
               setCompensationMonth(pagarMonth || currentMonth);
               setShowCompensationModal(true);
@@ -1204,11 +1305,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>}
             {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>}
             {showBulkPrint && <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>}
-            <span className="sub">{filtered.length} total</span>
-            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} />
+            {!salaryMode && <span className="sub">{filtered.length} total</span>}
+            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} renderValue={clipValue('All')} />
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
-              options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:deptLabel(r)}))]} />
+              options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:deptLabel(r)}))]} renderValue={clipValue('All members')} />
             <Dropdown className="status-filter" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
+              renderValue={clipValue('Active')}
               options={[
                 {value:'active', label:'Active'},
                 {value:'absconded', label:'Absconded'},
@@ -1227,6 +1329,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
               style={{ marginTop:0, maxWidth:200 }} />
           </div>
         </div>
+        {/* The hidden/visible salary status bar is HR-only; in salary mode the
+            Unlock/Hide control lives on the page's top strip instead. */}
+        {!salaryMode && (
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
           marginBottom: 12, padding: '8px 14px', borderRadius: 8,
@@ -1251,11 +1356,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             </button>
           )}
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>NGO</th>
+        )}
+        <table className="wf-table">
+          <thead><tr><th>Name</th>{salaryMode && <th style={{ width:92 }}>Status</th>}<th>NGO</th>
             {!salaryMode && <><th>Emp ID</th><th>Joined</th></>}
             {salaryMode && <><th>Team</th><th>Target</th><th>Source</th></>}
-            <th>Salary</th><th>Documents</th><th>Status</th><th></th></tr></thead>
+            <th>Salary</th><th>Documents</th>{!salaryMode && <th>Status</th>}<th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -1269,6 +1375,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         </div>
                       </div>
                     </td>
+                    {salaryMode && <td><div className="sk" style={{ width:56, height:18, borderRadius:4 }} /></td>}
                     <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
                   {!salaryMode && (
                     <>
@@ -1290,13 +1397,14 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
               ))
             ) : (
               <>
-                {paginated.map(w => {
+                {visibleRows.map(w => {
                   const sw = salaryMap[w.id];
                   const paid = sw?.current_salary_paid;
                   const currentMonth = new Date().toISOString().slice(0, 7);
                   const salaryFromMonth = sw?.current_salary_from?.slice(0, 7);
                   const isCurrent = salaryFromMonth && salaryFromMonth <= currentMonth;
                   const empId = w.employee_id || empIdMap[w.id];
+                  const statusLabel = w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active';
                   return (
                     <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
                       style={{ cursor:'pointer' }}>
@@ -1307,6 +1415,15 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                           {w.is_test && <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, fontWeight:800, letterSpacing:'.5px', background:'#fef3c7', color:'#92400e', border:'1px solid #fcd34d', flexShrink:0 }}>TEST</span>}
                         </div>
                       </td>
+                      {salaryMode && (
+                        <td>
+                          <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
+                            background: statusLabel === 'Absconded' ? '#fff3e0' : statusLabel === 'Offboarded' ? '#fce4ec' : '#e8f5e9',
+                            color: statusLabel === 'Absconded' ? '#e65100' : statusLabel === 'Offboarded' ? '#c62828' : '#2e7d32' }}>
+                            {statusLabel}
+                          </span>
+                        </td>
+                      )}
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#eef1f5', color:'#374151' }}>{clientOf(w)}</span>
                       </td>
@@ -1404,6 +1521,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                           </span>
                         )}
                       </td>
+                      {!salaryMode && (
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
                           background: w.employment_status === 'absconded' ? '#fff3e0' : w.employment_status === 'offboarded' ? '#fce4ec' : '#e8f5e9',
@@ -1411,13 +1529,16 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                           {w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active'}
                         </span>
                       </td>
+                      )}
                       <td style={{ textAlign:'right' }}>
                         {!salaryMode && (
                           <button className="btn btn-icon" onClick={(e)=>handleToggleTest(e, w)} aria-label="Toggle test member"
                             title={w.is_test ? 'Unmark as test member' : 'Mark as test member (excluded from dashboard stats)'}
                             style={{ color: w.is_test ? '#b45309' : '#9ca3af' }}><Flask width={16}/></button>
                         )}
-                        <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard volunteer" style={{ color:'#dc2626' }}><Trash width={16}/></button>
+                        {!salaryMode && (
+                          <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard volunteer" style={{ color:'#dc2626' }}><Trash width={16}/></button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1427,7 +1548,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             )}
           </tbody>
         </table>
-        {totalPages > 1 && (
+        {!salaryMode && totalPages > 1 && (
           <div className="pagination">
             <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
             <div className="pagination-dots">
@@ -1438,7 +1559,53 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
           </div>
         )}
+        {salaryMode && visibleCount < filtered.length && (
+          <div style={{ display:'flex', justifyContent:'center', marginTop:14, marginBottom:6 }}>
+            <button className="btn btn-outline" onClick={() => setVisibleCount(c => c + 10)}
+              style={{ gap:10, padding:'9px 24px', borderRadius:8, fontWeight:600, fontSize:13, border:'1px solid var(--line)', boxShadow:'0 1px 3px rgba(16,24,40,.06)' }}>
+              Load more <span style={{ fontSize:11, color:'var(--ink-soft)', fontWeight:700 }}>({filtered.length - visibleCount} more)</span>
+            </button>
+          </div>
+        )}
       </div>
+     {showAttExportModal && (
+       <div className="modal-overlay" onClick={() => setShowAttExportModal(false)}>
+         <div onClick={e => e.stopPropagation()} style={{
+           width: 360,
+           background: 'var(--card-bg)',
+           borderRadius: 14,
+           boxShadow: '0 12px 48px rgba(0,0,0,.15)',
+           border: '1px solid var(--line)',
+           maxHeight: 'calc(100vh - 40px)',
+           overflow: 'hidden'
+         }}>
+           <div style={{
+             display: 'flex',
+             alignItems: 'center',
+             justifyContent: 'space-between',
+             padding: '14px 18px',
+             borderBottom: '1px solid var(--line)'
+           }}>
+             <h4 style={{ margin: 0, fontSize: 15 }}>Export Attendance</h4>
+             <button onClick={() => setShowAttExportModal(false)} style={{
+               width: 28, height: 28, borderRadius: '50%', border: 'none',
+               background: 'rgba(0,0,0,.08)', color: '#666', fontSize: 18,
+               cursor: 'pointer', display: 'grid', placeItems: 'center', lineHeight: 1
+             }}>×</button>
+           </div>
+           <div style={{ padding: 20 }}>
+             <p style={{ marginBottom: 16, color: 'var(--ink-soft)' }}>Select which month's attendance sheet to export (defaults to the current month):</p>
+             <input type="month" className="input" value={attExportMonth} max={istMonthKey()}
+               onChange={e => setAttExportMonth(e.target.value)}
+               style={{ width: '100%', padding: '10px 12px', marginBottom: 16, fontSize: 14 }} />
+             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+               <button className="btn btn-outline" onClick={() => setShowAttExportModal(false)}>Cancel</button>
+               <button className="btn btn-primary" onClick={() => { doAttExport(); }}>Download</button>
+             </div>
+           </div>
+         </div>
+       </div>
+     )}
      {showPagarModal && (
       <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
         <div onClick={e => e.stopPropagation()} style={{ 

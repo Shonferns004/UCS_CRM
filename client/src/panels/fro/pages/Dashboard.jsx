@@ -86,21 +86,24 @@ return (
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
         {cells.map((c, i) => {
-          if (!c || !c.show) return <div key={i} style={{ height: 58 }} />
+          if (!c || !c.show) return <div key={i} style={{ height: 50 }} />
           const isToday = c.dateStr === todayStr
           return (
             <div key={i} title={c.rec ? `₹${Number(c.rec.collection || 0).toLocaleString('en-IN')} collected · AKI ₹${c.aki}` : undefined} style={{
-              height: 58, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
+              height: 50, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
               background: c.eligible ? 'linear-gradient(135deg, #dcfce7 0%, #f0fdf4 100%)' : '#f8fafc',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+              overflow: 'hidden',
               outline: isToday ? '2px solid var(--sage)' : 'none', outlineOffset: isToday ? 1 : 0,
             }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: c.eligible ? '#166534' : '#94a3b8' }}>{c.d}</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: c.eligible ? '#15803d' : '#64748b' }}>
-                {c.rec ? '₹' + Number(c.rec.collection || 0).toLocaleString('en-IN') : ''}
-              </span>
+              <span style={{ fontSize: 9.5, fontWeight: 800, color: c.eligible ? '#166534' : '#94a3b8', lineHeight: 1.1 }}>{c.d}</span>
+              {c.rec && (
+                <span style={{ fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', lineHeight: 1.1, color: c.eligible ? '#14532d' : '#334155' }}>
+                  {'₹' + Number(c.rec.collection || 0).toLocaleString('en-IN')}
+                </span>
+              )}
               {c.aki > 0 && (
-                <span style={{ fontSize: 8, fontWeight: 700, color: '#16a34a', background: '#bbf7d0', padding: '1px 5px', borderRadius: 999, lineHeight: 1.4 }}>
+                <span style={{ fontSize: 7.5, fontWeight: 800, color: '#166534', background: '#bbf7d0', padding: '1px 4px', borderRadius: 999, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                   AKI ₹{c.aki}
                 </span>
               )}
@@ -382,9 +385,9 @@ return (
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))',
-        gap: 14, marginBottom: 20,
+        gap: 14, marginBottom: 14,
       }}>
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: `1.5px solid ${ds.is_punched_in ? 'var(--sage)' : '#f87171'}`, background: ds.is_punched_in ? 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' : 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: `1.5px solid ${ds.is_punched_in ? 'var(--sage)' : '#f87171'}`, background: ds.is_punched_in ? 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' : 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: ds.is_active ? (ds.is_punched_in ? '#16a34a' : '#f87171') : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{ds.is_punched_in ? 'check_circle' : ds.is_active ? 'schedule' : 'cancel'}</span>
@@ -404,7 +407,7 @@ return (
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: '1.5px solid #8b5cf6', background: 'linear-gradient(135deg, #faf5ff 0%, #fff 100%)' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: '1.5px solid #8b5cf6', background: 'linear-gradient(135deg, #faf5ff 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color="#8b5cf6">
               <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
@@ -427,7 +430,7 @@ return (
           </div>
         </div>
 
-        <div className="card" onClick={openCollections} style={{ position: 'relative', marginBottom: 0, padding: '16px 18px', border: '1.5px solid var(--sage)', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.06)' }} onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
+        <div className="card" onClick={openCollections} style={{ position: 'relative', marginBottom: 0, padding: '12px 16px', border: '1.5px solid var(--sage)', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.06)' }} onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color="var(--sage)">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="17" y2="12"/><path d="M17 6v12"/>
@@ -458,7 +461,7 @@ return (
           )}
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: `1.5px solid ${remaining > 0 ? '#e53e3e' : 'var(--sage)'}`, background: remaining > 0 ? 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: `1.5px solid ${remaining > 0 ? '#e53e3e' : 'var(--sage)'}`, background: remaining > 0 ? 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color={remaining > 0 ? '#e53e3e' : 'var(--sage)'}>
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
@@ -472,29 +475,31 @@ return (
         </div>
       </div>
 
+      {/* Flex, not grid: the cards need UNEVEN widths (Incentive compact,
+          Active Donors roomy for its pills) while still wrapping as a unit
+          when the panel gets narrow. Grow factors share the spare width. */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))',
-        gap: 14, marginBottom: 20,
+        display: 'flex', flexWrap: 'wrap',
+        gap: 14, marginBottom: 14,
       }}>
-        <div className="card" style={{ marginBottom: 0, padding: '14px 16px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1 1 190px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color={connectedView === 'daily' ? '#3b82f6' : 'var(--sage)'}>
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </Icon>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Connected</span>
           </div>
-          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
             {[['daily', 'Daily'], ['month', 'Monthly']].map(([v, label]) => (
               <button key={v} onClick={() => setConnectedView(v)}
-                style={{ flex: 1, padding: '4px 0', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
                   background: connectedView === v ? 'var(--sage)' : 'transparent',
                   color: connectedView === v ? '#fff' : 'var(--ink-soft)' }}>
                 {label}
               </button>
             ))}
           </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: connectedView === 'daily' ? '#3b82f6' : 'var(--sage)' }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: connectedView === 'daily' ? '#3b82f6' : 'var(--sage)' }}>
             {connectedView === 'daily' ? (ds.daily_connected ?? 0) : (ds.monthly_connected ?? stats.contacted ?? 0)}
           </div>
           <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
@@ -502,24 +507,24 @@ return (
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '14px 16px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1 1 190px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color="#3b82f6">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="6" x2="21" y2="6"/>
             </Icon>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Collection</span>
           </div>
-          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
             {[['today', 'Today'], ['month', 'Monthly']].map(([v, label]) => (
               <button key={v} onClick={() => setDonationView(v)}
-                style={{ flex: 1, padding: '4px 0', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
                   background: donationView === v ? 'var(--sage)' : 'transparent',
                   color: donationView === v ? '#fff' : 'var(--ink-soft)' }}>
                 {label}
               </button>
             ))}
           </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#3b82f6' }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#3b82f6' }}>
             {currency(donationView === 'today' ? (ds.daily_donations ?? 0) : collected)}
           </div>
           <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
@@ -529,19 +534,22 @@ return (
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '14px 16px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        {/* Smallest of the row — just an icon, one number and a caption. */}
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '0.72 1 160px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color="#8b5cf6">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
             </Icon>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Incentive</span>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#8b5cf6' }}>{currency(ts.incentive?.totalCollectionAKI ?? 0)}</div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#8b5cf6' }}>{currency(ts.incentive?.totalCollectionAKI ?? 0)}</div>
           <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>This month</div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '14px 16px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        {/* Widest of the row — holds the Active/Inactive toggle plus six
+            cadence pills, which need the extra room to stay on one line. */}
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1.7 1 300px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color="#16a34a">
               <polyline points="20 6 9 17 4 12"/>
             </Icon>
@@ -558,10 +566,10 @@ return (
             </div>
           </div>
           {donorStatus === 'active' && (
-            <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
               {[['1', '1M'], ['2', '2M'], ['3', '3M'], ['6', '6M'], ['8', '8M'], ['12', '1Y']].map(([v, label]) => (
                 <button key={v} onClick={() => setDonorView(v)}
-                  style={{ flex: 1, padding: '4px 0', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                  style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
                     background: donorView === v ? 'var(--sage)' : 'transparent',
                     color: donorView === v ? '#fff' : 'var(--ink-soft)' }}>
                   {label}
@@ -570,29 +578,30 @@ return (
             </div>
           )}
           <button onClick={() => setSplitModal({ status: donorStatus })}
-            style={{ display: 'block', padding: donorStatus === 'active' ? 0 : '10px 0 0', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: donorStatus === 'active' ? '#8b5cf6' : '#f97316' }}>
+            style={{ display: 'block', padding: donorStatus === 'active' ? 0 : '6px 0 0', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: donorStatus === 'active' ? '#8b5cf6' : '#f97316' }}>
               {donorStatus === 'active' ? (ds.active_donors ?? 0) : (ds.inactive_donors ?? 0)}
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', marginLeft: 5 }}>donors</span>
             </div>
           </button>
-          <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 6 }}>
+          <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 3 }}>
             {donorStatus === 'active'
               ? `${donorWindowLabel} · inactive = no donation in past one month`
               : "Didn't donate in the past one month (incl. never donated)"}
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '14px 16px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1 1 190px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color="var(--ink)">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
             </Icon>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Assigned Data</span>
           </div>
-          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
             {[['total', 'Total'], ['ngo', 'NGO'], ['station', 'Station']].map(([v, label]) => (
               <button key={v} onClick={() => setAssignedView(v)}
-                style={{ flex: 1, padding: '4px 0', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
                   background: assignedView === v ? 'var(--sage)' : 'transparent',
                   color: assignedView === v ? '#fff' : 'var(--ink-soft)' }}>
                 {label}
@@ -601,7 +610,7 @@ return (
           </div>
           {assignedView === 'total' && (
             <>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)' }}>{stats.total ?? ts.stats?.total ?? 0}</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--ink)' }}>{stats.total ?? ts.stats?.total ?? 0}</div>
               <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total donors assigned</div>
             </>
           )}
@@ -869,8 +878,8 @@ return (
           appears right under this bottom row (over the notices card). */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 14, marginBottom: 14, alignItems: 'stretch', minWidth: 0 }}>
         <RecentNotices limit={5} fill containerStyle={{ marginTop: 0, height: calHeight ? `${calHeight}px` : undefined, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }} />
-        <div ref={calRef} style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div ref={calRef} style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 16px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
                 width: 28, height: 28, borderRadius: 8, flexShrink: 0,

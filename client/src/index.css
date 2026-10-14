@@ -47,7 +47,7 @@
 .login-error { color:#d9534f; font-size:12px; text-align:center; padding:8px; background:#fef2f2; border-radius:8px; }
 
 .btn {
-  display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 15px; border-radius:8px;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:11px 16px; border-radius:8px;
   font-size:13px; font-weight:500; font-family:inherit; cursor:pointer; border:1px solid #e5e7eb;
   background:#fff; color:#1a1a2e; transition:all .15s; white-space:nowrap; line-height:1.4;
 }
@@ -55,7 +55,7 @@
 .btn-primary { background:var(--sage, var(--primary, #5B6B4E)); color:#fff; border-color:var(--sage, var(--primary, #5B6B4E)); }
 .btn-primary:hover { background:var(--sage, var(--primary, #5B6B4E)); color:#fff; border-color:var(--sage, var(--primary, #5B6B4E)); filter:brightness(1.15); }
 .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
-.btn-sm { padding:5px 10px; font-size:12px; }
+.btn-sm { padding:8px 12px; font-size:12.5px; }
 .btn-outline { background:transparent; border-color:#e5e7eb; color:#1a1a2e; }
 .btn-outline:hover { background:#f3f4f6; }
 .btn-danger { color:#d9534f; border-color:#fecaca; }
