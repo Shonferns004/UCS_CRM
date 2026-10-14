@@ -1,12 +1,16 @@
 import db from '../config/db.js';
 import { normalizeRole } from '../middleware/authMiddleware.js';
+import { istDateString } from '../utils/ist.js';
 import {
   getReport,
   getReportById,
   listReportsForDate,
   listAllForDate,
+  listAcceptedForMonth,
   upsertReport,
   setRemark,
+  setReview,
+  reviewEnabled,
 } from '../models/dailyReportModel.js';
 import {
   PANEL_ROLES,
@@ -15,15 +19,15 @@ import {
   workerDeptPanel,
   withReviewedPanel,
 } from '../utils/dailyReportPanels.js';
+import {
+  REWORK_CONTENT_TYPE,
+  createAssignment,
+  findOpenReworkTask,
+  updateAssignmentFields,
+  deleteReworkTasks,
+} from '../models/taskAssignmentModel.js';
 
-// Daily reports, the data side.
-//
-// Every department writes to the same table, keyed by `panel`. A panel is the
-// department ("dev" | "hr" | "recruiter" | "social") and `department` on the row
-// mirrors it, so the HOD dashboard can page by either. The one departure:
-// utils/dailyReportPanels.js re-buckets 'digital' rows under 'social' for the
-// HOD / super-admin read, because that team files from the Developer panel but
-// is reviewed under Social Media.
+
 const PANELS = ['dev', 'hr', 'recruiter', 'social'];
 
 const PANEL_LABELS = {
@@ -77,6 +81,16 @@ const isIsoDate = (value) => {
 };
 
 const clampText = (value, max) => (value == null ? '' : String(value).slice(0, max));
+
+// report_date is a DATE column; the driver hands it back as a Date at local
+// midnight, which formats to the stored calendar day via the local parts.
+const toIsoDay = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const MAX_FIELDS_PER_SECTION = 60;
 const MAX_CHECKLIST_ITEMS = 200;
@@ -234,10 +248,16 @@ export async function saveReport(req, res) {
   }
   try {
     const reporter = await resolveReporter(req);
+    // The Social report belongs to the day the member completes it, not to
+    // whatever date their page happened to be showing. A tab left open across
+    // midnight (or any stale date) used to misfile a report onto the previous
+    // day, so the head reviewing "today" never saw it. Stamping the current IST
+    // day here makes the review always land on the day the report was done.
+    const reportDate = panel === 'social' ? istDateString() : date;
     const report = await upsertReport({
       panel,
       department: panel,
-      report_date: date,
+      report_date: reportDate,
       reporter_id: reporter.id,
       reporter_name: reporter.name,
       data: sanitizeData(data),
@@ -280,6 +300,27 @@ export async function getReports(req, res) {
     return res.json({ date, panel: panel.panel, reports });
   } catch (error) {
     console.error('[daily-reports] fetch failed:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+// Which of a panel's reports for a month are accepted — the Social Monthly
+// Planner reads this to paint a reporter's day green, so the marker tracks the
+// head's acceptance and not a member's own "done". Reduced to the (reporter, day)
+// keys the planner matches against its assignments.
+export async function getReviewedReports(req, res) {
+  const panel = requirePanel(req, res);
+  if (panel.error) return panel.error;
+  const month = String(req.query.month || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ message: 'month query parameter is required (YYYY-MM)' });
+  }
+  try {
+    const rows = await listAcceptedForMonth(panel.panel, month);
+    const accepted = rows.map((r) => ({ reporter_id: r.reporter_id, report_date: toIsoDay(r.report_date) }));
+    return res.json({ panel: panel.panel, month, accepted });
+  } catch (error) {
+    console.error('[daily-reports] reviewed list failed:', error.message);
     return res.status(500).json({ message: error.message });
   }
 }
@@ -400,6 +441,77 @@ export async function setReportRemark(req, res) {
     return res.json({ success: true, report });
   } catch (error) {
     console.error('[daily-reports] remark failed:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+// A rejected report raises a pending task on the reporter's board carrying the
+// reviewer's query/suggestion, so the member sees "fix this" next to the plan.
+// Re-rejecting before the fix updates the same task instead of stacking copies;
+// accepting clears it. All of this is best-effort: a failure here must not fail
+// the review the head is waiting on, and the task table (184) may be absent.
+async function syncReworkTask(existing, status, note, reviewer) {
+  const assigneeId = existing.reporter_id != null ? String(existing.reporter_id) : '';
+  const reportDay = toIsoDay(existing.report_date);
+  if (!assigneeId || !reportDay) return;
+  const description = String(note || '').trim()
+    || 'Your daily report was rejected. Please review and resubmit.';
+  try {
+    if (status === 'accepted') {
+      await deleteReworkTasks('social', assigneeId, reportDay, REWORK_CONTENT_TYPE);
+      return;
+    }
+    const fields = {
+      title: 'Rework: Daily Social Media Report',
+      description: description.slice(0, 3000),
+      status: 'pending',
+    };
+    const open = await findOpenReworkTask('social', assigneeId, reportDay, REWORK_CONTENT_TYPE);
+    if (open) {
+      await updateAssignmentFields(open.id, fields);
+      return;
+    }
+    await createAssignment({
+      panel: 'social',
+      task_date: reportDay,
+      title: fields.title,
+      description: fields.description,
+      content_type: REWORK_CONTENT_TYPE,
+      assignee_id: assigneeId,
+      assignee_name: existing.reporter_name,
+      assigned_by_id: reviewer?.id != null ? String(reviewer.id) : null,
+      assigned_by_name: reviewer?.name ? String(reviewer.name).trim() : (reviewer?.email || null),
+      status: 'pending',
+    });
+  } catch (error) {
+    console.error('[daily-reports] rework task sync failed:', error.message);
+  }
+}
+
+// Accept / reject review of one report — the Social head's call. The route
+// middleware gates who may call it; this only validates the payload.
+export async function setReportReview(req, res) {
+  const id = req.params.id;
+  if (!id) return res.status(400).json({ message: 'report id is required' });
+  const status = String(req.body?.status || '').trim().toLowerCase();
+  if (!['accepted', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: 'status must be accepted or rejected' });
+  }
+  const note = clampText(req.body?.note, 4000).trim();
+  try {
+    // The review columns come from the 185 migration, which is hand-applied. If
+    // it has not landed yet, fail loudly instead of writing to a missing column
+    // and surfacing a raw SQL error to the reviewer.
+    if (!(await reviewEnabled())) {
+      return res.status(503).json({ message: 'Report review is not enabled yet (migration 185 not applied).' });
+    }
+    const existing = await getReportById(id);
+    if (!existing) return res.status(404).json({ message: 'Report not found' });
+    const report = await setReview(id, status, req.user?.name || req.user?.email || 'Reviewer', note);
+    await syncReworkTask(existing, status, note, req.user);
+    return res.json({ success: true, report });
+  } catch (error) {
+    console.error('[daily-reports] review failed:', error.message);
     return res.status(500).json({ message: error.message });
   }
 }

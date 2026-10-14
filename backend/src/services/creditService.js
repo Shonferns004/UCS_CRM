@@ -71,8 +71,8 @@ export const confirmMatchCredit = async (entryId, actorId) => {
   // fro_worker_id is the covered FRO and is only the answer when no operator
   // was recorded. The assignment owner is the last fallback.
   let collectorName = null;
-  // Label, not human name: receipts.agent_name is the collection grouping key
-  // and the claim-time stamp already writes the agent's label.
+  // The operator's name is the collection grouping key, and the claim-time stamp
+  // writes the same identity — two spellings of one person would split totals.
   const operatorName = await resolveOperatorName(log.operator_id);
   if (operatorName?.label || operatorName?.name) {
     collectorName = operatorName.label || operatorName.name;

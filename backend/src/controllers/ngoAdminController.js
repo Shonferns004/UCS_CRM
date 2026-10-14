@@ -29,7 +29,7 @@ import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
-import { dayTotalsForWorkers, dayTotalsForAgents, agentTotalKey } from '../services/froTimeSessions.js';
+import { dayTotalsForWorkers } from '../services/froTimeSessions.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -80,29 +80,15 @@ export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
   });
 }
 
-// Placeholder seat codes that are not real, assignable stations. They exist as
-// unallocated rows and would otherwise fill the Dashboard's "Not in Use" list
-// with seats nobody can staff, crowding out the genuine AFD-/AOD-/BFD- seats.
-// Matched case-insensitively against the trimmed station name.
-const SPECIAL_STATIONS = new Set(['A', 'L', 'PG', 'PS', 'S']);
-const isSpecialStation = (name) => SPECIAL_STATIONS.has((name || '').trim().toUpperCase());
-
-// Stations per NGO with two independent measures:
-//   active  - the station's FRO has a fresh (<= 2 min old) live status of
-//             online / on_call / break. Drives the "Active Now" tile and the
-//             per-NGO bars.
-//   unused  - no agent is allocated to the seat at all (crm_agent_id is null).
-//             Drives the "Not in Use" tab, and nothing else.
-// They deliberately do not sum to total: a station can be allocated and still
-// quiet, and the old behaviour of calling those "not in use" hid the seats that
-// were genuinely unstaffed behind whoever happened to be offline.
+// Stations per NGO with live activity: a station is "active" when its assigned FRO
+// has a fresh (<= 2 min old) live status of online / on_call / break.
 async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) {
   const result = { per_ngo: {}, summary: { total: 0, active: 0, inactive: 0, inactive_stations: [] } };
   if (!ngoIds || ngoIds.length === 0) return result;
 
   const { data: stationAssigns } = await db
     .from('fro_station_assignments')
-    .select('station, ngo_id, fro_worker_id, crm_agent_id, workers!fro_station_assignments_fro_worker_id_fkey(is_test)')
+    .select('station, ngo_id, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(is_test)')
     .in('ngo_id', ngoIds);
 
   const assignedFroIds = [...new Set((stationAssigns || [])
@@ -139,7 +125,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   const seenPerNgo = new Set();
   const seenOverall = new Set();
   const activeStationNames = new Set();
-  const stationHasAgentByName = new Map();
+  const stationActiveByName = new Map();
   for (const sa of stationAssigns || []) {
     const stationName = (sa.station || '').trim();
     if (!stationName) continue;
@@ -157,20 +143,16 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
     if (isActive) {
       result.per_ngo[ngoName].active++;
       activeStationNames.add(stationName);
-    }
-    // Allocation, not presence: only a seat with no agent on it counts as unused.
-    const hasAgent = !!sa.crm_agent_id;
-    if (!hasAgent && !isSpecialStation(stationName)) {
+    } else {
       result.per_ngo[ngoName].inactive_stations.push(stationName);
     }
-    if (!stationHasAgentByName.has(stationName)) stationHasAgentByName.set(stationName, false);
-    if (hasAgent) stationHasAgentByName.set(stationName, true);
+    if (!stationActiveByName.has(stationName)) stationActiveByName.set(stationName, false);
+    if (isActive) stationActiveByName.set(stationName, true);
   }
   result.summary.active = activeStationNames.size;
-  // "Not in use" = a station no agent is allocated to. A station that appears
-  // under more than one NGO counts as used if any of its rows carries an agent.
-  const inactiveNames = [...stationHasAgentByName.entries()]
-    .filter(([name, used]) => !used && !isSpecialStation(name))
+  // "Not in use" = a station with no live FRO behind it right now (or none assigned at all).
+  const inactiveNames = [...stationActiveByName.entries()]
+    .filter(([, act]) => !act)
     .map(([name]) => name)
     .sort((a, b) => a.localeCompare(b));
   result.summary.inactive = inactiveNames.length;
@@ -651,31 +633,8 @@ export const getFroWorkers = async (req, res) => {
       }
     }
 
-let agentLabelMap = {};
-    let agentIdMap = {};
-    if (workerIds.length > 0) {
-      const { data: agentRows, error: agentErr } = await db
-        .from('crm_agents')
-        .select('id, worker_id, label')
-        .in('worker_id', workerIds)
-        .eq('is_active', true);
-      if (agentErr) throw agentErr;
-      for (const a of agentRows || []) {
-        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
-        if (a.worker_id && !agentIdMap[a.worker_id]) agentIdMap[a.worker_id] = a.id;
-      }
-    }
-
-    // Only FROs that actually have an agent show here. `name` stays the volunteer's
-    // real name -- it used to be overwritten with the agent label, which made every
-    // row read "Agent 1" and left the station picker unable to say whose account it
-    // was. The label is reported as agent_label, and the agent as agent_id, so a
-    // caller can show "Agent 1 -- Maya Jadhao" and assign by agent.
-    const coveredFroWorkers = froWorkers.filter(w => agentLabelMap[w.id]);
-
-    const result = await Promise.all(coveredFroWorkers.map(async (w) => {
+    const result = await Promise.all(froWorkers.map(async (w) => {
       const salary = await getActiveSalaryByWorker(w.id);
-      const agentName = agentLabelMap[w.id];
       return {
         id: w.id,
         name: w.name,
@@ -689,9 +648,6 @@ let agentLabelMap = {};
         salary: salary ? parseFloat(salary.salary) : 0,
         salary_from_month: salary ? salary.from_month : null,
         allocated_ngo_ids: allocMap[w.id] || [],
-        fro_name: w.name,
-        agent_label: agentName || null,
-        agent_id: agentIdMap[w.id] || null,
       };
     }));
 
@@ -1877,59 +1833,16 @@ export const getStations = async (req, res) => {
     // Group by station name — one row per station
     const stationMap = {};
     const displayFroId = (a) => (a.fro_worker_id && a.workers?.is_test !== true) ? a.fro_worker_id : null;
-    // Agent labels replace the FRO's raw name in station views.
-    //
-    // The label comes from the station's OWN agent of record (crm_agent_id), not
-    // from asking which agent covers the worker today. A station belongs to a
-    // seat, not to a person: moving that FRO to another agent must not change
-    // who owns the station. The worker_id lookup is kept only as the fallback for
-    // rows written before the column existed.
-    const assignmentWorkerIds = [...new Set(assignments.map((a) => a.fro_worker_id).filter(Boolean))];
-    const assignmentAgentIds = [...new Set(assignments.map((a) => a.crm_agent_id).filter(Boolean))];
-    let stationAgentLabelMap = {};
-    if (assignmentWorkerIds.length > 0 || assignmentAgentIds.length > 0) {
-      const byWorker = assignmentWorkerIds.length > 0
-        ? db.from('crm_agents').select('worker_id, label, id').in('worker_id', assignmentWorkerIds).eq('is_active', true)
-        : null;
-      const byAgent = assignmentAgentIds.length > 0
-        ? db.from('crm_agents').select('id, label').in('id', assignmentAgentIds)
-        : null;
-      const [byWorkerRes, byAgentRes] = await Promise.all([
-        byWorker || Promise.resolve({ data: [] }),
-        byAgent || Promise.resolve({ data: [] }),
-      ]);
-      if (byWorkerRes.error) console.error('[stations] agent label load failed:', byWorkerRes.error.message);
-      if (byAgentRes.error) console.error('[stations] station agent load failed:', byAgentRes.error.message);
-      for (const a of byAgentRes.data || []) {
-        if (a.id && !stationAgentLabelMap[a.id]) stationAgentLabelMap[a.id] = a.label;
-      }
-      for (const a of byWorkerRes.data || []) {
-        if (a.worker_id && !stationAgentLabelMap[a.worker_id]) stationAgentLabelMap[a.worker_id] = a.label;
-      }
-    }
-    // Two lookups, and the order is the requirement: the station's own record
-    // first, the worker's current agent only when the station has none.
-    const agentLabelFor = (a) => (a.crm_agent_id && stationAgentLabelMap[a.crm_agent_id])
-      || (displayFroId(a) && stationAgentLabelMap[displayFroId(a)])
-      || null;
-    // The station row now reports the FRO of record and the agent of record
-    // as separate fields, so the agent label is no longer substituted into
-    // fro_worker_name here.
+    const displayFroName = (a) => (displayFroId(a) ? (a.workers?.name || null) : null);
 
     for (const a of assignments) {
       const s = a.station.trim();
-      const agentLabel = agentLabelFor(a);
       if (!stationMap[s]) {
         stationMap[s] = {
           station: s,
           ngos: [],
           fro_worker_id: displayFroId(a),
-          // The volunteer's own name. The agent label is reported separately as
-          // agent_label, because "who sits here" and "who owns this seat" are
-          // different questions now that the two can move independently.
-          fro_worker_name: a.workers?.name || null,
-          crm_agent_id: a.crm_agent_id || null,
-          agent_label: agentLabel,
+          fro_worker_name: displayFroName(a),
         };
       }
       stationMap[s].ngos.push({
@@ -1940,13 +1853,7 @@ export const getStations = async (req, res) => {
       // Update FRO if this assignment has one (first non-null wins)
       if (!stationMap[s].fro_worker_id && displayFroId(a)) {
         stationMap[s].fro_worker_id = displayFroId(a);
-        stationMap[s].fro_worker_name = a.workers?.name || null;
-      }
-      if (!stationMap[s].crm_agent_id && a.crm_agent_id) {
-        stationMap[s].crm_agent_id = a.crm_agent_id;
-      }
-      if (!stationMap[s].agent_label && agentLabel) {
-        stationMap[s].agent_label = agentLabel;
+        stationMap[s].fro_worker_name = displayFroName(a);
       }
     }
 
@@ -1958,8 +1865,6 @@ export const getStations = async (req, res) => {
           ngos: [],
           fro_worker_id: null,
           fro_worker_name: null,
-          crm_agent_id: null,
-          agent_label: null,
         };
       }
     }
@@ -2126,79 +2031,14 @@ export const createStationHandler = async (req, res) => {
   }
 };
 
-// The station row is the relationship of record for NGO + Station -> Agent.
-// Every donor sitting in that station must therefore show that agent as its
-// current FRO, which is what every read path (donor detail, FRO lists,
-// dashboards, filters, search, credit/salary) resolves through
-// fro_assignments.fro_worker_id. Updating the station row alone would only
-// change the station page.
-//
-// The pre-existing FRO is parked in original_fro_worker_id on the first
-// change only, so history survives but can never override the station agent.
-const syncStationAgentToFro = async (client, ngoId, station, agentId) => {
-  const PAGE = 1000;
-  for (;;) {
-    const { data: pending, error: selErr } = await client
-      .from('fro_assignments')
-      .select('id, fro_worker_id')
-      .eq('ngo_id', ngoId)
-      .eq('station', station)
-      .not('status', 'eq', 'reassigned')
-      .is('original_fro_worker_id', null)
-      .not('fro_worker_id', 'is', null)
-      .limit(PAGE);
-    if (selErr) throw selErr;
-    const rows = (pending || []).filter(r => r.fro_worker_id);
-    if (rows.length === 0) break;
-
-    const byWorker = {};
-    for (const r of rows) (byWorker[r.fro_worker_id] ||= []).push(r.id);
-    for (const [wid, ids] of Object.entries(byWorker)) {
-      const { error } = await client
-        .from('fro_assignments')
-        .update({ original_fro_worker_id: wid })
-        .in('id', ids);
-      if (error) throw error;
-    }
-    if (rows.length < PAGE) break;
-  }
-
-  const { error } = await client
-    .from('fro_assignments')
-    .update({ fro_worker_id: agentId })
-    .eq('ngo_id', ngoId)
-    .eq('station', station)
-    .not('status', 'eq', 'reassigned');
-  if (error) throw error;
-};
-
 export const updateStationNgos = async (req, res) => {
   try {
     const { station } = req.params;
     const { ngo_id, fro_worker_id } = req.body;
     const trimmed = station.trim();
 
-    // A station is assigned by AGENT (the seat), not by the person currently
-    // sitting in it. Resolving the agent first means fro_worker_id is derived
-    // and always tracks whichever FRO that agent covers, instead of being
-    // frozen at assignment time and going stale after the next reassignment.
-    let resolvedAgentId = null;
-    let resolvedWorkerId = fro_worker_id || null;
-    const requestedAgentId = req.body?.crm_agent_id ? String(req.body.crm_agent_id) : null;
-    if (requestedAgentId) {
-      const { data: agentRow, error: agentErr } = await db
-        .from('crm_agents')
-        .select('id, worker_id, label')
-        .eq('id', requestedAgentId)
-        .maybeSingle();
-      if (agentErr) throw agentErr;
-      if (!agentRow) return res.status(404).json({ message: 'Agent not found' });
-      resolvedAgentId = agentRow.id;
-      resolvedWorkerId = agentRow.worker_id;
-    }
-
     // Look up the existing station assignment to preserve its ngo_id.
-    // Prefer the exact (station, ngo) row so an agent edit on a station that
+    // Prefer the exact (station, ngo) row so an edit on a station that
     // happens to exist under another NGO cannot resolve to the wrong row, then
     // fall back to a station-only lookup so a bare NGO change still behaves
     // the way it always has.
@@ -2225,16 +2065,9 @@ export const updateStationNgos = async (req, res) => {
         station: trimmed,
         ngo_id: resolvedNgoId,
         assigned_by: req.user.id,
-        fro_worker_id: resolvedWorkerId || null,
-        crm_agent_id: resolvedAgentId,
+        fro_worker_id: fro_worker_id || null,
       }, { onConflict: 'station,ngo_id' });
     if (upsertErr) throw upsertErr;
-
-    // Only an explicit assignment rewrites donor FROs. handleNgoChange sends
-    // ngo_id alone, and moving a station between NGOs must not wipe agents.
-    if ((Object.prototype.hasOwnProperty.call(req.body, 'fro_worker_id') || requestedAgentId) && resolvedNgoId) {
-      await syncStationAgentToFro(db, resolvedNgoId, trimmed, resolvedWorkerId || null);
-    }
 
     bustStationCache();
     return res.json({ message: 'Station updated' });
@@ -4730,7 +4563,7 @@ export const getIncentives = async (req, res) => {
       const monthlyTarget = parseFloat(target.target_amount);
       const totalAKI = workerAchs.reduce((sum, r) => {
         const dayName = getDayName(r.date);
-        return sum + calculateAKI(parseFloat(r.amount), dayName, ranges);
+        return sum + calculateAKI(parseFloat(r.amount), dayName, ranges, r.date);
       }, 0);
 
       const monthsEmployed = getMonthsEmployed(worker.created_at);
@@ -6391,34 +6224,6 @@ export const getTLDashboard = async (req, res) => {
       console.error('tl-dashboard ledger idle read failed:', ledgerErr.message);
     }
 
-    // Whose idle the IDLE cell should show when somebody else is at the keyboard.
-    //
-    // An agent covering a FRO files their own time against that FRO's stations, and
-    // the covered FRO's own strip shows the AGENT's figure (they are the one at the
-    // panel). Showing the FRO's own banked idle here instead left the two screens
-    // disagreeing for the same row — a covered FRO read 44m on this board while the
-    // panel in front of the agent read 2m, and neither number was wrong; they were
-    // two different people. This row belongs to whoever is actually working it, so
-    // while a cover is live the agent's own today-idle is what this cell reports.
-    const coveringAgentByTarget = new Map();
-    for (const [targetId, covers] of coversByTarget.entries()) {
-      const withLabel = (covers || []).filter((c) => c?.operatorUserId);
-      if (withLabel.length > 0) coveringAgentByTarget.set(String(targetId), withLabel);
-    }
-    let agentTotals = new Map();
-    try {
-      // Keyed by (covered FRO, agent) and clamped to that FRO's shift, because
-      // that is exactly what the agent's own strip does — see dayTotalsForAgents.
-      const pairs = [...coveringAgentByTarget.entries()].flatMap(([targetId, list]) =>
-        list.map((c) => ({ workerId: targetId, agentId: c.operatorUserId })));
-      agentTotals = await dayTotalsForAgents(pairs, {
-        nowMs: now.getTime(),
-        shiftFor: (id) => shiftMap[String(id)] || null,
-      });
-    } catch (agentLedgerErr) {
-      console.error('tl-dashboard agent idle read failed:', agentLedgerErr.message);
-    }
-
     // Collection/target figures for the Telecaller Performance board, from the
     // SAME leaderboard that backs /ngo-admin/fro-performance and the High/Low
     // Performance cards. Resolved here rather than in the browser joining two
@@ -6510,11 +6315,6 @@ export const getTLDashboard = async (req, res) => {
       const idleDisplaySeconds = ledgerDay
         ? rowIdleSeconds
         : Math.max(rowIdleSeconds, Number(ls.today_idle_seconds || 0) || 0);
-      // A live cover wins the IDLE cell: the person at the keyboard is the agent,
-      // and their panel shows this same figure, so the board and the strip agree.
-      const activeCover = coveringAgentByTarget.get(String(w.id))?.[0] || null;
-      const coveringIdle = activeCover ? agentTotals.get(agentTotalKey(w.id, activeCover.operatorUserId)) : null;
-      const idleAttributedTo = activeCover ? (activeCover.operatorName || 'an agent') : null;
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -6605,10 +6405,7 @@ export const getTLDashboard = async (req, res) => {
         // thing — only the stretch running right now — so the two legitimately
         // disagree while somebody is working; both are shown, they answer
         // different questions.
-        today_idle_seconds: coveringIdle != null ? coveringIdle : idleDisplaySeconds,
-        // Whose time the figure above belongs to, when that is not the FRO. Null
-        // whenever the FRO's own figures are being shown.
-        idle_attributed_to: coveringIdle != null ? idleAttributedTo : null,
+        today_idle_seconds: idleDisplaySeconds,
         // `ls` is the worker's own row, so these need no "acting" branch.
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,

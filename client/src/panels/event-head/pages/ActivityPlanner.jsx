@@ -31,6 +31,7 @@ import {
   createTaskAssignment,
   deleteTaskAssignment,
 } from '../../../api/taskAssignments'
+import { fetchReviewedDailyReports } from '../../../api/dailyReports'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
 
@@ -214,6 +215,20 @@ const SCROLLBAR_CSS = `
    Critical, amber for High, then quiet blue and grey. */
 const PRIORITY_TONE = { Urgent: 'danger', Critical: 'danger', High: 'warn', Medium: 'primary', Low: 'muted' }
 
+/* Social Monthly Planner · content-team deliverables. Each programme the Social
+   panel plans is split into these deliverables, and the "Team member" column
+   assigns ONE Social member per deliverable. `defaultName` is only a soft
+   default: the dropdown preselects the roster member whose name matches it, so
+   Shital sees who normally does what and can still override it per programme.
+   The value saved to the server is the exact label. */
+const CONTENT_TYPES = [
+  { value: 'Banner', label: 'Banner', defaultName: 'Tanvi' },
+  { value: 'YouTube Video', label: 'YouTube Video', defaultName: 'Ganesh' },
+  { value: 'Instagram Reels', label: 'Instagram Reels', defaultName: 'Sachin' },
+  { value: 'Instagram Photos', label: 'Instagram Photos', defaultName: 'Rehan' },
+  { value: 'Captions & Heading', label: 'Captions & Heading', defaultName: 'Shital' },
+]
+
 /* Scoped styling for the Monthly Planner festival grid (`.eh-fest-grid`). Kept
    local to ActivityPlanner.jsx so the four-source calendar's other pages in
    event-head are untouched. Rules only restyle/space the table — the row data,
@@ -257,6 +272,10 @@ const FEST_GRID_CSS = `
   .eh-fest-grid .sug-lg-btn:hover { opacity: .72; }
   .eh-fest-grid .sug-lg-btn:disabled { cursor: default; opacity: .5; }
 .eh-fest-grid .fest-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.eh-fest-grid .tm-stack { display: flex; flex-direction: column; gap: 7px; }
+.eh-fest-grid .tm-row { display: flex; flex-direction: column; gap: 2px; }
+.eh-fest-grid .tm-lbl { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--eh-ink-soft, #6f6c86); }
+.eh-fest-grid select.tm-sel { width: 100%; min-width: 0; box-sizing: border-box; padding: 5px 8px; font-size: 11.5px; border-radius: 8px; }
 .eh-fest-grid textarea.fest-manual { display: block; width: 100%; min-height: 52px; resize: vertical; padding: 8px 10px; font-family: inherit; font-size: 13px; line-height: 1.35; color: var(--eh-ink, #1f2430); background: #fff; border: 1px solid var(--eh-line, #d1d5db); border-radius: 8px; outline: none; box-sizing: border-box; transition: border-color .15s, box-shadow .15s; }
 .eh-fest-grid textarea.fest-manual:focus { border-color: var(--eh-primary, #2036bd); box-shadow: 0 0 0 3px rgba(32, 54, 189, .12); }
 .eh-fest-grid textarea.fest-manual:disabled { background: #f7f7fb; cursor: wait; }
@@ -329,6 +348,25 @@ function FestivalBeneficiarySelect({ value, disabled, title, onChange }) {
     >
       <option value="">Select a category…</option>
       {BENEFICIARY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+    </select>
+  )
+}
+
+/* The festival grid's NGO cell: an editable dropdown per row, so a single
+   festival can be pointed at a different NGO than the page-wide pick. The value
+   is the row's NGO id ('' = not chosen yet). */
+function FestivalNgoSelect({ ngos, value, disabled, title, onChange }) {
+  return (
+    <select
+      className="eh-select"
+      value={value}
+      disabled={disabled}
+      title={title}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ width: '100%', minWidth: 0, padding: '7px 9px', fontSize: 12.5, borderRadius: 9 }}
+    >
+      <option value="">Select an NGO…</option>
+      {ngos.map((n) => <option key={n.id} value={String(n.id)}>{ngoShortLabel(n)}</option>)}
     </select>
   )
 }
@@ -476,7 +514,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
 
     let created
     try {
-const payload = {
+      const payload = {
         name: activityName,
         sector_id: Number(sectorId),
         ngo_id: ngo.id,
@@ -1166,8 +1204,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
-// True while a tick is being written, so the boxes cannot be double-toggled into
-// two contradictory saves.
+  // True while a tick is being written, so the boxes cannot be double-toggled into
+  // two contradictory saves.
   const [tickBusy, setTickBusy] = useState(false)
   // Bumped after a suggestion is converted into a programme, so the open panel
   // re-reads its ticks from the server instead of showing a stale box.
@@ -1177,10 +1215,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const [planEntry, setPlanEntry] = useState(null)
 
   // Task assignment (Social panel only): the Social roster for the per-programme
-  // dropdowns, and the month's assignments keyed "date::label" so a programme
-  // that is already assigned shows its member again after a reload.
+  // dropdowns, and the month's assignments keyed "date::label::contentType" so a
+  // programme's deliverable (Banner, YouTube Video, …) shows its member again
+  // after a reload.
   const [team, setTeam] = useState([])
   const [taskMap, setTaskMap] = useState({})
+  // Set of `${reporter_id}::${date}` the Social head has ACCEPTED for the month.
+  // A planned deliverable is shown done/green only when its reporter's report for
+  // that day is in here — the member's own "done" never turns the cell green.
+  const [acceptedDays, setAcceptedDays] = useState(() => new Set())
 
   const [year, setYear] = useState(() => new Date().getFullYear())
   const yearOptions = useMemo(() => {
@@ -1210,27 +1253,47 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      changes or after a change, so the grid never shows a stale member. */
   useEffect(() => {
     if (!taskAssignment) return
-    fetchTaskAssignees().then((r) => setTeam(Array.isArray(r?.employees) ? r.employees : [])).catch(() => setTeam([]))
+    fetchTaskAssignees()
+      .then((r) => setTeam(Array.isArray(r?.employees) ? r.employees : []))
+      .catch((e) => {
+        console.error('Task assignees load failed', e)
+        setTeam([])
+      })
   }, [taskAssignment])
 
   const loadMonthTasks = useCallback(() => {
-    if (!taskAssignment) { setTaskMap({}); return }
+    if (!taskAssignment) { setTaskMap({}); setAcceptedDays(new Set()); return }
     fetchTaskMonthAssignments(month)
       .then((r) => {
         const map = {}
-        for (const a of (r?.assignments || [])) map[`${a.task_date}::${a.title}`] = a
+        for (const a of (r?.assignments || [])) map[`${a.task_date}::${a.title}::${a.content_type || ''}`] = a
         setTaskMap(map)
       })
       .catch(() => setTaskMap({}))
+    fetchReviewedDailyReports('social', month)
+      .then((r) => {
+        const set = new Set()
+        for (const a of (r?.accepted || [])) set.add(`${a.reporter_id}::${a.report_date}`)
+        setAcceptedDays(set)
+      })
+      .catch(() => setAcceptedDays(new Set()))
   }, [taskAssignment, month])
 
   useEffect(() => { loadMonthTasks() }, [loadMonthTasks])
 
-  /* Change a programme's assignee. Clearing the select removes the assignment;
-     picking a member (re)creates one for that programme's date, so the member
-     sees it on their Daily Report for that day. */
-  const assignRow = async (date, label, assigneeId) => {
-    const key = `${date}::${label}`
+  /* The roster member whose name matches a deliverable's soft default (Tanvi for
+     Banner, Ganesh for YouTube Video, …), so the dropdown is pre-filled with who
+     normally does what. Empty when nobody on the roster matches — the dropdown
+     then simply starts Unassigned. */
+  const defaultMemberId = (contentType) => {
+    return ''
+  }
+
+  /* Change who handles one deliverable of a programme. Clearing the select
+     removes that deliverable's assignment; picking a member (re)creates one, so
+     the member sees it on their Daily Report for that day. */
+  const assignRow = async (date, label, contentType, assigneeId) => {
+    const key = `${date}::${label}::${contentType || ''}`
     const existing = taskMap[key]
     try {
       if (existing && String(existing.assignee_id) === String(assigneeId)) return
@@ -1246,9 +1309,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         assignee_name: member.name,
         task_date: date,
         title: label,
+        content_type: contentType,
         description: '',
       })
-      const row = res?.assignment || { id: res?.id, task_date: date, title: label, assignee_id: String(member.id), assignee_name: member.name }
+      const row = res?.assignment || { id: res?.id, task_date: date, title: label, assignee_id: String(member.id), assignee_name: member.name, content_type: contentType }
       setTaskMap((m) => ({ ...m, [key]: row }))
     } catch (e) {
       showToast(e?.message || 'Could not update the assignment.')
@@ -1340,6 +1404,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      written to localStorage, sessionStorage or the URL. */
   const [festManual, setFestManual] = useState(() => ({}))
   const [festCleared, setFestCleared] = useState(() => new Set())
+  // Per-row NGO overrides — the NGO column is an editable dropdown, so one
+  // festival row can be pointed at a different NGO than the page-wide pick.
+  // Keyed by the same "date::festival" key the row itself uses.
+  const [festNgo, setFestNgo] = useState(() => ({}))
 
   const loadImportantDays = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1357,12 +1425,13 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // load" never lingers once a month loads fine.
   useEffect(() => { setFestivalError(''); loadImportantDays() }, [loadImportantDays])
 
-  /* The suggestions already stored for this month + NGO. Without an NGO the
-     server returns every NGO's programmes separately (labelled row by row), so
-     BSCT, MANN and AFLF data is never mixed into one generation call. */
+  /* The suggestions already stored for this month. Loaded for EVERY NGO (no
+     ngo_id filter) because the NGO column is now editable per row — a row may be
+     pointed at any NGO, so its stored ideas have to be available. Each row reads
+     only its own NGO's rows (see rowSuggestionsFor), so the NGOs never mix. */
   const loadFestivalSuggestions = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
-    getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId || undefined })
+    getFestivalSuggestions({ month: m, year: y })
       .then((l) => {
         const list = Array.isArray(l) ? l : []
         /* A reload starts this planner FRESH. The suggestions themselves load
@@ -1490,10 +1559,48 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     })
   }, [selectedFestivalCount, ngo, month, targetPopup, targetPopupSeen])
 
-  /* The NGO column prints the single NGO in scope; on "All NGOs" it prints the
-     scope label and each suggestion row prints its own stored NGO, so a reader
-     always knows whose programme they are looking at. */
-  const festivalNgoLabel = useMemo(() => (ngo ? ngoShortLabel(ngo) : '—'), [ngo])
+  /* The NGO column is an editable dropdown per row. A row's NGO is: the user's
+     explicit pick for that row, else the page-wide NGO, else the NGO the row's
+     stored suggestions already belong to. Rows read only their own NGO's stored
+     ideas, so BSCT, MANN and AFLF never mix in one block. */
+  const rowNgoId = useCallback((key) => {
+    if (festNgo[key]) return String(festNgo[key])
+    if (ngoId) return String(ngoId)
+    const stored = (festivalSuggestionsByKey[key] || []).find((s) => s.ngo_id)
+    return stored ? String(stored.ngo_id) : ''
+  }, [festNgo, ngoId, festivalSuggestionsByKey])
+
+  const rowNgo = useCallback(
+    (key) => ngos.find((n) => String(n.id) === rowNgoId(key)) || null,
+    [ngos, rowNgoId]
+  )
+
+  const rowSuggestionsFor = useCallback(
+    (key) => (festivalSuggestionsByKey[key] || []).filter((s) => String(s.ngo_id ?? '') === rowNgoId(key)),
+    [festivalSuggestionsByKey, rowNgoId]
+  )
+
+  /* Changing a row's NGO abandons the Beneficiary / Location picked for the
+     previous NGO (they were that NGO's), so the row starts clean for the new
+     one. Any AI idea already ticked for the old NGO is unticked too (on screen
+     and on the server) — otherwise it would sit hidden in the grid yet still
+     reach the download under the old NGO. Stored ideas are never deleted, only
+     the selection is dropped. */
+  const changeRowNgo = (key, value) => {
+    const prevId = rowNgoId(key)
+    setFestNgo((cur) => ({ ...cur, [key]: value }))
+    setFestBenef((cur) => { const next = { ...cur }; delete next[key]; return next })
+    setFestLoc((cur) => { const next = { ...cur }; delete next[key]; return next })
+    if (prevId && String(value) !== String(prevId)) {
+      const stale = (festivalSuggestionsByKey[key] || [])
+        .filter((s) => s.is_selected && String(s.ngo_id ?? '') === prevId)
+      if (stale.length) {
+        const ids = new Set(stale.map((s) => s.id))
+        setFestivalSuggestions((list) => list.map((x) => (ids.has(x.id) ? { ...x, is_selected: false } : x)))
+        stale.forEach((s) => setFestivalSuggestionSelected(s.id, false).catch(() => null))
+      }
+    }
+  }
 
   /* The category a festival row's dropdown shows, and the value sent when that
      festival's programmes are generated: the user's pending choice first, then
@@ -1503,9 +1610,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      grid never claims an audience nobody chose. */
   const festivalBeneficiaryFor = useCallback((key) => {
     if (festBenef[key]) return festBenef[key]
-    const stored = (festivalSuggestionsByKey[key] || []).map((s) => s.beneficiary).find(Boolean)
+    const stored = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean)
     return stored || ''
-  }, [festBenef, festivalSuggestionsByKey])
+  }, [festBenef, rowSuggestionsFor])
 
   /* Changing the row's Beneficiary dropdown. The pending choice shows at once,
      and when the festival already has stored suggestions the server copy is
@@ -1517,15 +1624,16 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const handleFestivalBeneficiary = async (key, value) => {
     const prevFor = festivalBeneficiaryFor(key)
     setFestBenef((cur) => ({ ...cur, [key]: value }))
-    const stored = festivalSuggestionsByKey[key] || []
-    if (!stored.length) return // nothing stored yet — the choice travels with the next generation
+    const ownerId = rowNgoId(key)
+    const stored = rowSuggestionsFor(key)
+    if (!stored.length || !ownerId) return // nothing stored yet — the choice travels with the next generation
     const [date, ...rest] = key.split('::')
     const festival = rest.join('::')
     const [y, m] = month.split('-').map(Number)
     try {
-      await setFestivalSuggestionsBeneficiary({ month: m, year: y, ngo_id: ngoId, date, festival, beneficiary: value })
+      await setFestivalSuggestionsBeneficiary({ month: m, year: y, ngo_id: ownerId, date, festival, beneficiary: value })
       setFestivalSuggestions((list) => list.map((x) => (
-        String(x.observance_date || '').slice(0, 10) === date && String(x.festival || '') === festival
+        String(x.observance_date || '').slice(0, 10) === date && String(x.festival || '') === festival && String(x.ngo_id ?? '') === ownerId
           ? { ...x, beneficiary: value }
           : x
       )))
@@ -1541,9 +1649,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      "Select a location…" and every shown place was picked or typed. */
   const festivalLocationFor = useCallback((key) => {
     if (festLoc[key]) return festLoc[key]
-    const stored = (festivalSuggestionsByKey[key] || []).map((s) => s.location).find(Boolean)
+    const stored = rowSuggestionsFor(key).map((s) => s.location).find(Boolean)
     return stored || ''
-  }, [festLoc, festivalSuggestionsByKey])
+  }, [festLoc, rowSuggestionsFor])
 
   /* Changing the row's Location dropdown / "Other…" box. Mirrors the
      Beneficiary handler: the pending choice shows at once, and when the
@@ -1556,9 +1664,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const handleFestivalLocation = async (key, value) => {
     const prevFor = festivalLocationFor(key)
     setFestLoc((cur) => ({ ...cur, [key]: value }))
-    const stored = festivalSuggestionsByKey[key] || []
+    const stored = rowSuggestionsFor(key)
     if (!stored.length) return // nothing stored yet — the choice travels with the next generation
-    const ownerNgoId = ngoId || stored[0]?.ngo_id
+    const ownerNgoId = rowNgoId(key) || stored[0]?.ngo_id
     if (!ownerNgoId) return
     const [date, ...rest] = key.split('::')
     const festival = rest.join('::')
@@ -1566,7 +1674,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     try {
       await setFestivalSuggestionsLocation({ month: m, year: y, ngo_id: ownerNgoId, date, festival, location: value })
       setFestivalSuggestions((list) => list.map((x) => (
-        String(x.observance_date || '').slice(0, 10) === date && String(x.festival || '') === festival
+        String(x.observance_date || '').slice(0, 10) === date && String(x.festival || '') === festival && String(x.ngo_id ?? '') === String(ownerNgoId)
           ? { ...x, location: value || null }
           : x
       )))
@@ -1585,8 +1693,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const suggestFestival = async (date, festivalName) => {
     const key = `${date}::${festivalName}`
     setFestivalError('')
-    if (!ngoId) {
-      setFestivalError('Pick a single NGO to generate festival programmes for it.')
+    const rowId = rowNgoId(key)
+    if (!rowId) {
+      setFestivalError('Pick an NGO for this row to generate festival programmes for it.')
       return
     }
     if (!festivalBeneficiaryFor(key)) {
@@ -1597,7 +1706,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestGenerating({ key })
     try {
       const res = await suggestFestivalPrograms({
-        month, date, festival: festivalName, ngo_id: ngoId, sector_id: sectorFilter || null,
+        month, date, festival: festivalName, ngo_id: rowId, sector_id: sectorFilter || null,
         beneficiary_group: festivalBeneficiaryFor(key) || null,
         // Keep the block's chosen place on the freshly generated rows.
         location: festivalLocationFor(key) || null,
@@ -1605,8 +1714,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       const added = Array.isArray(res?.suggestions) ? res.suggestions : []
       if (added.length) {
         const [y, m] = month.split('-').map(Number)
-        const fresh = await getFestivalSuggestions({ month: m, year: y, ngo_id: ngoId }).catch(() => [])
-        setFestivalSuggestions(Array.isArray(fresh) ? fresh : [])
+        const fresh = await getFestivalSuggestions({ month: m, year: y, ngo_id: rowId }).catch(() => [])
+        // `fresh` is this NGO's whole month, so replace ALL of that NGO's rows
+        // (across festivals) and keep every other NGO's rows untouched.
+        const forNgoId = (x) => String(x.ngo_id ?? '') === String(rowId)
+        setFestivalSuggestions((cur) => [
+          ...cur.filter((x) => !forNgoId(x)),
+          ...(Array.isArray(fresh) ? fresh : []),
+        ])
         // Open this festival's block so the fresh batch is on screen — the
         // only time a block opens by itself, and only for the row that asked.
         setFestOpen((cur) => new Set(cur).add(key))
@@ -1812,24 +1927,24 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return list.sort((a, b) => a.label.localeCompare(b.label))
   }, [ngos, ngoStats])
 
-/* Progress against each NGO's monthly quota.
-     Deliberately separate from ngoOverview above: there "done" means an event
-     whose status is Completed, which is what the report header prints. Here
-     "done" means a programme has been planned, which is what fills the quota —
-     two different numbers, so they are not allowed to share a field.
-
-     Built from the workspace NGO list, not from the monthly report's rows: that
-     endpoint only returns an NGO that already has an event in the month, so an
-     NGO with nothing planned yet would have no card at all instead of a
-     readable 0 of 15.
-
-     The cards follow the NGO dropdown rather than always listing everybody:
-     picking BSCT shows BSCT's quota alone, "All NGOs" shows all three. The
-     ngos table also holds rows that are not one of the three planning NGOs
-     (a placeholder with no code), and on "All NGOs" those are dropped — a
-     "0 of 15" card for a row that is not really an NGO is noise. Picked
-     explicitly it still gets a card, because then it is the user's choice and
-     an empty panel would be worse. */
+  /* Progress against each NGO's monthly quota.
+       Deliberately separate from ngoOverview above: there "done" means an event
+       whose status is Completed, which is what the report header prints. Here
+       "done" means a programme has been planned, which is what fills the quota —
+       two different numbers, so they are not allowed to share a field.
+  
+       Built from the workspace NGO list, not from the monthly report's rows: that
+       endpoint only returns an NGO that already has an event in the month, so an
+       NGO with nothing planned yet would have no card at all instead of a
+       readable 0 of 15.
+  
+       The cards follow the NGO dropdown rather than always listing everybody:
+       picking BSCT shows BSCT's quota alone, "All NGOs" shows all three. The
+       ngos table also holds rows that are not one of the three planning NGOs
+       (a placeholder with no code), and on "All NGOs" those are dropped — a
+       "0 of 15" card for a row that is not really an NGO is noise. Picked
+       explicitly it still gets a card, because then it is the user's choice and
+       an empty panel would be worse. */
   const ngoTargets = useMemo(() => ngos
     .filter((n) => ngo ? String(n.id) === String(ngo.id) : !!NGO_MONTHLY_TARGET[ngoCodeKey(n)])
     .map((n) => {
@@ -1889,9 +2004,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const reportRef = useRef(null)
   const [downloading, setDownloading] = useState('')
 
-/* No early return for "All NGOs": the report is downloadable from that scope
-     too, and its AI column has to be filled from every NGO's ticked ideas. An
-     empty ngo_id is dropped from the query, which is exactly the "all" case. */
+  /* No early return for "All NGOs": the report is downloadable from that scope
+       too, and its AI column has to be filled from every NGO's ticked ideas. An
+       empty ngo_id is dropped from the query, which is exactly the "all" case. */
   const loadSelectedSuggestions = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
     return fetchPlannerSuggestions({ ngo_id: ngoId, month: m, year: y, selected_only: true })
@@ -2013,26 +2128,26 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         status: String(ev?.status || p.status || '—'),
         suggestion: suggestion
           ? {
-              id: suggestion.id,
-              title: suggestion.title,
-              priority: suggestion.priority || '',
-              objective: suggestion.objective || '',
-              materials: suggestion.materials || [],
-            }
+            id: suggestion.id,
+            title: suggestion.title,
+            priority: suggestion.priority || '',
+            objective: suggestion.objective || '',
+            materials: suggestion.materials || [],
+          }
           : null,
       })
     }
     rows.sort((a, b) => (a.date === b.date ? a.programme.localeCompare(b.programme) : a.date.localeCompare(b.date)))
 
-/* An idea with no programme of its own is still a decision the user made, so
-    it is listed rather than dropped — but only when it genuinely has no
-    programme. Anything sitting on a row above is already accounted for.
-
-    An idea belonging to an unticked activity is not in the download: the file
-    answers "the activities I chose", and an idea for an activity that was not
-    chosen is not part of it. They are counted, so the omission is visible. */
-const placedSuggestionIds = new Set(rows.map((r) => Number(r.suggestion?.id)).filter(Boolean))
-const pendingAll = scopedSuggestions
+    /* An idea with no programme of its own is still a decision the user made, so
+        it is listed rather than dropped — but only when it genuinely has no
+        programme. Anything sitting on a row above is already accounted for.
+    
+        An idea belonging to an unticked activity is not in the download: the file
+        answers "the activities I chose", and an idea for an activity that was not
+        chosen is not part of it. They are counted, so the omission is visible. */
+    const placedSuggestionIds = new Set(rows.map((r) => Number(r.suggestion?.id)).filter(Boolean))
+    const pendingAll = scopedSuggestions
       .filter((s) => !placedSuggestionIds.has(Number(s?.id)))
       .map((s) => ({
         id: s.id,
@@ -2153,7 +2268,7 @@ const pendingAll = scopedSuggestions
   const reportNgos = useMemo(() => ngos
     .filter((n) => !!NGO_MONTHLY_TARGET[ngoCodeKey(n)])
     .sort((a, b) => targetOrderFor(a) - targetOrderFor(b) || ngoShortLabel(a).localeCompare(ngoShortLabel(b))),
-  [ngos])
+    [ngos])
 
   /* The off-screen preview the PDF captures, and the row cache both downloads
      render from. Set together by prepareFestivalExport so the Excel file, the
@@ -2212,9 +2327,9 @@ const pendingAll = scopedSuggestions
         dateLabel: shortDate(d),
         weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
         festival: festival || '—',
-        ngoLabel: ngo ? ngoShortLabel(ngo) : '—',
-        beneficiary: (festivalSuggestionsByKey[k] || []).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
-        location: (festivalSuggestionsByKey[k] || []).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
+        ngoLabel: rowNgo(k) ? ngoShortLabel(rowNgo(k)) : '—',
+        beneficiary: rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
+        location: rowSuggestionsFor(k).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
         programme: text,
         status: 'Draft',
       })
@@ -2231,7 +2346,7 @@ const pendingAll = scopedSuggestions
     const merged = mergeProgrammeRows(rows, ['date', 'festival', 'ngoLabel', 'beneficiary', 'location'])
       .map((r) => ({ ...r, title: r.programme }))
     return merged
-  }, [festivalSuggestions, ngos, scopedManual, festivalSuggestionsByKey, festBenef, festLoc, ngo])
+  }, [festivalSuggestions, ngos, scopedManual, festivalSuggestionsByKey, festBenef, festLoc, ngo, rowNgo, rowSuggestionsFor])
 
   /* ── Monthly PDF: one branded page per NGO ──────────────────────────────────
      The PDF is a report for the whole team, so unlike the on-screen grid it is
@@ -2265,9 +2380,8 @@ const pendingAll = scopedSuggestions
     const rows = []
     for (const s of stored) {
       const key = festivalKeyOf(s)
-      const ownNgo = ngo && String(s.ngo_id) === String(ngo.id)
-      // A typed programme for the NGO in scope wins over that festival's AI idea.
-      if (ownNgo && manualText(key)) continue
+      // A typed programme for the row's own NGO wins over that festival's AI idea.
+      if (manualText(key) && String(s.ngo_id) === rowNgoId(key)) continue
       const observed = String(s.observance_date || '').slice(0, 10)
       const evId = Number(s.suggested_event_id)
       rows.push({
@@ -2290,15 +2404,16 @@ const pendingAll = scopedSuggestions
       if (!text) continue
       const d = k.slice(0, 10)
       const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '') || e?.name || 'No important day'
+      const rn = rowNgo(k)
       rows.push({
-        ngoId: ngo ? ngo.id : null,
-        ngoLabel: ngo ? ngoShortLabel(ngo) : '—',
+        ngoId: rn ? rn.id : null,
+        ngoLabel: rn ? ngoShortLabel(rn) : '—',
         date: d,
         dateLabel: shortDate(d),
         weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
         festival: festival || '—',
-        beneficiary: (festivalSuggestionsByKey[k] || []).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
-        location: (festivalSuggestionsByKey[k] || []).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
+        beneficiary: rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
+        location: rowSuggestionsFor(k).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
         programme: text,
         status: 'Draft',
         image: null,
@@ -2323,7 +2438,7 @@ const pendingAll = scopedSuggestions
         rows: ngoRows,
       }
     })
-  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos])
+  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos, rowNgo, rowNgoId, rowSuggestionsFor])
 
   /* The calendar overlay reuses the exact chosen rows the grid and the
      Excel/PDF downloads render (manual replaces AI, one row per festival), so
@@ -2628,28 +2743,109 @@ const pendingAll = scopedSuggestions
   }
 
   /* The "Team member" cell — only in the Social panel's planner
-     (`taskAssignment`). Rendered once per programme block with the member it is
-     assigned to selected, so the name shows right on the row. */
+     (`taskAssignment`). Rendered once per programme block with one dropdown per
+     content-team deliverable (Banner, YouTube Video, Instagram Reels, Instagram
+     Photos, Captions & Heading), so WHO does WHAT for the programme is set right
+     on the row. Each dropdown defaults to the person who normally handles that
+     deliverable and saves to the server on change. */
+  // const taskCell = (date, label, rowSpan) => {
+  //   if (!taskAssignment) return null
+  //   return (
+  //     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', paddingTop: 8 }}>
+  //       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+  //         {CONTENT_TYPES.map((ct) => {
+  //           const row = taskMap[`${date}::${label}::${ct.value}`]
+  //           const value = row ? String(row.assignee_id) : ''
+  //           return (
+  //             <div key={ct.value} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+  //               <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--eh-ink-soft)', letterSpacing: '.06em', textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>{ct.label}</div>
+  //               <select
+  //                 className="eh-select"
+  //                 value={value}
+  //                 disabled={festBusy || (!team.length && !row)}
+  //                 title={row ? `${ct.label} · ${row.assignee_name}` : (team.length ? `Who handles ${ct.label} for this programme` : 'No team members available to assign')}
+  //                 onChange={(e) => assignRow(date, label, ct.value, e.target.value)}
+  //                 style={{ flex: 1, minWidth: 0, padding: '3px 6px', fontSize: 11, borderRadius: 6, boxSizing: 'border-box' }}
+  //               >
+  //                 <option value="">Unassigned</option>
+  //                 {team.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
+  //               </select>
+  //             </div>
+  //           )
+  //         })}
+  //       </div>
+  //     </td>
+  //   )
+  // }
   const taskCell = (date, label, rowSpan) => {
-    if (!taskAssignment) return null
-    const row = taskMap[`${date}::${label}`]
-    return (
-      <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', paddingTop: 8 }}>
-        <select
-          className="eh-select"
-          value={row ? String(row.assignee_id) : ''}
-          disabled={festBusy}
-          title={row ? `Assigned to ${row.assignee_name}` : 'Assign this programme to a Social team member'}
-          onChange={(e) => assignRow(date, label, e.target.value)}
-          style={{ width: '100%', minWidth: 0, padding: '7px 9px', fontSize: 12, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
-        >
-          <option value="">Unassigned</option>
-          {team.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
-        </select>
-      </td>
-    )
-  }
-
+  if (!taskAssignment) return null
+  return (
+    <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {CONTENT_TYPES.map((ct) => {
+          const row = taskMap[`${date}::${label}::${ct.value}`]
+          const value = row ? String(row.assignee_id) : ''
+          // Done/green only when the Social head accepted that member's report
+          // for the day the WORK was done — so a member's own "done" on their
+          // board never turns the planner green. A programme can be done on a day
+          // other than its own, so the completion day is matched too. Also close
+          // out the spent rework task.
+          const doneDay = String(row?.completed_date || '').slice(0, 10)
+          const done = !!row && (
+            acceptedDays.has(`${row.assignee_id}::${date}`) ||
+            (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
+          )
+          return (
+            <label
+              key={ct.value}
+              title={row ? `${ct.label} · ${row.assignee_name}${done ? ' · Done' : ''}` : `Assign ${ct.label}`}
+              style={{
+                position: 'relative', display: 'flex', alignItems: 'center', gap: 7,
+                padding: '5px 8px', borderRadius: 8, cursor: done ? 'default' : 'pointer',
+                border: `1px solid ${done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-line-strong, #ddd9f0)' : '#EEF0F7'}`,
+                background: done ? 'var(--eh-success-soft, #e7f6ec)' : row ? 'var(--eh-tint-1, #f0eefb)' : '#fff',
+              }}
+            >
+              <span
+                style={{
+                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  background: done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-primary, #6c5ce7)' : '#d5d8e6',
+                }}
+              />
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: done ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)', whiteSpace: 'nowrap' }}>
+                {ct.label}
+              </span>
+              <span
+                style={{
+                  marginLeft: 'auto', fontSize: 12, minWidth: 0, textAlign: 'right',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  fontWeight: row ? 700 : 400,
+                  color: done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-ink)' : 'var(--eh-ink-faint)',
+                }}
+              >
+                {done ? '✓ Done' : row ? row.assignee_name : '+ Assign'}
+              </span>
+              {/* Once the head has accepted the member's report for this day the
+                  deliverable is Done, so the dropdown is replaced by the green
+                  Done state — there is nothing left to reassign. */}
+              {!done && (
+                <select
+                  value={value}
+                  disabled={festBusy || (!team.length && !row)}
+                  onChange={(e) => assignRow(date, label, ct.value, e.target.value)}
+                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
+                >
+                  <option value="">Unassigned</option>
+                  {team.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
+                </select>
+              )}
+            </label>
+          )
+        })}
+      </div>
+    </td>
+  )
+}
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{SCROLLBAR_CSS}</style>
@@ -2682,17 +2878,15 @@ const pendingAll = scopedSuggestions
 
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-          <Field label="NGO">
-            {/* Names only. A count here would sit above the cards that already
-                report the numbers for the NGO in scope, and go stale the moment
-                a month loads. */}
+          {/* <Field label="NGO">
+           
             <Select value={ngoId} onChange={(v) => { setNgoId(v); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }} style={{ minWidth: 210 }}>
               <option value="">All NGOs</option>
               {ngos.map((n) => (
                 <option key={n.id} value={n.id}>{ngoShortLabel(n)}</option>
               ))}
             </Select>
-          </Field>
+          </Field> */}
 
           <Field label="Month">
             <div style={{ display: 'flex', gap: 8 }}>
@@ -2908,14 +3102,14 @@ const pendingAll = scopedSuggestions
           <style>{FEST_GRID_CSS}</style>
           <table className="eh-fest-grid">
             <colgroup>
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '21%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: taskAssignment ? '16%' : '21%' }} />
               <col style={{ width: '7%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: taskAssignment ? '17%' : '29%' }} />
+              <col style={{ width: taskAssignment ? '13%' : '16%' }} />
+              <col style={{ width: taskAssignment ? '18%' : '29%' }} />
               <col style={{ width: '12%' }} />
-              <col style={{ width: '7%' }} />
-              {taskAssignment && <col style={{ width: '12%' }} />}
+              <col style={{ width: '5%' }} />
+              {taskAssignment && <col style={{ width: '21%' }} />}
             </colgroup>
             <thead>
               <tr>
@@ -2958,7 +3152,15 @@ const pendingAll = scopedSuggestions
                           style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
                         />
                       </td>
-                      <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
+                      <td className="ng divider">
+                        <FestivalNgoSelect
+                          ngos={ngos}
+                          value={rowNgoId(key)}
+                          disabled={festBusy}
+                          title="Which NGO this date's event belongs to"
+                          onChange={(v) => changeRowNgo(key, v)}
+                        />
+                      </td>
                       <td className="bn divider">
                         <FestivalBeneficiarySelect
                           value={festivalBeneficiaryFor(key)}
@@ -2988,7 +3190,7 @@ const pendingAll = scopedSuggestions
                       <td className="lc divider">
                         <FestivalLocationSelect
                           value={festivalLocationFor(key)}
-                          list={ngoLocationList(ngo)}
+                          list={ngoLocationList(rowNgo(key))}
                           disabled={festBusy || festGenerating !== null}
                           title="Where this date's event happens"
                           onChange={(v) => handleFestivalLocation(key, v)}
@@ -3025,7 +3227,9 @@ const pendingAll = scopedSuggestions
                 )
                 return obs.map((o) => {
                   const key = `${date}::${o.name}`
-                  const sugg = festivalSuggestionsByKey[key] || []
+                  // Only THIS row's NGO's stored ideas — the editable NGO column
+                  // decides the owner, so NGOs never mix inside a block.
+                  const sugg = rowSuggestionsFor(key)
                   const generating = festGenerating?.key === key
                   const open = festOpen.has(key)
                   const chosen = sugg.find((s) => Boolean(s.is_selected)) || null
@@ -3055,7 +3259,15 @@ const pendingAll = scopedSuggestions
                       <tr key={`${key}-g`}>
                         <td className="dd divider">{shortDate(date)}</td>
                         <td className="ff divider">{festivalCell(o)}</td>
-                        <td className="ng divider"><span className="ng-pill">{festivalNgoLabel}</span></td>
+                        <td className="ng divider">
+                          <FestivalNgoSelect
+                            ngos={ngos}
+                            value={rowNgoId(key)}
+                            disabled={festBusy}
+                            title="Which NGO this festival's programme belongs to"
+                            onChange={(v) => changeRowNgo(key, v)}
+                          />
+                        </td>
                         <td className="bn divider">
                           <FestivalBeneficiarySelect
                             value={festivalBeneficiaryFor(key)}
@@ -3068,9 +3280,9 @@ const pendingAll = scopedSuggestions
                           <div className="fest-actions">
                             <button
                               className="eh-btn eh-btn-sm"
-                              disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
-                              title={!ngoId
-                                ? 'Pick a single NGO to generate festival programmes for it'
+                              disabled={!rowNgoId(key) || !festivalBeneficiaryFor(key) || festGenerating !== null}
+                              title={!rowNgoId(key)
+                                ? 'Pick an NGO for this row to generate festival programmes for it'
                                 : !festivalBeneficiaryFor(key)
                                   ? 'Pick a Beneficiary category for this festival first'
                                   : festGenerating
@@ -3100,7 +3312,7 @@ const pendingAll = scopedSuggestions
                         <td className="lc divider">
                           <FestivalLocationSelect
                             value={festivalLocationFor(key)}
-                            list={ngoLocationList(ngo)}
+                            list={ngoLocationList(rowNgo(key))}
                             disabled={festBusy || festGenerating !== null}
                             title={`Where ${o.name}’s programme happens — one place per festival`}
                             onChange={(v) => handleFestivalLocation(key, v)}
@@ -3126,7 +3338,15 @@ const pendingAll = scopedSuggestions
                     cells.push(
                       <td key="d" className="dd divider" rowSpan={rowCount}>{shortDate(date)}</td>,
                       <td key="f" className="ff divider" rowSpan={rowCount}>{festivalCell(o)}</td>,
-                      <td key="n" className="ng divider" rowSpan={rowCount}><span className="ng-pill">{festivalNgoLabel}</span></td>,
+                      <td key="n" className="ng divider" rowSpan={rowCount}>
+                        <FestivalNgoSelect
+                          ngos={ngos}
+                          value={rowNgoId(key)}
+                          disabled={festBusy}
+                          title="Which NGO this festival's programme belongs to"
+                          onChange={(v) => changeRowNgo(key, v)}
+                        />
+                      </td>,
                       <td key="b" className="bn divider" rowSpan={rowCount}>
                         <FestivalBeneficiarySelect
                           value={festivalBeneficiaryFor(key)}
@@ -3140,9 +3360,9 @@ const pendingAll = scopedSuggestions
                         <button
                           className="eh-btn eh-btn-sm"
                           style={{ marginTop: 6 }}
-                          disabled={!ngoId || !festivalBeneficiaryFor(key) || festGenerating !== null}
-                          title={!ngoId
-                            ? 'Pick a single NGO to generate festival programmes for it'
+                          disabled={!rowNgoId(key) || !festivalBeneficiaryFor(key) || festGenerating !== null}
+                          title={!rowNgoId(key)
+                            ? 'Pick an NGO for this row to generate festival programmes for it'
                             : !festivalBeneficiaryFor(key)
                               ? 'Pick a Beneficiary category for this festival first'
                               : festGenerating
@@ -3167,7 +3387,7 @@ const pendingAll = scopedSuggestions
                     <td key="l" className="lc divider" rowSpan={rowCount}>
                       <FestivalLocationSelect
                         value={festivalLocationFor(key)}
-                        list={ngoLocationList(ngo)}
+                        list={ngoLocationList(rowNgo(key))}
                         disabled={festBusy || festGenerating !== null}
                         title={`Where ${o.name}’s programme happens — one place per festival`}
                         onChange={(v) => handleFestivalLocation(key, v)}

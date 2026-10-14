@@ -49,12 +49,12 @@ function Field({ field, value, assignedTasks = [] }) {
   if (field.type === 'rows') {
     const { columns, rows } = toRows(field, value)
     return (
-      <div style={{ gridColumn: '1 / -1' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{field.label}</div>
+      <div className="drv-field wide">
+        <div className="drv-label">{field.label}</div>
         {rows.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 12 }}>—</div>
+          <div className="drv-muted">—</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="drx-tablewrap" style={{ marginTop: 6 }}>
             <table className="sa-table">
               <thead>
                 <tr>
@@ -83,20 +83,26 @@ function Field({ field, value, assignedTasks = [] }) {
     const tasks = toTasks(value)
     const assigned = Array.isArray(assignedTasks) ? assignedTasks : []
     return (
-      <div style={{ gridColumn: '1 / -1' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{field.label}</div>
+      <div className="drv-field wide">
+        <div className="drv-label">{field.label}</div>
         {tasks.length === 0 && assigned.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 12 }}>—</div>
+          <div className="drv-muted">—</div>
         ) : (
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.8 }}>
+          <ul className="drv-tasks">
             {tasks.map((it, i) => (
-              <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{it.done ? '✓ ' : '○ '}{it.text}</li>
+              <li key={i}>
+                <span className={`drv-tick${it.done ? ' done' : ''}`} aria-hidden="true">{it.done ? '✓' : ''}</span>
+                <span style={{ textDecoration: it.done ? 'line-through' : 'none', opacity: it.done ? 0.65 : 1 }}>{it.text}</span>
+              </li>
             ))}
             {assigned.map((t) => (
-              <li key={`assigned-${t.id}`} style={{ whiteSpace: 'pre-wrap' }}>
-                {t.title}
-                <span className="sa-muted" style={{ fontSize: 11 }}>
-                  {' · '}Assigned{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''} · {STATUS_LABEL[t.status] || 'Pending'}
+              <li key={`assigned-${t.id}`}>
+                <span className={`drv-tick${t.status === 'done' ? ' done' : ''}`} aria-hidden="true">{t.status === 'done' ? '✓' : ''}</span>
+                <span>
+                  {t.title}
+                  <span className="drv-task-meta">
+                    Assigned{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''} · {STATUS_LABEL[t.status] || 'Pending'}
+                  </span>
                 </span>
               </li>
             ))}
@@ -107,9 +113,9 @@ function Field({ field, value, assignedTasks = [] }) {
   }
 
   return (
-    <div>
-      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{field.label}</div>
-      <div className="sa-muted" style={{ fontSize: 12.5, whiteSpace: 'pre-wrap' }}>{text(value)}</div>
+    <div className="drv-field">
+      <div className="drv-label">{field.label}</div>
+      <div className="drv-value">{text(value) || '—'}</div>
     </div>
   )
 }
@@ -126,14 +132,14 @@ export default function ReportView({ panel, data, assignedTasks = [] }) {
   const assigned = Array.isArray(assignedTasks) ? assignedTasks : []
   const hasAssigned = (s, f) => f.type === 'checklist' && assigned.length > 0 && s.id === 'social_tasks'
   const populated = sections.filter((s) => (s.fields || []).some((f) => !isBlank(data?.[s.id]?.[f.id]) || hasAssigned(s, f)))
-  if (populated.length === 0) return <div className="sa-muted" style={{ fontSize: 12 }}>No entries.</div>
+  if (populated.length === 0) return <div className="drv-muted" style={{ paddingTop: 14 }}>No entries.</div>
 
   return (
     <div>
       {populated.map((s) => (
-        <div key={s.id} style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+        <div key={s.id} className="drv-section">
+          <div className="drv-section-title">{s.label}</div>
+          <div className="drv-grid">
             {(s.fields || [])
               .filter((f) => !isBlank(data?.[s.id]?.[f.id]) || hasAssigned(s, f))
               .map((f) => (

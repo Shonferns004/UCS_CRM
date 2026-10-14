@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Block, Kpi, Empty, StatusBar, ReporterBar, TableWrap, ProseList } from '../components/drShared'
 
 // Social Media summary inside Super-Admin Daily Reports → Social tab, built from
 // the day's daily_reports rows (panel="social"). Mirrors DeveloperDashboard so
@@ -77,100 +78,61 @@ const textEntries = (socialReports, section, field) => {
   return out
 }
 
-function Block({ title, children }) {
-  return (
-    <div className="sa-card" style={{ padding: 16, marginBottom: 16 }}>
-      <div className="sa-card-title" style={{ marginBottom: 12 }}>{title}</div>
-      {children}
-    </div>
-  )
-}
-
-function ProseList({ entries }) {
-  return (
-    <div>
-      {entries.map(({ reporter, lines }, i) => (
-        <div key={`${reporter}-${i}`} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 10, marginTop: 10 }}>
-          <div className="sa-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>{reporter || 'Reporter'}</div>
-          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.8 }}>
-            {lines.map((line, i) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{line}</li>)}
-          </ul>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export default function SocialDashboard({ socialReports = [], assignedTasks = [] }) {
   const counts = useMemo(() => countTasks(socialReports, assignedTasks), [socialReports, assignedTasks])
   const content = useMemo(() => contentRows(socialReports), [socialReports])
   const support = useMemo(() => textEntries(socialReports, 'support', 'support'), [socialReports])
   const plans = useMemo(() => textEntries(socialReports, 'nextday', 'nextday'), [socialReports])
+  const reporters = [...new Set(socialReports.map((r) => r.reporter_name).filter(Boolean))]
 
   return (
     <div>
+      <ReporterBar names={reporters} emptyText="No social media report submitted on this date." />
+
       <Block title="1. Today's Tasks">
         <div className="dr-kpis">
-          <div className="dr-kpi" style={{ borderTop: '3px solid #22c55e' }}>
-            <div className="dr-kpi-value" style={{ fontSize: 20 }}>{counts.done}</div>
-            <div className="dr-kpi-label">Done</div>
-          </div>
-          <div className="dr-kpi" style={{ borderTop: '3px solid #f59e0b' }}>
-            <div className="dr-kpi-value" style={{ fontSize: 20 }}>{counts.wip}</div>
-            <div className="dr-kpi-label">WIP</div>
-          </div>
-          <div className="dr-kpi" style={{ borderTop: '3px solid #6b7280' }}>
-            <div className="dr-kpi-value" style={{ fontSize: 20 }}>{counts.pending}</div>
-            <div className="dr-kpi-label">Pending</div>
-          </div>
+          <Kpi label="Done" value={counts.done} accent="#22c55e" />
+          <Kpi label="WIP" value={counts.wip} accent="#f59e0b" />
+          <Kpi label="Pending" value={counts.pending} accent="#64748b" />
         </div>
+        <StatusBar done={counts.done} wip={counts.wip} pending={counts.pending} />
       </Block>
 
-      <Block title="2. Content Created">
+      {/* <Block title="2. Content Created">
         {content.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No content reported.</div>
+          <Empty>No content reported.</Empty>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="sa-table">
-              <thead>
-                <tr>
-                  <th>Reporter</th>
-                  <th>Posts</th>
-                  <th>Reels</th>
-                  <th>Platforms</th>
-                  <th>Published</th>
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Reporter</th>
+                <th>Posts</th>
+                <th>Reels</th>
+                <th>Platforms</th>
+                <th>Published</th>
+              </tr>
+            </thead>
+            <tbody>
+              {content.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight: 600 }}>{r.reporter || '—'}</td>
+                  <td>{r.posts || '—'}</td>
+                  <td>{r.reels || '—'}</td>
+                  <td>{r.platforms || '—'}</td>
+                  <td style={{ whiteSpace: 'pre-wrap' }}>{r.published || '—'}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {content.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ fontWeight: 600 }}>{r.reporter || '—'}</td>
-                    <td>{r.posts || '—'}</td>
-                    <td>{r.reels || '—'}</td>
-                    <td>{r.platforms || '—'}</td>
-                    <td style={{ whiteSpace: 'pre-wrap' }}>{r.published || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </TableWrap>
         )}
-      </Block>
+      </Block> */}
 
-      <Block title="3. Support Required from HOD">
-        {support.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>Nothing reported.</div>
-        ) : (
-          <ProseList entries={support} />
-        )}
-      </Block>
+      {/* <Block title="3. Support Required from HOD">
+        <ProseList entries={support} />
+      </Block> */}
 
       <Block title="4. Next Working Day Plan">
-        {plans.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>Nothing reported.</div>
-        ) : (
-          <ProseList entries={plans} />
-        )}
+        <ProseList entries={plans} />
       </Block>
     </div>
   )

@@ -32,6 +32,7 @@ export default function SocialDailyReport() {
       sections={sections}
       summaryTitle="Today at a glance"
       loadAssignedTasks={loadAssignedTasks}
+      lockToToday
     />
   )
 }

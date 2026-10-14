@@ -91,12 +91,12 @@ export function receiptMatchesAgentName(agentName, matches) {
  * A category label is never a competing claim, and a blank name is no claim at
  * all — those are precisely the rows the fallback exists to recover.
  *
- * A CRM agent label ('Agent 21') is different, and the answer now depends on
- * whether an alias row resolves it: worker_aliases maps every label to the
- * worker the login belongs to, so a resolved label IS somebody's money. Under
- * work-as the receipt carries the ACTOR's label while the log's fro_worker_id is
- * the COVERED FRO, so without this the same rupees landed on both cards.
- * An unresolvable label is still no evidence of a person, and blocks nothing —
+ * A name spelled as an alias ('Agent 21') is different, and the answer now
+ * depends on whether an alias row resolves it: worker_aliases maps every alias
+ * to its worker, so a resolved name IS somebody's money. Under work-as the
+ * receipt carries the ACTOR's spelling while the log's fro_worker_id is the
+ * COVERED FRO, so without this the same rupees landed on both cards.
+ * An unresolvable spelling is still no evidence of a person, and blocks nothing —
  * the log is then the only claim on it.
  *
  * `resolvers` is a Map of normalized name -> worker id (the loader's). Pass
@@ -199,18 +199,6 @@ export const CATEGORY_LABELS = ['suspense', 'pg', 'library', 'na'];
  * True when a value is a category label rather than a person's name.
  */
 export const isCategoryLabel = (value) => CATEGORY_LABELS.includes(normalizeAgentName(value));
-
-// CRM agent labels ("Agent 13"), written into receipts.agent_name by an agent's
-// work-as switch (authController.js:960) and resolved back to the covered FRO
-// through worker_aliases. Recognised by SHAPE, because the label text is
-// admin-configurable (crmAgentModel.js:131 lets a label be overridden to anything)
-// and must not be matched as a person name.
-const AGENT_LABEL_RE = /^(agent|ag)\s*[:#-]?\s*\d+$/i;
-
-/**
- * True when a value looks like a CRM agent label rather than a person's name.
- */
-export const isAgentLabel = (value) => AGENT_LABEL_RE.test(normalizeAgentName(value));
 
 /**
  * The identity of a payment, for deduplicating the same donation arriving by

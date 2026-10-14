@@ -4,7 +4,11 @@ import {
   getAssignmentById,
   deleteAssignment,
   updateAssignmentStatus,
+  deleteReworkTasks,
+  REWORK_CONTENT_TYPE,
 } from '../models/taskAssignmentModel.js';
+import { reopenReviewForReporter, openReviewForReporter } from '../models/dailyReportModel.js';
+import { istDateString } from '../utils/ist.js';
 import { rosterForPanel } from './dailyReportController.js';
 import { isTaskHead } from '../utils/taskAssignmentAccess.js';
 
@@ -81,6 +85,7 @@ export async function listMyAssignments(req, res) {
 export async function addAssignment(req, res) {
   const title = clampText(req.body?.title, 500);
   const description = clampText(req.body?.description, 3000);
+  const content_type = clampText(req.body?.content_type, 60);
   const task_date = clampText(req.body?.task_date, 10);
   const assignee_id = clampText(req.body?.assignee_id, 64);
   const assignee_name = clampText(req.body?.assignee_name, 200);
@@ -101,6 +106,7 @@ export async function addAssignment(req, res) {
       task_date,
       title,
       description: description || null,
+      content_type: content_type || null,
       assignee_id,
       assignee_name,
       assigned_by_id: req.user?.id != null ? String(req.user.id) : null,
@@ -152,7 +158,40 @@ export async function updateAssignment(req, res) {
     if (!privileged && !isAssignee && !isHead) {
       return res.status(403).json({ message: 'Only the assignee or the head can update this task.' });
     }
-    const assignment = await updateAssignmentStatus(req.params.id, status);
+    const assignment = await updateAssignmentStatus(req.params.id, status, status === 'done' ? istDateString() : null);
+    // Marking a Daily Report rework task done is how a rejected report comes
+    // back: re-open the review so it reappears in the head's queue with accept /
+    // reject. Best-effort — a failed reopen must not fail the status change the
+    // member is waiting on.
+    if (status === 'done' && existing.content_type === REWORK_CONTENT_TYPE) {
+      try {
+        const day = String(existing.task_date || '').slice(0, 10);
+        const reopened = await reopenReviewForReporter(existing.panel, day, existing.assignee_id);
+        // The task is spent once the report is back with the reviewer, so clear
+        // it instead of leaving a Done card — a later rejection raises a fresh
+        // one. Only when the review actually re-opened, so a report that could
+        // not be reopened keeps its task.
+        if (reopened.length) {
+          await deleteReworkTasks(existing.panel, existing.assignee_id, day, REWORK_CONTENT_TYPE);
+        }
+      } catch (err) {
+        console.error('[task-assignments] reopen review failed:', err.message);
+      }
+    } else if (status === 'done') {
+      // A completed assigned task is work the head must see, so the reporter's
+      // report goes back to the front of the review queue (or is opened there for
+      // the first time) and shows in Report Approvals with the assigned tasks.
+      // The day is the CURRENT IST day, not the task's planned date: the member
+      // does the work on the day the head is reviewing, so a programme done early
+      // (or late) still lands on today's report. Best-effort: a failure here must
+      // not fail the status change the member is waiting on.
+      try {
+        const day = istDateString();
+        await openReviewForReporter(existing.panel, day, existing.assignee_id, existing.assignee_name);
+      } catch (err) {
+        console.error('[task-assignments] open review failed:', err.message);
+      }
+    }
     return res.json({ success: true, assignment });
   } catch (error) {
     console.error('[task-assignments] update failed:', error.message);

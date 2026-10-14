@@ -281,6 +281,7 @@ export default function DailyReport({
   loadSummary,
   loadAssignedTasks,
   notify,
+  lockToToday = false,
 }) {
   // The dev panel mounts its own ToastProvider, not the global ToastContainer,
   // so callers can hand in their local toast; HR (and others) use the global one.
@@ -367,6 +368,23 @@ export default function DailyReport({
 
   useEffect(() => { load(date) }, [date, load])
 
+  // A tab left open across midnight kept the previous day's date, so a report
+  // finished the next morning was filed onto the old day and the head reviewing
+  // "today" never saw it. When the IST day rolls over, follow it — unless the
+  // reporter deliberately navigated to another date.
+  const todayRef = useRef(todayIst())
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = todayIst()
+      if (now !== todayRef.current) {
+        const prev = todayRef.current
+        todayRef.current = now
+        setDate((d) => (d === prev ? now : d))
+      }
+    }, 30000)
+    return () => clearInterval(id)
+  }, [])
+
   const pickDate = (next) => {
     const value = typeof next === 'string' ? next : (next?.target?.value ?? '')
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return
@@ -417,9 +435,17 @@ export default function DailyReport({
       <div className="card dr-toolbar no-print">
         <div className="dr-toolbar-row">
           <span className="dr-toolbar-label">Report date</span>
-          <DatePicker value={date} onChange={pickDate} max={todayIst()} />
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(todayIst())}>Today</button>
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(shiftDay(todayIst(), -1))}>Yesterday</button>
+          {lockToToday ? (
+            <span className="dr-toolbar-today">
+              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
+          ) : (
+            <>
+              <DatePicker value={date} onChange={pickDate} max={todayIst()} />
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(todayIst())}>Today</button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(shiftDay(todayIst(), -1))}>Yesterday</button>
+            </>
+          )}
         </div>
         <div className="dr-toolbar-row dr-toolbar-right">
           <span className={`dr-status${dirty ? ' dirty' : ''}`}>

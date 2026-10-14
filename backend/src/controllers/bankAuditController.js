@@ -19,7 +19,7 @@ async function getSourceBankName(sourceId) {
 //      credits the human doing the work.
 //   2. Otherwise the FRO picked on the entry.
 //
-// Deliberately never the CRM login agent's label: receipts are keyed by FRO, and
+// Deliberately a person's name, never a label: receipts are keyed by FRO, and
 // a label here would split one FRO's collections across several report rows.
 // Returns null when there is genuinely nobody to name, which leaves agent_name
 // NULL rather than writing a placeholder like 'Unknown' that would then be

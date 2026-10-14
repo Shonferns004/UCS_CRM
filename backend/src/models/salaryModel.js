@@ -5,8 +5,34 @@ import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import { projectedLoanDeduction } from '../utils/loanTerm.js';
 import { getSetting, upsertSetting } from './settingsModel.js';
 import { LIVE_LOAN_STATUSES } from './loanModel.js';
+import { getLeavesInRange } from './leaveModel.js';
+import { getAbsenceProofsInRange } from './absenceProofModel.js';
 
 const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
+
+// Leaves + absence proofs for a month, grouped by worker. Used by both
+// computePaidDays call sites so an unauthorized absence can forfeit the
+// month's late grace (utils/absenceRules.js). Tolerant: empty maps if a
+// table is missing.
+async function loadLeaveAndProofMaps(startDate, endDate) {
+  const leavesByWorker = {};
+  const proofsByWorker = {};
+  try {
+    const [allLeaves, allProofs] = await Promise.all([
+      getLeavesInRange(startDate, endDate).catch(() => []),
+      getAbsenceProofsInRange(startDate, endDate).catch(() => []),
+    ]);
+    for (const l of allLeaves || []) {
+      if (!leavesByWorker[l.worker_id]) leavesByWorker[l.worker_id] = [];
+      leavesByWorker[l.worker_id].push(l);
+    }
+    for (const p of allProofs || []) {
+      if (!proofsByWorker[p.worker_id]) proofsByWorker[p.worker_id] = [];
+      proofsByWorker[p.worker_id].push(p);
+    }
+  } catch (_) { /* tolerate missing tables */ }
+  return { leavesByWorker, proofsByWorker };
+}
 
 // A month-scoped export must only list the roster that month actually had:
 // anyone whose Date of Joining (workers.created_at) falls after the month's
@@ -264,7 +290,7 @@ export const getPayrollData = async (month, extended = false) => {
       for (const a of achievements) {
         achievedByWorker[a.worker_id] = (achievedByWorker[a.worker_id] || 0) + parseFloat(a.amount || 0);
         const dayName = getDayName(a.date);
-        akiByWorker[a.worker_id] = (akiByWorker[a.worker_id] || 0) + calculateAKI(parseFloat(a.amount || 0), dayName, ranges);
+        akiByWorker[a.worker_id] = (akiByWorker[a.worker_id] || 0) + calculateAKI(parseFloat(a.amount || 0), dayName, ranges, a.date);
       }
     }
   }
@@ -485,6 +511,8 @@ export const getPresentDaysByMonth = async (month) => {
     .lte('date', endDate);
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
 
+  const { leavesByWorker, proofsByWorker } = await loadLeaveAndProofMaps(startDate, endDate);
+
   const { data: collLogs, error: collErr } = await db
     .from('fro_donor_logs')
     .select('amount_collected, fro_assignments!inner(fro_worker_id)')
@@ -522,6 +550,8 @@ export const getPresentDaysByMonth = async (month) => {
       createdAt: w.created_at || '',
       holidayDates,
       lateGraceMinutes: graceByWorker[w.id] ?? null,
+      leaves: leavesByWorker[w.id] || [],
+      absenceProofs: proofsByWorker[w.id] || [],
     });
     return {
       worker_id: w.id,
@@ -536,6 +566,7 @@ export const getPresentDaysByMonth = async (month) => {
       late_deduction_days: calc.lateDeductionDays,
       late_grace_minutes: calc.lateGraceMinutes,
       late_thresholds: calc.lateThresholds,
+      grace_forfeited: calc.graceForfeited,
       joining_deduction: calc.joiningDeduction,
       available_days: calc.available,
       absent_count: calc.absentDatesAfterJoin.length,
@@ -679,6 +710,8 @@ export const getPagarExportData = async (month) => {
     .lte('date', endDate);
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
   const salaryCompensations = (await getSalaryCompensations()).filter((entry) => entry.month === monthStr);
+
+  const { leavesByWorker: payrollLeavesByWorker, proofsByWorker: payrollProofsByWorker } = await loadLeaveAndProofMaps(startDate, endDate);
 
   const attByWorker = {};
   for (const r of attRecords) {
@@ -936,6 +969,8 @@ export const getPagarExportData = async (month) => {
       includeHolidayPay: true,
       compensatoryWorkdays: salaryCompensations,
       lateGraceMinutes: w.late_grace_minutes ?? null,
+      leaves: payrollLeavesByWorker[w.id] || [],
+      absenceProofs: payrollProofsByWorker[w.id] || [],
     });
 
     const target = targetByWorker[w.id] || 0;
@@ -959,8 +994,9 @@ export const getPagarExportData = async (month) => {
     for (let d = 1; d <= daysInMonth; d++) {
       const amount = daily[d] || 0;
       if (amount > 0) {
-        const dayName = getDayName(`${year}-${pad(monthIdx + 1)}-${pad(d)}`);
-        totalAKI += calculateAKI(amount, dayName, akiranges);
+        const dateStr = `${year}-${pad(monthIdx + 1)}-${pad(d)}`;
+        const dayName = getDayName(dateStr);
+        totalAKI += calculateAKI(amount, dayName, akiranges, dateStr);
       }
     }
     const akiPayout = (target > 0 && achieved >= target)

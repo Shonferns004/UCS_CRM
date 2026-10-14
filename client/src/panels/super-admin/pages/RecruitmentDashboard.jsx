@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchRecruiterPerformance } from '../../../api/dailyReports'
 import { toast } from '../../../components/Toast'
+import { Block, Kpi, Empty, ReporterBar, TableWrap, NumberedList } from '../components/drShared'
 
 // Recruitment summary inside Super-Admin Daily Reports → Recruiter tab.
 //   Block 1 pulls the LIVE recruitment performance from the leads pipeline
@@ -60,24 +61,6 @@ const collectRows = (recReports, section, field, columns) => {
   return out
 }
 
-function Kpi({ label, value, accent }) {
-  return (
-    <div className="dr-kpi" style={{ borderTop: accent ? `3px solid ${accent}` : undefined }}>
-      <div className="dr-kpi-value" style={{ fontSize: 20 }}>{value}</div>
-      <div className="dr-kpi-label">{label}</div>
-    </div>
-  )
-}
-
-function Block({ title, children, ...rest }) {
-  return (
-    <div className="sa-card" style={{ padding: 16, marginBottom: 16 }} {...rest}>
-      <div className="sa-card-title" style={{ marginBottom: 12 }}>{title}</div>
-      {children}
-    </div>
-  )
-}
-
 export default function RecruitmentDashboard({ date, recReports = [] }) {
   const [perf, setPerf] = useState(null)
   const [perfLoading, setPerfLoading] = useState(true)
@@ -120,23 +103,20 @@ export default function RecruitmentDashboard({ date, recReports = [] }) {
 
   return (
     <div>
-      <div className="sa-muted" style={{ fontSize: 12, marginBottom: 12 }} data-date={date}>
-        {reporters.length > 0 ? `Recruitment report by: ${reporters.join(', ')}` : 'No recruitment report submitted on this date.'}
-      </div>
+      <div data-date={date}><ReporterBar names={reporters} emptyText="No recruitment report submitted on this date." /></div>
 
       <Block title="1. Recruitment Performance (Live)">
         {perfLoading ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>Loading recruitment performance…</div>
+          <div className="drx-skel" style={{ height: 120 }} aria-label="Loading recruitment performance" />
         ) : perfKpis.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No recruitment data available.</div>
+          <Empty>No recruitment data available.</Empty>
         ) : (
           <div className="dr-kpis">
             {perfKpis.map((f) => <Kpi key={f.label} label={f.label} value={f.value} accent={f.accent} />)}
           </div>
         )}
         {!perfLoading && recruiters.length > 0 && (
-          <div style={{ marginTop: 12, overflowX: 'auto' }}>
-            <table className="sa-table">
+          <TableWrap>
               <thead>
                 <tr>
                   <th>Recruiter</th>
@@ -163,17 +143,15 @@ export default function RecruitmentDashboard({ date, recReports = [] }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </TableWrap>
         )}
       </Block>
 
       <Block title="2. Vacancy-Wise Status">
         {vacancies.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No vacancies reported.</div>
+          <Empty>No vacancies reported.</Empty>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="sa-table">
+          <TableWrap>
               <thead>
                 <tr>
                   {VACANCY_COLUMNS.map((c) => <th key={c.key}>{c.label}</th>)}
@@ -188,27 +166,19 @@ export default function RecruitmentDashboard({ date, recReports = [] }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </TableWrap>
         )}
       </Block>
 
       <Block title="3. Recruitment Challenges">
-        {challenges.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No challenges reported.</div>
-        ) : (
-          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.9 }} className="sa-table-plain">
-            {challenges.map((line, i) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{line}</li>)}
-          </ol>
-        )}
+        {challenges.length === 0 ? <Empty>No challenges reported.</Empty> : <NumberedList lines={challenges} />}
       </Block>
 
       <Block title="4. Follow-Up Required">
         {followups.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No follow-ups reported.</div>
+          <Empty>No follow-ups reported.</Empty>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="sa-table">
+          <TableWrap>
               <thead>
                 <tr>
                   {FOLLOWUP_COLUMNS.map((c) => <th key={c.key}>{c.label}</th>)}
@@ -223,8 +193,7 @@ export default function RecruitmentDashboard({ date, recReports = [] }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </TableWrap>
         )}
       </Block>
     </div>

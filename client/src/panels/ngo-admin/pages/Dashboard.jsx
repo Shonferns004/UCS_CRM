@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X, Bell } from 'lucide-react';
-import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection, listCrmAgents } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import TeamWiseCollection from '../components/TeamWiseCollection';
@@ -218,67 +218,6 @@ const hexA = (hex, a) => {
   if (Number.isNaN(n)) return `rgba(99, 102, 241, ${a})`;
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
-
-// Agent option label for the assign picker: "Agent 1 — Maya Jadhao". The roster
-// row carries `label` (the agent handle) and `worker_name` (the FRO it covers) —
-// note it is NOT `agent_label`/`fro_name`, which is what the Agents page's own
-// dropdown reads after reshaping. Getting these names wrong made every option
-// render as a bare login id.
-const agentOptionLabel = (a) => {
-  if (!a) return '';
-  const fro = a.worker_name || a.fro_name || a.name;
-  const handle = a.label || a.agent_label || 'Agent';
-  return fro ? `${handle} — ${fro}` : handle;
-};
-
-// Inline agent menu behind a station's Assign button. Deliberately NOT a floating
-// popup: every ancestor of this card clips overflow, so an absolutely-positioned
-// menu would be cut off. Instead the menu expands in place and scrolls inside
-// itself, which stays inside the card's own scroll region.
-function StationAgentMenu({ agents, saving, onPick }) {
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? agents.filter((a) => agentOptionLabel(a).toLowerCase().includes(q) || String(a.login_id || '').toLowerCase().includes(q))
-    : agents;
-  const searchable = agents.length > 6;
-
-  return (
-    <div className="stations-agent-menu" style={{ marginTop: 6, minWidth: 0, boxSizing: 'border-box', border: '1px solid var(--stations-border, #DCE7F5)', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
-      {searchable && (
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search agents…"
-          aria-label="Search agents"
-          style={{ display: 'block', width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: '1px solid var(--stations-border, #DCE7F5)', padding: '6px 8px', fontSize: 11, font: 'inherit', color: 'var(--stations-text, #14233D)', outline: 'none', background: '#fff' }}
-        />
-      )}
-      <div style={{ maxHeight: 138, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {filtered.length === 0 ? (
-          <div style={{ fontSize: 10, color: 'var(--stations-muted, #496487)', padding: '7px 6px' }}>
-            {agents.length === 0 ? 'No agents available' : 'No agents match'}
-          </div>
-        ) : filtered.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            className="stations-agent-opt"
-            disabled={saving}
-            onClick={() => onPick(a.id)}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', boxSizing: 'border-box', textAlign: 'left', padding: '6px 7px', borderRadius: 6, border: 'none', background: 'transparent', font: 'inherit', fontSize: 11, fontWeight: 600, cursor: saving ? 'default' : 'pointer', color: 'var(--stations-text, #14233D)', minWidth: 0, opacity: saving ? 0.6 : 1 }}
-          >
-            <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 6, background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }} aria-hidden="true">
-              {(a.label || a.agent_label || '?').charAt(0).toUpperCase()}
-            </span>
-            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agentOptionLabel(a)}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
   const [donors, setDonors] = useState([]);
@@ -996,14 +935,6 @@ export default function Dashboard() {
   const [selectedNgoKey, setSelectedNgoKey] = useState(null);
   const stationsCardRef = useRef(null);
   const [stationsNarrow, setStationsNarrow] = useState(false);
-  // Unused stations in the details panel are assignable: clicking one opens an
-  // agent picker in place. `assigningStation` is the station code in assign mode
-  // (null = none), `savingStation` is the one mid-write so the picker can't fire
-  // twice. The agent roster is loaded once — assigning is rare, and the roster is
-  // too small to be worth caching anywhere else.
-  const [assigningStation, setAssigningStation] = useState(null);
-  const [savingStation, setSavingStation] = useState(null);
-  const [stationAgents, setStationAgents] = useState([]);
   // The Stations card is pinned to the attendance card's height: grid rows grow
   // with their tallest cell, so without this a taller tab body would stretch the
   // attendance card beside it on every switch.
@@ -1569,45 +1500,6 @@ export default function Dashboard() {
     return () => controller.abort();
   }, [fetchDashboard]);
 
-  // The agent roster behind the assign picker. Loaded once on mount; a failure is
-  // swallowed so the picker just shows no options instead of breaking the card.
-  useEffect(() => {
-    let alive = true;
-    listCrmAgents()
-      .then((a) => { if (alive) setStationAgents(Array.isArray(a?.agents) ? a.agents : []); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  // A station code can legitimately exist under more than one NGO, so an open
-  // picker could otherwise survive an NGO switch and write to the wrong seat.
-  useEffect(() => { setAssigningStation(null); }, [selectedNgoKey]);
-
-  // Assign an agent to an unused station. ngo_id is passed explicitly: the server
-  // upserts on (station, ngo_id), and omitting it makes the lookup fall back to a
-  // station-only read that 500s the moment that station exists under a second NGO.
-  // One write also re-points the station's donors to the agent's FRO.
-  const handleAssignStationAgent = async (station, agentId, ngoId) => {
-    if (!agentId || savingStation) return;
-    setSavingStation(station);
-    try {
-      await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, {
-        ngo_id: ngoId || null,
-        crm_agent_id: agentId,
-      });
-      setAssigningStation(null);
-      // Both feeds carry the per-NGO station split, so refresh the pair — the
-      // live one is what "Today" actually reads.
-      fetchDashboard();
-      setTlRefreshNonce((v) => v + 1);
-      toast(`${station} assigned`, 'success');
-    } catch (err) {
-      toast(err.message || 'Could not assign agent', 'error');
-    } finally {
-      setSavingStation(null);
-    }
-  };
-
   const handleNgoFilter = (ngoId) => {
     if (ngoId === selectedNgoId) return;
     const ngo = (accessibleNgos || []).find(n => n.id === ngoId);
@@ -1695,18 +1587,14 @@ export default function Dashboard() {
     ? (tlData?.stations_per_ngo || data.stations_per_ngo || {})
     : (data.stations_per_ngo || tlData?.stations_per_ngo || {});
   // One row per NGO for the Stations card. "Unused" is the backend's own list
-  // of stations with no agent allocated (NOT total - active, which would call
+  // of stations with no FRO working them (NOT total - active, which would call
   // every offline FRO an unused station). The row's red pill and the details
   // panel read this same array, so the count can never disagree with the list.
-  // `ngoId` is resolved from the accessible-NGO roster because the assign write
-  // needs it: the station upsert keys on (station, ngo_id), and a station that
-  // exists under two NGOs makes an id-less lookup ambiguous.
   const ngo_rows = Object.entries(stations_per_ngo).map(([name, v]) => {
     const unused = Array.isArray(v?.inactive_stations) ? v.inactive_stations : [];
     return {
       key: name,
       name,
-      ngoId: (accessibleNgos || []).find((n) => n && n.name === name)?.id || null,
       color: ngoColorOf(name),
       total: typeof v === 'number' ? v : (Number(v?.total) || 0),
       active: v && typeof v === 'object' ? (Number(v.active) || 0) : 0,
@@ -2364,38 +2252,16 @@ export default function Dashboard() {
                 <div style={{ fontSize: 11, color: 'var(--stations-muted, #496487)' }}>Select an NGO to see its stations.</div>
               ) : selectedNgo.unused.length > 0 ? (
                 <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: 5, paddingRight: 2, boxSizing: 'border-box' }}>
-                  {selectedNgo.unused.map((s) => {
-                    const open = assigningStation === s;
-                    const saving = savingStation === s;
-                    return (
-                      <div key={s} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: open ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${open ? 'var(--stations-assign, #E52336)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                          <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          </span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
-                          <button
-                            type="button"
-                            className="stations-assign-row"
-                            onClick={() => setAssigningStation(open ? null : s)}
-                            disabled={saving}
-                            aria-expanded={open}
-                            aria-label={open ? `Close the agent picker for ${s}` : `Assign an agent to station ${s}`}
-                            style={{ flexShrink: 0, minWidth: 68, minHeight: 30, padding: '5px 11px', borderRadius: 8, font: 'inherit', fontSize: 11, fontWeight: 700, cursor: saving ? 'default' : 'pointer', color: saving ? 'var(--stations-muted, #496487)' : 'var(--stations-assign, #E52336)', background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', opacity: saving ? 0.7 : 1, whiteSpace: 'nowrap' }}
-                          >
-                            {saving ? 'Saving…' : (open ? 'Close' : 'Assign')}
-                          </button>
-                        </div>
-                        {open && (
-                          <StationAgentMenu
-                            agents={stationAgents}
-                            saving={saving}
-                            onPick={(agentId) => handleAssignStationAgent(s, agentId, selectedNgo.ngoId)}
-                          />
-                        )}
+                  {selectedNgo.unused.map((s) => (
+                    <div key={s} title={`${s} — not in use`} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', borderRadius: 12, padding: '8px 9px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                        <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, background: 'var(--stations-success-soft, #ecfbf2)', border: '1px solid #cdf3e1', borderRadius: 10, padding: '10px 12px', boxSizing: 'border-box' }}>
@@ -2481,17 +2347,10 @@ export default function Dashboard() {
           // val stays NUMERIC: the column sort compares it with </>, so a
           // formatted string here would sort alphabetically ("10m" < "59m").
           // display renders the cell, and metricCell already prefers it.
-          // While a FRO is being covered by an agent, the figure here is the AGENT's idle —
-// the person actually at the keyboard — because that is what their own panel
-// shows. The cell stays a bare duration so it reads as a number in the column and
-// not as an aside; who it belongs to is one hover away.
 idle: {
     key: 'idle', param: 'IDLE', full: 'Idle',
     val: (p) => p.today_idle_seconds || 0,
     display: (v) => formatDuration(v),
-    title: (p) => (p?.idle_attributed_to
-      ? `Idle today of ${p.idle_attributed_to}, who is covering this FRO right now`
-      : 'Idle today'),
     pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true,
   },
           nc: { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },

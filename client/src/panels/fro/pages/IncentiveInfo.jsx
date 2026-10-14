@@ -31,16 +31,6 @@
     ],
   },
   {
-    title: 'Sunday Bonus',
-    icon: 'celebration',
-    color: '#e67e22',
-    items: [
-      '1 extra day\'s pay if:',
-      '• You came on the LAST Sunday of the month',
-      '• Achievement ≥ 60% of target (40% for new joiners)',
-    ],
-  },
-  {
     title: 'Payment & Target',
     icon: 'payments',
     color: '#4338ca',
@@ -58,7 +48,7 @@ export default function IncentiveInfo() {
       <div style={{ marginBottom:20 }}>
         <h3 style={{ margin:'0 0 4px' }}>How Incentives Work</h3>
         <p style={{ margin:0, fontSize:12, color:'var(--ink-soft)', lineHeight:1.5 }}>
-          Your monthly earnings: Salary + AKI + Monthly 10% + Sunday Bonus
+          Your monthly earnings: Salary + AKI + Monthly 10%
         </p>
       </div>
 

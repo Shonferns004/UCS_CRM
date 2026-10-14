@@ -23,6 +23,8 @@ import { getMergedDailyAmounts } from '../utils/dailyAchievementAggregator.js';
 import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
+import { getLeavesInRange } from '../models/leaveModel.js';
+import { getAbsenceProofsByWorker } from '../models/absenceProofModel.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import { getWorkerAttendanceReport } from '../models/attendanceReportModel.js';
 import { renderAttendanceReportDocx, reportFileName, DOCX_MIME } from '../services/attendanceReportDocx.js';
@@ -233,13 +235,13 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
     // Attendance for the month
     const records = await getMonthlyAttendance(workerId, startDate, endDate);
 
-    // Sunday rule (all workers): every worked Sunday (incl. a cancelled one) is paid + (total−1) free
+    // Sunday pay rules live in utils/salaryDays.js (the free-pool cap was
+    // removed for months from SUNDAY_RULES_FROM onward). Sundays earn no AKI,
+    // so there is no Sunday-specific incentive in this payload any more.
     let sundayBonus = {
       totalSundays: 0,
       attendedSundays: 0,
       paidSundays: 0,
-      sundayAchievement: 0,
-      sundayAKI: 0,
       incentiveAKI: 0,
       incentiveMonthly: 0,
       incentiveTotal: 0,
@@ -262,21 +264,6 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           lateJoin,
         });
         const achievements = await getMergedDailyAmounts(workerId, startDate, endDate);
-
-        // Sunday AKI — each worked Sunday (including a cancelled one) earns its own AKI
-        const isAttended = (s) => {
-          const rec = records.find(r => r.date === s);
-          return !!rec && (rec.status === 'present' || rec.status === 'late');
-        };
-        let sundayAchievement = 0;
-        let sundayAKI = 0;
-        for (const s of [...sundayStats.eligibleSundays, ...sundayStats.cancelledSundays]) {
-          if (!isAttended(s)) continue;
-          const ach = achievements.find(r => r.date === s);
-          const amt = ach ? parseFloat(ach.amount || 0) : 0;
-          sundayAchievement += amt;
-          sundayAKI += (ach ? ach.aki : 0);
-        }
 
         // Incentive totals (AKI + monthly, FRO only)
         let incentiveAKI = 0;
@@ -309,8 +296,6 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           totalSundays: sundayStats.totalSundays,
           attendedSundays: sundayStats.attendedSundays,
           paidSundays: sundayStats.paidSundays,
-          sundayAchievement: Math.round(sundayAchievement),
-          sundayAKI,
           incentiveAKI,
           incentiveMonthly,
           incentiveTotal: incentiveAKI + incentiveMonthly,
@@ -524,8 +509,13 @@ export const getMySalaryBreakdown = async (req, res) => {
       holidayDates = (await getHolidaysInRange(startDate, endDate)).map(h => h.date);
     } catch (err) { console.error('Holiday fetch error:', err.message); }
 
-    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates, lateGraceMinutes: worker.late_grace_minutes ?? null });
-    const { paidDays, totalDueDays, lateDeductionDays, lateGraceMinutes, lateThresholds, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
+    const [leavesForMonth, proofsForMonth] = await Promise.all([
+      getLeavesInRange(startDate, endDate, workerId).catch(() => []),
+      getAbsenceProofsByWorker(workerId, startDate, endDate).catch(() => []),
+    ]);
+
+    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates, lateGraceMinutes: worker.late_grace_minutes ?? null, leaves: leavesForMonth, absenceProofs: proofsForMonth });
+    const { paidDays, totalDueDays, lateDeductionDays, lateGraceMinutes, lateThresholds, graceForfeited, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
 
@@ -636,6 +626,8 @@ export const getMySalaryBreakdown = async (req, res) => {
       lateDeductionDays,
       lateGraceMinutes,
       lateThresholds,
+      graceForfeited,
+      unauthorizedAbsences: (calc.unauthorizedAbsences || []).map((a) => ({ date: a.date, trigger: a.trigger, proofStatus: a.proofStatus, forfeits: a.forfeits })),
       sundayDeductionDays,
       joiningDeduction,
       totalDue: Math.round(totalDue),

@@ -4,21 +4,19 @@ import db from '../config/db.js';
 //
 // fro_donor_logs.fro_worker_id and .created_by are BOTH foreign-keyed to
 // workers(id). Under a work-as session the operator is not a worker at all —
-// a CRM agent has no workers row (their identity lives in crm_agents) and an
-// admin work-as carries a users.id — so writing the operator into either column
-// raised "violates foreign key constraint fro_donor_logs_created_by_fkey" and
-// then "..._fro_worker_id_fkey" once the first was corrected. The insert simply
-// cannot express "an agent did this" in a workers-keyed column.
+// an admin work-as carries a users.id — so writing the operator into either
+// column raised "violates foreign key constraint fro_donor_logs_created_by_fkey"
+// and then "..._fro_worker_id_fkey" once the first was corrected. The insert
+// simply cannot express "somebody else did this" in a workers-keyed column.
 //
 // operator_id carries that meaning with NO foreign key, deliberately: it spans
-// three id spaces (workers for a manual cover, users for an admin, crm_agents
-// for an agent) and none of them can be a constraint target. Readers match it
-// alongside fro_worker_id so rows written before this column existed — where a
-// manual cover's operator id was legitimately a worker and did land in
-// fro_worker_id — keep resolving.
+// two id spaces (workers for a manual cover, users for an admin) and neither can
+// be a constraint target. Readers match it alongside fro_worker_id so rows
+// written before this column existed — where a manual cover's operator id was
+// legitimately a worker and did land in fro_worker_id — keep resolving.
 //
 // Migrations are not auto-run, so this repairs itself on boot, matching
-// ensureStationAgentOfRecordSchema / ensureSevakRenewalSchema.
+// ensureSevakRenewalSchema.
 
 async function columnExists(table, column) {
   const r = await db._pool.query(
