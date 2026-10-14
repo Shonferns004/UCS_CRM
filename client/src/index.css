@@ -4357,6 +4357,7 @@
 .dr-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dr-toolbar-right { margin-left: auto; }
 .dr-toolbar-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted, #6b7280); }
+.dr-toolbar-today { font-size: 13px; font-weight: 600; color: var(--text, #1a1a2e); }
 .dr-status { font-size: 12px; color: #16a34a; white-space: nowrap; }
 .dr-status.dirty { color: #b45309; font-weight: 600; }
 

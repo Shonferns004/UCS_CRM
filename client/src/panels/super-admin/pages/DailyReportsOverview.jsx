@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { DatePicker, Dropdown } from '../../../components/ui'
+import { DatePicker, Dropdown, Avatar } from '../../../components/ui'
 import { toast } from '../../../components/Toast'
 import {
   fetchAllDailyReports,
@@ -13,6 +13,8 @@ import RecruitmentDashboard from './RecruitmentDashboard'
 import DeveloperDashboard from './DeveloperDashboard'
 import SocialDashboard from './SocialDashboard'
 import ReportView from '../../../components/DailyReport/ReportView'
+import { Block, Empty } from '../components/drShared'
+import './dailyReportsPremium.css'
 
 
 const IST_MS = 5.5 * 60 * 60 * 1000
@@ -23,7 +25,17 @@ const dayOf = (ts) => {
 }
 const today = () => dayOf(Date.now())
 
+const shiftDay = (d, n) => {
+  const t = new Date(`${d}T00:00:00Z`)
+  t.setUTCDate(t.getUTCDate() + n)
+  return t.toISOString().slice(0, 10)
+}
+
+const prettyDate = (d) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
 const PANEL_LABELS = { dev: 'Developer', hr: 'HR', recruiter: 'Recruiter', social: 'Social Media' }
+const PANEL_TONES = { dev: '#6366f1', hr: '#0ea5e9', recruiter: '#f59e0b', social: '#ec4899' }
 const PANELS = ['dev', 'hr', 'recruiter', 'social']
 
 const timeOf = (ts) => {
@@ -32,6 +44,17 @@ const timeOf = (ts) => {
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 }
+
+const Svg = ({ children, size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
+)
+const IcoLeft = () => <Svg><path d="m15 18-6-6 6-6" /></Svg>
+const IcoRight = () => <Svg><path d="m9 18 6-6-6-6" /></Svg>
+const IcoDown = () => <Svg><path d="m6 9 6 6 6-6" /></Svg>
+const IcoPrint = () => <Svg><path d="M6 9V3h12v6" /><rect x="6" y="14" width="12" height="7" rx="1" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /></Svg>
+const IcoCheck = () => <Svg size={20}><path d="M20 6 9 17l-5-5" /></Svg>
+const IcoClock = () => <Svg size={20}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Svg>
+const IcoPulse = () => <Svg size={20}><path d="M3 12h4l3-8 4 16 3-8h4" /></Svg>
 
 export default function DailyReportsOverview() {
   const [date, setDate] = useState(today())
@@ -127,7 +150,6 @@ export default function DailyReportsOverview() {
     return acc
   }, {}), [departments])
 
-  const visiblePanels = [dept]
   const openReport = reports.find((r) => String(r.id) === String(openId)) || null
   const assignedAll = useMemo(() => Object.values(assignedByName).flat(), [assignedByName])
 
@@ -155,141 +177,188 @@ export default function DailyReportsOverview() {
     }
   }
 
-  const totals = visiblePanels.reduce((acc, panel) => {
-    const s = summaryMap[panel]
-    acc.submitted += s?.submitted?.length || 0
-    acc.pending += s?.pending?.length || 0
-    return acc
-  }, { submitted: 0, pending: 0 })
+  const summary = summaryMap[dept]
+  const totals = {
+    submitted: summary?.submitted?.length || 0,
+    pending: summary?.pending?.length || 0,
+  }
+  const staff = totals.submitted + totals.pending
+  const completion = staff > 0 ? Math.round((totals.submitted / staff) * 100) : 0
+
+  const panelReports = byPanel[dept] || []
+  const pending = (summary?.pending || []).filter((p) => !employeeId || String(p.id) === String(employeeId))
+  const isToday = date === today()
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>Daily Reports</h2>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span className="sa-muted" style={{ fontSize: 12 }}>Date</span>
-          <DatePicker value={date} onChange={pickDate} max={today()} />
-          <Dropdown value={employeeId} onChange={pickEmployee} options={employeeOptions} searchable />
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(today())}>Today</button>
-          <button type="button" className="btn btn-outline" onClick={() => window.print()}>Print</button>
+    <div className="drx">
+      <header className="drx-head">
+        <div>
+          <h2 className="drx-title">Daily Reports</h2>
+          <p className="drx-sub">
+            {prettyDate(date)}
+            {isToday && <span className="drx-live">Today</span>}
+          </p>
         </div>
+
+        <div className="drx-toolbar no-print">
+          <div className="drx-step">
+            <button type="button" className="drx-icon-btn" aria-label="Previous day" title="Previous day" onClick={() => pickDate(shiftDay(date, -1))}><IcoLeft /></button>
+            <DatePicker value={date} onChange={pickDate} max={today()} />
+            <button type="button" className="drx-icon-btn" aria-label="Next day" title="Next day" disabled={isToday} onClick={() => pickDate(shiftDay(date, 1))}><IcoRight /></button>
+          </div>
+          <span className="drx-divider" />
+          <Dropdown value={employeeId} onChange={pickEmployee} options={employeeOptions} searchable />
+          <button type="button" className="drx-btn" onClick={() => pickDate(today())} disabled={isToday}>Today</button>
+          <button type="button" className="drx-btn primary" onClick={() => window.print()}><IcoPrint />Print</button>
+        </div>
+      </header>
+
+      <div className="drx-tabs no-print" role="tablist" aria-label="Departments">
+        {PANELS.map((panel) => {
+          const s = summaryMap[panel]
+          const sub = s?.submitted?.length ?? 0
+          const total = sub + (s?.pending?.length ?? 0)
+          return (
+            <button
+              key={panel}
+              type="button"
+              role="tab"
+              aria-selected={dept === panel}
+              className={`drx-tab${dept === panel ? ' active' : ''}`}
+              style={{ '--tone': PANEL_TONES[panel] }}
+              onClick={() => pickDept(panel)}
+            >
+              <span className="drx-tab-dot" />
+              {PANEL_LABELS[panel]}
+              <span className="drx-tab-count" title={`${sub} of ${total} submitted`}>{total ? `${sub}/${total}` : sub}</span>
+            </button>
+          )
+        })}
       </div>
 
-      <div className="sa-tabs" role="tablist" aria-label="Departments" style={{ flexWrap: 'wrap' }}>
-        {PANELS.map((panel) => (
-          <button
-            key={panel}
-            type="button"
-            role="tab"
-            aria-selected={dept === panel}
-            className={`sa-tab${dept === panel ? ' active' : ''}`}
-            onClick={() => pickDept(panel)}
-          >
-            {PANEL_LABELS[panel]} ({(summaryMap[panel]?.submitted?.length) ?? 0})
-          </button>
-        ))}
-      </div>
-
-      <div className="sa-muted" style={{ fontSize: 12, marginBottom: 12 }}>
-        {totals.submitted} submitted · {totals.pending} pending
-      </div>
-
-      {loading && <div className="sa-muted">Loading…</div>}
-
-      {!loading && dept === 'dev' && (
-        <DeveloperDashboard date={date} devReports={byPanel['dev'] || []} />
-      )}
-
-      {!loading && dept === 'hr' && (
-        <DailyReportDashboard date={date} hrReports={byPanel['hr'] || []} />
-      )}
-
-      {!loading && dept === 'recruiter' && (
-        <RecruitmentDashboard date={date} recReports={byPanel['recruiter'] || []} />
-      )}
-
-      {!loading && dept === 'social' && (
-        <SocialDashboard date={date} socialReports={byPanel['social'] || []} assignedTasks={assignedAll} />
-      )}
-
-      {!loading && visiblePanels.map((panel) => {
-        const panelReports = byPanel[panel] || []
-        const summary = summaryMap[panel]
-        const pending = (summary?.pending || []).filter((p) => !employeeId || String(p.id) === String(employeeId))
-        return (
-          <div className="sa-card" key={panel} style={{ padding: 16, marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-              <h4 style={{ margin: 0 }}>{PANEL_LABELS[panel] || panel}</h4>
-              <span className="sa-muted" style={{ fontSize: 12 }}>{panelReports.length} filled · {pending.length} pending</span>
+      {loading ? (
+        <>
+          <div className="drx-summary">
+            {[0, 1, 2].map((i) => <div key={i} className="drx-skel" style={{ height: 76 }} />)}
+          </div>
+          <div className="drx-skel" style={{ height: 190, marginBottom: 16 }} />
+          <div className="drx-skel" style={{ height: 150 }} />
+        </>
+      ) : (
+        <>
+          <div className="drx-summary">
+            <div className="drx-stat" style={{ '--c': '#16a34a' }}>
+              <span className="drx-stat-ico"><IcoCheck /></span>
+              <div className="drx-stat-body">
+                <div className="drx-stat-num">{totals.submitted}</div>
+                <div className="drx-stat-label">Submitted</div>
+              </div>
             </div>
-
-            {panelReports.length === 0 && <div className="sa-muted" style={{ fontSize: 13 }}>No report submitted.</div>}
-            {panelReports.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <div className="sa-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Filled by</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {[...new Set(panelReports.map((r) => r.reporter_name).filter(Boolean))].map((name) => (
-                    <span key={name} style={{ fontSize: 12, padding: '2px 10px', borderRadius: 999, background: '#dcfce7', color: '#166534', fontWeight: 600 }}>{name}</span>
-                  ))}
+            <div className="drx-stat" style={{ '--c': '#d97706' }}>
+              <span className="drx-stat-ico"><IcoClock /></span>
+              <div className="drx-stat-body">
+                <div className="drx-stat-num">{totals.pending}</div>
+                <div className="drx-stat-label">Pending</div>
+              </div>
+            </div>
+            <div className="drx-stat" style={{ '--c': '#2563eb' }}>
+              <span className="drx-stat-ico"><IcoPulse /></span>
+              <div className="drx-stat-body">
+                <div className="drx-stat-num">{completion}%</div>
+                <div className="drx-stat-label">Completion</div>
+                <div className="drx-progress" role="progressbar" aria-valuenow={completion} aria-valuemin={0} aria-valuemax={100}>
+                  <span style={{ width: `${completion}%` }} />
                 </div>
               </div>
-            )}
-            {panelReports.map((r) => {
-              const open = String(r.id) === String(openId)
-              return (
-                <div key={r.id} style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 10, marginTop: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-                    onClick={() => (open ? setOpenId(null) : openDetail(r))}>
-                    <span>{r.reporter_name}{r.department && <span className="sa-muted" style={{ fontWeight: 400, fontSize: 11 }}> · {PANEL_LABELS[r.department] || r.department}</span>}</span>
-                    <span className="sa-muted" style={{ fontWeight: 400, fontSize: 12 }}>{timeOf(r.updated_at)} {open ? '▲' : '▼'}</span>
-                  </div>
-                  {open && (
-                    <div style={{ marginTop: 8, padding: 12, background: 'var(--surface-2, #f8fafc)', borderRadius: 8 }}>
-                      <ReportView
-                        panel={r.panel}
-                        data={r.data || {}}
-                        assignedTasks={r.panel === 'social' ? (assignedByName[String(r.reporter_name || '').trim()] || []) : []}
-                      />
+            </div>
+          </div>
 
-                      <div style={{ marginTop: 12 }}>
-                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--text-muted, #6b7280)', marginBottom: 4 }}>
-                          HOD Remark{r.remark_by ? ` · ${r.remark_by}` : ''}
-                        </label>
-                        <textarea
-                          value={remarkDraft}
-                          onChange={(e) => setRemarkDraft(e.target.value)}
-                          rows={3}
-                          placeholder="Add a remark for this report…"
-                          style={{ width: '100%', boxSizing: 'border-box', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, resize: 'vertical' }}
-                        />
-                        <div style={{ marginTop: 8 }}>
-                          <button type="button" className="btn btn-primary btn-sm" onClick={saveRemark} disabled={savingRemark}>
-                            {savingRemark ? 'Saving…' : 'Save remark'}
-                          </button>
+          {dept === 'dev' && <DeveloperDashboard date={date} devReports={byPanel['dev'] || []} />}
+          {dept === 'hr' && <DailyReportDashboard date={date} hrReports={byPanel['hr'] || []} />}
+          {dept === 'recruiter' && <RecruitmentDashboard date={date} recReports={byPanel['recruiter'] || []} />}
+          {dept === 'social' && <SocialDashboard date={date} socialReports={byPanel['social'] || []} assignedTasks={assignedAll} />}
+
+          <Block title={`${PANEL_LABELS[dept]} — Submitted Reports`} aside={`${panelReports.length} filled · ${pending.length} pending`}>
+            {panelReports.length === 0 ? (
+              <Empty big>No report submitted.</Empty>
+            ) : (
+              <div className="drx-reports">
+                {panelReports.map((r) => {
+                  const open = String(r.id) === String(openId)
+                  const time = timeOf(r.updated_at)
+                  const dirty = remarkDraft !== (openReport?.remark || '')
+                  return (
+                    <article key={r.id} className={`drx-report${open ? ' open' : ''}`}>
+                      <button
+                        type="button"
+                        className="drx-report-head"
+                        aria-expanded={open}
+                        onClick={() => (open ? setOpenId(null) : openDetail(r))}
+                      >
+                        <Avatar name={r.reporter_name} size={38} />
+                        <span className="drx-report-who">
+                          <span className="drx-report-name">{r.reporter_name}</span>
+                          <span className="drx-report-meta">
+                            {PANEL_LABELS[r.department] || r.department || PANEL_LABELS[r.panel] || 'Report'}
+                            {time && ` · Updated ${time}`}
+                          </span>
+                        </span>
+                        {r.remark && <span className="drx-flag">Remark added</span>}
+                        <span className="drx-chev"><IcoDown /></span>
+                      </button>
+
+                      {!open && r.remark && (
+                        <div className="drx-remark-preview"><b>HOD remark</b>{r.remark}</div>
+                      )}
+
+                      {open && (
+                        <div className="drx-report-body">
+                          <ReportView
+                            panel={r.panel}
+                            data={r.data || {}}
+                            assignedTasks={r.panel === 'social' ? (assignedByName[String(r.reporter_name || '').trim()] || []) : []}
+                          />
+
+                          <div className="drx-remark-box no-print">
+                            <label className="drx-label" htmlFor={`remark-${r.id}`}>
+                              HOD Remark{r.remark_by ? ` · ${r.remark_by}` : ''}
+                            </label>
+                            <textarea
+                              id={`remark-${r.id}`}
+                              className="drx-textarea"
+                              value={remarkDraft}
+                              onChange={(e) => setRemarkDraft(e.target.value)}
+                              rows={3}
+                              placeholder="Add a remark for this report…"
+                            />
+                            <div className="drx-remark-actions">
+                              <span className="drx-hint">{dirty ? 'Unsaved changes' : (r.remark ? 'Saved' : '')}</span>
+                              <button type="button" className="drx-btn primary" onClick={saveRemark} disabled={savingRemark || !dirty}>
+                                {savingRemark ? 'Saving…' : 'Save remark'}
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  )}
-                  {!open && r.remark && (
-                    <div className="sa-muted" style={{ fontSize: 12, marginTop: 4 }}>Remark: {r.remark}</div>
-                  )}
-                </div>
-              )
-            })}
+                      )}
+                    </article>
+                  )
+                })}
+              </div>
+            )}
 
             {pending.length > 0 && (
-              <div style={{ marginTop: 12, borderTop: '1px dashed var(--border, #e5e7eb)', paddingTop: 10 }}>
-                <div className="sa-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Pending</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ marginTop: panelReports.length ? 20 : 16 }}>
+                <div className="drx-label">Yet to submit</div>
+                <div className="drx-chips">
                   {pending.map((p) => (
-                    <span key={p.id} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#92400e' }}>{p.name}</span>
+                    <span key={p.id} className="drx-chip"><Avatar name={p.name} size={22} />{p.name}</span>
                   ))}
                 </div>
               </div>
             )}
-          </div>
-        )
-      })}
+          </Block>
+        </>
+      )}
     </div>
   )
 }

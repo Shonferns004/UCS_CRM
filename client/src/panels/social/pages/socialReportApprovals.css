@@ -1,0 +1,134 @@
+/* Social Report Approvals — self-contained styles for the review page inside
+   the Social panel. Uses the panel-dev tokens (var(--ink) etc.) and the shared
+   .card / .btn classes; everything here is sra- prefixed so it cannot leak. */
+
+.sra-root { max-width: 1000px; }
+
+.sra-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px; margin-bottom: 14px;
+}
+.sra-title { margin: 0; font-size: 20px; font-weight: 700; color: var(--ink, #1a1a2e); }
+.sra-sub { margin: 4px 0 0; font-size: 13px; color: var(--ink-soft, #64748b); }
+.sra-live {
+  display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .4px; color: #fff; background: #22c55e;
+  padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+}
+
+.sra-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.sra-step { display: flex; align-items: center; gap: 6px; }
+.sra-btn {
+  min-height: 34px; padding: 6px 12px; border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px; background: #fff; color: var(--ink, #1a1a2e); font-family: inherit;
+  font-size: 13px; font-weight: 500; cursor: pointer; transition: all .12s;
+}
+.sra-btn:hover:not(:disabled) { background: #f3f4f6; }
+.sra-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.sra-stats {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px;
+}
+.sra-stat {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 8px;
+  background: var(--card-bg, #fff); border: 1px solid var(--line, #e5e7eb);
+  border-radius: 10px; cursor: pointer; font-family: inherit; transition: all .12s;
+}
+.sra-stat:hover { border-color: #cbd5e1; }
+.sra-stat.on { border-color: var(--primary, #6366f1); box-shadow: 0 0 0 2px rgba(99, 102, 241, .14); }
+.sra-stat-num { font-size: 22px; font-weight: 700; color: var(--ink, #1a1a2e); line-height: 1.1; }
+.sra-stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; color: var(--ink-soft, #64748b); }
+
+.sra-alert {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
+  padding: 10px 12px; border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px;
+}
+.sra-alert-text { font-size: 12px; font-weight: 600; color: #92400e; }
+.sra-alert-btn {
+  padding: 4px 10px; border: 1px solid #fcd34d; background: #fff; border-radius: 999px;
+  font-family: inherit; font-size: 12px; font-weight: 600; color: #92400e; cursor: pointer;
+}
+.sra-alert-btn:hover { background: #fef3c7; }
+
+.sra-list { display: flex; flex-direction: column; gap: 12px; }
+.sra-report {
+  margin: 0; background: var(--card-bg, #fff); border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, .05); overflow: hidden;
+}
+.sra-report.open { border-color: #c7d2fe; }
+.sra-report-head {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 14px;
+  border: none; background: transparent; cursor: pointer; font-family: inherit; text-align: left;
+}
+.sra-report-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.sra-report-name { font-size: 14px; font-weight: 700; color: var(--ink, #1a1a2e); }
+.sra-report-meta { font-size: 11px; color: var(--ink-soft, #64748b); }
+.sra-chev { flex-shrink: 0; font-size: 16px; color: var(--ink-soft, #94a3b8); font-weight: 700; }
+
+.sra-status {
+  flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  text-transform: uppercase; letter-spacing: .3px;
+}
+.sra-status.pending { background: #fef3c7; color: #92400e; }
+.sra-status.accepted { background: #d1fae5; color: #065f46; }
+.sra-status.rejected { background: #fee2e2; color: #991b1b; }
+
+.sra-report-body { padding: 4px 14px 14px; border-top: 1px solid var(--line, #eef2f7); }
+.sra-review-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 14px; border-top: 1px solid var(--line, #e5e7eb);
+  background: rgba(247, 249, 251, .6);
+}
+.sra-accept { background: #16a34a; border-color: #16a34a; color: #fff; }
+.sra-accept:hover:not(:disabled) { background: #15803d; color: #fff; }
+.sra-accept.on { box-shadow: 0 0 0 2px rgba(22, 163, 74, .25); }
+
+.sra-reject { background: #dc2626; border-color: #dc2626; color: #fff; }
+.sra-reject:hover:not(:disabled) { background: #b91c1c; color: #fff; }
+.sra-reject.on { box-shadow: 0 0 0 2px rgba(220, 38, 38, .25); }
+
+.sra-saving { font-size: 12px; color: var(--ink-soft, #64748b); }
+.sra-muted { font-size: 13px; color: var(--ink-soft, #64748b); }
+.sra-empty {
+  padding: 28px 16px; text-align: center; font-size: 13px; color: var(--ink-soft, #6b7280);
+  margin: 0; background: var(--card-bg, #fff); border: 1px solid var(--line, #e5e7eb); border-radius: 12px;
+}
+
+/* Reviewer's query / suggestion shown on a rejected report. */
+.sra-note {
+  display: flex; flex-direction: column; gap: 2px; margin: 0 14px 12px;
+  padding: 10px 12px; border: 1px solid #fecaca; background: #fef2f2; border-radius: 10px;
+}
+.sra-note-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #991b1b;
+}
+.sra-note-text { font-size: 13px; color: #7f1d1d; white-space: pre-wrap; word-break: break-word; }
+
+/* Reject modal — the reviewer types a query / suggestion before rejecting. */
+.sra-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(15, 23, 42, .45);
+}
+.sra-modal {
+  width: 100%; max-width: 480px; background: #fff; border-radius: 14px; padding: 20px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, .25);
+}
+.sra-modal-title { margin: 0 0 6px; font-size: 17px; font-weight: 700; color: var(--ink, #1a1a2e); }
+.sra-modal-sub { margin: 0 0 14px; font-size: 13px; color: var(--ink-soft, #64748b); line-height: 1.5; }
+.sra-modal-label {
+  display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--ink, #1a1a2e);
+}
+.sra-modal-optional { font-weight: 500; color: var(--ink-soft, #94a3b8); }
+.sra-modal-input {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line, #e5e7eb);
+  border-radius: 10px; font-family: inherit; font-size: 13px; color: var(--ink, #1a1a2e);
+  resize: vertical; min-height: 90px;
+}
+.sra-modal-input:focus { outline: none; border-color: var(--primary, #6366f1); box-shadow: 0 0 0 2px rgba(99, 102, 241, .14); }
+.sra-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.sra-reject-solid { background: #dc2626; border-color: #dc2626; color: #fff; }
+.sra-reject-solid:hover:not(:disabled) { background: #b91c1c; color: #fff; }
+
+@media (max-width: 560px) {
+  .sra-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

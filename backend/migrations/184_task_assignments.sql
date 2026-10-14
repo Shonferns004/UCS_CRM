@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS task_assignments (
 ALTER TABLE task_assignments
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
 
+-- Social Monthly Planner's "Team member" column assigns one member PER
+-- deliverable (Banner, YouTube Video, Instagram Reels, Instagram Photos,
+-- Captions & Heading) for a programme, not just one member for the whole
+-- programme. `content_type` names that deliverable; NULL is the free-form
+-- "Assign Task" modal's single-assignee task. Idempotent, like `status`.
+ALTER TABLE task_assignments
+  ADD COLUMN IF NOT EXISTS content_type TEXT;
+
 -- Look-up by (panel, assignee, date) powers the assignee's Daily Report block;
 -- the (panel, date) index powers the assigner's day view.
 CREATE INDEX IF NOT EXISTS idx_task_assignments_assignee
@@ -30,3 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_task_assignments_assignee
 
 CREATE INDEX IF NOT EXISTS idx_task_assignments_date
   ON task_assignments (panel, task_date);
+
+-- The planner keys a programme's deliverable by (date, title, content_type).
+CREATE INDEX IF NOT EXISTS idx_task_assignments_content
+  ON task_assignments (panel, task_date, content_type);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchAttendanceSummary } from '../../../api/dailyReports'
 import { toast } from '../../../components/Toast'
+import { Block, Kpi, Empty, ReporterBar, TableWrap, NumberedList } from '../components/drShared'
 
 // Super-Admin dashboard tab inside Daily Reports. Four blocks:
 //   1. Attendance Summary   — live counts from /hr-reports/attendance-summary,
@@ -43,24 +44,6 @@ const pendingRows = (hrReports) => {
 const activities = (hrReports) =>
   hrReports.flatMap((r) => asList(r.data?.hr_activities?.hr_activities))
 
-function Kpi({ label, value, accent }) {
-  return (
-    <div className="dr-kpi" style={{ borderTop: accent ? `3px solid ${accent}` : undefined }}>
-      <div className="dr-kpi-value" style={{ fontSize: 20 }}>{value}</div>
-      <div className="dr-kpi-label">{label}</div>
-    </div>
-  )
-}
-
-function Block({ title, children, muted }) {
-  return (
-    <div className="sa-card" style={{ padding: 16, marginBottom: 16 }}>
-      <div className="sa-card-title" style={{ marginBottom: 12 }}>{title}</div>
-      {muted ? <div className="sa-muted" style={{ fontSize: 13 }}>{muted}</div> : children}
-    </div>
-  )
-}
-
 export default function DailyReportDashboard({ date, hrReports = [] }) {
   const [summary, setSummary] = useState(null)
 
@@ -91,14 +74,10 @@ export default function DailyReportDashboard({ date, hrReports = [] }) {
 
   return (
     <div>
-      <div className="sa-muted" style={{ fontSize: 12, marginBottom: 12 }}>
-        {reporters.length > 0 ? `HR report by: ${reporters.join(', ')}` : 'No HR report submitted on this date — live attendance only.'}
-      </div>
+      <ReporterBar names={reporters} emptyText="No HR report submitted on this date — showing live attendance only." />
 
-      <Block
-        title="1. Attendance Summary"
-        muted={!summary ? 'Loading attendance…' : null}
-      >
+      <Block title="1. Attendance Summary">
+        {!summary && <div className="drx-skel" style={{ height: 84 }} aria-label="Loading attendance" />}
         {summary && (
           <div className="dr-kpis">
             <Kpi label="Total Employees" value={summary.total_staff ?? '—'} accent="#5B6B4E" />
@@ -124,21 +103,14 @@ export default function DailyReportDashboard({ date, hrReports = [] }) {
       </Block>
 
       <Block title="3. HR Activities Completed">
-        {actLines.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No activities reported.</div>
-        ) : (
-          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.9 }} className="sa-table-plain">
-            {actLines.map((line, i) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{line}</li>)}
-          </ol>
-        )}
+        {actLines.length === 0 ? <Empty>No activities reported.</Empty> : <NumberedList lines={actLines} />}
       </Block>
 
       <Block title="4. Pending HR Tasks">
         {pending.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13 }}>No pending tasks reported.</div>
+          <Empty>No pending tasks reported.</Empty>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="sa-table">
+          <TableWrap>
               <thead>
                 <tr>
                   <th>Task</th>
@@ -155,8 +127,7 @@ export default function DailyReportDashboard({ date, hrReports = [] }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </TableWrap>
         )}
       </Block>
     </div>
