@@ -10,6 +10,9 @@ const REELS_CSS = `
 .reels-title { margin: 0; font-size: 16px; font-weight: 800; color: var(--eh-ink, #1f2430); }
 .reels-sub { font-size: 11.5px; color: var(--eh-ink-soft, #6f6c86); }
 .reels-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+.reels-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.reels-row > .reels-block { margin: 0; }
+@media (max-width: 900px) { .reels-row { grid-template-columns: 1fr; } }
 .reels-block { border: 1px solid var(--eh-line, #E3E6F2); border-radius: 12px; overflow: hidden; background: #fff; }
 .reels-block-head { display: flex; align-items: center; gap: 10px; padding: 10px 13px; background: var(--eh-tint-1, #f0eefb); }
 .reels-block-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--eh-primary, #6c5ce7); color: #fff; font-size: 11px; font-weight: 800; flex: none; }
@@ -32,11 +35,12 @@ const REELS_CSS = `
 .reels-block-count.ok { color: var(--eh-success, #16a34a); }
 .reels-progress-fill.done { background: var(--eh-success, #16a34a); }
 .reels-sig-note { font-size: 11px; color: var(--eh-ink-faint, #a09db4); }
-.reels-details { display: flex; flex-direction: column; gap: 9px; }
-.reels-details .reels-field { display: grid; grid-template-columns: minmax(150px, 210px) 1fr; align-items: center; gap: 8px 14px; }
+.reels-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px 14px; }
+.reels-details .reels-field { display: flex; flex-direction: column; gap: 5px; }
 .reels-details .reels-field > span { margin: 0; }
 .reels-details .reels-field input { width: 100%; min-width: 0; }
-@media (max-width: 620px) { .reels-details .reels-field { grid-template-columns: 1fr; gap: 5px; } }
+@media (max-width: 900px) { .reels-details { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .reels-details { grid-template-columns: 1fr; } }
 .reels-field { display: flex; flex-direction: column; gap: 5px; }
 .reels-field span { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--eh-ink-soft, #6f6c86); }
 .reels-field input { padding: 8px 10px; font-family: inherit; font-size: 13px; color: var(--eh-ink, #1f2430); background: #fff; border: 1px solid var(--eh-line, #d1d5db); border-radius: 9px; outline: none; transition: border-color .15s, box-shadow .15s; }
@@ -44,7 +48,8 @@ const REELS_CSS = `
 .reels-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .reels-pill { padding: 6px 12px; border: 1px solid var(--eh-line, #d1d5db); border-radius: 999px; background: #fff; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--eh-ink, #1f2430); cursor: pointer; transition: all .15s; }
 .reels-pill.on { background: var(--eh-primary, #6c5ce7); border-color: var(--eh-primary, #6c5ce7); color: #fff; }
-.reels-approvers { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.reels-approvers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .reels-approvers { grid-template-columns: 1fr; } }
 .reels-approver { border: 1px solid var(--eh-line, #E3E6F2); border-radius: 12px; padding: 12px; background: var(--eh-tint-1, #faf9ff); display: flex; flex-direction: column; gap: 8px; }
 .reels-approver h4 { margin: 0; font-size: 12.5px; font-weight: 800; color: var(--eh-ink, #1f2430); }
 .reels-approver .reels-field { display: grid; grid-template-columns: minmax(88px, 112px) 1fr; align-items: center; gap: 4px 10px; }
@@ -189,6 +194,35 @@ export default function ReelsChecklist() {
   const setApprover = (id, patch) =>
     setApprovers((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } }))
 
+  const renderSection = (s, i) => {
+    const items = checks[s.id]
+    const done = items.filter(Boolean).length
+    const pct = s.items.length ? Math.round((done / s.items.length) * 100) : 0
+    return (
+      <div key={s.id} className="reels-block">
+        <div className={`reels-block-head${done === s.items.length ? ' done' : ''}`}>
+          <span className="reels-block-num">{i + 2}</span>
+          <span className="reels-block-name">{s.label}</span>
+          <span className={`reels-block-count${done === s.items.length ? ' ok' : ''}`}>{done}/{s.items.length}</span>
+          <div className="reels-progress" style={{ width: 90 }}>
+            <div className={`reels-progress-fill${done === s.items.length ? ' done' : ''}`} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+        {s.items.map((item, j) => (
+          <label key={item} className={`reels-item${items[j] ? ' done' : ''}`}>
+            <input
+              type="checkbox"
+              checked={Boolean(items[j])}
+              onChange={() => toggleItem(s.id, j)}
+            />
+            <span className="reels-box">✓</span>
+            <span className="reels-item-text">{item}</span>
+          </label>
+        ))}
+      </div>
+    )
+  }
+
   const downloadPdf = async () => {
     setDownloading(true)
     try {
@@ -278,34 +312,15 @@ export default function ReelsChecklist() {
           </div>
         </div>
 
-        {REELS_SECTIONS.map((s, i) => {
-          const items = checks[s.id]
-          const done = items.filter(Boolean).length
-          const pct = s.items.length ? Math.round((done / s.items.length) * 100) : 0
-          return (
-            <div key={s.id} className="reels-block">
-              <div className={`reels-block-head${done === s.items.length ? ' done' : ''}`}>
-                <span className="reels-block-num">{i + 2}</span>
-                <span className="reels-block-name">{s.label}</span>
-                <span className={`reels-block-count${done === s.items.length ? ' ok' : ''}`}>{done}/{s.items.length}</span>
-                <div className="reels-progress" style={{ width: 90 }}>
-                  <div className={`reels-progress-fill${done === s.items.length ? ' done' : ''}`} style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-              {s.items.map((item, j) => (
-                <label key={item} className={`reels-item${items[j] ? ' done' : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(items[j])}
-                    onChange={() => toggleItem(s.id, j)}
-                  />
-                  <span className="reels-box">✓</span>
-                  <span className="reels-item-text">{item}</span>
-                </label>
-              ))}
-            </div>
-          )
-        })}
+        <div className="reels-row">
+          {renderSection(REELS_SECTIONS[0], 0)}
+          {renderSection(REELS_SECTIONS[1], 1)}
+        </div>
+        <div className="reels-row">
+          {renderSection(REELS_SECTIONS[2], 2)}
+          {renderSection(REELS_SECTIONS[3], 3)}
+        </div>
+        {renderSection(REELS_SECTIONS[4], 4)}
 
         <div className="reels-block">
           <div className="reels-block-head">
