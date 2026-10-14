@@ -4,6 +4,7 @@ import { getSettings } from '../models/incentiveSettingsModel.js';
 import { getTargetsForWorkersMonth, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from './froMonthlyTarget.js';
+import { getSlabForTarget, resolveFroSlab } from './leadIncentiveSlabBucketing.js';
 import { istMonthBounds, istDateString } from '../utils/ist.js';
 import { getTiersForSlabs } from '../models/incentiveSlabTierModel.js';
 import {
@@ -104,43 +105,10 @@ const FRO_LEADS_SQL = `
   ORDER BY verified_at DESC
 `;
 
-// Determine which slab a FRO's target falls into.
-//
-// Boundaries are inclusive of max_amount because admins define ranges as
-// "₹1 – ₹29999", "₹70000 – ₹100000" etc. and expect a ₹1,00,000 target to sit in
-// the ₹70k–₹1L range — not fall through the `t < max` gap into the first slab
-// (which is exactly how a ₹2L FRO ended up bucketed under ₹1 – ₹29,999).
-//
-// A target that matches no range at all (a genuine gap between two configured
-// ranges, e.g. ₹2,00,001 – ₹2,49,999) goes to the NEAREST range by distance
-// instead of the lowest one, so an unconfigured middle target never lands in
-// the bottom bucket.
-function getSlabForTarget(target, slabs) {
-  const t = Number(target) || 0;
-  for (const slab of slabs) {
-    if (t >= Number(slab.min_amount) && t <= Number(slab.max_amount)) {
-      return slab;
-    }
-  }
-  // If target exceeds all slabs, use the last (highest) slab
-  if (slabs.length > 0 && t >= Number(slabs[slabs.length - 1].min_amount)) {
-    return slabs[slabs.length - 1];
-  }
-  // Fallback: the closest range by distance to [min, max], so a target sitting
-  // in a gap between two ranges lands in the nearer one — not always the first.
-  let nearest = slabs[0] || null;
-  let nearestDist = Infinity;
-  for (const slab of slabs) {
-    const mn = Number(slab.min_amount);
-    const mx = Number(slab.max_amount);
-    const d = t < mn ? mn - t : t > mx ? t - mx : 0;
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = slab;
-    }
-  }
-  return nearest;
-}
+// Range bucketing (getSlabForTarget / resolveFroSlab) lives in
+// ./leadIncentiveSlabBucketing.js — a pure module with regression tests locking
+// the inclusive-upper-bound behaviour (a ₹2,00,000 target must land in the
+// ₹100001–₹200000 range, not the bottom one).
 
 // Resolve every FRO's monthly target for the month containing `date` through the
 // SAME resolver the Teams → FRO Targets screen uses (manual → auto →
@@ -178,15 +146,6 @@ async function buildFroTargetMap(fros, date) {
     map.set(key, Number(resolved.target) || 0);
   }
   return map;
-}
-
-// Resolve the FRO's competition range: an admin-assigned slab (via ⚙️ Configure)
-// wins; otherwise the FRO falls into a range automatically from their monthly
-// target (existing behavior for unassigned FROs).
-function resolveFroSlab(froId, target, slabs, assignMap, slabById) {
-  const assignedId = assignMap[froId];
-  if (assignedId && slabById[assignedId]) return { slab: slabById[assignedId], target };
-  return { slab: getSlabForTarget(target, slabs), target };
 }
 
 // Calculate lead incentive for a single FRO on a given date, within their slab.
