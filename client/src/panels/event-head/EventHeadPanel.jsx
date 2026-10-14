@@ -28,7 +28,6 @@ import Activities from './pages/Activities'
 import ActivityDetail from './pages/ActivityDetail'
 import EventDetail from './pages/EventDetail'
 import MediaManagement from './pages/MediaManagement'
-import TechnicalTickets from '../../components/TechnicalTickets'
 import SuperAdminTicketSection from '../../components/SuperAdminTicketSection'
 import AllTicketsDashboard from './pages/AllTicketsDashboard'
 import NoticePopup from '../../components/NoticePopup'
@@ -47,7 +46,6 @@ const NAV = [
   { id:'reels-checklist', path:'/event-head/reels-checklist',   label:'Reels Checklist',       icon:Eye, section:'Programs' },
   { id:'media',          path:'/event-head/media-management', label:'Media / Banners',       icon:Eye, section:'Manage' },
   { id:'reports',        path:'/event-head/reports',          label:'Event Reports',         icon:FileTxt, section:'Reporting' },
-  { id:'my-tickets',     path:'/event-head/my-tickets',       label:'My Tickets',            icon:Bell, section:'Reporting' },
   { id:'all-tickets',    path:'/event-head/all-tickets',      label:'All Tickets',           icon:FileTxt, section:'Reporting' },
   { id:'to-super-admin', path:'/event-head/to-super-admin',  label:'To Super Admin',        icon:Bell, section:'Reporting' },
   { id:'chat',           path:'/event-head/chat',             label:'UCS Chat',             icon:ChatIcon, section:'Community' },
@@ -368,7 +366,6 @@ export default function EventHeadPanel() {
             <Route path="reports" element={<EventReports />} />
             <Route path="approvals" element={<ApprovalWorkflow />} />
             <Route path="notifications" element={<NotificationsPage />} />
-            <Route path="my-tickets" element={<TechnicalTickets panel="event_head" category="digital_team" department="event_head" canResolve />} />
             <Route path="all-tickets" element={<AllTicketsDashboard />} />
             <Route path="to-super-admin" element={<SuperAdminTicketSection panel="event_head" />} />
             <Route path="chat" element={<ChatWorkspace />} />

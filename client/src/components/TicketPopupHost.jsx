@@ -24,6 +24,8 @@ const QUEUE_PATHS = {
   event_manager: '/event-head/all-tickets',
   digital: '/dev-panel/tickets',
   developers: '/dev-panel/tickets',
+  social: '/social/tickets',
+  social_media: '/social/tickets',
   super_admin: '/sa/support-tickets',
   fro: '/fro/tickets',
   ngo_admin: '/ngo-admin/my-tickets',
@@ -37,6 +39,7 @@ const queuePathFor = (user, pathname) => {
   if (pathname.startsWith('/hr')) return QUEUE_PATHS.hr;
   if (pathname.startsWith('/event-head')) return QUEUE_PATHS.event_head;
   if (pathname.startsWith('/dev-panel')) return QUEUE_PATHS.digital;
+  if (pathname.startsWith('/social')) return QUEUE_PATHS.social;
   if (pathname.startsWith('/sa')) return QUEUE_PATHS.super_admin;
   if (pathname.startsWith('/fro')) return QUEUE_PATHS.fro;
   if (pathname.startsWith('/ngo-admin')) return QUEUE_PATHS.ngo_admin;

@@ -59,7 +59,6 @@ const NAV = [
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
-  { id:'to-super-admin', path:'/hr/to-super-admin', label:'To Super Admin', icon:Bell, eyebrow:'Support', sub:'All tickets raised to the Super Admin' },
   { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
   { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
 ]
@@ -104,6 +103,7 @@ function HRPageShell({ children }) {
   const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('hr_theme') || 'sky')
   const [ticketCount, setTicketCount] = useState(0)
+  const isSuperAdmin = user?.role === 'super_admin'
   const [allNotifs, setAllNotifs] = useState([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuRef = useRef(null)
@@ -166,7 +166,7 @@ function HRPageShell({ children }) {
       <SpecialIncentive />
       <LeadChampionCelebration />
       <NoticePopup />
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      {!isSuperAdmin && <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />}
       <div className="main">
         <div className="mobile-top">
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>

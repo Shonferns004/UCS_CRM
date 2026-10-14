@@ -16,6 +16,10 @@ const DEPARTMENTS = [
   { value: 'developers', label: 'Developers' },
   { value: 'hr', label: 'HR' },
   { value: 'fro', label: 'FRO' },
+  { value: 'super_admin', label: 'Super Admin' },
+  { value: 'ngo_admin', label: 'NGO Admin' },
+  { value: 'socialmedia', label: 'Social Media' },
+  { value: 'technical', label: 'Technical' },
 ];
 
 const CATEGORIES = [
@@ -26,7 +30,7 @@ const CATEGORIES = [
   { value: 'digital_team', label: 'Digital Team' },
   { value: 'hr_issue', label: 'HR Related' },
   { value: 'super_admin', label: 'Super Admin' },
-  { value: 'other', label: 'Other' },
+  { value: 'developers', label: 'Developers' },
 ];
 
 const PRIORITIES = [
@@ -277,7 +281,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
       } else {
         await apiPost('/tickets', base);
       }
-      alert('Ticket submitted successfully');
+      toast.success("Ticket raised successfully");
       setShowRaise(false);
       loadTickets();
     } catch (err) {
@@ -734,16 +738,12 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', marginTop: 4 }}>→ Routed to: {routeLabel(form.category)}</div>
                 </label>
               </div>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+<div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   Priority
                   <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))}>
                     {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                   </select>
-                </label>
-                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Reference ID (optional)
-                  <input value={form.reference_id} onChange={e => setForm(p => ({ ...p, reference_id: e.target.value }))} placeholder="Payment/suspense ID" />
                 </label>
               </div>
               <label className="field" style={{ marginBottom: 12 }}>

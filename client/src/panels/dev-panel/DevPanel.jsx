@@ -19,7 +19,6 @@ const NAV = [
   { id: 'dashboard', path: '/dev-panel', label: 'Dashboard', icon: 'dashboard' },
   { id: 'tickets', path: '/dev-panel/tickets', label: 'All Tickets', icon: 'confirmation_number' },
   { id: 'my-tickets', path: '/dev-panel/my-tickets', label: 'My Tickets', icon: 'person' },
-  { id: 'to-super-admin', path: '/dev-panel/to-super-admin', label: 'To Super Admin', icon: 'confirmation_number' },
   { id: 'unassigned', path: '/dev-panel/unassigned', label: 'Unassigned', icon: 'assignment_late' },
   { id: 'daily-report', path: '/dev-panel/daily-report', label: 'Daily Report', icon: 'description' },
   { id: 'chat', path: '/dev-panel/chat', label: 'UCS Chat', icon: 'chat' },
@@ -38,14 +37,17 @@ export default function DevPanel() {
   const location = useLocation();
   const { user, logout } = useUcs();
   const [collapsed, setCollapsed] = useState(false);
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const activeNav = NAV.find(n => location.pathname === n.path || (n.path !== '/dev-panel' && location.pathname.startsWith(n.path)));
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       <aside style={{
-        width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
-        display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
+        ...(isSuperAdmin ? { display: 'none' } : {
+          width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
+          display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
+        }),
       }}>
         <div style={{ padding: collapsed ? '16px 12px' : '16px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>

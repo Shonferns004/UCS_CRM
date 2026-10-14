@@ -28,7 +28,6 @@ const NAV = [
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
-  { id: 'to-super-admin', path: '/ngo-admin/to-super-admin', label: 'To Super Admin', icon: 'tickets' },
   { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
 ]
 
@@ -94,6 +93,7 @@ export default function NgoAdminPanel() {
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const isSuperAdmin = user?.role === 'super_admin'
   // Desktop rail state, kept across reloads the same way the theme is. Collapsing
   // is a deliberate choice about how much of the board you can see, so it should
   // survive a refresh rather than springing open on every one.
@@ -305,9 +305,9 @@ export default function NgoAdminPanel() {
     setDrawerOpen(false);
   };
 
-  return (
+return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={navCollapsed} />
+      {!isSuperAdmin && <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={navCollapsed} />}
       <div className="main">
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
