@@ -8,15 +8,15 @@ import { fetchTaskAssignments, fetchTaskMonthAssignments } from '../../../api/ta
 //
 // `loadAssignedTasks` pulls the read-only tasks a manager assigned to this
 // reporter (backend/routes/taskAssignmentRoutes.js); the reporter keeps their
-// own editable list in the "My Tasks" section below it. Only the tasks for the
-// day on screen are shown, so "My Tasks" reads as that day's work rather than
-// every assignment ever made — changing the report date surfaces that day's
-// tasks instead.
+// own editable list in the "My Tasks" section below it. Every task assigned to
+// the member is shown whatever its date — a task planned for another day must
+// not disappear just because the report is opened on a different date. Each
+// card carries its own date, so the day is still clear.
 
 const sections = withCommon(socialSections)
 
-const loadAssignedTasks = (date) =>
-  fetchTaskAssignments(date)
+const loadAssignedTasks = () =>
+  fetchTaskAssignments()
     .then((res) => (res?.assigned_to_me || []).slice())
     .catch(() => [])
 

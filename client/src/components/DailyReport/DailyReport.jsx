@@ -146,6 +146,7 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
   const assigned = assignedTasks.map((t) => ({
     ...t,
     status: TASK_STATUSES.includes(t.status) ? t.status : 'pending',
+    day: istDateOf(t.task_date),
   }))
   const empty = items.length === 0 && assigned.length === 0
   return (
@@ -201,7 +202,7 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
                   <div key={`assigned-${t.id}`} className={`dr-task dr-task-${col.id} dr-task-assigned`}>
                     <div className="dr-task-text">{t.title}</div>
                     <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      Assigned{t.assigned_by_name ? ` · ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''}
+                      Assigned{t.assigned_by_name ? ` · ${t.assigned_by_name}` : ''}{t.day ? ` · ${fmtDay(t.day)}` : ''}
                     </div>
                     <div className="dr-task-actions" role="group" aria-label="Update assigned task">
                       {TASK_COLUMNS.map((c) => (
@@ -445,7 +446,7 @@ export default function DailyReport({
   const teamGroups = (() => {
     const map = new Map()
     for (const t of teamTasks) {
-      const day = String(t.task_date || '').slice(0, 10) || '—'
+      const day = istDateOf(t.task_date) || '—'
       if (!map.has(day)) map.set(day, [])
       map.get(day).push(t)
     }
