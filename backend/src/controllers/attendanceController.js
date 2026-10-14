@@ -18,6 +18,7 @@ import { getAllAttendance } from '../models/attendanceModel.js';
 import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
+import { isVoluntarySunday } from '../utils/sundayRules.js';
 import { attachSignedSelfieUrls, attachSignedSelfieUrlsToList } from '../services/signatureMediaLink.js';
 
 const MAX_LATE_MINUTES = 180;
@@ -70,6 +71,8 @@ async function calculateLateMinutes(punchInTime, workerId) {
   const ist = getIstTime(new Date(punchInTime));
   const h = ist.getUTCHours();
   const m = ist.getUTCMinutes();
+  // A voluntary Sunday has no office start time — arriving late is impossible.
+  if (isVoluntarySunday(istDateStr(new Date(punchInTime)))) return 0;
 
   let effectiveStart = await getOfficeStart(workerId);
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));

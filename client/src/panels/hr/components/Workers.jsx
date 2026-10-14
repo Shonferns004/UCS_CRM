@@ -1178,9 +1178,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
              <button onClick={() => setShowCompensationModal(false)} style={{ width:28, height:28, borderRadius:'50%', border:'none', background:'rgba(0,0,0,.08)', color:'#666', fontSize:18, cursor:'pointer' }}>×</button>
            </div>
            <div style={{ padding: 20 }}>
-             <p style={{ margin:'0 0 14px', color:'var(--ink-soft)', fontSize:13 }}>
-               Link a worked Sunday to a holiday. The linked Sunday replaces the holiday and does not satisfy the separate required Sunday.
-             </p>
+              <p style={{ margin:'0 0 14px', color:'var(--ink-soft)', fontSize:13 }}>
+                Link a worked Sunday to a holiday. The linked Sunday replaces the holiday. For months before Oct 2026 it also does not satisfy the separate required Sunday; from Oct 2026 every eligible Sunday is paid anyway, so that quota no longer applies.
+              </p>
              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                <label className="field">Salary month
                  <input type="month" className="input" value={compensationMonth} onChange={e => setCompensationMonth(e.target.value)} />

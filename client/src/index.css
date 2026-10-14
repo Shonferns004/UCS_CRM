@@ -548,6 +548,138 @@
 .panel-sa .dp-year.today { font-weight:700; color:var(--primary); }
 .panel-sa .dp-year.selected { background:var(--primary); color:white; }
 
+/* ── Super Admin · Send Ticket modal ──
+   The modal markup in SupportTickets.jsx uses the generic .modal-* classes,
+   but no base .modal rule exists, so it rendered with no surface, width,
+   shadow or padding. Scoped here so only the SA panel is affected. */
+.panel-sa .modal-overlay {
+  position:fixed; inset:0; z-index:2000; padding:20px;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(15,23,42,.45);
+  -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
+}
+.panel-sa .modal {
+  width:100%; max-width:560px; max-height:92dvh;
+  display:flex; flex-direction:column; overflow:hidden;
+  background:var(--bg-card,#fff); border:1px solid var(--border,#e5e7eb);
+  border-radius:14px; box-shadow:0 20px 60px rgba(15,23,42,.22);
+}
+.panel-sa .modal-head {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:14px 18px; border-bottom:1px solid var(--border,#e5e7eb); flex-shrink:0;
+}
+.panel-sa .modal-head h3 { margin:0; font-size:15px; font-weight:700; color:var(--text,#0f172a); }
+.panel-sa .modal-body {
+  padding:18px; overflow-y:auto; overscroll-behavior:contain; flex:1; min-height:0;
+}
+.panel-sa .modal-foot {
+  display:flex; justify-content:flex-end; gap:10px; flex-shrink:0;
+  padding:14px 18px; border-top:1px solid var(--border,#e5e7eb);
+}
+.panel-sa .modal .field { gap:6px; font-size:12px; font-weight:600; color:var(--text-soft,#64748b); }
+.panel-sa .modal .field input,
+.panel-sa .modal .field select,
+.panel-sa .modal .field textarea {
+  width:100%; box-sizing:border-box; height:40px; padding:0 12px;
+  border:1px solid var(--border,#d1d5db); border-radius:8px;
+  font-size:13px; font-family:inherit; color:var(--text,#0f172a);
+  background:var(--bg-card,#fff); outline:none;
+  transition:border-color .15s, box-shadow .15s;
+}
+.panel-sa .modal .field textarea {
+  height:auto; min-height:96px; padding:10px 12px; line-height:1.5; resize:vertical;
+}
+.panel-sa .modal .field input:focus,
+.panel-sa .modal .field select:focus,
+.panel-sa .modal .field textarea:focus {
+  border-color:var(--primary,#2563eb); box-shadow:0 0 0 3px rgba(37,99,235,.12);
+}
+.panel-sa .modal .modal-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.panel-sa .modal .modal-form-full { grid-column:1 / -1; }
+@media (max-width:600px) {
+  .panel-sa .modal-overlay { padding:12px; align-items:flex-end; }
+  .panel-sa .modal { max-width:100%; max-height:94dvh; border-radius:14px; }
+  .panel-sa .modal-head, .panel-sa .modal-foot { padding:12px 14px; }
+  .panel-sa .modal-body { padding:14px; }
+  .panel-sa .modal .modal-form-grid { grid-template-columns:1fr; }
+  .panel-sa .modal-foot .btn { flex:1; justify-content:center; }
+}
+
+/* ── Super Admin · Send Ticket modal (redesigned) ──
+   Scoped to .send-ticket-modal so no other SA modal changes. Light-blue field
+   borders, recipient checkbox grid, label-above fields, fixed header/footer. */
+.panel-sa .send-ticket-modal { max-width:600px; }
+.panel-sa .send-ticket-modal .modal-head { align-items:flex-start; padding:16px 20px; }
+.panel-sa .send-ticket-modal .modal-head h3 { font-size:16px; letter-spacing:-.2px; }
+.panel-sa .send-ticket-modal .st-sub { margin:4px 0 0; font-size:12px; font-weight:500; color:#64748b; line-height:1.4; }
+.panel-sa .send-ticket-modal .modal-body { padding:18px 20px; }
+.panel-sa .send-ticket-modal .modal-foot { padding:14px 20px; background:#fafbfc; }
+
+.panel-sa .send-ticket-modal .st-close {
+  flex-shrink:0; width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid #e2e8f0; background:#fff; border-radius:9px; color:#475569; cursor:pointer; padding:0;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.panel-sa .send-ticket-modal .st-close:hover { background:#f1f5f9; color:#0f172a; border-color:#cbd5e1; }
+
+.panel-sa .send-ticket-modal .st-error {
+  padding:9px 12px; margin-bottom:16px; background:#fef2f2; border:1px solid #fecaca;
+  border-radius:9px; font-size:12px; font-weight:600; color:#dc2626;
+}
+
+.panel-sa .send-ticket-modal .modal-form-grid { gap:16px; }
+.panel-sa .send-ticket-modal .st-field { gap:7px; }
+.panel-sa .send-ticket-modal .st-label { font-size:12px; font-weight:600; color:#475569; letter-spacing:.1px; }
+.panel-sa .send-ticket-modal .st-req { color:#dc2626; }
+.panel-sa .send-ticket-modal .st-opt { font-weight:500; color:#94a3b8; }
+.panel-sa .send-ticket-modal .st-hint { font-size:11px; font-weight:500; color:#94a3b8; line-height:1.4; }
+
+/* Light-blue field borders, consistent radius across controls */
+.panel-sa .send-ticket-modal .field input,
+.panel-sa .send-ticket-modal .field select,
+.panel-sa .send-ticket-modal .field textarea { border-color:#cfe0f7; border-radius:10px; }
+.panel-sa .send-ticket-modal .field input:focus,
+.panel-sa .send-ticket-modal .field select:focus,
+.panel-sa .send-ticket-modal .field textarea:focus {
+  border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.14);
+}
+
+/* Recipient selection */
+.panel-sa .send-ticket-modal .st-recipients { display:flex; flex-direction:column; gap:10px; }
+.panel-sa .send-ticket-modal .st-grid {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px;
+}
+.panel-sa .send-ticket-modal .st-option {
+  display:flex; align-items:center; gap:9px; padding:9px 12px; margin:0;
+  border:1px solid #cfe0f7; border-radius:10px; background:#f8fafc;
+  font-size:12.5px; font-weight:600; color:#334155; cursor:pointer;
+  transition:border-color .15s, background .15s, box-shadow .15s;
+}
+.panel-sa .send-ticket-modal .st-option:hover { border-color:#93c5fd; background:#f0f7ff; }
+.panel-sa .send-ticket-modal .st-option.is-on { border-color:#2563eb; background:#eff6ff; box-shadow:0 0 0 2px rgba(37,99,235,.12); }
+.panel-sa .send-ticket-modal .st-option.is-disabled { opacity:.55; cursor:not-allowed; }
+.panel-sa .send-ticket-modal .st-option input[type="checkbox"] {
+  width:16px; height:16px; min-height:0; padding:0; margin:0; flex:0 0 auto;
+  border-radius:4px; accent-color:#2563eb; cursor:pointer;
+}
+.panel-sa .send-ticket-modal .st-option-label { line-height:1.2; }
+.panel-sa .send-ticket-modal .st-option-sub {
+  margin-left:auto; font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.4px; color:#94a3b8;
+}
+
+/* Footer actions */
+.panel-sa .send-ticket-modal .modal-foot .btn { padding:9px 20px; font-size:12.5px; border-radius:9px; }
+.panel-sa .send-ticket-modal .st-cancel { background:#fff; color:#dc2626; border:1px solid #fca5a5; font-weight:600; }
+.panel-sa .send-ticket-modal .st-cancel:hover { background:#fef2f2; }
+.panel-sa .send-ticket-modal .st-send { font-weight:600; }
+
+@media (max-width:600px) {
+  .panel-sa .send-ticket-modal { max-width:100%; }
+  .panel-sa .send-ticket-modal .st-grid { grid-template-columns:1fr 1fr; }
+  .panel-sa .send-ticket-modal .st-option-all .st-option-sub { display:none; }
+}
+
 /* ── HR PANEL (.panel-hr) ── */
 .panel-hr { --sand:#F3EFE7; --paper:#FBFAF6; --ink:#232019; --ink-soft:#6F6857; --line:#E4DECF; --sage:#5B6B4E; --sage-soft:#E8EDE1; --clay:#B5603A; --clay-soft:#F4E4DA; --gold:#C08A2E; --gold-soft:#F6EAD0; --danger:#9E3B2E; --danger-soft:#F3DDD8; --radius:12px; --radius-sm:8px; --shadow:0 1px 2px rgba(35,32,25,.04),0 8px 24px rgba(35,32,25,.05); --sidebar-w:240px; background:var(--sand); color:var(--ink); }
 /* min-height, NOT height, and no overflow:hidden. HR has no inner scroller:
@@ -1388,21 +1520,12 @@
   --stations-success:#16a765;
   --stations-success-soft:#ecfbf2;
 }
-/* The NGO rows and Assign buttons are real buttons; the default UA ring is fine
-   but this keeps a clear, high-contrast ring on keyboard focus regardless of any
-   global UA reset. */
-.panel-ngo-admin .stations-ngo-row:focus-visible,
-.panel-ngo-admin .stations-assign-row:focus-visible,
-.panel-ngo-admin .stations-agent-opt:focus-visible {
+/* The NGO rows are real buttons; the default UA ring is fine but this keeps a
+   clear, high-contrast ring on keyboard focus regardless of any global UA reset. */
+.panel-ngo-admin .stations-ngo-row:focus-visible {
   outline:2px solid var(--sage);
   outline-offset:1px;
 }
-.panel-ngo-admin .stations-agent-menu input:focus-visible {
-  outline:2px solid var(--sage);
-  outline-offset:-2px;
-}
-/* Keep the inline agent menu readable at the card's compact size. */
-.panel-ngo-admin .stations-agent-opt:hover { background:var(--stations-assign-surface, #FFF4F6); }
 .panel-event-head, .panel-accounts, .panel-ngo-admin, .panel-fro { --sage:#5B6B4E; --sage-light:#7A8F6A; --ink:#1a1a2e; --ink-soft:#6b7280; --line:#e5e7eb; --danger:#d9534f; --warning:#e67e22; --success:#16a34a; --bg:#f5f6fa; --card-bg:#ffffff; --radius:12px; --radius-sm:8px; --shadow:0 1px 3px rgba(0,0,0,0.06); --shadow-md:0 4px 12px rgba(0,0,0,0.08); background:var(--bg); color:var(--ink); }
 .panel-beneficiaries { --sage:#5B6B4E; --sage-light:#E8EDE1; --sage-soft:#E8EDE1; --ink:#1a1a2e; --ink-soft:#6b7280; --line:#e5e7eb; --danger:#d9534f; --warning:#e67e22; --success:#16a34a; --bg:#f5f6fa; --card-bg:#ffffff; --radius:12px; --radius-sm:8px; --shadow:0 1px 3px rgba(0,0,0,0.06); --shadow-md:0 4px 12px rgba(0,0,0,0.08); background:var(--bg); color:var(--ink); min-height:100vh; padding:24px; box-sizing:border-box; }
 .panel-beneficiaries a { color:inherit; }

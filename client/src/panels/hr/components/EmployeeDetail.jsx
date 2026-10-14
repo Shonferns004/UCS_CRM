@@ -11,31 +11,12 @@ import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
 import { API_BASE } from '../../../lib/apiBase';
 import { safeImgSrc, signatureSourceLabel, signatureStatusPill } from '../signatureUtils';
+import { isVoluntarySunday, newSundayRulesMonth } from '../../../lib/sundayRules';
+import { lateThresholds, calcLateDeductionDays } from '../../../lib/latePolicy';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
 // DOC_OPTIONS now lives in lib/labels so the ODAR form shares the same list.
-
-// Per-person late policy mirrors backend/src/utils/latePolicy.js:
-// only the grace is stored per worker; half/full limits scale proportionally.
-function lateThresholds(graceValue) {
-  const n = Number(graceValue);
-  const grace = Number.isFinite(n) && n >= 30 && n <= 480 ? Math.round(n) : 180;
-  const f = grace / 180;
-  const half = Math.max(1, Math.round(240 * f));
-  const full = Math.max(half + 1, Math.round(480 * f));
-  return { grace, half, full };
-}
-
-function calcLateDeductionDays(totalLateMinutes, graceValue) {
-  const total = Number(totalLateMinutes) || 0;
-  if (total <= 0) return 0;
-  const { grace, half, full } = lateThresholds(graceValue);
-  if (total > full) return Math.round((total / full) * 2) / 2;
-  if (total > half) return 1;
-  if (total > grace) return 0.5;
-  return 0;
-}
 
 function fmtTime(iso) {
   if (!iso) return '\u2014';
@@ -61,7 +42,7 @@ function Badge({ status }) {
 export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const { teams: teamOptions } = useTeams();
   const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary, maskSalary } = useSalaryPrivacy();
-  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, fetchSalaryHold, setSalaryHold, releaseSalaryHold } = useHR();
+  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, fetchSalaryHold, setSalaryHold, releaseSalaryHold, fetchWorkerAbsenceGrace } = useHR();
   const { user: currentUser } = useContext(UcsContext);
   const isAccounts = currentUser?.role === 'accounts' || currentUser?.role === 'super_admin';
   const [attendance, setAttendance] = useState([]);
@@ -90,6 +71,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [extraSaving, setExtraSaving] = useState(false);
   const [viewingMonthKey, setViewingMonthKey] = useState(null);
   const [salaryHold, setSalaryHoldData] = useState(null);
+  const [absenceGrace, setAbsenceGrace] = useState({}); // monthKey -> graceForfeited
   const [holdBusy, setHoldBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
   const [docModal, setDocModal] = useState(false);
@@ -222,6 +204,16 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       fetchSalaryHold(worker.id, monthKey)
         .then(h => setSalaryHoldData({ held: !!h?.held, reason: h?.reason || '', held_at: h?.held_at || null }))
         .catch((err) => { console.error('API error:', err.message); setSalaryHoldData({ held:false, reason:'', held_at:null }); });
+      // Grace-forfeiture state (unauthorized absence) feeds the late-deduction
+      // mirror — same Option A single-budget formula the payroll engine uses.
+      fetchWorkerAbsenceGrace(worker.id, monthKey)
+        .then(g => setAbsenceGrace(prev => ({ ...prev, [monthKey]: !!g?.graceForfeited })))
+        .catch(() => setAbsenceGrace(prev => ({ ...prev, [monthKey]: false })));
+      if (prevMonthKey && prevMonthKey !== monthKey) {
+        fetchWorkerAbsenceGrace(worker.id, prevMonthKey)
+          .then(g => setAbsenceGrace(prev => ({ ...prev, [prevMonthKey]: !!g?.graceForfeited })))
+          .catch(() => setAbsenceGrace(prev => ({ ...prev, [prevMonthKey]: false })));
+      }
     }
   }, [viewingMonthKey, worker.id, data?.department]);
 
@@ -435,6 +427,17 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const monthAttendance = empAttendance.filter(a => a.date && a.date.startsWith(monthKey));
   const noAttendanceData = monthAttendance.length === 0;
 
+  // From SUNDAY_RULES_FROM a Sunday is voluntary: the backend writes those rows
+  // as plain present days with no late minutes, so the pay maths below reads
+  // them through payAttendance (which normalises any stray late/half-day row).
+  const useNewSundayRules = newSundayRulesMonth(yr, mo);
+  const payAttendance = useNewSundayRules
+    ? monthAttendance.map(a =>
+        isVoluntarySunday(a.date) && ['present', 'late', 'half-day'].includes(a.status)
+          ? { ...a, status: 'present', late_minutes: 0 }
+          : a)
+    : monthAttendance;
+
   const joinDate = new Date(data.created_at);
   const joinMonth = `${joinDate.getFullYear()}-${String(joinDate.getMonth() + 1).padStart(2, '0')}`;
   const joinedThisMonth = joinMonth === monthKey;
@@ -520,7 +523,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dt = new Date(yr, mo - 1, d);
     const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
-    const att = monthAttendance.find(a => a.date === dateStr);
+    const att = payAttendance.find(a => a.date === dateStr);
     let status = att?.status || null;
     if (!status && d <= viewingToday && dt.getDay() !== 0 && !holidayDates.has(dateStr) && !(joinedThisMonth && dateStr < joinCutoff)) {
       status = 'absent';
@@ -528,11 +531,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     return { date: dateStr, day: d, dayName, att, status };
   });
 
-  const daysWorked = monthAttendance.filter(a =>
+  const daysWorked = payAttendance.filter(a =>
     (a.status === 'present' || a.status === 'late') && (!joinedThisMonth || a.date >= joinCutoff)
   ).length;
   const presentDays = daysWorked;
-  const halfDayCount = monthAttendance.filter(a =>
+  const halfDayCount = payAttendance.filter(a =>
     a.status === 'half-day' && (!joinedThisMonth || a.date >= joinCutoff)
   ).length;
   const sundayCount = Array.from({ length: daysInMonth }, (_, i) => {
@@ -550,16 +553,22 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   }).filter(Boolean);
   const eligibleSundays = sundayDates.filter(d => !deducted.has(d));
   const attendedEligible = eligibleSundays.filter(d =>
-    monthAttendance.some(a => a.date === d && (a.status === 'present' || a.status === 'late'))
+    payAttendance.some(a => a.date === d && (a.status === 'present' || a.status === 'late'))
   );
   const attendedCancelledList = sundayDates.filter(d =>
-    deducted.has(d) && monthAttendance.some(a => a.date === d && (a.status === 'present' || a.status === 'late'))
+    deducted.has(d) && payAttendance.some(a => a.date === d && (a.status === 'present' || a.status === 'late'))
   );
   const attendedAll = attendedEligible.length + attendedCancelledList.length;
   const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
   const cleanMonth = absentDates.length === 0 && !(joinedThisMonth && joinDayNum > 10);
-  const freeCount = Math.max(0, Math.min(cleanMonth ? sundayCount : sundayCount - 1, eligibleNotWorked));
-  const paidSundayCount = attendedAll + freeCount;
+  // New rules: every eligible Sunday is paid (worked or not) and there is no
+  // (total − 1) cap — so "free" just means every eligible Sunday nobody worked.
+  const freeCount = useNewSundayRules
+    ? eligibleNotWorked
+    : Math.max(0, Math.min(cleanMonth ? sundayCount : sundayCount - 1, eligibleNotWorked));
+  const paidSundayCount = useNewSundayRules
+    ? eligibleSundays.length
+    : attendedAll + freeCount;
   const unpaidSundays = eligibleSundays
     .filter(d => !attendedEligible.includes(d))
     .slice(0, Math.max(0, eligibleNotWorked - freeCount));
@@ -573,11 +582,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   // Late-minutes-based deductions (per-person grace, proportional half/full)
   const lateGrace = data?.late_grace_minutes ?? worker?.late_grace_minutes ?? null;
   const lateT = lateThresholds(lateGrace);
-  const totalLateMinutes = monthAttendance
+  const totalLateMinutes = payAttendance
     .filter(a => !joinedThisMonth || a.date >= joinCutoff)
     .reduce((sum, a) => sum + (a.late_minutes || 0), 0);
 
-  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace);
+  // Grace forfeited (unauthorized absence) shares the same single grace budget
+  // as the clawback — whichever arrives first spends it, never both.
+  const graceForfeitedNow = !!absenceGrace[effectiveMonthKey];
+  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace, graceForfeitedNow);
   let totalDue;
   totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
 
@@ -669,8 +681,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
         }
       }
     }
-    const pLateMins = pAtt.filter(a => !pJoined || a.date >= pJoinCutoff).reduce((s, a) => s + (a.late_minutes || 0), 0);
-    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace);
+    const pLateMins = pAtt
+      .filter(a => (!pJoined || a.date >= pJoinCutoff) && !isVoluntarySunday(a.date))
+      .reduce((s, a) => s + (a.late_minutes || 0), 0);
+    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace, !!absenceGrace[prevMonthKey]);
     const pPaid = Math.max(0, pAvailable - pDeducted.size);
     const pJoining = (pJoined && monthsEmployed <= 3) ? 1.5 : 0;
     prevTotalDue = pPerDay * Math.max(0, pPaid - pLateDays - pJoining);
@@ -989,7 +1003,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                 </div>
 
                 {(() => {
-                  const mLate = monthAttendance.reduce((s, a) => s + (a.late_minutes || 0), 0);
+                  const mLate = payAttendance.reduce((s, a) => s + (a.late_minutes || 0), 0);
                   const lt = lateThresholds(data?.late_grace_minutes ?? worker?.late_grace_minutes ?? null);
                   const activeIdx = mLate > lt.full ? 3 : mLate > lt.half ? 2 : mLate > lt.grace ? 1 : 0;
                   const tiers = [
@@ -1443,7 +1457,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                   <strong>Rule</strong>
                                 </td>
                                 <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                  Every Sunday worked (present/late, even a cancelled one) is paid. On top, {sundayBonus.totalSundays - 1} Sundays are paid free, capped at all {sundayBonus.totalSundays} Sundays in the month.
+                                  {useNewSundayRules
+                                    ? <>Every Sunday from your join date is paid, worked or not. A Sunday is not paid only when it is clubbed (Sat/Mon absent) or cancelled by the 6+ absences / join-after-10th rule. Coming and going on a Sunday is your choice — it is never late or half-day.</>
+                                    : <>Every Sunday worked (present/late, even a cancelled one) is paid. On top, {sundayBonus.totalSundays - 1} Sundays are paid free, capped at all {sundayBonus.totalSundays} Sundays in the month.</>}
                                 </td>
                               </tr>
                               <tr>
@@ -1455,17 +1471,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                   Total {sundayBonus.totalSundays} · Attended {sundayBonus.attendedSundays} · Paid {sundayBonus.paidSundays}
                                 </td>
                               </tr>
-                              {sundayBonus.sundayAKI > 0 && (
-                                <tr>
-                                  <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                    <span style={{ display:'inline-block', width:8, height:8, background:'#bbf7d0', borderRadius:2, marginRight:4 }} />
-                                    <strong>Sunday AKI</strong>
-                                  </td>
-                                  <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                    ₹{sundayBonus.sundayAchievement.toLocaleString('en-IN')} achieved on attended Sundays → AKI +₹{sundayBonus.sundayAKI.toLocaleString('en-IN')}
-                                  </td>
-                                </tr>
-                              )}
                               {unpaidSundays.length > 0 && (
                                 <tr>
                                   <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
@@ -1495,6 +1500,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                       {/* Late minutes badge */}
                       <div style={{ marginBottom:14 }}>
+                        {graceForfeitedNow && (
+                          <div style={{ padding:'8px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
+                            <strong style={{ color:'#d9534f' }}>Grace forfeited (unauthorized absence)</strong>
+                            <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
+                              The {lateT.grace} min grace is charged up-front this month — {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} late deduction{lateDeductionDays !== 1 ? '' : ''} applies.
+                            </div>
+                          </div>
+                        )}
                         {totalLateMinutes > lateT.full ? (
                           <div style={{ padding:'10px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12 }}>
                             <div style={{ fontWeight:600, color:'#d9534f' }}>⚠ {totalLateMinutes} min late ({Math.round(totalLateMinutes / 60 * 10) / 10} hrs) → {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} deducted (proportional)</div>
@@ -1826,11 +1839,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       <col style={{ width:'25%' }} />
                       <col style={{ width:'11%' }} />
                       <col style={{ width:'10%' }} />
+                      <col style={{ width:'16%' }} />
+                      <col style={{ width:'12%' }} />
                       <col style={{ width:'13%' }} />
-                      <col style={{ width:'10%' }} />
-                      <col style={{ width:'11%' }} />
-                      <col style={{ width:'10%' }} />
-                      <col style={{ width:'10%' }} />
+                      <col style={{ width:'13%' }} />
                     </colgroup>
                     <thead>
                       <tr>
@@ -1840,7 +1852,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>Salary</th>
                         <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10, color:'#92400e' }}>AKI</th>
                         <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10, color:'#92400e' }}>Mon.</th>
-                        <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10, color:'#92400e' }}>Sun.</th>
                         <th style={{ textAlign:'right', padding:'4px 3px', borderBottom:'2px solid var(--line)', whiteSpace:'nowrap', fontSize:10 }}>Total</th>
                       </tr>
                     </thead>
@@ -1849,8 +1860,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         const totalSalaryVal = parseFloat(activeSalary?.salary || 0);
                         const totAKI = sundayBonus?.incentiveAKI || 0;
                         const totMonthly = sundayBonus?.incentiveMonthly || 0;
-                        const totSunday = sundayBonus?.sundayAKI || 0;
-                        const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0 || totSunday > 0);
+                        const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0);
 
                         return allocations.map(a => {
                           const portion = parseFloat(a.salary_portion);
@@ -1859,8 +1869,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           const allocDue = allocPerDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
                           const allocAKI = isIncentive ? Math.round(totAKI * ratio) : 0;
                           const allocMonthly = isIncentive ? Math.round(totMonthly * ratio) : 0;
-                          const allocSunday = isIncentive ? Math.round(totSunday * ratio) : 0;
-                          const allocGrand = Math.round(allocDue) + allocAKI + allocMonthly + allocSunday;
+                          const allocGrand = Math.round(allocDue) + allocAKI + allocMonthly;
                           const ngoName = ngos.find(n => n.id === a.ngo_id)?.name || a.ngo_name || 'Unknown';
 
                           return (
@@ -1875,9 +1884,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', color: allocMonthly > 0 ? '#f59e0b' : 'var(--ink-soft)', whiteSpace:'nowrap', fontSize:10 }}>
                                 {allocMonthly > 0 ? '₹' + allocMonthly.toLocaleString('en-IN') : '₹0'}
                               </td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', color: allocSunday > 0 ? '#f59e0b' : 'var(--ink-soft)', whiteSpace:'nowrap', fontSize:10 }}>
-                                {allocSunday > 0 ? '₹' + allocSunday.toLocaleString('en-IN') : '₹0'}
-                              </td>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:700, color: allocGrand > Math.round(allocDue) ? '#16a34a' : 'var(--sage)', whiteSpace:'nowrap', fontSize:10 }}>
                                 {formatSalary(allocGrand)}
                               </td>
@@ -1891,8 +1897,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         const totalSalaryVal = parseFloat(activeSalary?.salary || 0);
                         const totAKI = sundayBonus?.incentiveAKI || 0;
                         const totMonthly = sundayBonus?.incentiveMonthly || 0;
-                        const totSunday = sundayBonus?.sundayAKI || 0;
-                        const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0 || totSunday > 0);
+                        const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0);
                         const sumDue = Math.round(allocations.reduce((s, a) => {
                           const portion = parseFloat(a.salary_portion);
                           const allocPerDay = portion / daysInMonth;
@@ -1900,8 +1905,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         }, 0));
                         const sumAKI = isIncentive ? Math.round(totAKI) : 0;
                         const sumMonthly = isIncentive ? Math.round(totMonthly) : 0;
-                        const sumSunday = isIncentive ? Math.round(totSunday) : 0;
-                        const sumGrand = sumDue + sumAKI + sumMonthly + sumSunday;
+                        const sumGrand = sumDue + sumAKI + sumMonthly;
 
                         return (
                           <>
@@ -1922,9 +1926,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color: sumMonthly > 0 ? '#f59e0b' : 'var(--ink-soft)' }}>
                                 {sumMonthly > 0 ? '₹' + sumMonthly.toLocaleString('en-IN') : '₹0'}
                               </td>
-                              <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color: sumSunday > 0 ? '#f59e0b' : 'var(--ink-soft)' }}>
-                                {sumSunday > 0 ? '₹' + sumSunday.toLocaleString('en-IN') : '₹0'}
-                              </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:800, fontSize:11, borderTop:'2px solid var(--line)', color:'#16a34a' }}>
                                 {formatSalary(sumGrand)}
                               </td>
@@ -1936,8 +1937,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   </table>
                   <div style={{ marginTop:8, fontSize:11, color:'var(--ink-soft)' }}>
                     Attendance is shared across all allocations. Deductions affect each portion equally.
-                    {data.department === 'FRO' && (sundayBonus?.incentiveAKI > 0 || sundayBonus?.incentiveMonthly > 0 || sundayBonus?.sundayAKI > 0) && (
-                      <> Incentives (AKI, Monthly, Sunday AKI) are split proportionally by salary portion.</>
+                    {data.department === 'FRO' && (sundayBonus?.incentiveAKI > 0 || sundayBonus?.incentiveMonthly > 0) && (
+                      <> Incentives (AKI, Monthly) are split proportionally by salary portion.</>
                     )}
                   </div>
                 </div>

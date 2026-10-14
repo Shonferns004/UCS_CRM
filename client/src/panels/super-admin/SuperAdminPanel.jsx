@@ -20,6 +20,7 @@ import WorkerDetail from './pages/WorkerDetail'
 import Leaves from './pages/Leaves'
 import DataManagement from './pages/DataManagement'
 import Tickets from './pages/Tickets'
+import SupportTickets from './pages/SupportTickets'
 import Events from './pages/Events'
 import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
@@ -46,6 +47,7 @@ const NAV = [
   { id: 'employees', path: '/sa/employees', label: 'Volunteers', eyebrow: 'People', icon: Users },
   { id: 'leaves', path: '/sa/leaves', label: 'Leaves', eyebrow: 'HR', icon: Airplane },
   { id: 'tickets', path: '/sa/tickets', label: 'Tickets', eyebrow: 'Support', icon: Ticket },
+  { id: 'support-tickets', path: '/sa/support-tickets', label: 'Support Tickets', eyebrow: 'Support', icon: Ticket },
   { id: 'ngo-admin', path: '/sa/ngo-admin', label: 'Admin', eyebrow: 'Admin', icon: BuildingOffice },
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
   { id: 'metropad', path: '/sa/metropad', label: 'Metropad', eyebrow: 'Operations', icon: Drop },
@@ -75,7 +77,7 @@ NAV.forEach(n => { navMap[n.id] = n })
 const CATEGORIES = [
   { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter'] },
   { id: 'people', label: 'People', icon: Users, items: ['daily-reports', 'organization', 'admin-attendance'] },
-  { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'data-management'] },
+  { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'support-tickets', 'data-management'] },
   { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
   { id: 'comms', label: 'Communication', icon: Megaphone, items: ['notices', 'chat'] },
   { id: 'less', label: 'Less used', icon: Clipboard, items: ['employees', 'leaves', 'late-policy', 'assets', 'metropad'] },
@@ -377,9 +379,9 @@ function EmployeePage() {
 }
 
 // Shows another panel's *page* inside the Super Admin layout. The part of the
-// URL after /sa/<panel>/ picks the page, so /sa/ngo-admin/agents loads the Admin
-// panel's Agents page. The iframe stays hidden until its own sidebar/topbar have
-// been stripped, so there is no flash of a second layout.
+// URL after /sa/<panel>/ picks the page, so /sa/ngo-admin/station-mgmt loads the
+// Admin panel's Stations page. The iframe stays hidden until its own
+// sidebar/topbar have been stripped, so there is no flash of a second layout.
 function PanelFrame({ panel }) {
   const location = useLocation()
   const ref = useRef(null)
@@ -421,6 +423,7 @@ export default function SuperAdminPanel() {
         <Route path="employees/:id" element={<WorkerDetailPage />} />
         <Route path="leaves" element={<Leaves />} />
         <Route path="tickets" element={<Tickets />} />
+        <Route path="support-tickets" element={<SupportTickets />} />
         <Route path="events" element={<Events />} />
         <Route path="accounts/*" element={<PanelFrame panel="accounts" />} />
         <Route path="metropad" element={<MetropadPage />} />

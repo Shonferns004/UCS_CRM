@@ -205,10 +205,10 @@ test('a blank or category name still falls back to the log', () => {
   merged.forEach((r) => assert.equal(r.attributed_by, 'log'));
 });
 
-test('an agent label falls back to the log only while no alias resolves it', () => {
-  // worker_aliases maps every CRM agent label to the worker that login belongs
-  // to, so a RESOLVED label is somebody's money: the name window is what credits
-  // it, and the log must not hand the same rupees to the covered FRO too.
+test('a stamped label falls back to the log only while no alias resolves it', () => {
+  // worker_aliases maps an alias to the worker it belongs to, so a RESOLVED
+  // spelling is somebody's money: the name window is what credits it, and the
+  // log must not hand the same rupees to the covered FRO too.
   // 'Agent 13' resolves in RESOLVERS; 'Agent 99' has no alias row.
   const labelRow = { id: 's3', agent_name: 'Agent 13', amount: 300, receipt_date: '2026-10-07' };
   assert.equal(mergeAttributedReceipts([], [labelRow], RESOLVERS).length, 0, 'a resolved label blocks the log fallback');
@@ -223,9 +223,9 @@ test('an agent label falls back to the log only while no alias resolves it', () 
 });
 
 test('a work-as label resolves to the ACTOR, never to the COVERED FRO', () => {
-  // The exact live shape: agent21 (worker fe18...) signs in, covers another
-  // FRO, and the receipt is stamped 'Agent 21' on a log whose fro_worker_id is
-  // the covered worker. One card gets it, not both.
+  // The exact live shape: a worker whose alias is 'Agent 21' covers another
+  // FRO, and the receipt is stamped with that alias on a log whose
+  // fro_worker_id is the covered worker. One card gets it, not both.
   const resolvers = new Map([
     ['muskan khan', 'fe18aa44'],
     ['agent 21', 'fe18aa44'],
@@ -307,9 +307,9 @@ test('a receipt with no resolvable name falls back to its log', () => {
   assert.equal(totalCollectionAmount(merged), 2500);
 });
 
-test('an agent label still resolves while its alias row exists', () => {
-  // agent_name is still needed, because an agent's work-as switch stamps
-  // "Agent 13" (authController.js:960) and worker_aliases maps it to the FRO.
+test('an alias spelling still resolves while its alias row exists', () => {
+  // agent_name must keep resolving through worker_aliases: a receipt stamped
+  // with an alias still belongs in that FRO's name window.
   const matches = buildAgentNameMatches('Mamta Shah', ['Agent 13']);
   assert.equal(receiptMatchesAgentName('Agent 13', matches), true);
 });

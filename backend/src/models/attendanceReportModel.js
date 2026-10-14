@@ -1,11 +1,14 @@
 import db from '../config/db.js';
 import { computePaidDays, getISTToday } from '../utils/salaryDays.js';
+import { isVoluntarySunday } from '../utils/sundayRules.js';
 import { getMonthsEmployed } from '../utils/incentive.js';
 import { getMergedDailyAmounts } from '../utils/dailyAchievementAggregator.js';
 import { getTarget } from './incentiveModel.js';
 import { getActiveSalaryByWorker, getSalaryCompensations } from './salaryModel.js';
 import { getActiveLoansByWorker } from './loanModel.js';
 import { getAllocationsByWorker } from './workerNgoAllocationModel.js';
+import { getLeavesInRange } from './leaveModel.js';
+import { getAbsenceProofsByWorker } from './absenceProofModel.js';
 
 // Per-worker attendance + deduction report.
 //
@@ -70,13 +73,15 @@ export async function getWorkerAttendanceReport(workerId, month) {
   const viewingToday = isCurrentMonth ? ist.day : daysInMonth + 1;
   const provisional = isCurrentMonth && viewingToday <= daysInMonth;
 
-  const [salaryRec, attendanceRes, holidayRes, compensationRes, loanRes, allocRes] = await Promise.all([
+  const [salaryRec, attendanceRes, holidayRes, compensationRes, loanRes, allocRes, leaveRes, proofRes] = await Promise.all([
     getActiveSalaryByWorker(workerId).catch(() => null),
     db.from('attendance').select('*').eq('worker_id', workerId).gte('date', startDate).lte('date', endDate).order('date', { ascending: true }).then((r) => r.data || []).catch(() => []),
     db.from('holidays').select('date').gte('date', startDate).lte('date', endDate).then((r) => (r.data || []).map((h) => h.date)).catch(() => []),
     getSalaryCompensations().then((all) => all.filter((entry) => entry.month === monthStr)).catch(() => []),
     getActiveLoansByWorker(workerId).catch(() => []),
     getAllocationsByWorker(workerId).catch(() => []),
+    getLeavesInRange(startDate, endDate, workerId).catch(() => []),
+    getAbsenceProofsByWorker(workerId, startDate, endDate).catch(() => []),
   ]);
   void attendanceRes;
   void holidayRes;
@@ -84,6 +89,8 @@ export async function getWorkerAttendanceReport(workerId, month) {
   const records = attendanceRes;
   const holidayDates = holidayRes;
   const compensations = compensationRes;
+  const leaves = leaveRes;
+  const absenceProofs = proofRes;
 
   const calc = computePaidDays({
     year,
@@ -96,6 +103,8 @@ export async function getWorkerAttendanceReport(workerId, month) {
     includeHolidayPay: true,
     compensatoryWorkdays: compensations,
     lateGraceMinutes: worker.late_grace_minutes ?? null,
+    leaves,
+    absenceProofs,
   });
 
   const salary = salaryRec ? parseFloat(salaryRec.salary) || 0 : 0;
@@ -131,6 +140,18 @@ export async function getWorkerAttendanceReport(workerId, month) {
     const sundayReason = (calc.sundayReasons || []).find((r) => r.date === dateStr);
     if (sundayReason && !note) note = sundayReason.reason;
 
+    const unauth = (calc.unauthorizedAbsences || []).find((a) => a.date === dateStr);
+    if (unauth && !note) {
+      note = unauth.trigger === 'no_leave'
+        ? 'Unauthorized absence (no leave) — late grace forfeited for the month'
+        : unauth.trigger === 'rejected'
+          ? 'Leave rejected — upload proof on the app to keep this month\'s grace'
+          : 'Leave pending — upload proof on the app to keep this month\'s grace';
+      if (unauth.proofStatus === 'pending') note += ' (proof under review)';
+      if (unauth.proofStatus === 'approved') note = 'Leave proof approved — grace safe';
+      if (unauth.proofStatus === 'rejected') note = 'Leave proof rejected — grace forfeited';
+    }
+
     dailyRows.push({
       day: d,
       date: dateStr,
@@ -154,8 +175,11 @@ export async function getWorkerAttendanceReport(workerId, month) {
   // full-day threshold (utils/latePolicy.js:calcLateDeductionDays). They are
   // NOT charged per individual day, so a per-date "you owe X" attribution would
   // be wrong. The log below is evidence only; the arithmetic is shown once.
+  // Voluntary Sundays (SUNDAY_RULES_FROM onward) never have late minutes, so
+  // they must not appear in the evidence log either — the pooled total above
+  // already excludes them.
   const lateRows = dailyRows
-    .filter((r) => r.status === 'late' && (r.lateMinutes || 0) > 0)
+    .filter((r) => r.status === 'late' && (r.lateMinutes || 0) > 0 && !isVoluntarySunday(r.date))
     .map((r) => ({ date: r.date, minutes: r.lateMinutes || 0 }));
 
   let running = 0;
@@ -171,15 +195,36 @@ export async function getWorkerAttendanceReport(workerId, month) {
 
   const lateTotal = Number(calc.totalLateMinutes) || 0;
   const { grace: gMin, half: gHalf, full: gFull } = calc.lateThresholds || {};
-  const rawDays = gFull ? lateTotal / gFull : 0;
+  const graceForfeited = !!calc.graceForfeited;
+  const graceClawedBack = !graceForfeited && gHalf != null && lateTotal > gHalf;
+  const effectiveLate = (graceClawedBack || graceForfeited) ? lateTotal + gMin : lateTotal;
+  const rawDays = gFull ? effectiveLate / gFull : 0;
+  const forfeitTrigger = calc.firstForfeitDate
+    ? (calc.firstForfeitDate && (calc.unauthorizedAbsences || []).find((a) => a.date === calc.firstForfeitDate))
+    : null;
+  const forfeitLabel = forfeitTrigger?.trigger === 'no_leave'
+    ? 'absent with no leave application'
+    : forfeitTrigger?.trigger === 'rejected'
+      ? 'leave rejected but the day was still absent'
+      : forfeitTrigger?.trigger === 'pending'
+        ? 'leave still pending and the day was absent without an approved proof'
+        : 'unauthorized absence';
 
-  const lateExplanation = lateTotal
+  const lateExplanation = lateTotal || graceForfeited
     ? [
       `POOLED MONTHLY RULE — late minutes are added together for the whole month, then divided by the full-day limit. Individual days are not charged separately.`,
       `1. Grace: the first ${gMin} minutes are free. This volunteer's personal grace is ${gMin} min (standard is 180 min).`,
       `2. Thresholds scale with grace: half-day at ${gHalf} min, full-day at ${gFull} min.`,
-      `3. Total late: ${lateTotal} min across ${lateLog.length} day${lateLog.length === 1 ? '' : 's'} (average ${Math.round(lateTotal / lateLog.length)} min per late day).`,
-      `4. Working: ${lateTotal} ÷ ${gFull} = ${rawDays.toFixed(2)} days, rounded to the nearest half day = ${round2(calc.lateDeductionDays)} days.`,
+      lateTotal
+        ? `3. Total late: ${lateTotal} min across ${lateLog.length} day${lateLog.length === 1 ? '' : 's'} (average ${Math.round(lateTotal / lateLog.length)} min per late day).`
+        : `3. Total late: 0 min this month.`,
+      graceForfeited
+        ? `4. Grace forfeited (${forfeitLabel}${calc.firstForfeitDate ? ` on ${fmtDate(calc.firstForfeitDate)}` : ''}): an unauthorized absence revokes the free grace for the month — charged once, never twice. The grace is added up-front: ${lateTotal} + ${gMin} = ${effectiveLate} min. Working: ${effectiveLate} ÷ ${gFull} = ${rawDays.toFixed(2)} days, rounded to the nearest half day = ${round2(calc.lateDeductionDays)} days.`
+        : (graceClawedBack
+          ? `4. Grace clawback: the total passed the ${gHalf} min half-day threshold, so the ${gMin} free minutes are charged too — added once: ${lateTotal} + ${gMin} = ${effectiveLate} min. Working: ${effectiveLate} ÷ ${gFull} = ${rawDays.toFixed(2)} days, rounded to the nearest half day = ${round2(calc.lateDeductionDays)} days.`
+          : (lateTotal > gMin
+            ? `4. Working: past the ${gMin} min grace but within the ${gHalf} min half-day threshold, so a flat 0.5 day is deducted.`
+            : `4. Working: ${lateTotal} min is within the ${gMin} min grace — no deduction.`)),
       `5. Money: ${round2(calc.lateDeductionDays)} × ₹${perDay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} per day = ₹${Math.round(perDay * calc.lateDeductionDays).toLocaleString('en-IN')}, deducted from gross pay.`,
     ].join('\n')
     : `No late minutes recorded, or all lateness fell within the ${gMin} min grace. No late deduction.`;
@@ -309,11 +354,12 @@ export async function getWorkerAttendanceReport(workerId, month) {
     { label: 'Absent days', value: absentDates.length },
     { label: 'Sundays in month', value: sundayStats.totalSundays || 0 },
     { label: 'Sundays worked', value: sundayStats.attendedSundays || 0 },
-    { label: 'Sundays paid (incl. free allowance)', value: sundayStats.paidSundays || 0 },
+    { label: 'Sundays paid', value: sundayStats.paidSundays || 0 },
     { label: 'Holiday paid days', value: calc.holidayPaidDays },
     { label: 'Compensatory work days', value: calc.compensatoryWorkDays },
     { label: 'Total late minutes', value: calc.totalLateMinutes },
     { label: 'Late grace minutes', value: calc.lateGraceMinutes },
+    { label: 'Grace forfeited (unauthorized absence)', value: calc.graceForfeited ? 'Yes' : 'No' },
   ];
 
   const paidSummary = [
@@ -363,6 +409,8 @@ export async function getWorkerAttendanceReport(workerId, month) {
     deductions,
     lateLog,
     lateExplanation,
+    graceForfeited: !!calc.graceForfeited,
+    unauthorizedAbsences: calc.unauthorizedAbsences || [],
     totalDeductionAmount,
     totalDeductionDays,
     sundayStats: {

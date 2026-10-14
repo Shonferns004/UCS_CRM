@@ -412,9 +412,9 @@ export default function ReceiptHistory() {
     return () => { cancelled = true; };
   }, []);
 
-  // Receipts record the FRO, never the CRM login agent working that FRO's data,
-  // so the cell is just the stored name. Kept as a helper so the table and the
-  // donor drawer read the same way.
+  // Receipts record the FRO's name in agent_name, so the cell is just the
+  // stored name. Kept as a helper so the table and the donor drawer read the
+  // same way.
   const agentCell = useCallback((r) => {
     const raw = String(r.agent_name || '').trim();
     if (!raw) return <span style={{ color: '#d1d5db', fontSize: 11 }}>Not assigned</span>;

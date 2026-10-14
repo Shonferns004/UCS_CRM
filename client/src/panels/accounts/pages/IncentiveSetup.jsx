@@ -15,6 +15,11 @@ const DAY_STYLE = {
 };
 const ds = (day) => DAY_STYLE[day] || { bg: '#EEF1F5', fg: '#4B5563' };
 
+// Sundays earn no AKI from 1 Oct 2026 (backend/src/utils/sundayRules.js), so the
+// Sunday slab editor is hidden. The stored Sunday slabs are kept untouched —
+// they still apply to every month before that date.
+const EDITABLE_DAYS = DAY_NAMES.filter((d) => d !== 'Sunday');
+
 const fmt = (n) => (n === Infinity ? '∞' : Number(n).toLocaleString('en-IN'));
 
 const Ic = ({ d, size = 14, ...rest }) => (
@@ -61,15 +66,15 @@ export default function IncentiveSetup() {
 
   const totalSlabs = useCallback(() => {
     if (!slabs) return 0;
-    return DAY_NAMES.reduce((sum, d) => sum + (slabs[d]?.length || 0), 0);
+    return EDITABLE_DAYS.reduce((sum, d) => sum + (slabs[d]?.length || 0), 0);
   }, [slabs]);
 
-  const totalDays = useCallback(() => (slabs ? DAY_NAMES.filter(d => (slabs[d] || []).length > 0).length : 0), [slabs]);
+  const totalDays = useCallback(() => (slabs ? EDITABLE_DAYS.filter(d => (slabs[d] || []).length > 0).length : 0), [slabs]);
 
   const topIncentive = useCallback(() => {
     if (!slabs) return 0;
     let max = 0;
-    for (const d of DAY_NAMES) {
+    for (const d of EDITABLE_DAYS) {
       for (const r of slabs[d] || []) max = Math.max(max, Number(r.incentive) || 0);
     }
     return max;
@@ -203,7 +208,7 @@ export default function IncentiveSetup() {
               <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Set collection amount slabs → incentive per day · the last slab's max as ∞ is the top bracket</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-              {DAY_NAMES.map(day => {
+              {EDITABLE_DAYS.map(day => {
                 const list = slabs[day] || [];
                 const st = ds(day);
                 const nv = newVal[day] || { min: '', max: '', incentive: '' };
@@ -273,6 +278,9 @@ export default function IncentiveSetup() {
                   </div>
                 );
               })}
+            </div>
+            <div style={{ marginTop: 12, padding: '10px 14px', border: '1px dashed #B45309', borderRadius: 10, background: '#FDF2E3', fontSize: 12, color: '#92400e' }}>
+              <strong>Sunday slabs are locked.</strong> From 1 October 2026 a Sunday earns no AKI at all (coming in on a Sunday is voluntary). Any Sunday slabs saved earlier still apply to months before that date.
             </div>
           </div>
 

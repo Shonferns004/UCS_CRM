@@ -11,16 +11,21 @@ import { routeFor, routeLabel } from '../../../lib/ticketRouting';
 import { Avatar } from '../../../components/ui';
 import { useRealtime } from '../../../hooks/useRealtime';
 
-const DEPARTMENTS = ['accounts', 'developers', 'hr', 'fro'];
+const DEPARTMENTS = ['accounts', 'developers', 'hr', 'fro', 'super_admin'];
 const CATEGORIES = [
   { value: 'suspense', label: 'Suspense' },
   { value: 'payment_issue', label: 'Payment Issue' },
   { value: 'receipt_issue', label: 'Receipt Issue' },
   { value: 'technical', label: 'Technical' },
   { value: 'hr_issue', label: 'HR Related' },
+  { value: 'super_admin', label: 'Super Admin' },
   { value: 'other', label: 'Other' },
 ];
 
+// The queue is the accounts suspense/payment/receipt work plus anything the
+// Super Admin sent (SA broadcasts raise the row with raised_by_panel
+// 'super_admin', whether aimed at all panels or at accounts specifically) —
+// so an SA instruction can never vanish from this board.
 const ACCOUNTS_QUEUE_CATEGORIES = ['suspense', 'payment_issue', 'receipt_issue'];
 
 const PRIORITIES = [
@@ -42,6 +47,7 @@ const PANEL_LABELS = {
   ngo_admin: 'Admin',
   event_head: 'Event Head',
   recruiter: 'Recruiter',
+  super_admin: 'Super Admin',
   other: 'Other',
 };
 
@@ -109,7 +115,7 @@ export default function AccountsTickets() {
       const allTickets = (regularTickets || [])
         .map(t => ({ ...t, _source: 'regular' }))
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setTickets(allTickets.filter(t => ACCOUNTS_QUEUE_CATEGORIES.includes(t.category)));
+      setTickets(allTickets.filter(t => ACCOUNTS_QUEUE_CATEGORIES.includes(t.category) || t.raised_by_panel === 'super_admin'));
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);

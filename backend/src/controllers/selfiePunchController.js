@@ -9,6 +9,7 @@ import { getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { getSetting } from '../models/settingsModel.js';
 import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
+import { isVoluntarySunday } from '../utils/sundayRules.js';
 import { attachSignedSelfieUrls } from '../services/signatureMediaLink.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -46,6 +47,8 @@ async function calculateLateMinutes(punchInTime, workerId) {
   const ist = getIstTime(new Date(punchInTime));
   const h = ist.getUTCHours();
   const m = ist.getUTCMinutes();
+  // A voluntary Sunday has no office start time — arriving late is impossible.
+  if (isVoluntarySunday(istDateStr(new Date(punchInTime)))) return 0;
   const effectiveStart = await getOfficeStart(workerId);
   const startMinutes = effectiveStart.hour * 60 + effectiveStart.minute;
   const punchMinutes = h * 60 + m;

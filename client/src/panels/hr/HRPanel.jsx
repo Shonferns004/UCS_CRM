@@ -39,6 +39,7 @@ import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
 import SevakPanel from '../sevak-library/SevakPanel'
+import SuperAdminTicketSection from '../../components/SuperAdminTicketSection'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
@@ -58,6 +59,7 @@ const NAV = [
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
+  { id:'to-super-admin', path:'/hr/to-super-admin', label:'To Super Admin', icon:Bell, eyebrow:'Support', sub:'All tickets raised to the Super Admin' },
   { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
   { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
 ]
@@ -284,6 +286,7 @@ export default function HRPanel() {
         <Route path="ngo" element={<NgoSalary />} />
         <Route path="fro-targets" element={<FroTargets />} />
         <Route path="tickets" element={<Tickets />} />
+        <Route path="to-super-admin" element={<SuperAdminTicketSection panel="hr" />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="library" element={<SevakPanel />} />
         <Route path="settings" element={<SettingsRoute />} />

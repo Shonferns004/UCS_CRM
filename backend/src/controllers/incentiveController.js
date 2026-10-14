@@ -186,7 +186,7 @@ export const setAchievement = async (req, res) => {
     const record = await upsertAchievement(workerId, date, parseFloat(amount), req.user.id);
     const dayName = getDayName(date);
     const ranges = await getAKISlabs();
-    const aki = calculateAKI(parseFloat(amount), dayName, ranges);
+    const aki = calculateAKI(parseFloat(amount), dayName, ranges, date);
     return res.json({ message: 'Achievement saved', record, aki });
   } catch (error) {
     return res.status(500).json({ message: error.message });
