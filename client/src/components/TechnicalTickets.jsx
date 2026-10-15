@@ -3,6 +3,7 @@ import { api } from '../api/auth';
 import { deptLabel } from '../lib/labels';
 import { routeFor, routeLabel, categoryLabel } from '../lib/ticketRouting';
 import { toast } from './Toast';
+import { Trash2 } from 'lucide-react';
 
 const AUTO_REFRESH_MS = 30000;
 
@@ -32,6 +33,7 @@ const CATEGORIES = [
   { value: 'hr_issue', label: 'HR Related' },
   { value: 'super_admin', label: 'Super Admin' },
   { value: 'developers', label: 'Developers' },
+  { value: 'social_media', label: 'Social Media Team' },
 ];
 
 const PRIORITIES = [
@@ -103,7 +105,7 @@ function renderPanel(t) {
   );
 }
 
-export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false, toSuperAdmin = false, queueDepartment = null }) {
+export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false, toSuperAdmin = false, queueDepartment = null, canDelete = false }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -137,6 +139,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [panelFilter, setPanelFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [deskLoading, setDeskLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const teamQueue = !!(department && category);
   const toSA = !!toSuperAdmin;
@@ -282,7 +285,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
       } else {
         await apiPost('/tickets', base);
       }
-      toast.success("Ticket raised successfully");
+      toast("Ticket raised successfully", "success");
       setShowRaise(false);
       loadTickets();
     } catch (err) {
@@ -336,7 +339,43 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
       setResolutionNote('');
       loadTickets();
     } catch (err) { alert(err.message); }
-    finally { setSavingStatus(false); }
+    finally { setSavingStatus(false);
+}
+  const handleDelete = async (id, bulk = false) => {
+    if (bulk) {
+      const ids = confirmDelete?.ids || [];
+      if (!ids.length) return;
+      const results = await Promise.allSettled(
+        ids.map(id => apiDelete(`/tickets/${id}`))
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed) toast(`${ids.length - failed} deleted, ${failed} failed`, failed === ids.length ? 'error' : 'warning');
+      else toast(`${ids.length} ticket${ids.length === 1 ? '' : 's'} deleted`, 'success');
+      setConfirmDelete(null);
+      setSelectedIds([]);
+      setSelectMode(false);
+      loadTickets();
+      return;
+    }
+    if (!confirmDelete) return;
+    if (confirmDelete.id !== id) {
+      setConfirmDelete(id);
+      return;
+    }
+    try {
+      await apiDelete(`/tickets/${id}`);
+      toast('Ticket deleted', 'success');
+      setConfirmDelete(null);
+      loadTickets();
+    } catch (err) {
+      toast(err.message || 'Failed to delete ticket', 'error');
+    }
+  };
+
+  const handleRowDelete = (t) => {
+    if (!canDelete) return;
+    setConfirmDelete(t.id);
+  };
   };
 
   // In team-queue mode the API already restricts the queue fetch, and the page
@@ -590,6 +629,11 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
                             <td style={{ padding: '8px 10px', fontSize: 11, color: '#6b7280' }}>{formatDate(t.created_at)}</td>
                             <td style={{ padding: '8px 10px' }}>
                               <button className="btn btn-sm" onClick={() => openDetail(t)} style={{ fontSize: 11, padding: '3px 10px' }}>View</button>
+                              {canDelete && (
+                                <button className="btn btn-sm btn-danger" onClick={() => handleRowDelete(t)} style={{ fontSize: 11, padding: '3px 10px' }}>
+                                  <Trash2 size={12} /> Delete
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}

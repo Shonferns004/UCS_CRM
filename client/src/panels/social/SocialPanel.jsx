@@ -136,7 +136,7 @@ export default function SocialPanel() {
                 </Suspense>
               </div>
             } />
-            <Route path="tickets" element={<TechnicalTickets panel="social" canResolve />} />
+            <Route path="tickets" element={<TechnicalTickets panel="social" canResolve canDelete />} />
             <Route path="reels-checklist" element={
               <div className="panel-event-head">
                 <Suspense fallback={<div style={{ padding: 8, color: 'var(--ink-soft)', fontSize: 13 }}>Loading checklist…</div>}>
