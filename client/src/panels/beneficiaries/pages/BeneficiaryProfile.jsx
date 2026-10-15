@@ -301,7 +301,7 @@ export default function BeneficiaryProfile() {
     </label>
   )
 
-  const E = (label, node) => <div style={styles.field}><label style={styles.label}>{label}</label>{node}</div>
+  const E = ({ label, children }) => <div style={styles.field}><label style={styles.label}>{label}</label>{children}</div>
 
   const CellInput = (value, onChange, type) => (
     <input

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../api/auth'
 import { useRealtime } from '../hooks/useRealtime'
-import { ChartBar, ArrowsClockwise, GearSix, Stack, CaretRight, Plus, X, Trophy, Users, CalendarBlank, FileText, PencilSimple, Trash, Play, ClockCounterClockwise, Sparkle, Camera, PaperPlaneTilt, CheckCircle, Clock } from '@phosphor-icons/react'
+import { ChartBar, ArrowsClockwise, GearSix, Stack, CaretRight, Plus, X, Trophy, Users, CalendarBlank, FileText, PencilSimple, Trash, Play, StopCircle, ClockCounterClockwise, Sparkle, Camera, PaperPlaneTilt, CheckCircle, Clock } from '@phosphor-icons/react'
 
 const fmt = (n) => {
   const v = Number(n)
@@ -124,11 +124,13 @@ const tierIndexOf = (tierKey, orderIndex) => {
 const tierMeta = (tierKey, orderIndex) => TIER_PALETTE[tierIndexOf(tierKey, orderIndex) % TIER_PALETTE.length]
 const tierNumber = (tierKey, orderIndex) => tierIndexOf(tierKey, orderIndex) + 1
 
-// Range status: Running only while its live window is open. The moment the
-// live is over (end time passed, or never started), it goes back to
+// Range status: Running only while its live window is open. A range an admin
+// stopped today shows as Ended (its winners are already declared); otherwise
+// once the live is over (end time passed, or never started) it goes back to
 // Not Started so it can be started fresh again.
 const rangeStatus = (slab) => {
   if (!slab) return 'not_started'
+  if (stoppedToday(slab)) return 'ended'
   if (!slab.started_at) return 'not_started'
   const s = new Date(slab.started_at).getTime()
   if (Number.isNaN(s) || s > Date.now()) return 'not_started'
@@ -458,7 +460,7 @@ function RangeCard({ r, onViewAll, onSelectFro }) {
 }
 
 // ─── Left panel: Incentive Ranges ─────────────────────────
-function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTargetSlabs, onCountdownDone }) {
+function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTargetSlabs, onCountdownDone, onStopAll, onStopRange, stopping, stopMsg }) {
   // Fixed label widths (longest min/max across rows) so every row's arrow
   // starts and ends at the same distance — nothing looks crooked.
   const arrowW = useMemo(() => {
@@ -471,6 +473,7 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
     return { minW, maxW }
   }, [ranges])
   const [viewFros, setViewFros] = useState(null)
+  const hasRunning = (ranges || []).some(r => r.status === 'running' && !r.stopped)
   return (
     <div className="li-panel">
       <div className="li-panel-head" style={{ padding: '10px 14px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -480,11 +483,28 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: C.dark, lineHeight: 1.2 }}>Incentive Ranges</div>
         </div>
+        {(hasRunning || stopping) && (
+          <button type="button" onClick={onStopAll} disabled={stopping}
+            title="End today's race now and announce the winners"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 30, padding: '0 12px', borderRadius: 8, border: 'none', background: stopping ? '#F4B8B8' : '#D92D20', color: '#fff', fontSize: 12, fontWeight: 700, cursor: stopping ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            {stopping
+              ? <span className="li-spin" style={{ display: 'inline-flex' }}><ArrowsClockwise size={14} /></span>
+              : <StopCircle size={14} weight="fill" />}
+            {stopping ? 'Stopping…' : 'Stop & Announce'}
+          </button>
+        )}
         <button type="button" onClick={onTargetSlabs}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 30, padding: '0 12px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
           <FileText size={14} /> Target Slabs
         </button>
       </div>
+
+      {stopMsg && (
+        <div style={{ padding: '9px 14px', fontSize: 12.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, background: stopMsg.type === 'err' ? '#FEF2F2' : C.greenBg, color: stopMsg.type === 'err' ? '#D92D20' : '#0F7A3D', borderBottom: '1px solid #EEF2F8' }}>
+          <span>{stopMsg.type === 'err' ? '⚠' : '✓'}</span>
+          <span style={{ flex: 1 }}>{stopMsg.text}</span>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: '10px 16px 14px' }}>
@@ -557,9 +577,18 @@ function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTarget
                       <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: r.slab_label, fros: rangeFros })} />
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <button type="button" className="li-configure" onClick={() => onConfigure(r.slab)}>
-                        <Play size={12} weight="fill" /> Start
-                      </button>
+                      {r.status === 'running' && !r.stopped ? (
+                        <button type="button" className="li-configure" disabled={stopping}
+                          title="End this range now and announce its winner"
+                          onClick={() => onStopRange && onStopRange(r.slab)}
+                          style={{ color: '#D92D20', borderColor: '#F6C8C8', background: '#FEF6F6' }}>
+                          <StopCircle size={12} weight="fill" /> Stop
+                        </button>
+                      ) : (
+                        <button type="button" className="li-configure" onClick={() => onConfigure(r.slab)}>
+                          <Play size={12} weight="fill" /> Start
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )
@@ -1601,6 +1630,14 @@ export default function LeadIncentive() {
   const [savingSlab, setSavingSlab] = useState(false)
   const [history, setHistory] = useState([])
   const [announcing, setAnnouncing] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const [stopMsg, setStopMsg] = useState(null)
+  // Auto-dismiss the stop confirmation banner after a few seconds.
+  useEffect(() => {
+    if (!stopMsg) return
+    const t = setTimeout(() => setStopMsg(null), 8000)
+    return () => clearTimeout(t)
+  }, [stopMsg])
   const [historyError, setHistoryError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [detailFroId, setDetailFroId] = useState(null)
@@ -1753,6 +1790,49 @@ export default function LeadIncentive() {
     } finally { setAnnouncing(false) }
   }
 
+  // ⏹ Stop & Announce: end today's race right now — the backend freezes the
+  // standings at this instant and announces the winners on every panel.
+  const stopAllRanges = async () => {
+    if (stopping) return
+    if (!window.confirm("Stop today's incentive race now? The competition will end immediately and the winners will be announced to everyone.")) return
+    setStopping(true)
+    setStopMsg(null)
+    try {
+      const res = await api(`/incentive/lead/slabs/stop-all?date=${date}`, { method: 'POST', _prefix: 'ucs' })
+      const n = Number(res?.announced) || 0
+      setStopMsg({
+        type: 'ok',
+        text: n > 0
+          ? `Race stopped — ${n} winner${n === 1 ? '' : 's'} announced! 🏆`
+          : 'Race stopped — no FRO had hit a target yet, so no winners to announce.',
+      })
+      await Promise.all([loadSlabs(true), loadSummary(true), loadHistory(true)])
+    } catch (e) {
+      setStopMsg({ type: 'err', text: e.message || 'Failed to stop the race' })
+    } finally { setStopping(false) }
+  }
+
+  const stopRange = async (slab) => {
+    if (stopping) return
+    const label = fmtSlabRange(slab)
+    if (!window.confirm(`Stop the ${label} range now and announce its winner?`)) return
+    setStopping(true)
+    setStopMsg(null)
+    try {
+      const res = await api(`/incentive/lead/slabs/${slab.id}/stop?date=${date}`, { method: 'POST', _prefix: 'ucs' })
+      const n = Number(res?.announced) || 0
+      setStopMsg({
+        type: 'ok',
+        text: n > 0
+          ? `${label} stopped — winner announced! 🏆`
+          : `${label} stopped — no FRO had hit the target yet.`,
+      })
+      await Promise.all([loadSlabs(true), loadSummary(true), loadHistory(true)])
+    } catch (e) {
+      setStopMsg({ type: 'err', text: e.message || 'Failed to stop the range' })
+    } finally { setStopping(false) }
+  }
+
   const refresh = async () => {
     setRefreshing(true)
     try {
@@ -1881,6 +1961,10 @@ export default function LeadIncentive() {
             onConfigure={setConfigureSlab}
             onTargetSlabs={() => setSlabsOpen(true)}
             onCountdownDone={reloadAll}
+            onStopAll={stopAllRanges}
+            onStopRange={stopRange}
+            stopping={stopping}
+            stopMsg={stopMsg}
           />
           <div style={{ height: 16 }} />
           <HistoryPanel

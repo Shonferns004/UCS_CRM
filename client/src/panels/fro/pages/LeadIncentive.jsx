@@ -2,11 +2,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../../../api/auth';
 import { useUcs } from '../../../store';
 import { useRealtime } from '../../../hooks/useRealtime';
-import { useLeadIncentiveLeaderboard, RangeLeaderboard, TierPill, tMeta, tierNumber } from '../../../components/LeadIncentiveLeaderboard';
+import { useLeadIncentiveLeaderboard, RangeLeaderboard, TierPill, tMeta, tierNumber, TimeLeftBadge } from '../../../components/LeadIncentiveLeaderboard';
 
 const fmt = (n) => {
   const v = Number(n);
   return (Number.isFinite(v) ? v : 0).toLocaleString('en-IN');
+};
+
+const fmtTime = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 };
 
 const todayLocal = () => {
@@ -19,6 +26,7 @@ const LEAD_PAGE_CSS = `
 @keyframes lp-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes lp-pop-in { 0% { transform: scale(.7) translateY(30px); opacity: 0; } 70% { transform: scale(1.04); } 100% { transform: scale(1) translateY(0); opacity: 1; } }
 @keyframes lp-celebrate { 0%,100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-12px) rotate(-8deg); } 75% { transform: translateY(-12px) rotate(8deg); } }
+@keyframes lil-alert { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.6); } 50% { box-shadow: 0 0 0 7px rgba(255,255,255,0); } }
 `;
 
 function Avatar({ url, name, size = 44 }) {
@@ -134,6 +142,12 @@ function HeroLive({ summary }) {
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'lp-pulse 1s linear infinite' }} /> Lead Incentive · LIVE
           </span>
           <span style={{ padding: '4px 11px', borderRadius: 999, background: 'rgba(255,255,255,.18)', fontSize: 10.5, fontWeight: 800 }}>⏳ Today</span>
+          {(summary?.slab?.started_at || summary?.slab?.ended_at) && (
+            <span style={{ padding: '4px 11px', borderRadius: 999, background: 'rgba(255,255,255,.18)', fontSize: 10.5, fontWeight: 800 }}>
+              ⏱ {fmtTime(summary.slab.started_at)} <span style={{ opacity: .7 }}>→</span> {summary.slab.ended_at ? fmtTime(summary.slab.ended_at) : 'till stopped'}
+            </span>
+          )}
+          {summary?.slab && <TimeLeftBadge endAt={summary.slab.ended_at} />}
           {rangeLabel !== 'your range' && (
             <span style={{ padding: '4px 11px', borderRadius: 999, background: 'rgba(255,255,255,.18)', fontSize: 10.5, fontWeight: 800 }}>{rangeLabel}</span>
           )}

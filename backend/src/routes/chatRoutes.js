@@ -18,7 +18,7 @@ import {
   noticeViewed,
   listGroupParticipants,
   updateGroupSettings,
-  deleteGroup,
+  deleteConversation,
 } from '../controllers/chatController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { chatWriter, chatGroupCreator } from '../middleware/chatAccess.js';
@@ -85,10 +85,11 @@ router.post('/conversations/direct', chatWriter, openDirect);
 // `direct` is.
 router.post('/conversations/group', chatGroupCreator, createGroup);
 // Group management: roster is readable by any member; settings/deletion are
-// gated in the handler on the three admin roles + membership.
+// gated in the handler on the three admin roles + membership. Deletion also
+// accepts a direct (personal) conversation, so an admin can remove those too.
 router.get('/conversations/:id/participants', listGroupParticipants);
 router.patch('/conversations/:id/settings', chatWriter, updateGroupSettings);
-router.delete('/conversations/:id', chatWriter, deleteGroup);
+router.delete('/conversations/:id', chatWriter, deleteConversation);
 router.get('/conversations/:id/messages', listMessages);
 router.get('/conversations/:id/search', searchMessages);
 router.post('/conversations/:id/read', markRead);

@@ -179,7 +179,7 @@ const http = {
 
   getUnreadCount: () => api('/chat/unread-count', { _prefix: 'ucs' }),
 
-  // ---- group management (admin participants) ----
+  // ---- conversation management (admin participants) ----
   getGroupParticipants: (_me, convoId) =>
     api(`/chat/conversations/${encodeURIComponent(convoId)}/participants`, { _prefix: 'ucs' }),
 
@@ -199,7 +199,8 @@ const http = {
       _prefix: 'ucs',
     }),
 
-  deleteGroup: (_me, convoId) =>
+  // Hard-deletes a group room or a personal chat. Admin-only, server-side.
+  deleteConversation: (_me, convoId) =>
     api(`/chat/conversations/${encodeURIComponent(convoId)}`, {
       method: 'DELETE',
       _prefix: 'ucs',
@@ -280,7 +281,7 @@ export const chatApi = {
   markNoticeViewed: (messageId) => http.markNoticeViewed(messageId),
   getGroupParticipants: (me, convoId) => http.getGroupParticipants(me, convoId),
   updateGroupSettings: (me, convoId, payload) => http.updateGroupSettings(me, convoId, payload),
-  deleteGroup: (me, convoId) => http.deleteGroup(me, convoId),
+  deleteConversation: (me, convoId) => http.deleteConversation(me, convoId),
   markRead: (me, convoId, messageId) => http.markRead(me, convoId, messageId),
   searchMessages: (me, convoId, q, opts) => http.searchMessages(me, convoId, q, opts),
   editMessage: (me, messageId, body) => http.editMessage(me, messageId, body),

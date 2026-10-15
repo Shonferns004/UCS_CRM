@@ -1,0 +1,12 @@
+{
+  "name": "ucs-crm-doc-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "docx": "^9.0.2",
+    "esbuild": "^0.28.2",
+    "mermaid": "^12.2.0",
+    "puppeteer-core": "^25.13.0"
+  }
+}
