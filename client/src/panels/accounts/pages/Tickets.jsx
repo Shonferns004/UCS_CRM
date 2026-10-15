@@ -11,7 +11,6 @@ import { routeFor, routeLabel } from '../../../lib/ticketRouting';
 import { Avatar } from '../../../components/ui';
 import { useRealtime } from '../../../hooks/useRealtime';
 
-const DEPARTMENTS = ['accounts', 'developers', 'hr', 'fro', 'super_admin'];
 const CATEGORIES = [
   { value: 'suspense', label: 'Suspense' },
   { value: 'payment_issue', label: 'Payment Issue' },
@@ -691,14 +690,8 @@ export default function AccountsTickets() {
                 </div>
               )}
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Department *
-                  <select value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
-                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-                  </select>
-                </label>
-                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Category *
+                  <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                    Category *
                   <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
                     {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
