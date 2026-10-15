@@ -3899,6 +3899,11 @@
    shell taller than `100dvh` on any browser whose dynamic viewport is
    smaller - which reintroduces the unreachable overflow all over again.
 
+   Accounts, FRO and event-head already have the definite-height shell, so for
+   them only the content-body changes: dropping the page padding and handing
+   scrolling to the workspace is what makes chat touch the header, right and
+   bottom edges instead of sitting in a padded gap.
+
    No chat-side change is needed. `.chat-page` already obeys a definite host
    (`height:100%`, `min-height:0`), so `.chat-workspace` becomes the scroller.
    ========================================================================== */
@@ -3923,7 +3928,10 @@
 
 .panel-hr.is-chat-route .content-body,
 .panel-recruiter.is-chat-route .content-body,
-.panel-ngo-admin.is-chat-route .content-body {
+.panel-ngo-admin.is-chat-route .content-body,
+.panel-accounts.is-chat-route .content-body,
+.panel-fro.is-chat-route .content-body,
+.panel-event-head.is-chat-route .content-body {
   flex: 1;
   min-height: 0;
   display: flex;

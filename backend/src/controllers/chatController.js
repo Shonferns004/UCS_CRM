@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as chat from '../models/chatModel.js';
-import { emitChat, emitChatBroadcast } from '../socket.js';
+import { emitChat, emitChatBroadcast, emitChatToUsers } from '../socket.js';
 import { notFound, isChatAdminRole } from '../middleware/chatAccess.js';
 import { notifyParticipantsOfMessage } from '../services/chatNotificationService.js';
 
@@ -300,6 +300,15 @@ export const createGroup = async (req, res) => {
       writeMode,
     });
 
+    // Tell exactly the people seated in the room (creator included) that it
+    // exists: their sockets are not in `chat:<id>` yet, and a broadcast would
+    // leak the new group's id to everyone else. Id-only frame - the client
+    // reacts by rejoining its rooms and refetching its own rail.
+    emitChatToUsers([me.uid, ...roster.map((m) => m.uid)], {
+      type: 'conversation:created',
+      conversation_id: convo.id,
+    });
+
     res.status(201).json(chat.toConversationDto({ ...convo, member_count: memberCount }));
   } catch (err) {
     console.error('[chat] createGroup', err);
@@ -347,7 +356,12 @@ export const openDirect = async (req, res) => {
     });
 
     // Returned bare: the caller does `const convo = await createDirect(...)`
-    // and then reads convo.id.
+    // and then reads convo.id. Same id-only notice as group creation, so the
+    // recipient's rail opens the DM without a reload.
+    emitChatToUsers([me.uid, target.uid], {
+      type: 'conversation:created',
+      conversation_id: convo.id,
+    });
     res.json(chat.toConversationDto({
       id: convo.id,
       kind: convo.kind,
@@ -637,20 +651,20 @@ export const editMessage = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
-// DELETE /messages/:id  (writer + sender, or superadmin in a group room)
+// DELETE /messages/:id  (writer + sender, or a chat admin anywhere)
 // ---------------------------------------------------------------------------
 
 /**
- * Moderation is Community-room only (plan.md §6.2). A superadmin inside a DM is
- * an ordinary participant and gets no authority over the other person's
- * messages.
+ * Anyone may delete their own message. Deleting someone else's is moderation
+ * and is limited to chat admins (Super Admin, Accounts, Admin) in any
+ * conversation they belong to.
  */
 export const deleteMessage = async (req, res) => {
   try {
     const me = identify(req, res);
     if (!me) return;
     if (!me.canPost) {
-      return res.status(403).json({ message: 'Only Super Admin and Accounts can delete messages.' });
+      return res.status(403).json({ message: 'Only Super Admin, Accounts, Admin and FRO can delete messages.' });
     }
     const msg = await chat.getMessage(Number(req.params.id));
     if (!msg) return notFound(res);
@@ -658,7 +672,7 @@ export const deleteMessage = async (req, res) => {
     if (!convo) return notFound(res);
     if (!(await chat.isParticipant(convo.id, me.uid))) return notFound(res);
 
-    const isModerator = me.role === 'super_admin' && convo.kind === 'group';
+    const isModerator = isChatAdminRole(me.role);
     if (!isModerator && msg.sender_uid !== me.uid) {
       return res.status(403).json({ message: 'You can only delete your own messages' });
     }
@@ -806,15 +820,24 @@ export const updateGroupSettings = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Hard-deletes a group room: participants, messages and notice views all
- * cascade. Announced over the socket first so everyone's rail drops it
- * without a reload.
+ * Hard-deletes a conversation — a group room or a personal chat: participants,
+ * messages and notice views all cascade. Chat admins (Super Admin, Accounts,
+ * Admin) may delete either kind, but only from a room they belong to. The
+ * removal is announced over the socket after the delete succeeds so everyone's
+ * rail drops it without a reload.
  */
-export const deleteGroup = async (req, res) => {
+export const deleteConversation = async (req, res) => {
   try {
-    const ctx = await authorizeGroupAdmin(req, res);
-    if (!ctx) return;
-    const { convo } = ctx;
+    const me = identify(req, res);
+    if (!me) return;
+    if (!isChatAdminRole(me.role)) {
+      return res.status(403).json({ message: 'Only Super Admin, Accounts and Admin can delete chats.' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return notFound(res);
+    const convo = await chat.getConversation(id);
+    if (!convo) return notFound(res);
+    if (!(await chat.isParticipant(convo.id, me.uid))) return notFound(res);
     // Delete first so a failed write never announces a phantom removal.
     await db._pool.query(`DELETE FROM chat_conversations WHERE id = $1`, [convo.id]);
     // Broadcast globally, not room-scoped: people who never joined this room's
@@ -823,8 +846,8 @@ export const deleteGroup = async (req, res) => {
     emitChatBroadcast({ type: 'conversation:deleted', conversation_id: convo.id });
     res.json({ ok: true });
   } catch (err) {
-    console.error('[chat] deleteGroup', err);
-    res.status(500).json({ message: 'Could not delete the group' });
+    console.error('[chat] deleteConversation', err);
+    res.status(500).json({ message: 'Could not delete the chat' });
   }
 };
 

@@ -5,15 +5,50 @@ import { roleLabel } from './chatIdentity'
 import { ChatState } from './ChatState'
 import { SearchIcon, CloseIcon, LockIcon } from './chatIcons'
 
+const chipStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '3px 6px 3px 10px',
+  borderRadius: 999,
+  background: 'var(--chat-own-bubble)',
+  color: 'var(--chat-primary-hover)',
+  fontSize: 12,
+  fontWeight: 600,
+  border: '1px solid var(--chat-border)',
+}
+
+const chipXStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 16,
+  height: 16,
+  borderRadius: '50%',
+  background: 'transparent',
+  color: 'var(--chat-primary-hover)',
+}
+
+const sectionDivider = {
+  height: 1,
+  background: 'var(--chat-border)',
+  border: 0,
+  margin: '16px 0',
+}
+
 /**
  * Group create dialog — Super Admin, Accounts and Admin only.
  *
- * Asks three things before creating the room: a name, who to seat (a whole
- * department or hand-picked people, or a mix), and who may post once it exists.
+ * Asks four things before creating the room: a name, who can SEE it (the same
+ * question as who gets seated — privacy is the point, so it is asked first,
+ * with a plain-language promise under the heading), who may post, and the
+ * per-person write mode.
  *
  * Departments are a convenience over the same directory the people tab uses,
  * so picking "HR" expands to every HR member and the final payload is still a
- * flat list of uids — the server never has to know the difference.
+ * flat list of uids — the server never has to know the difference. Membership
+ * is the access control: chatModel only ever lists conversations joined
+ * through chat_participants, so an HR+FRO group is invisible to everyone else.
  */
 export default function GroupCreateDialog({ me, onClose, onCreated }) {
   const [directory, setDirectory] = useState([])
@@ -113,6 +148,14 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
   const memberCount = finalMembers.length
   const canSubmit = title.trim().length > 0 && memberCount > 0 && !saving
 
+  // Chips show what is selected; people already covered by a picked department
+  // do not get a chip of their own (the department chip is the thing to click).
+  const deptNames = [...deptSel]
+  const pickedPeople = [...personSel]
+    .map((uid) => directory.find((p) => p.uid === uid))
+    .filter(Boolean)
+    .filter((p) => !deptSel.has(p.department))
+
   const toggleDept = (dept) => {
     setDeptSel((prev) => {
       const next = new Set(prev)
@@ -164,9 +207,14 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="chat-dialog-head">
-          <h3 className="chat-dialog-title" id="chat-group-title">
-            New group
-          </h3>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 className="chat-dialog-title" id="chat-group-title" style={{ flex: 'none' }}>
+              New group
+            </h3>
+            <p className="chat-state-sub" style={{ margin: '2px 0 0' }}>
+              Private room — only the people you pick can see it
+            </p>
+          </div>
           <button
             ref={closeRef}
             type="button"
@@ -205,7 +253,7 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
               <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
                 Group name
               </label>
-              <div className="chat-field" style={{ marginBottom: 12 }}>
+              <div className="chat-field">
                 <input
                   ref={titleRef}
                   type="text"
@@ -218,7 +266,22 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                 />
               </div>
 
-              <div className="chat-tabs" role="tablist" aria-label="Who to add" style={{ marginBottom: 10 }}>
+              <hr style={sectionDivider} />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ display: 'flex', color: 'var(--chat-primary)' }}>
+                  <LockIcon size={14} />
+                </span>
+                <span className="chat-field-label" style={{ margin: 0 }}>
+                  Who can see this group
+                </span>
+              </div>
+              <p className="chat-state-sub" style={{ margin: '0 0 10px' }}>
+                Only the people you pick below will see this group and its messages —
+                for example, pick HR and FRO and no one else will even know it exists.
+              </p>
+
+              <div className="chat-tabs" role="tablist" aria-label="Who can see this group" style={{ marginBottom: 10 }}>
                 <button
                   type="button"
                   role="tab"
@@ -243,7 +306,7 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
               </div>
 
               {tab === 'departments' ? (
-                <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+                <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 10 }}>
                   {[...departments.entries()].map(([dept, members]) => (
                     <label key={dept} className="chat-pickrow">
                       <input
@@ -277,7 +340,7 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                       aria-label="Search people"
                     />
                   </div>
-                  <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 10 }}>
                     {shownPeople.map((p) => (
                       <label key={p.uid} className="chat-pickrow">
                         <input
@@ -303,10 +366,57 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                 </>
               )}
 
+              {(deptNames.length > 0 || pickedPeople.length > 0) && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    marginBottom: 8,
+                  }}
+                  aria-label="Selected members"
+                >
+                  {deptNames.map((dept) => (
+                    <span key={dept} style={chipStyle}>
+                      {dept}
+                      <button
+                        type="button"
+                        style={chipXStyle}
+                        onClick={() => toggleDept(dept)}
+                        aria-label={`Remove everyone in ${dept}`}
+                      >
+                        <CloseIcon size={11} />
+                      </button>
+                    </span>
+                  ))}
+                  {pickedPeople.map((p) => (
+                    <span key={p.uid} style={chipStyle}>
+                      {p.name}
+                      <button
+                        type="button"
+                        style={chipXStyle}
+                        onClick={() => togglePerson(p.uid)}
+                        aria-label={`Remove ${p.name}`}
+                      >
+                        <CloseIcon size={11} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <p className="chat-state-sub" style={{ margin: '0 0 4px' }}>
+                {memberCount === 0
+                  ? 'Pick at least one department or person.'
+                  : `${memberCount} ${memberCount === 1 ? 'person' : 'people'} will be seated. No one else can see, search or join this group.`}
+              </p>
+
+              <hr style={sectionDivider} />
+
               <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
                 Who can post
               </label>
-              <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 16 }}>
                 <label className="chat-pickrow">
                   <input
                     type="radio"
@@ -340,7 +450,7 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
               <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
                 Individual chat permission
               </label>
-              <div style={{ marginBottom: 12 }}>
+              <div>
                 <label className="chat-pickrow">
                   <input
                     type="radio"
@@ -371,12 +481,6 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                   </span>
                 </label>
               </div>
-
-              <p className="chat-state-sub" style={{ marginBottom: 4 }}>
-                {memberCount === 0
-                  ? 'Pick at least one department or person.'
-                  : `${memberCount} ${memberCount === 1 ? 'person' : 'people'} will be added.`}
-              </p>
             </>
           )}
         </form>

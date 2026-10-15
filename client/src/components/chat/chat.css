@@ -188,6 +188,10 @@
 .chat-iconbtn:hover { background: var(--chat-canvas); color: var(--chat-text); }
 .chat-iconbtn:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
 .chat-iconbtn[disabled] { opacity: 0.4; cursor: not-allowed; }
+/* Danger-flavoured icon button (delete chat): red on hover, and stays red once
+   armed so the confirming second press is visibly a different state. */
+.chat-iconbtn[data-danger='true']:hover,
+.chat-iconbtn[data-danger='true'][data-armed] { color: var(--chat-danger); }
 
 .chat-btn {
   appearance: none;
@@ -796,7 +800,12 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 1000;
+  /* Above the panel chrome that previously sat on top of the dim: the
+     accounts/ngo-admin/fro topbar is sticky z-index:1001 and their fixed
+     sidebar is z-index:1100, so a 1000 overlay left the header bright while
+     the rest of the page dimmed. 1200 clears both. Stays below the notice
+     popup (1600) and the chat FAB (2500), which must remain reachable. */
+  z-index: 1200;
 }
 .chat-dialog {
   background: var(--chat-surface);

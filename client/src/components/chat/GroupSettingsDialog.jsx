@@ -139,7 +139,7 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
     setDeleting(true)
     setDeleteError('')
     chatApi
-      .deleteGroup(me, conversation.id)
+      .deleteConversation(me, conversation.id)
       .then(() => {
         onDeleted?.(conversation.id)
         onClose()
