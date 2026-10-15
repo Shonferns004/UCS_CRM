@@ -73,7 +73,7 @@ export default function FroTickets() {
   const [loadError, setLoadError] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [form, setForm] = useState({
-    department: 'accounts',
+    department: 'fro',
     category: 'suspense',
     subject: '',
     description: '',
@@ -234,7 +234,7 @@ export default function FroTickets() {
       }
       toast(`Ticket raised to ${route.dest}`, 'success');
       closeRaise();
-      setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: '', ngo: '' });
+      setForm({ department: 'fro', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: '', ngo: '' });
       setFormErrors({});
       load();
     } catch (err) { setFormErrors({ _general: err.message }); }

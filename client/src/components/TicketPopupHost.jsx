@@ -33,18 +33,34 @@ const QUEUE_PATHS = {
 };
 
 const queuePathFor = (user, pathname) => {
-  const role = String(user?.role || '').toLowerCase();
-  if (QUEUE_PATHS[role]) return QUEUE_PATHS[role];
-  if (pathname.startsWith('/accounts')) return QUEUE_PATHS.accounts;
-  if (pathname.startsWith('/hr')) return QUEUE_PATHS.hr;
-  if (pathname.startsWith('/event-head')) return QUEUE_PATHS.event_head;
-  if (pathname.startsWith('/dev-panel')) return QUEUE_PATHS.digital;
-  if (pathname.startsWith('/social')) return QUEUE_PATHS.social;
-  if (pathname.startsWith('/sa')) return QUEUE_PATHS.super_admin;
-  if (pathname.startsWith('/fro')) return QUEUE_PATHS.fro;
-  if (pathname.startsWith('/ngo-admin')) return QUEUE_PATHS.ngo_admin;
-  if (pathname.startsWith('/recruiter')) return QUEUE_PATHS.recruiter;
-  return null;
+    if (pathname.startsWith('/accounts')) return QUEUE_PATHS.accounts;
+    if (pathname.startsWith('/hr')) return QUEUE_PATHS.hr;
+    if (pathname.startsWith('/event-head')) return QUEUE_PATHS.event_head;
+    if (pathname.startsWith('/social')) return QUEUE_PATHS.social;
+    if (pathname.startsWith('/dev-panel')) return QUEUE_PATHS.digital;
+    if (pathname.startsWith('/sa')) return QUEUE_PATHS.super_admin;
+    if (pathname.startsWith('/fro')) return QUEUE_PATHS.fro;
+    if (pathname.startsWith('/ngo-admin')) return QUEUE_PATHS.ngo_admin;
+    if (pathname.startsWith('/recruiter')) return QUEUE_PATHS.recruiter;
+    const role = String(user?.role || '').toLowerCase();
+    if (QUEUE_PATHS[role]) return QUEUE_PATHS[role];
+    return null;
+  };
+
+const getUserPanelFromRole = (role) => {
+    const roleMap = {
+        social: 'social',
+        digital: 'dev_panel',
+        developer: 'dev_panel',
+        hr: 'hr',
+        accounts: 'accounts',
+        fro: 'fro',
+        ngo_admin: 'ngo_admin',
+        recruiter: 'recruiter',
+        event_head: 'event_head',
+        super_admin: 'super_admin',
+    };
+    return roleMap[role] || '';
 };
 
 const PRIORITY_STYLE = {
@@ -115,14 +131,20 @@ export default function TicketPopupHost() {
       const data = await api('/tickets/pending-popups', { _prefix: 'ucs' });
       const arr = Array.isArray(data) ? data : [];
       if (currentRef.current) return;
-      // A queue of several new tickets shows one at a time, not all at once.
       if (Date.now() - lastDismissRef.current < NEXT_GAP_MS) return;
+      // Find first ticket authorized for this user's panel
       const local = readSeenLocal(seenKey);
-      const next = arr.find(t => !local.has(String(t.id)));
-      if (next) {
-        currentRef.current = next;
-        setCurrent(next);
-        ackTicket(next);
+      for (const t of arr) {
+        if (local.has(String(t.id))) continue;
+        // Show ticket only if user's panel matches ticket's recipient panel
+        // or if user is super_admin
+        const isAuthorized = getUserPanelFromRole(user?.role) === t.raised_by_panel || user?.role === 'super_admin';
+        if (isAuthorized) {
+          currentRef.current = t;
+          setCurrent(t);
+          ackTicket(t);
+          break;
+        }
       }
     } catch { /* 401 / offline — the next poll retries */ } finally {
       inflightRef.current = false;
