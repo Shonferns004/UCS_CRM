@@ -16,7 +16,7 @@ import GroupCreateDialog from './GroupCreateDialog'
 import GroupSettingsDialog from './GroupSettingsDialog'
 import GroupMembersPanel from './GroupMembersPanel'
 import { ChatState, ChatThreadSkeleton } from './ChatState'
-import { ChatIcon, BackIcon, SearchIcon, SettingsIcon } from './chatIcons'
+import { ChatIcon, BackIcon, SearchIcon, SettingsIcon, TrashIcon } from './chatIcons'
 import './chat.css'
 
 /**
@@ -54,7 +54,6 @@ export default function ChatWorkspace() {
   const [listError, setListError] = useState('')
   const [activeId, setActiveId] = useState(null)
   const [view, setView] = useState('list')
-  const [tab, setTab] = useState('all')
   const [filter, setFilter] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [highlightId, setHighlightId] = useState(null)
@@ -64,6 +63,10 @@ export default function ChatWorkspace() {
   const [membersOpen, setMembersOpen] = useState(false)
   const [optimistic, setOptimistic] = useState([])
   const [unreadKey, setUnreadKey] = useState(0)
+  // Deleting a personal chat is armed per conversation: switching rooms drops
+  // the armed state so a stray second click cannot delete the next DM.
+  const [deleteArmed, setDeleteArmed] = useState(false)
+  const [deletingChat, setDeletingChat] = useState(false)
 
   const active = conversations.find((c) => c.id === activeId) || null
   const typers = useTypingIn(activeId)
@@ -116,10 +119,31 @@ export default function ChatWorkspace() {
     loadConversations()
   }, [loadConversations])
 
+  // Same fetch as loadConversations but without the loading state: used when a
+  // conversation:created frame arrives for a room we were just seated in, so
+  // the rail gains the row in place with no skeleton flash and no re-selection.
+  const refreshConversations = useCallback(async () => {
+    if (!me?.uid) return
+    try {
+      const list = await chatApi.listConversations(me)
+      if (Array.isArray(list)) setConversations(list)
+    } catch {
+      // A background refresh failing is not worth interrupting the open room;
+      // the next load (navigation, reconnect) retries it.
+    }
+  }, [me])
+
   // Keep previews, ordering and unread counts live without refetching the list.
   useEffect(() => {
     if (!me?.uid) return
     return chatApi.subscribe((evt) => {
+      if (evt.type === 'conversation:created' && evt.conversation_id) {
+        // A room we were just seated in (a group created by an admin, or a DM
+        // opened against us). Our socket is not in its room yet, so rejoin and
+        // silently refresh the rail - otherwise the row only appears on reload.
+        chatApi.rejoinRooms()
+        refreshConversations()
+      }
       if (evt.type === 'message:new' && evt.message) {
         const m = evt.message
         setConversations((prev) => {
@@ -193,7 +217,7 @@ export default function ChatWorkspace() {
         setActiveId((prev) => (prev === id ? null : prev))
       }
     })
-  }, [me, activeId])
+  }, [me, activeId, refreshConversations])
 
   // ---- selection ----------------------------------------------------------
   const select = useCallback((c) => {
@@ -388,6 +412,31 @@ export default function ChatWorkspace() {
     [me, select]
   )
 
+  // ---- delete a personal chat ---------------------------------------------
+  // Two-press confirm (arm, then delete) like the group-settings dialog.
+  // Chat admins only — the server enforces the same rule and the broadcast
+  // drops the chat from the other person's rail too.
+  const removeDirect = useCallback(() => {
+    if (!active || active.kind !== 'direct' || deletingChat) return
+    if (!deleteArmed) {
+      setDeleteArmed(true)
+      return
+    }
+    setDeletingChat(true)
+    chatApi
+      .deleteConversation(me, active.id)
+      .then(() => {
+        setConversations((prev) => prev.filter((c) => c.id !== active.id))
+        setActiveId((prev) => (prev === active.id ? null : prev))
+        toast('Chat deleted.', 'success')
+      })
+      .catch((err) => {
+        toast(err.message || 'Could not delete the chat.', 'error')
+        setDeleteArmed(false)
+      })
+      .finally(() => setDeletingChat(false))
+  }, [active, me, deleteArmed, deletingChat])
+
   // ---- render -------------------------------------------------------------
   if (!me?.uid) {
     return (
@@ -416,12 +465,9 @@ export default function ChatWorkspace() {
       <div className="chat-workspace" data-view={view}>
         <aside className="chat-rail" aria-label="Conversations">
           <ConversationList
-            title="Community"
             conversations={conversations}
             activeId={activeId}
             onSelect={select}
-            tab={tab}
-            onTab={setTab}
             filter={filter}
             onFilter={setFilter}
             loading={listStatus === 'loading'}
@@ -533,6 +579,27 @@ export default function ChatWorkspace() {
                     title="Group settings"
                   >
                     <SettingsIcon size={18} />
+                  </button>
+                )}
+
+                {/* Personal chats are deletable by chat admins. First press
+                    arms the control, second press deletes. */}
+                {active.kind === 'direct' && isChatAdmin(me.role) && (
+                  <button
+                    type="button"
+                    className="chat-iconbtn"
+                    data-danger="true"
+                    data-armed={deleteArmed ? 'true' : undefined}
+                    onClick={removeDirect}
+                    disabled={deletingChat}
+                    aria-label="Delete this chat"
+                    title={
+                      deleteArmed
+                        ? 'Click again to permanently delete this chat'
+                        : 'Delete chat'
+                    }
+                  >
+                    <TrashIcon size={18} />
                   </button>
                 )}
               </header>

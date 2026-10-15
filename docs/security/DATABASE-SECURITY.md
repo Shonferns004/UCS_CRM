@@ -245,8 +245,7 @@ reads.
   signs tokens with a publicly known secret if the env var is missing.
 - `backend/src/config/db.js:1301` — the same token is issued with
   `expiresIn: '100y'`.
-- `backend/src/models/crmAgentModel.js:20` and
-  `backend/src/controllers/workerController.js:46` — default password
+- `backend/src/controllers/workerController.js:46` — default password
   `'123456'`.
 - `backend/src/controllers/authController.js:222-223` — admin login compares
   `ADMIN_PASSWORD` with plain `===`.

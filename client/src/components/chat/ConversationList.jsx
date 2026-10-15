@@ -5,17 +5,15 @@ import { HashIcon, SearchIcon, PlusIcon, LockIcon } from './chatIcons'
 /**
  * Screen 01 — conversation list.
  *
- * Every group room the viewer belongs to is pinned above the tabs and never
- * filtered out, so a read-only viewer (who has no DMs at all) still sees the
- * community room rather than an empty list with a tab they cannot use. The
- * seeded Community room sorts first; user-created groups follow alphabetically.
+ * Every group room the viewer belongs to is pinned above the action buttons and
+ * never filtered out, so a read-only viewer (who has no DMs at all) still sees
+ * the community room rather than an empty list with a control they cannot use.
+ * The seeded Community room sorts first; user-created groups follow alphabetically.
  */
 export default function ConversationList({
   conversations,
   activeId,
   onSelect,
-  tab,
-  onTab,
   filter,
   onFilter,
   loading,
@@ -25,7 +23,6 @@ export default function ConversationList({
   canCreateGroup,
   onNewMessage,
   onNewGroup,
-  title,
   loadingNode,
 }) {
   const groups = conversations
@@ -40,60 +37,41 @@ export default function ConversationList({
     (c.last_message?.body || '').toLowerCase().includes(term)
 
   const shownGroups = groups.filter(matches)
-  const shownDms = dms.filter((c) => (tab === 'direct' ? true : matches(c)))
+  const shownDms = dms.filter(matches)
 
   // The header always renders. Only the row area swaps, so the rail does not
   // flash from a bare skeleton to a titled list on every load.
   return (
     <>
       <div className="chat-rail-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <h2 className="chat-rail-title" style={{ flex: 1, minWidth: 0 }}>
-            {title}
-          </h2>
-          {canCreateGroup && (
-            <button
-              type="button"
-              className="chat-btn chat-btn-primary"
-              onClick={onNewGroup}
-              aria-label="Create a new group"
-            >
-              <PlusIcon size={15} />
-              New group
-            </button>
-          )}
-          {canDm && (
+        <h2 className="chat-rail-title">UCS Chat</h2>
+
+        {/* Where the All/Direct tabs used to sit: the two actions now live
+            here side by side, for everyone who can use them. Read-only
+            viewers get the banner instead. */}
+        {canDm ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {canCreateGroup && (
+              <button
+                type="button"
+                className="chat-btn chat-btn-primary"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={onNewGroup}
+                aria-label="Add a new group"
+              >
+                <PlusIcon size={15} />
+                Add group
+              </button>
+            )}
             <button
               type="button"
               className="chat-btn"
+              style={{ flex: 1, justifyContent: 'center' }}
               onClick={onNewMessage}
               aria-label="Start a new direct message"
             >
               <PlusIcon size={15} />
               New
-            </button>
-          )}
-        </div>
-
-        {canDm ? (
-          <div className="chat-tabs" role="tablist" aria-label="Conversation filters">
-            <button
-              type="button"
-              role="tab"
-              className="chat-tab"
-              aria-selected={tab === 'all'}
-              onClick={() => onTab('all')}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className="chat-tab"
-              aria-selected={tab === 'direct'}
-              onClick={() => onTab('direct')}
-            >
-              Direct
             </button>
           </div>
         ) : (
