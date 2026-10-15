@@ -40,6 +40,7 @@ const ROLE_PATHS = {
   digital: '/social',
   developer: '/dev-panel',
   developers: '/dev-panel',
+  tester: '/dev-panel',
   social: '/social',
 }
 
@@ -57,6 +58,7 @@ const ROLE_PANELS = {
   digital: { panel: SocialPanel, cls: 'panel-dev' },
   developer: { panel: DevPanel, cls: 'panel-dev' },
   developers: { panel: DevPanel, cls: 'panel-dev' },
+  tester: { panel: DevPanel, cls: 'panel-dev' },
   social: { panel: SocialPanel, cls: 'panel-dev' },
 }
 
@@ -252,7 +254,7 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/dev-panel/*" element={
-          <ProtectedRoute role={['developers', 'developer', 'digital', 'Developer', 'Developers', 'Digital', 'super_admin']}>
+          <ProtectedRoute role={['developers', 'developer', 'digital', 'tester', 'Developer', 'Developers', 'Digital', 'Tester', 'super_admin']}>
             <PanelWrapper roleKey="developers" />
           </ProtectedRoute>
         } />

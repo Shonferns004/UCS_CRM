@@ -40,7 +40,7 @@ export const developerSections = [
   {
     id: 'tasks',
     label: "Today's Tasks",
-    description: 'Add a task, then tick it to move it to Done',
+    description: 'Add a task, then drag it between Pending, WIP and Done',
     fields: [
       { id: 'tasks', label: 'Tasks', type: 'checklist', placeholder: 'e.g. Fix login bug on CRM' },
     ],

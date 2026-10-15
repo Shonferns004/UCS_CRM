@@ -31,7 +31,7 @@ import Notices from './pages/Notices'
 import LatePolicy from './pages/LatePolicy'
 import LiveFroStatus from './pages/LiveFroStatus'
 import FroIdleReport from './pages/FroIdleReport'
-import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock, Drop } from '@phosphor-icons/react'
+import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock, Drop, Code } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
 import MetropadPage from '../accounts/metropad/MetropadPage'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
@@ -56,6 +56,7 @@ const NAV = [
   { id: 'hr', path: '/sa/hr', label: 'HR', eyebrow: 'People', icon: Users },
   { id: 'admin-attendance', path: '/sa/admin-attendance', label: 'Attendance', eyebrow: 'People', icon: Clock },
   { id: 'recruiter', path: '/sa/recruiter', label: 'Recruiter', eyebrow: 'Recruitment', icon: MagnifyingGlass },
+  { id: 'developers', path: '/sa/developers', label: 'Developers', eyebrow: 'Engineering', icon: Code },
   { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
   { id: 'live-fro', path: '/sa/live-fro', label: 'Live FRO Status', eyebrow: 'Operations', icon: Radio },
   { id: 'fro-idle', path: '/sa/fro-idle', label: 'FRO Idle Report', eyebrow: 'Operations', icon: Clock },
@@ -76,7 +77,7 @@ NAV.forEach(n => { navMap[n.id] = n })
 // panel (Leaves/Volunteers are also under HR), or are set-once settings.
 // It starts collapsed. To promote a page, move its id into another category.
 const CATEGORIES = [
-  { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter'] },
+  { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter', 'developers'] },
   { id: 'people', label: 'People', icon: Users, items: ['daily-reports', 'organization', 'admin-attendance'] },
   { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'support-tickets', 'data-management'] },
   { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
@@ -271,7 +272,7 @@ function PageShell({ children }) {
 
   useEffect(() => { setMobileSidebar(false) }, [location.pathname])
 
-  const isIframeRoute = ['/sa/accounts', '/sa/fro', '/sa/ngo-admin', '/sa/hr', '/sa/event-head', '/sa/recruiter'].some(p => location.pathname.startsWith(p))
+  const isIframeRoute = ['/sa/accounts', '/sa/fro', '/sa/ngo-admin', '/sa/hr', '/sa/event-head', '/sa/recruiter', '/sa/developers'].some(p => location.pathname.startsWith(p))
   // Community manages its own scrolling (rail + thread scroll independently), so
   // the host must not also scroll it. Without this the shell's overflow-y:auto
   // and the chat's internal panes fight each other and you get two scrollbars.
@@ -438,6 +439,7 @@ export default function SuperAdminPanel() {
         <Route path="daily-reports" element={<DailyReportsOverview />} />
         <Route path="event-head/*" element={<PanelFrame panel="event-head" />} />
         <Route path="recruiter/*" element={<PanelFrame panel="recruiter" />} />
+        <Route path="developers/*" element={<PanelFrame panel="developers" />} />
         <Route path="assets" element={<AssetOverview />} />
         <Route path="incentives" element={<IncentivesPage />}>
           <Route index element={<Navigate to="sir" replace />} />

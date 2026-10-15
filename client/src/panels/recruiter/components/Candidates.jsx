@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRec } from '../store';
 import { Search, Trash, X, Pencil, Eye } from '../icons';
 import { Dropdown, Who, cleanField } from './ui';
+import Pagination from './Pagination';
 import { CANDIDATE_STAGES, CANDIDATE_SOURCES, STAGE_TO_STATUS, getCandidateProfile, buildCandidateNotes } from '../store';
 import CandidateForm from './CandidateForm';
 import CandidateDetail from './CandidateDetail';
@@ -418,21 +419,8 @@ export default function Candidates() {
               </table>
             </div>
           )}
-          {!leadsLoading && filtered.length > 0 && totalPages > 1 && (
-            <div className="pagination">
-              <div className="pagination-left">
-                <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
-              </div>
-              <div className="pagination-center">Page {safePage} of {totalPages}</div>
-              <div className="pagination-right">
-                <div className="pagination-dots">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                    <span key={p} className={`dot ${p === safePage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
-                  ))}
-                </div>
-                <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
-              </div>
-            </div>
+          {!leadsLoading && (
+            <Pagination page={safePage} setPage={setPage} totalItems={filtered.length} pageSize={PAGE_SIZE} />
           )}
         </div>
       )}
