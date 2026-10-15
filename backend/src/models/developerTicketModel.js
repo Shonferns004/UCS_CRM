@@ -165,3 +165,28 @@ export const getDeveloperTeamMembers = async () => {
   if (error) throw error;
   return data || [];
 };
+
+export const getBugAssignableMembers = async () => {
+  const members = new Map();
+  // Only developers + testers (NOT the 'digital' department, which is social media).
+  try {
+    const { data } = await db.from('workers')
+      .select('id, name, login_id, department')
+      .or('department.ilike.*develop*,department.ilike.*tester*,department.ilike.*qa*,department.eq.qa')
+      .eq('is_active', true);
+    (data || []).forEach(w => {
+      const name = w.name || w.login_id || null;
+      if (name) members.set(String(w.id), { id: String(w.id), name });
+    });
+  } catch { /* ignore workers failure */ }
+  try {
+    const { data } = await db.from('users')
+      .select('id, name, email, role, department')
+      .in('role', ['developer', 'developers', 'tester', 'qa']);
+    (data || []).forEach(u => {
+      const name = u.name || u.email || null;
+      if (name && !members.has(String(u.id))) members.set(String(u.id), { id: String(u.id), name });
+    });
+  } catch { /* ignore users failure */ }
+  return [...members.values()].sort((a, b) => a.name.localeCompare(b.name));
+};

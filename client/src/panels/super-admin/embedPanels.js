@@ -106,6 +106,16 @@ export const EMBED_PANELS = {
       { path: 'tickets', label: 'Tickets' },
     ],
   },
+  developers: {
+    base: '/dev-panel',
+    label: 'Developers',
+    items: [
+      { path: 'bugs', label: 'Testing / Bugs' },
+      { path: 'tickets', label: 'All Tickets' },
+      { path: 'unassigned', label: 'Unassigned' },
+      { path: 'daily-report', label: 'Daily Report' },
+    ],
+  },
 }
 
 // CSS injected into the (same-origin) iframe so the embedded panel shows only

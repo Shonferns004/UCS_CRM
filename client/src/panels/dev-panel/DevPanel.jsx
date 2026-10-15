@@ -6,6 +6,7 @@ import TicketList from './pages/TicketList';
 import MyTickets from './pages/MyTickets';
 import TicketDetail from './pages/TicketDetail';
 import DevDailyReport from './pages/DevDailyReport';
+import Bugs from './pages/Bugs';
 import ChatWorkspace from '../../components/chat/ChatWorkspace';
 import ChatNavBadge from '../../components/chat/ChatNavBadge';
 
@@ -20,6 +21,7 @@ const NAV = [
   { id: 'tickets', path: '/dev-panel/tickets', label: 'All Tickets', icon: 'confirmation_number' },
   { id: 'my-tickets', path: '/dev-panel/my-tickets', label: 'My Tickets', icon: 'person' },
   { id: 'unassigned', path: '/dev-panel/unassigned', label: 'Unassigned', icon: 'assignment_late' },
+  { id: 'bugs', path: '/dev-panel/bugs', label: 'Testing / Bugs', icon: 'bug_report' },
   { id: 'daily-report', path: '/dev-panel/daily-report', label: 'Daily Report', icon: 'description' },
   { id: 'chat', path: '/dev-panel/chat', label: 'UCS Chat', icon: 'chat' },
 ];
@@ -31,6 +33,7 @@ const ICONS = {
   assignment_late: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M12 11v4"/><path d="M9.5 13.5L12 11l2.5 2.5"/></svg>,
   description: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>,
   chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg>,
+  bug_report: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v5"/><path d="M12 16h.01"/></svg>,
 };
 
 export default function DevPanel() {
@@ -106,6 +109,7 @@ export default function DevPanel() {
             <Route path="tickets" element={<TicketList filter="all" />} />
             <Route path="my-tickets" element={<MyTickets />} />
             <Route path="unassigned" element={<TicketList filter="unassigned" />} />
+            <Route path="bugs" element={<Bugs />} />
             <Route path="daily-report" element={<DevDailyReport />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="tickets/:id" element={<TicketDetail />} />

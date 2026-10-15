@@ -11,6 +11,8 @@ const PANEL_MAP = {
   event_head: 'event_head',
   social: 'social',
   developers: 'dev_panel',
+  developer: 'dev_panel',
+  tester: 'dev_panel',
   super_admin: 'super_admin',
   worker: 'other',
   user: 'other',
