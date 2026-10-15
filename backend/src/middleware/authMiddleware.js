@@ -36,6 +36,8 @@ const ROLE_ALIASES = {
   'digital': 'digital',
   'developer': 'developers',
   'developers': 'developers',
+  'tester': 'tester',
+  'qa': 'tester',
   'social': 'social',
   'social media': 'social',
   'social_media': 'social',

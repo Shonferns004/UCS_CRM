@@ -150,6 +150,8 @@ export default function Users() {
                   <option value="telecaller">Telecaller</option>
                   <option value="team_lead">Team Lead</option>
                   <option value="hr">HR</option>
+                  <option value="developer">Developer</option>
+                  <option value="tester">Tester</option>
                 </select>
               </label>
             )}

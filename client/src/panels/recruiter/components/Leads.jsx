@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRec, CANDIDATE_STAGES } from '../store';
 import { Plus, Users, Search, RefreshCw, Trash, X, Pencil } from '../icons';
 import { Dropdown, cleanField } from './ui';
+import Pagination from './Pagination';
 import LeadDetail from './LeadDetail';
 
 const calcAge = (dob) => {
@@ -614,21 +615,8 @@ export default function Leads() {
             </table>
             </div>
           )}
-          {!leadsLoading && filteredLeads.length > 0 && totalLeadPages > 1 && (
-            <div className="pagination">
-              <div className="pagination-left">
-                <button className="btn btn-sm btn-primary" disabled={safeLeadPage <= 1} onClick={() => setPage(safeLeadPage - 1)}>← Prev</button>
-              </div>
-              <div className="pagination-center">Page {safeLeadPage} of {totalLeadPages}</div>
-              <div className="pagination-right">
-                <div className="pagination-dots">
-                  {Array.from({ length: totalLeadPages }, (_, i) => i + 1).map(p => (
-                    <span key={p} className={`dot ${p === safeLeadPage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
-                  ))}
-                </div>
-                <button className="btn btn-sm btn-primary" disabled={safeLeadPage >= totalLeadPages} onClick={() => setPage(safeLeadPage + 1)}>Next →</button>
-              </div>
-            </div>
+          {!leadsLoading && (
+            <Pagination page={safeLeadPage} setPage={setPage} totalItems={filteredLeads.length} pageSize={PAGE_SIZE} />
           )}
         </div>
       )}
