@@ -41,7 +41,7 @@ router.post('/slabs', sirLevel, createSlabHandler);
 // Bulk set: apply a common Min Lead + ₹/Qualified Lead to every active slab.
 // Must be registered before /slabs/:id so "apply-all" is not matched as an id.
 router.put('/slabs/apply-all', sirLevel, applyAllSlabsHandler);
-// Stop a range's live competition (clears FRO view of it for the date).
+// Stop a range's live competition and declare its winners immediately.
 router.post('/slabs/stop-all', sirLevel, stopAllSlabsCompetitionHandler);
 router.post('/slabs/:id/stop', sirLevel, stopSlabCompetitionHandler);
 router.put('/slabs/:id', sirLevel, updateSlabHandler);

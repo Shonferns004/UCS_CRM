@@ -4,6 +4,7 @@ import { getSettings } from '../models/incentiveSettingsModel.js';
 import { getTargetsForWorkersMonth, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from './froMonthlyTarget.js';
+import { getSlabForTarget, resolveFroSlab } from './leadIncentiveSlabBucketing.js';
 import { istMonthBounds, istDateString } from '../utils/ist.js';
 import { getTiersForSlabs } from '../models/incentiveSlabTierModel.js';
 import {
@@ -104,21 +105,10 @@ const FRO_LEADS_SQL = `
   ORDER BY verified_at DESC
 `;
 
-// Determine which slab a FRO's target falls into
-function getSlabForTarget(target, slabs) {
-  const t = Number(target) || 0;
-  for (const slab of slabs) {
-    if (t >= Number(slab.min_amount) && t < Number(slab.max_amount)) {
-      return slab;
-    }
-  }
-  // If target exceeds all slabs, use the last (highest) slab
-  if (slabs.length > 0 && t >= Number(slabs[slabs.length - 1].min_amount)) {
-    return slabs[slabs.length - 1];
-  }
-  // Fallback: first slab
-  return slabs[0] || null;
-}
+// Range bucketing (getSlabForTarget / resolveFroSlab) lives in
+// ./leadIncentiveSlabBucketing.js — a pure module with regression tests locking
+// the inclusive-upper-bound behaviour (a ₹2,00,000 target must land in the
+// ₹100001–₹200000 range, not the bottom one).
 
 // Resolve every FRO's monthly target for the month containing `date` through the
 // SAME resolver the Teams → FRO Targets screen uses (manual → auto →
@@ -156,15 +146,6 @@ async function buildFroTargetMap(fros, date) {
     map.set(key, Number(resolved.target) || 0);
   }
   return map;
-}
-
-// Resolve the FRO's competition range: an admin-assigned slab (via ⚙️ Configure)
-// wins; otherwise the FRO falls into a range automatically from their monthly
-// target (existing behavior for unassigned FROs).
-function resolveFroSlab(froId, target, slabs, assignMap, slabById) {
-  const assignedId = assignMap[froId];
-  if (assignedId && slabById[assignedId]) return { slab: slabById[assignedId], target };
-  return { slab: getSlabForTarget(target, slabs), target };
 }
 
 // Calculate lead incentive for a single FRO on a given date, within their slab.
@@ -225,19 +206,41 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
     };
   }
 
-  // Fetch verified leads within the day & competition window
-  const { data: leads } = await db
+  // Fetch verified leads within the day & competition window.
+  //
+  // Credit follows the person at the keyboard — the SAME rule as the FRO panel's
+  // Collected/Verified cards and froDonorLogModel.loadClaimRows(attribution:
+  // 'credit'). Under a "work as" session fro_donor_logs splits the identities:
+  // fro_worker_id holds the COVERED FRO (the account used) and operator_id holds
+  // the ACTOR (who actually collected). So a FRO is credited for:
+  //   • their own rows   — fro_worker_id = them AND operator_id IS NULL
+  //   • cover rows they ran — operator_id = them
+  // Without this, an operator's collection wrongly landed on the covered FRO.
+  const windowed = () => db
     .from('fro_donor_logs')
     .select('id, donor_id, amount_collected, verified_at')
-    .eq('fro_worker_id', froId)
     .eq('action', 'disposition')
     .eq('disposition_detail', 'lead_done')
     .eq('accounts_status', 'verified')
     .gte('verified_at', winStart.toISOString())
-    .lte('verified_at', winEnd.toISOString())
-    .order('verified_at', { ascending: false });
+    .lte('verified_at', winEnd.toISOString());
 
-  const allLeads = leads || [];
+  const leadById = new Map();
+  // Own half. Tolerated failures: a non-uuid id would make Postgres refuse the
+  // comparison, and the board must lose a slice of detail rather than the whole
+  // computation.
+  try {
+    const { data } = await windowed().eq('fro_worker_id', froId).is('operator_id', null);
+    for (const r of data || []) leadById.set(String(r.id), r);
+  } catch (e) { /* own half stands alone */ }
+  // Cover half — rows this worker actually collected while acting as someone else.
+  try {
+    const { data } = await windowed().eq('operator_id', froId);
+    for (const r of data || []) leadById.set(String(r.id), r);
+  } catch (e) { /* cover half is optional for an id outside operator_id's spaces */ }
+
+  const allLeads = [...leadById.values()]
+    .sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at));
   // Flat-prize model: EVERY verified lead counts toward the day's collection —
   // there is no per-lead minimum (even a ₹10 lead counts). The only threshold a
   // range has is amount_to_win: the total day collection that first reaches it
@@ -752,6 +755,10 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
     ranges.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
+      // Competition window (set from the accounts panel): the FRO popup shows
+      // these start/end times so each range's race time is clear.
+      started_at: slab.started_at || null,
+      ended_at: slab.ended_at || null,
       amount_to_win: slab?.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
       incentive_amount: Number(slab.incentive_amount) || 0,
       tier_mode: !!tierInfo,
@@ -774,129 +781,22 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
   return { date, has_activity, ranges, champions: championsWithPhoto };
 };
 
-// Admin stops a range's live competition for a date: removes the range from the
-// FRO-facing leaderboard for that date, deletes any today announcements for it,
-// and clears the rule/winner popups (notification_log) sent to every panel so the
-// competition is truly gone from all sides. The slab itself stays configured.
-export const stopSlabCompetition = async ({ slabId, date, userId }) => {
-  const targetDate = date || new Date().toISOString().slice(0, 10);
-
-  // 1) Remove today's announcement rows for this range (champion banner/history).
-  const { data: removed, error: delErr } = await db
-    .from('lead_champion_announcements')
-    .delete()
-    .eq('announcement_date', targetDate)
-    .eq('slab_id', slabId)
-    .select('id');
-  if (delErr) throw delErr;
-
-  // 2) Drop the rule-update popups (single-range + all-ranges) sent to FROs.
-  try {
-    await db.from('notification_log').delete()
-      .eq('type', 'lead_rule_update')
-      .or(`reference_id.eq.${slabId},reference_id.eq.all-ranges`);
-  } catch (e) { console.error('[lead rules stop] clear popups:', e?.message); }
-
-  // 3) Drop champion notification rows for the removed announcements.
-  const removedIds = (removed || []).map(r => String(r.id));
-  if (removedIds.length > 0) {
-    try {
-      await db.from('notification_log').delete()
-        .eq('type', 'lead_champion')
-        .in('reference_id', removedIds);
-    } catch (e) { console.error('[lead rules stop] clear banners:', e?.message); }
+// Close a slab's live window at this instant (only if it is currently open) so
+// the next standings computation is final. Returns the Supabase patch used.
+const closeSlabWindowPatch = (slab, nowISO) => {
+  const patch = { updated_at: nowISO };
+  const startedAt = slab?.started_at ? new Date(slab.started_at).getTime() : null;
+  const endsAt = slab?.ended_at ? new Date(slab.ended_at).getTime() : null;
+  if (startedAt && (Number.isNaN(endsAt) || endsAt == null || endsAt > Date.now())) {
+    patch.ended_at = nowISO;
   }
-
-  // 4) Mark the range stopped for this date so the FRO live view hides it.
-  const { data: slab, error: updErr } = await db
-    .from('incentive_slabs')
-    .update({ stopped_date: targetDate, updated_at: new Date().toISOString() })
-    .eq('id', slabId)
-    .select()
-    .single();
-  if (updErr) throw updErr;
-
-  return {
-    ok: true,
-    slab_id: slabId,
-    stopped_date: targetDate,
-    removed_announcements: removedIds.length,
-    stoppedBy: userId || null,
-    slab,
-  };
+  return patch;
 };
 
-// Admin stops ALL live range competitions for a date. Same behaviour as
-// stopSlabCompetition but applied to every active range at once.
-export const stopAllSlabsCompetition = async ({ date, userId }) => {
-  const targetDate = date || new Date().toISOString().slice(0, 10);
-
-  const { data: slabs } = await db
-    .from('incentive_slabs')
-    .select('id')
-    .eq('is_active', true);
-  const activeIds = (slabs || []).map(s => s.id);
-
-  // 1) Remove every today announcement row.
-  const { data: removed, error: delErr } = await db
-    .from('lead_champion_announcements')
-    .delete()
-    .eq('announcement_date', targetDate)
-    .select('id');
-  if (delErr) throw delErr;
-
-  // 2) Drop all rule-update popups (all-ranges + every single-range reference).
-  try {
-    const popupIds = [...activeIds.map(id => String(id)), 'all-ranges'];
-    await db.from('notification_log').delete()
-      .eq('type', 'lead_rule_update')
-      .in('reference_id', popupIds);
-  } catch (e) { console.error('[lead rules stop all] clear popups:', e?.message); }
-
-  // 3) Drop champion notification rows for the removed announcements.
-  const removedIds = (removed || []).map(r => String(r.id));
-  if (removedIds.length > 0) {
-    try {
-      await db.from('notification_log').delete()
-        .eq('type', 'lead_champion')
-        .in('reference_id', removedIds);
-    } catch (e) { console.error('[lead rules stop all] clear banners:', e?.message); }
-  }
-
-  // 4) Mark every active range stopped for this date.
-  let updatedRecs = [];
-  if (activeIds.length > 0) {
-    const { data: updated, error: updErr } = await db
-      .from('incentive_slabs')
-      .update({ stopped_date: targetDate, updated_at: new Date().toISOString() })
-      .eq('is_active', true)
-      .in('id', activeIds)
-      .select();
-    if (updErr) throw updErr;
-    updatedRecs = updated || [];
-  }
-
-  return {
-    ok: true,
-    stopped_date: targetDate,
-    stopped_slabs: activeIds.length,
-    removed_announcements: removedIds.length,
-    stoppedBy: userId || null,
-    slabs: updatedRecs,
-  };
-};
-
-// Admin announces the range winners for a date. Locks each range's first-hitter
-// into a snapshot row and broadcasts a notification per winner to every panel.
-export const announceChampion = async ({ date, message, userId }) => {
-  const targetDate = date || new Date().toISOString().slice(0, 10);
-
-  const summary = await getDailySummary(targetDate);
-  const winners = summary.champions || [];
-  if (winners.length === 0) {
-    return { error: 'No range winners yet for this date — no FRO has hit a range target' };
-  }
-
+// Persist the computed winners as champion announcement rows and broadcast a
+// notification per winner to every panel. Idempotent per (date, slab, tier):
+// winners already announced are skipped. Returns the newly inserted rows.
+const announceWinnersForDate = async (targetDate, winners, { message = null, userId = null } = {}) => {
   const inserted = [];
   const slabs = await getActiveSlabs();
   const slabById = {};
@@ -954,6 +854,123 @@ export const announceChampion = async ({ date, message, userId }) => {
     }
   }
 
+  return inserted;
+};
+
+// Admin STOPS a range's live competition for a date AND declares its winners
+// right away: the window is closed at this instant, the standings are frozen,
+// the current leaders become the announced champions, and the range disappears
+// from the FRO-facing leaderboard. The slab itself stays configured, so it can
+// be started again later.
+export const stopSlabCompetition = async ({ slabId, date, userId }) => {
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const nowISO = new Date().toISOString();
+
+  // 1) Close the range's window NOW and mark it stopped for this date.
+  const { data: slab, error: fetchErr } = await db
+    .from('incentive_slabs')
+    .select()
+    .eq('id', slabId)
+    .single();
+  if (fetchErr || !slab) throw fetchErr || new Error('Slab not found');
+
+  const { data: updated, error: updErr } = await db
+    .from('incentive_slabs')
+    .update({ ...closeSlabWindowPatch(slab, nowISO), stopped_date: targetDate })
+    .eq('id', slabId)
+    .select()
+    .single();
+  if (updErr) throw updErr;
+
+  // 2) Drop the rule-update popups (single-range + all-ranges) sent to FROs.
+  try {
+    await db.from('notification_log').delete()
+      .eq('type', 'lead_rule_update')
+      .or(`reference_id.eq.${slabId},reference_id.eq.all-ranges`);
+  } catch (e) { console.error('[lead rules stop] clear popups:', e?.message); }
+
+  // 3) Freeze the standings (the closed window makes tier races final) and
+  //    announce this range's winners immediately.
+  const summary = await getDailySummary(targetDate);
+  const winners = (summary.champions || []).filter(c => String(c.slab_id) === String(slabId));
+  const announcements = await announceWinnersForDate(targetDate, winners, { userId });
+
+  return {
+    ok: true,
+    slab_id: slabId,
+    stopped_date: targetDate,
+    announced: announcements.length,
+    stoppedBy: userId || null,
+    slab: updated,
+    announcements,
+  };
+};
+
+// Admin STOPS ALL live range competitions for a date at once AND declares
+// every range's winners immediately. Same behaviour as stopSlabCompetition
+// applied to every active range.
+export const stopAllSlabsCompetition = async ({ date, userId }) => {
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const nowISO = new Date().toISOString();
+
+  const { data: slabs } = await db
+    .from('incentive_slabs')
+    .select()
+    .eq('is_active', true);
+  const active = slabs || [];
+  const activeIds = active.map(s => s.id);
+
+  // 1) Mark every active range stopped for this date; close the window of the
+  //    ones that are still running right now (already-ended windows stay put).
+  let updatedRecs = [];
+  for (const slab of active) {
+    const { data: updated, error: updErr } = await db
+      .from('incentive_slabs')
+      .update({ ...closeSlabWindowPatch(slab, nowISO), stopped_date: targetDate })
+      .eq('id', slab.id)
+      .select()
+      .single();
+    if (updErr) throw updErr;
+    if (updated) updatedRecs.push(updated);
+  }
+
+  // 2) Drop all rule-update popups (all-ranges + every single-range reference).
+  try {
+    const popupIds = [...activeIds.map(id => String(id)), 'all-ranges'];
+    await db.from('notification_log').delete()
+      .eq('type', 'lead_rule_update')
+      .in('reference_id', popupIds);
+  } catch (e) { console.error('[lead rules stop all] clear popups:', e?.message); }
+
+  // 3) Freeze every range's standings and announce all winners immediately.
+  const summary = await getDailySummary(targetDate);
+  const activeSet = new Set(activeIds.map(String));
+  const winners = (summary.champions || []).filter(c => activeSet.has(String(c.slab_id)));
+  const announcements = await announceWinnersForDate(targetDate, winners, { userId });
+
+  return {
+    ok: true,
+    stopped_date: targetDate,
+    stopped_slabs: activeIds.length,
+    announced: announcements.length,
+    stoppedBy: userId || null,
+    slabs: updatedRecs,
+    announcements,
+  };
+};
+
+// Admin announces the range winners for a date. Locks each range's first-hitter
+// into a snapshot row and broadcasts a notification per winner to every panel.
+export const announceChampion = async ({ date, message, userId }) => {
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+
+  const summary = await getDailySummary(targetDate);
+  const winners = summary.champions || [];
+  if (winners.length === 0) {
+    return { error: 'No range winners yet for this date — no FRO has hit a range target' };
+  }
+
+  const inserted = await announceWinnersForDate(targetDate, winners, { message, userId });
   return { announcements: inserted };
 };
 

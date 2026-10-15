@@ -89,7 +89,16 @@ export default function DevPanel() {
           <div style={{ fontSize: 14, fontWeight: 700 }}>{activeNav?.label || 'Developer Panel'}</div>
         </header>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+        {/* Chat runs edge to edge (no padding, no second scrollbar) so the
+            workspace touches the header, right and bottom like in the other
+            panels; every other page keeps its padded scroller. */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: location.pathname.endsWith('/chat') ? 'hidden' : 'auto',
+            padding: location.pathname.endsWith('/chat') ? 0 : 16,
+          }}
+        >
           <ToastProvider>
           <Routes>
             <Route index element={<Dashboard />} />

@@ -96,6 +96,14 @@ export function initRealtime(server) {
     // A DM opened after connect is a room this socket has never joined, so the
     // client asks again once it creates a conversation - otherwise the two
     // people in a brand new DM get no live messages until they reload.
+    //
+    // `chatuser:<uid>` is the other half: a room keyed by identity (not by
+    // conversation), so the server can tell JUST the people seated in a brand
+    // new private group that it exists - a broadcast would leak the room's
+    // existence to everyone, and members who are already on the chat page
+    // would otherwise never see it appear until a reload.
+    const chatUid = chatUidOf(socket.user);
+    if (chatUid) socket.join(`chatuser:${chatUid}`);
     const rejoinChatRooms = () =>
       joinChatRooms(socket).catch((e) =>
         console.warn('[socket] chat room join failed:', e?.message || String(e))
@@ -191,6 +199,23 @@ export function emitChat(conversationId, payload) {
 export function emitChatBroadcast(payload) {
   if (!io) return;
   io.emit('chat:message', payload);
+}
+
+/**
+ * Emits a chat event to the sockets of specific identities only.
+ *
+ * Used for `conversation:created`: the frame must reach exactly the people
+ * just seated in a room (and nobody else - the id of a private group is
+ * itself not public), which is what a broadcast cannot do. Each payload is
+ * still id-only; the client reacts by rejoining its rooms and refetching its
+ * own rail, so a non-member could not learn anything from the frame even if
+ * one ever reached them.
+ */
+export function emitChatToUsers(uids, payload) {
+  if (!io) return;
+  for (const uid of new Set(uids)) {
+    if (uid) io.to(`chatuser:${uid}`).emit('chat:message', payload);
+  }
 }
 
 export function emitRealtime(event, payload, room) {

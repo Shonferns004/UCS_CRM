@@ -298,9 +298,9 @@ export async function applyAllSlabsHandler(req, res) {
   }
 }
 
-// Admin stops a range's live competition. Removes the range from the FRO live
-// leaderboard for the date, deletes today's champion announcements for it and
-// clears the rule/winner popups from every panel's notification feed.
+// Admin stops a range's live competition AND declares its winners immediately:
+// the window closes at this instant, the current standings are frozen, winners
+// are announced to every panel, and the range leaves the FRO live leaderboard.
 export async function stopSlabCompetitionHandler(req, res) {
   try {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
@@ -311,7 +311,7 @@ export async function stopSlabCompetitionHandler(req, res) {
   }
 }
 
-// Admin stops EVERY live range competition for a date at once.
+// Admin stops EVERY live range competition at once AND declares all winners.
 export async function stopAllSlabsCompetitionHandler(req, res) {
   try {
     const date = req.query.date || new Date().toISOString().slice(0, 10);

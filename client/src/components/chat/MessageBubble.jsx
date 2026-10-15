@@ -42,11 +42,9 @@ export default function MessageBubble({
 
   // Editing is always sender-only, even for a moderator.
   const canEdit = own && sent && !deleted
-  // Moderation is scoped to the Community room. A Super Admin sitting in a DM is
-  // an ordinary participant there, so they get no delete affordance on the other
-  // person's messages - otherwise the UI implies they can moderate a private
-  // conversation, which the server does not permit.
-  const canModerateHere = isGroup && me.canModerate
+  // Chat admins get a delete affordance on every message they can see; everyone
+  // else only on their own. The server enforces the same rule.
+  const canModerateHere = me.canModerate
   const canDelete = sent && !deleted && (own || canModerateHere)
   const moderating = !own && canModerateHere
 

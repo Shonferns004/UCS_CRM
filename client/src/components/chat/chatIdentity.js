@@ -131,8 +131,8 @@ export function resolveChatIdentity(user) {
     canDm: isWriter,
     // Only Admin/Accounts/Super Admin may open a room of their own.
     canCreateGroup: CHAT_GROUP_CREATOR_ROLES.includes(role),
-    // Superadmin can delete anyone's message. Editing stays sender-only.
-    canModerate: role === 'super_admin',
+    // Chat admins (Super Admin, Accounts, Admin) can delete anyone's message. Editing stays sender-only.
+    canModerate: CHAT_ADMIN_ROLES.includes(role),
     isWriter,
     online: true,
   }
