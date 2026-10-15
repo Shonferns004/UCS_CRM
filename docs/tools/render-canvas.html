@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>mermaid render host</title>
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  svg { display: block; background: #ffffff; }
+</style>
+</head>
+<body>
+<div id="holder" style="position:absolute;left:0;top:0;width:1400px"></div>
+<script type="module">
+  import mermaid from "./mermaid.bundle.mjs";
+  mermaid.initialize({ startOnLoad: false, securityLevel: "loose", theme: "default", fontFamily: "Segoe UI, Helvetica, Arial, sans-serif" });
+  window.__mermaidRender = async (id, text) => {
+    const holder = document.getElementById("holder");
+    holder.innerHTML = "";
+    let out;
+    try {
+      const res = await mermaid.render(id, text, holder);
+      const svg = typeof res === "string" ? res : res.svg;
+      holder.innerHTML = svg;
+      const el = holder.querySelector("svg");
+      if (!el) throw new Error("no svg element in render output");
+      const r = el.getBoundingClientRect();
+      out = { ok: true, x: Math.round(r.x), y: Math.round(r.y), width: Math.ceil(r.width), height: Math.ceil(r.height) };
+    } catch (e) {
+      out = { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+    return out;
+  };
+  window.__ready = true;
+</script>
+</body>
+</html>

@@ -158,7 +158,7 @@ export async function getIdleReportForWorker({ workerId, from, to, nowMs = Date.
     return perState ? { date, ...summarize(perState) } : { date, ...summarize(emptyPerState()) };
   });
 
-  return { hasLedger: intervals.length > 0, daily, total };
+  return { hasLedger: clamped.length > 0, daily, total };
 }
 
 /**
