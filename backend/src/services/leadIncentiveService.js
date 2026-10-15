@@ -733,6 +733,10 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
     ranges.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
+      // Competition window (set from the accounts panel): the FRO popup shows
+      // these start/end times so each range's race time is clear.
+      started_at: slab.started_at || null,
+      ended_at: slab.ended_at || null,
       amount_to_win: slab?.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
       incentive_amount: Number(slab.incentive_amount) || 0,
       tier_mode: !!tierInfo,
