@@ -33,7 +33,7 @@ cp .env.example .env          # VITE_API_URL, VITE_SOCKET_URL
 npm run dev                   # Vite dev server (default 5173)
 ```
 
-> **Not verified in this build:** whether backing services (PostgreSQL/Redis) are required for a full `npm run dev`; the backend boot runs 28 schema bootstraps that write to the database.
+> **Not verified in this build:** whether backing services (PostgreSQL/Redis) are required for a full `npm run dev`; the backend boot runs 27 schema bootstraps that write to the database.
 
 ## Build & Test Commands
 

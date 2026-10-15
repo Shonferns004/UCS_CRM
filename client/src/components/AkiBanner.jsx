@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
+import { isVoluntarySunday } from '../lib/sundayRules';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
 const fmt = (n) => (n === Infinity ? '∞' : Number(n).toLocaleString('en-IN'));
 
@@ -32,7 +34,11 @@ export default function AkiBanner({ slabs, compact = false }) {
   const data = useMemo(() => {
     const now = new Date();
     const todayDayName = DAY_NAMES[now.getDay()];
-    const todayRanges = (slabs && slabs[todayDayName]) || [];
+    // From SUNDAY_RULES_FROM a Sunday earns nothing — show that instead of
+    // slabs that no longer pay out.
+    const todayISO = new Date(Date.now() + IST_OFFSET).toISOString().slice(0, 10);
+    const sundayNoAki = isVoluntarySunday(todayISO);
+    const todayRanges = sundayNoAki ? [] : ((slabs && slabs[todayDayName]) || []);
     let totalSlabs = 0;
     let topIncentive = 0;
     for (const d of DAY_NAMES) {
@@ -48,10 +54,11 @@ export default function AkiBanner({ slabs, compact = false }) {
       totalSlabs,
       topIncentive,
       topRangeMin: top ? top.min : 0,
+      sundayNoAki,
     };
   }, [slabs]);
 
-  const { todayDayName, todayRanges, totalSlabs, topIncentive, topRangeMin } = data;
+  const { todayDayName, todayRanges, totalSlabs, topIncentive, topRangeMin, sundayNoAki } = data;
   const todayLabel = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
   const coinSize = compact ? 64 : 88;
 
@@ -76,10 +83,10 @@ export default function AkiBanner({ slabs, compact = false }) {
           <CoinsBag size={coinSize} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ background: '#5B6B4E', color: '#fff', fontWeight: 700, padding: '6px 14px', fontSize: 13, borderRadius: 20 }}>{todayDayName} slabs</span>
-              <span style={{ background: '#fff', color: 'var(--ink)', fontWeight: 700, padding: '6px 14px', fontSize: 13, borderRadius: 20 }}>{totalSlabs} total slabs</span>
+              <span style={{ background: '#5B6B4E', color: '#fff', fontWeight: 700, padding: '6px 14px', fontSize: 13, borderRadius: 20 }}>{sundayNoAki ? 'Sunday — no AKI' : `${todayDayName} slabs`}</span>
+              <span style={{ background: '#fff', color: 'var(--ink)', fontWeight: 700, padding: '6px 14px', fontSize: 13, borderRadius: 20 }}>{sundayNoAki ? 'Sunday is voluntary' : `${totalSlabs} total slabs`}</span>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Top incentive ₹{topIncentive.toLocaleString('en-IN')} at ₹{topRangeMin.toLocaleString('en-IN')}+</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{sundayNoAki ? 'Sundays earn ₹0 AKI' : `Top incentive ₹${topIncentive.toLocaleString('en-IN')} at ₹${topRangeMin.toLocaleString('en-IN')}+`}</div>
           </div>
         </div>
       </div>
@@ -89,7 +96,9 @@ export default function AkiBanner({ slabs, compact = false }) {
           <div key={n}>
             <div style={{ fontSize: 12, fontWeight: 800, color: '#5B6B4E', marginBottom: 6 }}>{n} · {todayDayName} Ranges</div>
             <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #5B6B4E22' }}>
-              {todayRanges.length === 0 ? (
+              {sundayNoAki ? (
+                <div style={{ padding: '10px 10px', fontSize: 12, color: '#92400e', background: '#FDF2E3', fontWeight: 600, textAlign: 'center' }}>No AKI on Sundays — come and go as you like.</div>
+              ) : todayRanges.length === 0 ? (
                 <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--ink-soft)', textAlign: 'center' }}>No slabs set</div>
               ) : todayRanges.map((r, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '5px 10px', background: i % 2 ? '#ffffff88' : '#5B6B4E0c', fontSize: 12 }}>

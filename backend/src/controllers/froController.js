@@ -55,7 +55,6 @@ import {
   getVerifiedCollection,
   getUnverifiedCollection,
   getDailyCollectionByWorker,
-  COLLECTION_DATE_OR,
   logCollectionDate,
   paymentDiscriminant,
   inRange,
@@ -63,7 +62,6 @@ import {
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js';
 import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '../services/froCounterDay.js';
-import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
 import redis from '../config/redis.cjs';
@@ -191,9 +189,8 @@ export function invalidateFroCaches(workerId) {
 import { istDayBounds, istDateString, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
-import { getAgentById } from '../models/crmAgentModel.js';
 import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PERIOD_LABELS } from '../services/teamCollectionService.js';
-import { getActiveCoversForTargets, refreshCoverExpiry } from '../models/workAsSessionModel.js';
+import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
 import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession, closeSessionOpenedBeforeDay } from '../services/froTimeSessions.js';
@@ -718,6 +715,50 @@ const STATUS_PRIORITY = [
   'donation_collected',
 ];
 
+// Exclusive cadence buckets for the Active Donors card and its donor-list
+// modal. A donor's cadence is the WIDEST gap in their donation pattern this
+// FY: the max of the gaps between consecutive donations AND the open gap
+// from the last donation to now — a monthly donor who vanished five months
+// ago stops counting as monthly. Each button shows EXACTLY that cadence:
+// 1M = monthly donors (gaps ~1 month), 2M = 2-month donors, and so on to
+// yearly; 'all' = every cadence combined. Half a month of grace per bucket
+// so a 33-day gap does not fail the monthly bucket.
+const CADENCE_MONTH_MS = 30.44 * 24 * 60 * 60 * 1000;
+const CADENCE_BUCKETS = [1, 2, 3, 6, 8, 12];
+
+const groupDonationDatesByDonor = (logs) => {
+  const byDonor = new Map();
+  for (const l of logs || []) {
+    if (!l.donor_id || !l.created_at) continue;
+    const t = new Date(l.created_at).getTime();
+    if (Number.isNaN(t)) continue;
+    const arr = byDonor.get(l.donor_id);
+    if (arr) arr.push(t);
+    else byDonor.set(l.donor_id, [t]);
+  }
+  for (const arr of byDonor.values()) arr.sort((a, b) => a - b);
+  return byDonor;
+};
+
+const widestDonationGapMs = (byDonor, donorId, nowMs) => {
+  const dates = byDonor.get(donorId);
+  if (!dates || dates.length === 0) return Infinity;
+  let widest = nowMs - dates[dates.length - 1];
+  for (let i = 1; i < dates.length; i++) {
+    widest = Math.max(widest, dates[i] - dates[i - 1]);
+  }
+  return Math.max(0, widest);
+};
+
+// Smallest bucket whose limit covers the widest gap; null = wider than a
+// year (no cadence). Donors with no FY donation at all also get null.
+const cadenceBucketMonths = (widestGapMs) => {
+  for (const b of CADENCE_BUCKETS) {
+    if (widestGapMs <= CADENCE_MONTH_MS * (b + 0.5)) return b;
+  }
+  return null;
+};
+
 export const getDashboard = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -725,7 +766,11 @@ export const getDashboard = async (req, res) => {
     // This handler fans out to a dozen read-all-then-count-in-JS queries over the
     // FRO's whole assignment history, and the dashboard is refetched on every
     // visit. Serve the last payload while it is fresh instead.
-    const dashKey = `fro:dash:${workerId}:${req.query.month || 'cur'}`;
+    // activeWindow scopes the active/inactive donor split to the last 1, 2, 3,
+    // 6, 8 or 12 months (default 1 month). A donor with no donation in the
+    // window is inactive. Part of the cache key — counts differ across windows.
+    const activeWindow = ['all', '1', '2', '3', '6', '8', '12'].includes(String(req.query.activeWindow)) ? String(req.query.activeWindow) : '1';
+    const dashKey = `fro:dash:${workerId}:${req.query.month || 'cur'}:${activeWindow}`;
     const hitDash = cacheGet(dashKey, FRO_DASHBOARD_TTL_MS);
     if (hitDash !== undefined) return res.json(hitDash);
 
@@ -831,43 +876,28 @@ export const getDashboard = async (req, res) => {
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
 
-    // Active donors: those who donated within the last 1 year.
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-    // The year-long active-donor scan and today's punch-in lookup are
-    // independent of the 9 aggregations below, so they ride in the same
+    // The year-long donation scan and today's punch-in lookup are
+    // independent of the 8 aggregations below, so they ride in the same
     // Promise.all instead of costing two extra sequential round-trips.
     const [
-      monthlyConnectedRes, dailyConnectedRes, dailyDonationsRes, totalDonationsRes, assignmentsRes,
-      leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes, activeDonorsRes,
+      monthlyConnectedRes, dailyConnectedRes, totalDonationsRes, assignmentsRes,
+      leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes,
     ] = stationNames.length > 0
       ? await Promise.all([
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_donor_logs').select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or(COLLECTION_DATE_OR(todayStart.toISOString(), todayEnd.toISOString())), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, amount_collected, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'), myScope),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(
-            db
-              .from('fro_donor_logs')
-              .select('donor_id, fro_assignments!inner(station, ngo_id)')
-              .in('fro_assignments.station', stationNames)
-              .eq('action', 'donation')
-              .gte('created_at', oneYearAgo.toISOString()),
-            myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-          ),
         ])
-      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
+      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
     const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
     monthlyConnectedRes.data = filterByScope(monthlyConnectedRes.data, myScope, pairOf);
     dailyConnectedRes.data = filterByScope(dailyConnectedRes.data, myScope, pairOf);
-    dailyDonationsRes.data = filterByScope(dailyDonationsRes.data, myScope, pairOf);
     totalDonationsRes.data = filterByScope(totalDonationsRes.data, myScope, pairOf);
     leadDoneAllRes.data = filterByScope(leadDoneAllRes.data, myScope, pairOf);
     fyDonorsRes.data = filterByScope(fyDonorsRes.data, myScope, pairOf);
@@ -892,15 +922,31 @@ export const getDashboard = async (req, res) => {
 
     const monthlyDonorIds = new Set((monthlyConnectedRes.data || []).map(l => l.donor_id).filter(Boolean));
     const dailyDonorIds = new Set((dailyConnectedRes.data || []).map(l => l.donor_id).filter(Boolean));
-    const todayISO = todayStart.toISOString();
-    const todayEndISO = todayEnd.toISOString();
+    // Today's collection from the same receipts rows as the month total, keyed
+    // by receipt_date (an IST calendar day). Log-based counting here missed
+    // receipts whose log date/attribution differed — the card showed 3k while
+    // the receipt book said 5.7k.
+    const todayDay = istNow.toISOString().slice(0, 10);
     let dailyDonations = 0;
-    for (const l of dailyDonationsRes.data || []) {
-      if (!inRange(logCollectionDate(l), todayISO, todayEndISO)) continue;
-      dailyDonations += parseFloat(l.amount_collected || 0);
+    const dailyDonatedIds = new Set();
+    for (const r of collectedRows || []) {
+      if (String(r.receipt_date || '').slice(0, 10) !== todayDay) continue;
+      dailyDonations += Number(r.amount || 0);
+      const rid = r.donor_id || r.donor_mobile;
+      if (rid) dailyDonatedIds.add(rid);
     }
+    // FY total plus the current-month distinct donor count (same rows, filtered
+    // by created_at). The monthly AMOUNT shown on the card is the receipts-
+    // based `collected` figure, not a log sum — logs can double-count a
+    // donation recorded by more than one flow.
     let totalDonations = 0;
-    for (const l of totalDonationsRes.data || []) totalDonations += parseFloat(l.amount_collected || 0);
+    const monthDonatedIds = new Set();
+    for (const l of totalDonationsRes.data || []) {
+      totalDonations += parseFloat(l.amount_collected || 0);
+      if (l.created_at >= monthStart && l.created_at <= monthEnd) {
+        if (l.donor_id) monthDonatedIds.add(l.donor_id);
+      }
+    }
 
     // New donors: first lead_done per donor
     const earliestLeadDone = {};
@@ -961,21 +1007,22 @@ export const getDashboard = async (req, res) => {
       froReactivatedMonthly = [...froMonthDonorSet].filter(id => !fyBeforeMonthDonorsSet.has(id)).length;
     }
 
-    // Active donors: those who donated within the last 1 year (fetched in the
-    // batch above; only the scope filter + counting happen here).
-    const donorsWithRecentDonations = stationNames.length > 0
-      ? filterByScope(
-          activeDonorsRes.data || [],
-          myScope,
-          l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`
-        )
-      : [];
-
-    const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
+    // Active donors by EXCLUSIVE donation cadence: each window button counts
+    // exactly that cadence (1M = monthly donors only, 2M = 2-month donors
+    // only, …; 'all' = every cadence combined). Inactive is FIXED and does
+    // not follow the pills: every assigned donor who did not donate in the
+    // past one month — including donors who have never donated a single
+    // rupee — is inactive.
+    const donationDatesByDonor = groupDonationDatesByDonor(totalDonationsRes.data);
+    const cadenceNowMs = Date.now();
+    const activeWindowMonths = activeWindow === 'all' ? null : Number(activeWindow);
     let activeDonors = 0, inactiveDonors = 0;
     for (const [donorId] of donorInfo) {
-      if (activeDonorIds.has(donorId)) activeDonors++;
-      else inactiveDonors++;
+      const dates = donationDatesByDonor.get(donorId);
+      const lastDonationMs = dates && dates.length ? dates[dates.length - 1] : 0;
+      const bucket = lastDonationMs ? cadenceBucketMonths(widestDonationGapMs(donationDatesByDonor, donorId, cadenceNowMs)) : null;
+      if (activeWindow === 'all' ? bucket !== null : bucket === activeWindowMonths) activeDonors++;
+      if (!lastDonationMs || (cadenceNowMs - lastDonationMs) > CADENCE_MONTH_MS) inactiveDonors++;
     }
 
     const { data: myAtt } = await db
@@ -1007,6 +1054,15 @@ export const getDashboard = async (req, res) => {
       },
       donations: {
         daily: dailyDonations,
+        // Distinct donors (donor_id, falling back to mobile) — not receipt
+        // counts, so one donor with 5 receipts still counts once.
+        daily_donors: new Set((collectedRows || [])
+          .filter(r => String(r.receipt_date || '').slice(0, 10) === todayDay)
+          .map(r => r.donor_id || r.donor_mobile)
+          .filter(Boolean)).size,
+        monthly_donors: new Set((collectedRows || [])
+          .map(r => r.donor_id || r.donor_mobile)
+          .filter(Boolean)).size,
         total: totalDonations,
         new_donors: {
           today: newDonorsToday,
@@ -1022,6 +1078,7 @@ export const getDashboard = async (req, res) => {
       donors: {
         active: activeDonors,
         inactive: inactiveDonors,
+        window: activeWindow,
       },
       verification: {
         month: {
@@ -1046,6 +1103,109 @@ export const getDashboard = async (req, res) => {
   }
 };
 
+// Donor roster behind the dashboard's active/inactive split (and the FY
+// lifetime total), so clicking a count can list the actual people. Uses the
+// same station scope and donation filters as getDashboard — the split is
+// recomputed here rather than cached in the payload because a couple thousand
+// names would bloat every dashboard fetch for a list only opened on click.
+export const getDonorSplitList = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const status = ['active', 'inactive', 'total'].includes(req.query.status) ? req.query.status : 'active';
+    const windowParam = String(req.query.window);
+    const isAllWindow = windowParam === 'all';
+    const windowN = ['all', '1', '2', '3', '6', '8', '12'].includes(windowParam)
+      ? (isAllWindow ? 12 : Number(windowParam))
+      : 1;
+    const limit = Math.min(Number(req.query.limit) || 500, 1000);
+
+    const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+    if (stationNames.length === 0) return res.json({ donors: [], total: 0, status, window: windowN });
+
+    const { data: assignedRows } = await withStationNgoPairs(
+      db
+        .from('fro_assignments')
+        .select('donor_id')
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned'),
+      myScope
+    );
+    const assignedIds = [...new Set((assignedRows || []).map(a => a.donor_id).filter(Boolean))];
+
+    let ids;
+    if (status === 'total') {
+      // Same filter as donations.total (FY-scoped verified donations).
+      const now = new Date();
+      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
+      const fyStart = new Date(fyYear, 3, 1);
+      const { data: logs } = await withStationNgoPairs(
+        db
+          .from('fro_donor_logs')
+          .select('donor_id, fro_assignments!inner(station, ngo_id)')
+          .in('fro_assignments.station', stationNames)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .gte('created_at', fyStart.toISOString()),
+        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+      );
+      const donorSet = new Set((logs || []).map(l => l.donor_id).filter(Boolean));
+      ids = assignedIds.filter(id => donorSet.has(id));
+    } else {
+      // Active = cadence fits the selected window (widest FY gap, consecutive
+      // donations plus the open gap to now). Inactive is FIXED — did not
+      // donate in the past one month — the window pills never apply to it.
+      const now = new Date();
+      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
+      const fyStart = new Date(fyYear, 3, 1);
+      const { data: logs } = await withStationNgoPairs(
+        db
+          .from('fro_donor_logs')
+          .select('donor_id, created_at, fro_assignments!inner(station, ngo_id)')
+          .in('fro_assignments.station', stationNames)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .gte('created_at', fyStart.toISOString()),
+        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+      );
+      const donationDatesByDonor = groupDonationDatesByDonor(logs);
+      const nowMs = Date.now();
+      // Active = EXCLUSIVE cadence bucket ('all' = any bucket). Inactive is
+      // FIXED — every assigned donor who did not donate in the past one
+      // month, including those who have never donated at all — the window
+      // pills never apply to it.
+      ids = status === 'active'
+        ? assignedIds.filter(id => {
+            const dates = donationDatesByDonor.get(id);
+            if (!dates || !dates.length) return false;
+            const bucket = cadenceBucketMonths(widestDonationGapMs(donationDatesByDonor, id, nowMs));
+            return isAllWindow ? bucket !== null : bucket === windowN;
+          })
+        : assignedIds.filter(id => {
+            const dates = donationDatesByDonor.get(id);
+            const lastMs = dates && dates.length ? dates[dates.length - 1] : 0;
+            return !lastMs || (nowMs - lastMs) > CADENCE_MONTH_MS;
+          });
+    }
+
+    const total = ids.length;
+    const pageIds = ids.slice(0, limit);
+    const profiles = pageIds.length > 0
+      ? await chunkedInQuery(pageIds, chunk =>
+          db.from('donor_profiles').select('id, name, mobile_number').in('id', chunk)
+        )
+      : [];
+    const byId = new Map((profiles || []).map(p => [p.id, p]));
+    const donors = pageIds.map(id => ({
+      donor_id: id,
+      donor_name: byId.get(id)?.name || '—',
+      donor_mobile: byId.get(id)?.mobile_number || '—',
+    }));
+    return res.json({ donors, total, status, window: windowN });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // FRO-facing performance summary for the My Leads workspace. This stays scoped
 // to the authenticated worker while rank is calculated against their active NGO
 // team, so the admin performance endpoint is never exposed to FRO users.
@@ -1063,7 +1223,7 @@ export const getMyPerformance = async (req, res) => {
     // Riya's numbers to Priya — and because fro_donor_logs are already credited
     // to the operator during work-as, the calls she actually made were being
     // counted for nobody.
-    const { data: dataCtx, human: humanCtx, isWorkAs, agent: agentCtx } = splitWorkerContext(req.user);
+    const { data: dataCtx, human: humanCtx, isWorkAs } = splitWorkerContext(req.user);
     const workerId = dataCtx.id;
     const metricsWorkerId = humanCtx.id;
     // `identityWorkerId` is the long-standing name for "who the strip counts",
@@ -1219,7 +1379,7 @@ export const getMyPerformance = async (req, res) => {
     }
     let idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
     try {
-      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs, agentId: agentCtx?.id ?? null });
+      const ts = await computeTimeStatus({ workerId: metricsWorkerId, liveRow: liveStatus || {}, shift: idleShift, nowMs });
       if (ts.hasLedger) idleSeconds = ts.totals.idle_seconds;
     } catch (ledgerErr) {
       // Must stay loud. A silent fallback here once shipped a version where every
@@ -2432,7 +2592,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     // keyboard's window so it cannot time the FRO out mid-claim. Non-fatal.
     let timer = null;
     try {
-      const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+      const { human: humanCtx } = splitWorkerContext(req.user);
       timer = await resetLiveWindow(humanCtx.id, { nowMs: Date.now(), dbg: 'claim' });
     } catch (claimTimerErr) {
       console.warn('suspense claim live window reset skipped:', claimTimerErr.message);
@@ -3648,7 +3808,7 @@ export const createDonorLogHandler = async (req, res) => {
       donor_id: donorId,
       // fro_worker_id and created_by are both FK'd to workers(id), so they hold
       // the covered FRO. The operator goes in operator_id, which has no FK
-      // because an agent's or admin's id does not exist in workers.
+      // because an admin's id does not exist in workers.
       fro_worker_id: workerId,
       operator_id: creditWorkerId === workerId ? null : creditWorkerId,
       action,
@@ -3717,8 +3877,8 @@ export const createDonorLogHandler = async (req, res) => {
             upi_transaction_id: logData.upi_transaction_id,
             transaction_datetime: logData.transaction_datetime,
             // Re-attribute the refreshed row to whoever is saving now: the dedupe
-            // above can match a row an agent created earlier today, and without
-            // this the FRO's own save would inherit the agent's operator_id.
+            // above can match a row another operator created earlier today, and
+            // without this the FRO's own save would inherit that operator's id.
             fro_worker_id: logData.fro_worker_id,
             operator_id: logData.operator_id,
             created_by: logData.created_by,
@@ -3869,7 +4029,7 @@ export const createDonorLogHandler = async (req, res) => {
     if (action === 'disposition') {
       try {
         const nowMs = Date.now();
-        const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+        const { human: humanCtx } = splitWorkerContext(req.user);
         timer = await resetLiveWindow(humanCtx.id, { nowMs, dbg: 'disposition' });
         // Record the state-machine transition through the event resolver, not a
         // raw set. DISPOSITION_SUCCESS closes an IDLE (or WORKING) interval and
@@ -3878,7 +4038,7 @@ export const createDonorLogHandler = async (req, res) => {
         // silently end a hold an admin set. The fresh 240s deadline is written by
         // resetLiveWindow above; this only moves the ledger in step with it.
         try {
-          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition', agentId: agentCtx?.id ?? null });
+          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition' });
         } catch (_) { /* ledger absent — non-fatal */ }
       } catch (timerErr) {
         // Non-fatal: the action is already saved; the timer just keeps its
@@ -3910,7 +4070,7 @@ export const createDonorLogHandler = async (req, res) => {
       // advances rather than erroring repeatedly. Still re-arm the human's
       // window so a suppressed duplicate cannot leave them stamped idle.
       try {
-        const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+        const { human: humanCtx } = splitWorkerContext(req.user);
         await resetLiveWindow(humanCtx.id, { nowMs: Date.now() });
       } catch (dupTimerErr) {
         console.warn('duplicate-suppressed live window reset skipped:', dupTimerErr.message);
@@ -4145,28 +4305,26 @@ export const getMyTarget = async (req, res) => {
     };
     try {
       const ranges = await getAKISlabs();
-      const achievements = await getAchievements(creditWorkerId, monthStart, monthEnd);
-      const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
       const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd, { startDay, endDay });
       const akiPerDay = Object.entries(dailyCollection || {})
         .map(([date, collection]) => ({
           date,
           collection,
           dayName: getDayName(date),
-          aki: calculateAKI(collection, getDayName(date), ranges),
+          aki: calculateAKI(collection, getDayName(date), ranges, date),
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
       const totalCollectionAKI = akiPerDay.reduce((sum, r) => sum + r.aki, 0);
-      const totalAKI = achievements.reduce((sum, r) => {
-        return sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date), ranges);
-      }, 0);
+      // Use receipts-based collected (same figure as the Collection card and
+      // calendar) for the target check — daily_achievements is often empty.
+      const monthlyAchievement = collected;
       const monthlyTargetMet = target > 0 && monthlyAchievement >= target;
       if (monthlyTargetMet) {
-        const akiPayout = incentive.isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
+        const akiPayout = incentive.isNewJoiner ? totalCollectionAKI : Math.round(totalCollectionAKI / 2);
         const monthlyIncentive = Math.round((monthlyAchievement - target) * 0.1);
-        incentive = { totalAKI, akiPayout, monthlyIncentive, totalIncentive: akiPayout + monthlyIncentive, targetMet: true, isNewJoiner: incentive.isNewJoiner, akiPerDay, totalCollectionAKI };
+        incentive = { totalAKI: totalCollectionAKI, akiPayout, monthlyIncentive, totalIncentive: akiPayout + monthlyIncentive, targetMet: true, isNewJoiner: incentive.isNewJoiner, akiPerDay, totalCollectionAKI };
       } else {
-        incentive.totalAKI = totalAKI;
+        incentive.totalAKI = totalCollectionAKI;
         incentive.akiPerDay = akiPerDay;
         incentive.totalCollectionAKI = totalCollectionAKI;
       }
@@ -5205,7 +5363,7 @@ export const updateLiveStatus = async (req, res) => {
     // The disposition save (createDonorLogHandler) re-arms through
     // resetLiveWindow on the SAME human id, so a disposition always refreshes
     // the row this heartbeat writes.
-    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
 
     // Force-logout enforcement: once an admin logs the FRO out (logged_out_at
@@ -5237,43 +5395,6 @@ export const updateLiveStatus = async (req, res) => {
       // auth_sessions may be absent until migration 125 — skip the guard.
     }
 
-    // Agent sessions: keep the cover alive, and make revocation take effect here.
-    //
-    // The refresh exists because work_as_sessions expires on a fixed TTL chosen
-    // for a MANUAL switch, where nobody holds a cover for a whole shift. An agent
-    // is the FRO's hands until they log out, so a cover that lapsed at 14:00 on a
-    // 10:00 login would stop isCovered() — the absent FRO starts accruing idle for
-    // the rest of the shift — and release the station claims so somebody else can
-    // cover them. Only agent sessions refresh; manual-switch behaviour is unchanged.
-    //
-    // The two 401s are why deactivating or reassigning an agent actually takes
-    // effect. A JWT is good for 24h, so without this the agent would keep working
-    // their old FRO's data until the token expired on its own, and reassignment
-    // would silently not apply until then. Checking on every poll (the panel
-    // heartbeats continuously) turns an admin action into something enforced
-    // within seconds rather than within a day.
-    if (req.user?.agent_user_id) {
-      const agentRow = await getAgentById(req.user.agent_user_id).catch(() => null);
-      if (!agentRow || !agentRow.is_active) {
-        return res.status(401).json({ message: 'This agent login is no longer active. Please login again.' });
-      }
-      // A deliberate work-as switch points the token at another FRO, so
-      // req.user.id is then the COVERED target, not the agent's assigned FRO.
-      // The mismatch is only the reassignment kick when the session is on the
-      // agent's own account; a live cover of somebody else must not be bounced.
-      if (!req.user.impersonation && String(agentRow.worker_id) !== String(req.user.id)) {
-        return res.status(401).json({ message: 'Your agent assignment has changed. Please login again.' });
-      }
-      try {
-        await refreshCoverExpiry({
-          operatorUserId: req.user.agent_user_id,
-          targetWorkerId: req.user.id,
-        });
-      } catch (e) {
-        console.warn('[fro] agent cover refresh skipped:', e?.message || String(e));
-      }
-    }
-
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, last_activity_at, force_counters } = req.body;
 
     if (status && !['online', 'on_call', 'idle', 'offline', 'meeting'].includes(status)) {
@@ -5300,13 +5421,8 @@ export const updateLiveStatus = async (req, res) => {
     // switch/exit in authController (against the covered FRO's row) and read from
     // work_as_sessions; the column is kept only so an old row written before this
     // change cannot leave a stale "being worked by" label behind forever.
-    // Agent sessions file their row on the COVERED FRO, which is precisely the row
-    // the cover label was authored on at login — keep it so the admin board's
-    // "being worked by Agent X" marker does not flicker off on the next heartbeat.
-    if (!req.user?.agent_user_id) {
-      payload.work_as_operator_id = null;
-      payload.work_as_operator_name = null;
-    }
+    payload.work_as_operator_id = null;
+    payload.work_as_operator_name = null;
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
     // force_counters is a deliberate rollover/clear push from the panel.
@@ -5653,7 +5769,7 @@ export const updateLiveStatus = async (req, res) => {
           : isIdleNow(fresh, shift, Date.now()) ? TIME_STATES.IDLE
             : TIME_STATES.WORKING;
     try {
-      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat', agentId: agentCtx?.id ?? null });
+      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat' });
     } catch (ledgerErr) {
       // Not fatal to the heartbeat, but a failure here means the authoritative
       // ledger is not being fed. Surface it instead of swallowing it: an empty
@@ -5663,7 +5779,7 @@ export const updateLiveStatus = async (req, res) => {
 
     let timeStatus = null;
     try {
-      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now(), agentId: agentCtx?.id ?? null });
+      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now() });
     } catch (_) { /* non-fatal */ }
 
     return res.json({
@@ -5705,7 +5821,7 @@ export const updateLiveStatus = async (req, res) => {
 // rather than overwriting one another on the shared row.
 export const getMyProgress = async (req, res) => {
   try {
-    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
@@ -5719,7 +5835,7 @@ export const getMyProgress = async (req, res) => {
 
 export const saveMyProgress = async (req, res) => {
   try {
-    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
     const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
     const payload = {
@@ -5868,7 +5984,7 @@ export const resumeOwnPause = async (req, res) => {
     // the two. Both halves of that are gone, so this is a single-row update and
     // the "resume runs on a loop" failure (the panel re-converging to paused
     // because the other row was still paused) cannot recur.
-    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
     const ids = [String(humanCtx.id)];
@@ -5927,7 +6043,7 @@ export const resumeOwnPause = async (req, res) => {
 // OFF_SHIFT is derived from the shift window rather than reported by the client.
 export const applyFroTimeEvent = async (req, res) => {
   try {
-    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const event = String(req.body?.event || '');
     const allowed = Object.values(TIME_EVENTS);
     if (!allowed.includes(event)) {
@@ -5936,7 +6052,7 @@ export const applyFroTimeEvent = async (req, res) => {
     const nowMs = Date.now();
     let result;
     try {
-      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event, agentId: agentCtx?.id ?? null });
+      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event });
     } catch (ledgerErr) {
       // The ledger table may not be migrated yet. Fail loud so an operator sees
       // it, but do not silently drop the event onto the legacy columns either.
@@ -5975,7 +6091,7 @@ export const applyFroTimeEvent = async (req, res) => {
     } catch (_) { /* non-fatal */ }
     let timeStatus = null;
     try {
-      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs, agentId: agentCtx?.id ?? null });
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
     } catch (_) { /* non-fatal */ }
 
     return res.json({
@@ -6005,7 +6121,7 @@ export const getMyLiveStatus = async (req, res) => {
     // The old "merge the operator's paused flag into the target's row" hack is
     // gone for the same reason: there is only one row now, so there is nothing
     // left to merge. A pause on the operator's row is simply read directly.
-    const { human: humanCtx, agent: agentCtx } = splitWorkerContext(req.user);
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('*')
@@ -6064,7 +6180,7 @@ export const getMyLiveStatus = async (req, res) => {
     // there is exactly one idle calculation in the system.
     let timeStatus;
     try {
-      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs, agentId: agentCtx?.id ?? null });
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
     } catch (timeErr) {
       console.warn('time-status compute skipped:', timeErr.message);
       timeStatus = null;

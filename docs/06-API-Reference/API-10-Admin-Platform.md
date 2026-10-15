@@ -1,6 +1,6 @@
 # API Reference — Admin-Platform
 
-> 262 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
+> 264 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
 
 # API — Admin-Platform
 
@@ -92,15 +92,6 @@
 | POST | `/api/ngo-admin/stations/:station/upload-old-data` | `upload.single('file'), uploadOldDataForStation` |
 | POST | `/api/ngo-admin/old-data/upload` | `upload.single('file'), uploadOldData` |
 | POST | `/api/ngo-admin/restore-wrong-assignments` | `restoreWrongAssignments` |
-| GET | `/api/ngo-admin/agents` | `getCrmAgents` |
-| GET | `/api/ngo-admin/agents/fro-options` | `getCrmAgentFroOptions` |
-| POST | `/api/ngo-admin/agents` | `createCrmAgent` |
-| POST | `/api/ngo-admin/agents/bulk` | `bulkCreateCrmAgents` |
-| PATCH | `/api/ngo-admin/agents/:id/status` | `updateCrmAgentStatus` |
-| PATCH | `/api/ngo-admin/agents/:id/assignment` | `updateCrmAgentAssignment` |
-| POST | `/api/ngo-admin/agents/:id/reset-password` | `resetCrmAgentPassword` |
-| POST | `/api/ngo-admin/agents/:id/force-logout` | `forceLogoutCrmAgent` |
-| DELETE | `/api/ngo-admin/agents/:id` | `deleteCrmAgent` |
 
 ## superAdminRoutes.js
 
@@ -404,6 +395,24 @@
 | POST | `/api/certificates/certificates/bulk` | `USE, bulkGenerateCertificates` |
 | GET | `/api/certificates/certificates` | `USE, listCertificates` |
 | GET | `/api/certificates/certificates/:id` | `USE, getCertificate` |
+
+## dashboardRoutes.js
+
+**Mount prefix:** `/api/dashboard`
+
+| Method | Path | Auth / controller (as written) |
+| --- | --- | --- |
+| GET | `/api/dashboard/super-admin` | `authenticateRole('super_admin'), getSuperAdminDashboard` |
+| GET | `/api/dashboard/super-admin-alerts` | `authenticateRole('super_admin'), getSuperAdminAlerts` |
+| GET | `/api/dashboard/admin` | `authenticateRole('admin'), getAdminDashboard` |
+| GET | `/api/dashboard/hr` | `authenticateRole('hr'), getHrDashboard` |
+| GET | `/api/dashboard/accounts` | `authenticateRole('super_admin', 'accounts'), getAccountsDashboard` |
+| GET | `/api/dashboard/recruiter` | `authenticateRole('recruiter'), getRecruiterDashboard` |
+| GET | `/api/dashboard/leads` | `authenticateRole('leads'), getLeadsDashboard` |
+| GET | `/api/dashboard/telecaller` | `froTelecaller, getTelecallerDashboard` |
+| GET | `/api/dashboard/team-lead` | `authenticateRole('team_lead'), getTeamLeadDashboard` |
+| GET | `/api/dashboard/fro-worker/:workerId` | `authenticateRole('super_admin'), getFroWorkerDashboard` |
+| GET | `/api/dashboard/ticket-stats` | `authenticate, getTicketStats` |
 
 ## bulkAgentImportRoutes.js
 

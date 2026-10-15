@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import PageTabs from './PageTabs'
 import Donors from '../pages/Donors'
 import AddressImport from '../pages/AddressImport'
@@ -17,9 +17,22 @@ const TABS = [
 ]
 
 export default function DonorSection() {
+  const { pathname } = useLocation()
+  const showUpload = pathname.startsWith('/accounts/donors/address')
   return (
     <div>
-      <PageTabs tabs={TABS} ariaLabel="Master Data" />
+      <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+        <PageTabs tabs={TABS} ariaLabel="Master Data" />
+        {showUpload && (
+          <button
+            className="btn btn-primary"
+            style={{ marginLeft: 'auto', marginBottom: 16, flexShrink: 0 }}
+            onClick={() => window.dispatchEvent(new CustomEvent('open-upload-sheet-modal'))}
+          >
+            Upload Sheet
+          </button>
+        )}
+      </div>
       <Routes>
         <Route index element={<Donors />} />
         <Route path="address" element={<AddressImport />} />

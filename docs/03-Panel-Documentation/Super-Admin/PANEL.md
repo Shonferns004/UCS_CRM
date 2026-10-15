@@ -61,7 +61,7 @@ Key screen behaviours (all **Verified** from page sources):
 - Other smaller pages present in file (Verified): `Users.jsx`, `Holidays.jsx`, `Events.jsx`, `Achievements.jsx`, `AttendanceCalendar.jsx`, `SpecialIncentives.jsx`, `RecruitmentDashboard.jsx`, `HrRecruitmentReport.jsx`, `SocialDashboard.jsx`, `HrDashboard.jsx` variant pages etc. under `pages/`.
 
 Embedded panel catalogue (Verified — `embedPanels.js`):
-- **NGO Admin** (internal iframe): dashboard · station-mgmt · attendance · agents · codes · my-tickets.
+- **NGO Admin** (internal iframe): dashboard · station-mgmt · attendance · codes · my-tickets.
 - **HR**: overview · employees · attendance · leaves · letters · hr-forms · recruiters · reports · quizzes · holidays · qr · loans · ngo/salary · fro-targets · tickets · library.
 - **Accounts**: leads · receipt-generator · bill-reminder · attendance · volunteers(salary) · teams · incentive · incentive-verify · fro-targets · incentives · donors · certificates · asset-register · loans · beneficiaries · reports · tickets · library.
 - **FRO**: dashboard · my-leads · donors · my-idle · lead-incentive · tickets.

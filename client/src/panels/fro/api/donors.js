@@ -76,8 +76,18 @@ export async function uploadPaymentScreenshot(fileBase64, mimeType, opts = {}) {
 // The panel holds a full-screen skeleton on this call, so it uses a much shorter
 // timeout than the 120s default. A queued-out dashboard should surface as a
 // failed load the FRO can retry, not two minutes of an ambiguous shimmer.
-export async function getMyDashboard() {
-  return api('/fro/dashboard', { _prefix: 'ucs', timeout: 20000 })
+// window ('1' | '2' | '3' | '6' | '8' | '12' — last N months) scopes the
+// active/inactive donor split; omitted means the backend default (1 month).
+export async function getMyDashboard(activeWindow) {
+  const qs = activeWindow ? `?activeWindow=${encodeURIComponent(activeWindow)}` : ''
+  return api(`/fro/dashboard${qs}`, { _prefix: 'ucs', timeout: 20000 })
+}
+
+// Roster behind a dashboard count: status = 'active' | 'inactive' | 'total'
+// (FY lifetime donors); window is the last-N-months split (ignored for total).
+export async function getFroDonorList(status, windowN) {
+  const params = new URLSearchParams({ status, window: String(windowN || 1) })
+  return api(`/fro/dashboard/donors?${params}`, { _prefix: 'ucs', timeout: 20000 })
 }
 
 export async function getMyAllotmentSummary(month, batch, opts = {}) {

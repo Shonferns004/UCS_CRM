@@ -13,6 +13,7 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge';
 import { ToastProvider } from './components/Toast';
 
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'));
+const SuperAdminTicketSection = lazy(() => import('../../components/SuperAdminTicketSection'));
 
 const NAV = [
   { id: 'dashboard', path: '/dev-panel', label: 'Dashboard', icon: 'dashboard' },
@@ -36,14 +37,17 @@ export default function DevPanel() {
   const location = useLocation();
   const { user, logout } = useUcs();
   const [collapsed, setCollapsed] = useState(false);
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const activeNav = NAV.find(n => location.pathname === n.path || (n.path !== '/dev-panel' && location.pathname.startsWith(n.path)));
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       <aside style={{
-        width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
-        display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
+        ...(isSuperAdmin ? { display: 'none' } : {
+          width: collapsed ? 56 : 220, flexShrink: 0, background: 'var(--card-bg)', borderRight: '1px solid var(--line)',
+          display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden',
+        }),
       }}>
         <div style={{ padding: collapsed ? '16px 12px' : '16px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
@@ -97,6 +101,7 @@ export default function DevPanel() {
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="tickets/:id" element={<TicketDetail />} />
             <Route path="tickets/new" element={<Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>Loading...</div>}><TechnicalTickets panel="dev_panel" /></Suspense>} />
+            <Route path="to-super-admin" element={<Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>Loading...</div>}><SuperAdminTicketSection panel="dev_panel" /></Suspense>} />
             <Route path="*" element={<Navigate to="/dev-panel" replace />} />
           </Routes>
           </ToastProvider>

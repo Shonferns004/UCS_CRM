@@ -23,17 +23,19 @@ const fallback = {
 // ---- module grouping of route files
 const groups = {
   "01-Authentication": ["authRoutes", "codeRoutes", "configRoutes", "userRoutes", "userSettingsRoutes", "profileUpdateRequestRoutes"],
-  "02-Workers-HR": ["workerRoutes", "workerBankImportRoutes", "leaveRoutes", "salaryRoutes", "loanRoutes", "letterRoutes", "holidayRoutes", "hrRoutes", "hrDailyReportRoutes", "quizRoutes"],
-  "03-Attendance-QR": ["attendanceRoutes", "attendanceCorrectionRoutes", "qrRoutes", "biometricRoutes", "meetingRoutes"],
+  "02-Workers-HR": ["workerRoutes", "workerBankImportRoutes", "leaveRoutes", "salaryRoutes", "loanRoutes", "letterRoutes", "holidayRoutes", "hrRoutes", "hrDailyReportRoutes", "dailyReportRoutes", "quizRoutes"],
+  "03-Attendance-QR": ["attendanceRoutes", "attendanceCorrectionRoutes", "qrRoutes", "biometricRoutes", "meetingRoutes", "absenceProofRoutes"],
   "04-Recruitment": ["leadRoutes", "callLogRoutes", "recruiterRoutes", "onboardingRoutes"],
   "05-FRO-Incentives": ["froRoutes", "froWhatsAppRoutes", "incentiveRoutes", "specialIncentiveRoutes", "leadIncentiveRoutes", "causeRoutes"],
   "06-Accounts-Finance": ["accountsRoutes", "bankAuditRoutes", "bankStatementRoutes", "emailImportRoutes", "scraperRoutes", "webhookRoutes", "whatsappRoutes"],
   "07-Beneficiaries": ["beneficiaryRoutes", "beneficiaryImportRoutes", "programRoutes", "benefitRoutes", "distributionRoutes", "operatorRoutes", "reportRoutes", "ocrRoutes"],
   "08-Events": ["eventRoutes", "eventHeadRoutes", "importantDaysRoutes", "calendarRoutes"],
   "09-Communication": ["chatRoutes", "noticeRoutes", "notificationRoutes", "notificationAdminRoutes", "ticketRoutes", "hrWhatsAppRoutes", "reminderRoutes", "whatsappCrmRoutes", "whatsappCrmDataRoutes", "whatsappEnhancementsRoutes"],
-  "10-Admin-Platform": ["ngoAdminRoutes", "superAdminRoutes", "ngoRoutes", "ngoAllocationRoutes", "taskRoutes", "taskAssignmentRoutes", "assetsRoutes", "settingsRoutes", "teamRoutes", "dataSourceRoutes", "dataImportRoutes", "s3BrowserRoutes", "envAdminRoutes", "tempCleanupRoutes", "simCardRoutes", "simInventoryRoutes", "votingRoutes", "audienceVotingRoutes", "achievementRoutes", "developerTicketRoutes", "certificateRoutes", "bulkAgentImportRoutes", "agentTransferRoutes"],
-  "11-Special-Apps": ["sevakLibraryRouter", "metropadRouter", "aadhaarRoutes"],
+  "10-Admin-Platform": ["ngoAdminRoutes", "superAdminRoutes", "ngoRoutes", "ngoAllocationRoutes", "taskRoutes", "taskAssignmentRoutes", "assetsRoutes", "settingsRoutes", "teamRoutes", "dataSourceRoutes", "dataImportRoutes", "s3BrowserRoutes", "envAdminRoutes", "tempCleanupRoutes", "simCardRoutes", "simInventoryRoutes", "votingRoutes", "audienceVotingRoutes", "achievementRoutes", "developerTicketRoutes", "certificateRoutes", "dashboardRoutes", "bulkAgentImportRoutes", "agentTransferRoutes"],
 };
+// NOTE: "11-Special-Apps" (API-11-Special-Apps.md) is hand-maintained.
+// Its sub-app routers live under backend/src/{metropad,sevakLibrary,aadhaar}
+// (not backend/src/routes/*.js), so this generator must NEVER write that file.
 
 // ---- extraction
 function extract(file) {
@@ -85,6 +87,9 @@ for (const [g, files] of Object.entries(groups)) {
   console.log(`wrote ${outFile} (${count} endpoints)`);
   indexLines.push(`| ${g.replace(/^\d+-/, "")} | \`API-${g}.md\` | \`${files.join("`, `")}\` |`);
 }
+
+// hand-maintained group (not generated) — see NOTE above
+indexLines.push("| Special-Apps | `API-11-Special-Apps.md` | `metropad`, `sevakLibrary`, `aadhaar` (hand-maintained) |");
 
 fs.writeFileSync(path.join(outDir, "README.md"), indexLines.join("\n") + "\n", "utf8");
 console.log("done");

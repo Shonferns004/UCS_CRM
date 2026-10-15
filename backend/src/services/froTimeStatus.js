@@ -66,21 +66,17 @@ export function fallbackIntervals(liveRow, shift, nowMs = Date.now()) {
  *   legacyIdleSince       start of the open IDLE interval, else null
  *   hasLedger             whether authoritative intervals exist for today
  */
-export async function computeTimeStatus({ workerId, liveRow, shift, nowMs = Date.now(), pool, agentId = null } = {}) {
+export async function computeTimeStatus({ workerId, liveRow, shift, nowMs = Date.now(), pool } = {}) {
   let sessions = [];
   try {
-    sessions = await getSessionsForDay(workerId, { nowMs, agentId, ...(pool ? { pool } : {}) });
+    sessions = await getSessionsForDay(workerId, { nowMs, ...(pool ? { pool } : {}) });
   } catch (_) {
     // Ledger absent (migration not applied) → fall back to legacy derivation.
     sessions = [];
   }
 
   const hasLedger = sessions.length > 0;
-  // An agent asking for their own day with no stamped intervals of their own must
-  // NOT be handed the covered FRO's live row as a fallback: that row is shared, and
-  // the fallback exists only for panels that predate the ledger. Nothing of the
-  // agent's has been recorded, so the honest answer is zero.
-  const useFallback = hasLedger ? false : (agentId == null || agentId === '');
+  const useFallback = !hasLedger;
   const intervals = useFallback ? fallbackIntervals(liveRow, shift, nowMs) : sessions;
   const totals = sumIntervalsByState(intervals, { shift, nowMs });
 

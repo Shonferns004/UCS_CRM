@@ -32,6 +32,10 @@ const TARGET_LABELS = {
   event_head: 'Event Head',
 }
 
+// Rotating left-accent colors so consecutive notices are easy to tell apart
+// without turning the list into a rainbow.
+const ACCENTS = ['#16a34a', '#2563eb', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+
 function getToken() {
   try { return localStorage.getItem('ucs_token') } catch { return null }
 }
@@ -166,8 +170,29 @@ function NoticeDetail({ notice, broken, onBroken, onClose }) {
   )
 }
 
-export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle }) {
-  const [notices, setNotices] = useState([])
+// One IST calendar day per notice. 'en-CA' yields YYYY-MM-DD, the format the
+// date input speaks, so the filter is a plain string compare.
+const dayKey = (iso) => {
+  if (!iso) return ''
+  try { return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) } catch { return '' }
+}
+const todayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+
+// The day before a YYYY-MM-DD key, as a string — plain calendar math in UTC,
+// so DST/timezones can't nudge it across a boundary.
+const prevDayKey = (key) => {
+  if (!key) return ''
+  const [y, m, d] = key.split('-').map(Number)
+  if (!y || !m || !d) return ''
+  return new Date(Date.UTC(y, m - 1, d) - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle, fill = false }) {
+  const [allNotices, setAllNotices] = useState([])
+  // Fresh every day: the filter opens on today, so the window is today +
+  // yesterday (the selected day always includes the day before it). Picking
+  // a past date views that day plus its previous day.
+  const [dateFilter, setDateFilter] = useState(todayKey)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [deletingId, setDeletingId] = useState(null)
@@ -190,11 +215,24 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
     })
       .then(r => r.json())
       .then(d => {
-        setNotices(Array.isArray(d) ? d.slice(0, limit) : d?.data?.slice(0, limit) || [])
+        const list = Array.isArray(d) ? d : d?.data || []
+        setAllNotices(list)
       })
       .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false))
-  }, [limit, role])
+  }, [role])
+
+  // Rolling two-day view: the selected day AND the day before it — on the
+  // 12th you see the 11th's and 12th's notices, on the 13th the 12th's and
+  // 13th's. Newest first.
+  const notices = allNotices
+    .filter(n => {
+      if (!n.created_at) return false
+      const k = dayKey(n.created_at)
+      return k === dateFilter || k === prevDayKey(dateFilter)
+    })
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, limit)
 
   const handleDelete = async (id) => {
     const token = getToken()
@@ -206,7 +244,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
         headers: { Authorization: `Bearer ${token}` }
       })
       if (res.ok) {
-        setNotices(prev => prev.filter(n => n.id !== id))
+        setAllNotices(prev => prev.filter(n => n.id !== id))
         setToast('Notice deleted successfully')
       }
     } catch {}
@@ -268,13 +306,11 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
         body: JSON.stringify(editForms[id])
       })
       if (res.ok) {
-        setNotices(prev => prev.map(n => n.id === id ? { ...n, ...editForms[id] } : n))
+        setAllNotices(prev => prev.map(n => n.id === id ? { ...n, ...editForms[id] } : n))
       }
     } catch {}
     setSavingId(null)
   }
-
-  if (loading) return null
 
   const cardStyle = {
     background: 'var(--paper, #fff)',
@@ -282,6 +318,9 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
     borderRadius: 14,
     padding: '18px 20px',
     boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)',
+    // Seal the card: the corner brackets (and any child overflow) must never
+    // escape and trip a page-level horizontal scrollbar.
+    overflow: 'hidden',
     ...containerStyle,
   }
 
@@ -293,8 +332,69 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
     color: editMode ? '#15803d' : '#64748b', transition: 'all .15s'
   }
 
+  // Row chrome lives in a style tag so hover can affect child buttons
+  // (delete-on-hover isn't expressible with inline styles). The green
+  // L-corners gently pulse and snap outward on hover. The list keeps
+  // wheel/touch scrolling but draws NO scrollbar at all (vertical included —
+  // the user found the slim bar ugly); overflow-x stays sealed shut.
+  const CHROME_CSS = `
+    .rn-row { position: relative; transition: box-shadow .15s, border-color .15s; }
+    .rn-row:hover { border-color: #e2e8f0; box-shadow: 0 4px 14px rgba(15,23,42,.07); }
+    .rn-corner {
+      position: absolute; width: 12px; height: 12px; pointer-events: none;
+      border: 0 solid #16a34a; opacity: .5;
+      animation: rnPulse 2.8s ease-in-out infinite;
+      transition: opacity .18s, transform .18s;
+    }
+    .rn-corner.tl { top: 4px; left: 4px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 3px; }
+    .rn-corner.tr { top: 4px; right: 4px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 3px; }
+    .rn-corner.bl { bottom: 4px; left: 4px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 3px; }
+    .rn-corner.br { bottom: 4px; right: 4px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 3px; }
+    .rn-row:hover .rn-corner { animation: none; opacity: 1; }
+    .rn-row:hover .rn-corner.tl { transform: translate(-2px, -2px); }
+    .rn-row:hover .rn-corner.tr { transform: translate(2px, -2px); }
+    .rn-row:hover .rn-corner.bl { transform: translate(-2px, 2px); }
+    .rn-row:hover .rn-corner.br { transform: translate(2px, 2px); }
+    @keyframes rnPulse { 0%, 100% { opacity: .35; } 50% { opacity: .85; } }
+    .rn-row .rn-del { opacity: 0; transition: opacity .15s, color .15s, background .15s; }
+    .rn-row:hover .rn-del, .rn-row .rn-del:focus-visible { opacity: 1; }
+    @media (hover: none) { .rn-row .rn-del { opacity: .55; } }
+    .rn-list { overflow-x: hidden !important; scrollbar-width: none; -ms-overflow-style: none; }
+    .rn-list::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  `
+
+  // Shimmer skeleton instead of a blank gap while the fetch runs — same card
+  // chrome and row shape as the loaded list so nothing jumps when data lands.
+  if (loading) return (
+    <div style={cardStyle}>
+      <style>{CHROME_CSS}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <div className="sk" style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0 }} />
+        <div className="sk" style={{ width: 132, height: 14, borderRadius: 6 }} />
+        <div className="sk" style={{ width: 28, height: 16, borderRadius: 99 }} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} style={{ position: 'relative', display: 'flex', gap: 10, padding: '10px 13px', borderRadius: 10, background: '#fff', border: '1px solid #f1f5f9', alignItems: 'center' }}>
+            <span className="rn-corner tl" style={{ animation: 'none', opacity: .35 }} />
+            <span className="rn-corner tr" style={{ animation: 'none', opacity: .35 }} />
+            <span className="rn-corner bl" style={{ animation: 'none', opacity: .35 }} />
+            <span className="rn-corner br" style={{ animation: 'none', opacity: .35 }} />
+            <div className="sk" style={{ width: 40, height: 40, borderRadius: 9, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="sk" style={{ height: 10, width: `${52 + (i % 3) * 14}%`, borderRadius: 5, marginBottom: 6 }} />
+              <div className="sk" style={{ height: 8, width: `${68 - (i % 2) * 18}%`, borderRadius: 5, marginBottom: 5 }} />
+              <div className="sk" style={{ height: 7, width: '28%', borderRadius: 5 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
     <div style={cardStyle}>
+      <style>{CHROME_CSS}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
@@ -315,26 +415,62 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
             </span>
           )}
         </div>
-        {isAdmin && notices.length > 0 && (
-          <button
-            onClick={toggleEditMode}
-            title={editMode ? 'Done editing' : 'Edit notices'}
-            style={editBtn}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{editMode ? 'check' : 'edit'}</span>
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="date"
+            aria-label="Show notices from this date and the day before"
+            value={dateFilter}
+            max={todayKey()}
+            onChange={e => setDateFilter(e.target.value || todayKey())}
+            style={{
+              fontSize: 11, fontWeight: 600, color: '#475569',
+              border: '1px solid #e2e8f0', borderRadius: 8,
+              padding: '4px 7px', background: '#fff', cursor: 'pointer',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          />
+          {dateFilter !== todayKey() && (
+            <button
+              onClick={() => setDateFilter(todayKey())}
+              title="Back to today's notices"
+              style={{
+                fontSize: 10, fontWeight: 700, color: '#15803d',
+                background: '#dcfce7', border: 'none', borderRadius: 99,
+                padding: '4px 9px', cursor: 'pointer',
+              }}
+            >
+              Today
+            </button>
+          )}
+          {isAdmin && notices.length > 0 && (
+            <button
+              onClick={toggleEditMode}
+              title={editMode ? 'Done editing' : 'Edit notices'}
+              style={editBtn}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{editMode ? 'check' : 'edit'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {notices.length === 0 ? (
-        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, margin: '18px 0 6px' }}>No notices yet</p>
+        <div style={{ textAlign: 'center', padding: '22px 0 12px' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#e2e8f0' }}>campaign</span>
+          <p style={{ color: '#94a3b8', fontSize: 12, margin: '6px 0 0' }}>
+            {dateFilter === todayKey() ? 'No notices today or yesterday' : 'No notices on this or the previous day'}
+          </p>
+        </div>
       ) : (
-        <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 2 }}>
-          {notices.map((n, i) => (
-            <div key={n.id || i} style={{
-              display: 'flex', gap: 10, padding: '11px 13px',
-              borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7', alignItems: 'flex-start',
-              transition: 'border-color .15s, background .15s, box-shadow .15s',
+        <div className="rn-list" style={{ ...(fill ? { flex: 1, minHeight: 0 } : { maxHeight: 240 }), overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 7, paddingRight: 2 }}>
+          {notices.map((n, i) => {
+            const accent = ACCENTS[i % ACCENTS.length]
+            return (
+            <div key={n.id || i} className={isAdmin && editMode ? undefined : 'rn-row'} style={{
+              position: 'relative',
+              display: 'flex', gap: 10, padding: '10px 13px',
+              borderRadius: 10, background: '#fff', border: '1px solid #f1f5f9',
+              alignItems: 'center',
               // In edit mode the row holds real inputs and buttons, so a row-wide
               // click target would swallow their clicks. Keep it inert there.
               cursor: isAdmin && editMode ? 'default' : 'pointer',
@@ -350,18 +486,13 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                 if (isAdmin && editMode) return
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(n) }
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(30,77,59,0.06)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#eef2f7'; e.currentTarget.style.boxShadow = 'none' }}
             >
-              <div style={{
-                width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-                background: i % 2 === 0 ? '#e8f5ee' : '#eff6ff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <span className="material-symbols-outlined" style={{ color: i % 2 === 0 ? '#16a34a' : '#3b82f6', fontSize: 17 }}>
-                  {i % 2 === 0 ? 'notifications' : 'campaign'}
-                </span>
-              </div>
+              {/* Green L-brackets on all four corners — idle: gentle pulse
+                  (staggered per row); hover: snap outward. */}
+              <span className="rn-corner tl" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
+              <span className="rn-corner tr" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
+              <span className="rn-corner bl" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
+              <span className="rn-corner br" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 {isAdmin && editMode ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -374,50 +505,57 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                   </div>
                 ) : (
                   <>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', lineHeight: 1.35 }}>
-                      {n.title}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1.3, minWidth: 0 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{n.title}</span>
                       {TARGET_LABELS[n.target_role] && (
                         <span style={{
-                          fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
-                          background: '#dcfce7', color: '#15803d', whiteSpace: 'nowrap',
+                          fontSize: 8.5, fontWeight: 800, padding: '1px 5px', borderRadius: 4,
+                          background: `${accent}12`, color: accent, border: `1px solid ${accent}26`,
+                          whiteSpace: 'nowrap', flexShrink: 0, letterSpacing: '.2px',
                         }}>
                           {TARGET_LABELS[n.target_role]}
                         </span>
                       )}
                     </div>
                     {n.content && (
-                      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 3, lineHeight: 1.5 }}>
-                        {n.content.length > 120 ? n.content.slice(0, 120) + '\u2026' : n.content}
+                      <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {n.content}
                       </div>
                     )}
-                    {n.media_url && brokenMedia[n.id] ? (
-                      <div style={{ marginTop: 6, fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '5px 9px' }}>
-                        Image could not be loaded
-                      </div>
-                    ) : isFileMedia(n.media_url, n.media_type) ? (
-                      <div style={{ marginTop: 6, fontSize: 11, color: '#475569', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>attach_file</span>
-                        {n.media_name || 'Attachment'}
-                      </div>
-                    ) : (
-                      <img
-                        src={n.media_url}
-                        alt={n.media_name || n.title || 'notice attachment'}
-                        onClick={() => openDetail(n)}
-                        onError={() => setBrokenMedia(prev => ({ ...prev, [n.id]: true }))}
-                        style={{ marginTop: 6, width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 8, border: '1px solid #eef2f7', cursor: 'zoom-in' }}
-                      />
-                    )}
-                    <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, marginTop: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
-                      {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
-                      {n.created_by_name && (
-                        <span style={{ color: '#94a3b8', fontWeight: 500 }}>by {n.created_by_name}</span>
-                      )}
+                    <div style={{ fontSize: 9.5, color: '#94a3b8', fontWeight: 600, marginTop: 3, display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 11, lineHeight: 1 }}>schedule</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
+                        {n.created_by_name ? ` · by ${n.created_by_name}` : ''}
+                      </span>
                     </div>
                   </>
                 )}
               </div>
+              {!(isAdmin && editMode) && (
+                n.media_url && brokenMedia[n.id] ? (
+                  <span style={{ flexShrink: 0, fontSize: 9, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '3px 6px' }}>
+                    Failed
+                  </span>
+                ) : isFileMedia(n.media_url, n.media_type) ? (
+                  <button
+                    onClick={() => openDetail(n)}
+                    title={n.media_name || 'Attachment'}
+                    style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 9, border: `1px solid ${accent}26`, background: `${accent}0f`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>attach_file</span>
+                  </button>
+                ) : n.media_url ? (
+                  <img
+                    src={n.media_url}
+                    alt={n.media_name || n.title || 'notice attachment'}
+                    loading="lazy"
+                    onClick={() => openDetail(n)}
+                    onError={() => setBrokenMedia(prev => ({ ...prev, [n.id]: true }))}
+                    style={{ flexShrink: 0, width: 40, height: 40, objectFit: 'cover', borderRadius: 9, border: '1px solid #eef2f7', cursor: 'zoom-in', boxShadow: '0 1px 3px rgba(15,23,42,.08)' }}
+                  />
+                ) : null
+              )}
               {isAdmin && (editMode ? (
                 <button
                   onClick={() => handleSave(n.id)}
@@ -433,8 +571,9 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                 >
                   {savingId === n.id ? 'Saving' : 'Save'}
                 </button>
-) : canDelete ? (
+              ) : canDelete ? (
                 <button
+                  className="rn-del"
                   onClick={() => handleDelete(n.id)}
                   disabled={deletingId === n.id}
                   title="Delete notice"
@@ -443,18 +582,19 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                     background: 'none', border: 'none', cursor: deletingId === n.id ? 'wait' : 'pointer',
                     borderRadius: 7, flexShrink: 0, alignSelf: 'center',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#cbd5e1', transition: 'all .15s'
+                    color: '#cbd5e1',
                   }}
                   onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = '#fef2f2' }}
                   onMouseLeave={e => { e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent' }}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-{deletingId === n.id ? 'hourglass_top' : 'delete'}
+                    {deletingId === n.id ? 'hourglass_top' : 'delete'}
                   </span>
                 </button>
               ) : null)}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

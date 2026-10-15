@@ -39,6 +39,7 @@ import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
 import SevakPanel from '../sevak-library/SevakPanel'
+import SuperAdminTicketSection from '../../components/SuperAdminTicketSection'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
@@ -102,6 +103,7 @@ function HRPageShell({ children }) {
   const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('hr_theme') || 'sky')
   const [ticketCount, setTicketCount] = useState(0)
+  const isSuperAdmin = user?.role === 'super_admin'
   const [allNotifs, setAllNotifs] = useState([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuRef = useRef(null)
@@ -164,7 +166,7 @@ function HRPageShell({ children }) {
       <SpecialIncentive />
       <LeadChampionCelebration />
       <NoticePopup />
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      {!isSuperAdmin && <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />}
       <div className="main">
         <div className="mobile-top">
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
@@ -284,6 +286,7 @@ export default function HRPanel() {
         <Route path="ngo" element={<NgoSalary />} />
         <Route path="fro-targets" element={<FroTargets />} />
         <Route path="tickets" element={<Tickets />} />
+        <Route path="to-super-admin" element={<SuperAdminTicketSection panel="hr" />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="library" element={<SevakPanel />} />
         <Route path="settings" element={<SettingsRoute />} />

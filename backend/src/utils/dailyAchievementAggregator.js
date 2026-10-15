@@ -28,7 +28,7 @@ export async function getMergedDailyAmounts(workerId, startDate, endDate, ranges
       date,
       amount,
       dayName: getDayName(date),
-      aki: calculateAKI(amount, getDayName(date), resolvedRanges),
+      aki: calculateAKI(amount, getDayName(date), resolvedRanges, date),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }

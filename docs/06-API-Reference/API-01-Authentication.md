@@ -1,6 +1,6 @@
 # API Reference — Authentication
 
-> 33 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
+> 32 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
 
 # API — Authentication
 
@@ -23,7 +23,6 @@
 | POST | `/api/auth/work-as/release` | `authenticate, releaseWorkAs` |
 | POST | `/api/auth/change-password` | `authenticate, changePassword` |
 | POST | `/api/auth/logout` | `authenticate, logout` |
-| GET | `/api/auth/agent-context` | `authenticate, getMyCrmAgentContext` |
 
 ## codeRoutes.js
 

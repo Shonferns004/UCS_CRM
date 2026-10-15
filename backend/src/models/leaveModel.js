@@ -83,3 +83,17 @@ export const getApprovedHalfDayLeave = async (workerId, date) => {
   if (error) throw error;
   return data;
 };
+
+// Leaves overlapping a date range (any status). Vacational rows span
+// start_date..end_date; single-day rows use leave_date.
+export const getLeavesInRange = async (startDate, endDate, workerId = null) => {
+  let query = db
+    .from('leaves')
+    .select('*')
+    .or(`and(leave_date.gte.${startDate},leave_date.lte.${endDate}),and(start_date.lte.${endDate},end_date.gte.${startDate})`)
+    .order('applied_at', { ascending: true });
+  if (workerId) query = query.eq('worker_id', workerId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};

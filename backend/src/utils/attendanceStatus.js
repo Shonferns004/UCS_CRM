@@ -1,6 +1,7 @@
 import { getApprovedHalfDayLeave } from '../models/leaveModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getSetting } from '../models/settingsModel.js';
+import { isVoluntarySunday } from './sundayRules.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -43,6 +44,9 @@ export async function getOfficeEnd(workerId) {
 
 export async function calculateAttendanceStatus({ workerId, punchInTime, punchOutTime }) {
   const date = istDateStr(new Date(punchInTime));
+  // From SUNDAY_RULES_FROM a Sunday is voluntary: coming in late (or leaving
+  // early) on a Sunday is always a full present day, never late or half-day.
+  if (isVoluntarySunday(date)) return 'present';
   const approvedHalfDay = await getApprovedHalfDayLeave(workerId, date);
 
   const start = await getOfficeStart(workerId);

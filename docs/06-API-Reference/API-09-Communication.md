@@ -1,6 +1,6 @@
 # API Reference — Communication
 
-> 112 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
+> 114 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
 
 # API — Communication
 
@@ -84,10 +84,12 @@
 | GET | `/api/tickets/workers` | `getWorkers` |
 | GET | `/api/tickets/my` | `listMyTickets` |
 | GET | `/api/tickets/pending-popups` | `getPendingTicketPopups` |
+| GET | `/api/tickets/to-super-admin` | `listToSuperAdmin` |
 | POST | `/api/tickets/` | `createTicket` |
 | GET | `/api/tickets/` | `authenticateAccountsOrEventTeam, listTickets` |
 | GET | `/api/tickets/:id` | `getTicket` |
 | PUT | `/api/tickets/:id` | `authenticateAccountsOrEventTeam, updateTicket` |
+| PUT | `/api/tickets/:id/to-super-admin` | `updateSuperAdminTicket` |
 | DELETE | `/api/tickets/:id` | `authenticateRole('accounts', 'super_admin'), deleteTicket` |
 | POST | `/api/tickets/:id/reply` | `addReply` |
 | POST | `/api/tickets/:id/popup-seen` | `ackTicketPopup` |

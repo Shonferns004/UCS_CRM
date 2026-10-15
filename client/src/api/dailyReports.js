@@ -13,6 +13,12 @@ export const fetchMyDailyReport = (panel, date) =>
 export const fetchDailyReports = (panel, date) =>
   call(`/daily-reports?panel=${encodeURIComponent(panel)}&date=${encodeURIComponent(date)}`)
 
+// Which reports for a panel were accepted during a month (YYYY-MM). The Social
+// Monthly Planner uses this to mark a reporter's day done, so the green tracks
+// the head's acceptance rather than the member's own task status.
+export const fetchReviewedDailyReports = (panel, month) =>
+  call(`/daily-reports/reviewed?panel=${encodeURIComponent(panel)}&month=${encodeURIComponent(month)}`)
+
 // HOD / super-admin overview. All filters are optional.
 export const fetchAllDailyReports = (date, panel, reporterId) => {
   const parts = [`date=${encodeURIComponent(date)}`]
@@ -43,3 +49,8 @@ export const fetchRecruiterPerformance = (date) =>
 
 export const saveDailyReportRemark = (id, remark) =>
   call(`/daily-reports/${encodeURIComponent(id)}/remark`, { method: 'PUT', body: JSON.stringify({ remark }) })
+
+// Accept / reject of a submitted daily report — the Social head's review.
+// `note` is the optional query / suggestion attached to a rejection.
+export const saveDailyReportReview = (id, status, note) =>
+  call(`/daily-reports/${encodeURIComponent(id)}/review`, { method: 'PUT', body: JSON.stringify({ status, note }) })

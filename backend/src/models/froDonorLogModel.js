@@ -51,7 +51,7 @@ export const createDonorLog = async (data) => {
 // split by session type: a self-service save records the worker in
 // fro_worker_id, while a work-as save records the covered FRO there and the
 // operator in operator_id. fro_worker_id is foreign-keyed to workers, so it can
-// never hold an agent's or an admin's id.
+// never hold an admin's id.
 export const findDispositionLogToday = async (assignmentId, actorId, detail, dayStart) => {
   const { data, error } = await db
     .from('fro_donor_logs')
@@ -194,11 +194,11 @@ const getWorkerAliasNames = async (workerId) => {
 // you" for any colleague. Category labels and blanks are absent by
 // construction: they are not workers.
 //
-// Returns a Map of normalized name -> worker id rather than a bare Set, because
-// a CRM agent label ('Agent 21') is only a competing claim once it resolves to
-// somebody — worker_aliases maps every label to the login's worker, and the
-// caller needs to know whether that somebody is itself (a work-as receipt
-// carries the ACTOR's label while the log's fro_worker_id is the COVERED FRO).
+ // Returns a Map of normalized name -> worker id rather than a bare Set, because
+ // a label is only a competing claim once it resolves to somebody —
+ // worker_aliases maps every alias to its worker, and the caller needs to know
+ // whether that somebody is itself (a work-as receipt carries the ACTOR's name
+ // while the log's fro_worker_id is the COVERED FRO).
 const getAllWorkerNameResolvers = async () => {
   const resolvers = new Map();
   const claim = (name, workerId) => {
@@ -249,11 +249,11 @@ const getAllWorkerNameResolvers = async () => {
  * Receipt form. The log is used only when the name is blank or is a category
  * label, where there is no name evidence at all.
  *
- * agent_name still cannot be trusted blindly -- a CRM agent's work-as switch
- * stamps the label "Agent 13" rather than a name (authController.js:960), and the
- * bank-audit and suspense paths write 'Suspense'/'PG'/free text -- so the name
- * query is alias-expanded (migration 080) and category labels are excluded
- * outright, leaving unreconciled bank money credited to nobody.
+ * agent_name still cannot be trusted blindly -- historical rows carry labels
+ * rather than a name, and the bank-audit and suspense paths write
+ * 'Suspense'/'PG'/free text -- so the name query is alias-expanded (migration
+ * 080) and category labels are excluded outright, leaving unreconciled bank
+ * money credited to nobody.
  *
  * Category labels ('Suspense', 'PG', 'Library', 'NA') are never matched, so
  * unreconciled bank money is not credited to an FRO who never collected it.
@@ -274,12 +274,11 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
   const run = opts.allowStale ? (t, p) => replicaSql(t, p, { replicaOptional: true }) : sql;
 
   // The id handed in here is creditWorkerId from the FRO panel, which is the
-  // OPERATOR (req.user.imposter_id), not always a workers row: under an agent
-  // login it is a crm_agents uuid. Querying workers/logs with that uuid matched
-  // nothing, so every agent session's Collected card read zero however much had
-  // been verified. Resolve it once — window 1 runs against the linked worker,
-  // window 2 matches the linked worker's name plus the label this session
-  // stamps into receipts.agent_name.
+  // OPERATOR (req.user.imposter_id), not always a workers row — an admin
+  // work-as carries a users id, which matches nothing in workers/logs.
+  // Resolve it once: window 1 runs against the resolved worker, window 2
+  // matches the resolved worker's name plus the label this session stamps
+  // into receipts.agent_name.
   const credit = await resolveCreditTarget(workerId);
   const queryWorkerId = credit?.workerId || workerId;
 
@@ -337,38 +336,33 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd, 
 
 // Same attribution as getWorkerCollectionReceipts -- name first, log as a
 // fallback -- so the daily AKI chart and the Collected card can never disagree
-// about who collected what. It cannot simply reuse that loader because the two
-// bucket by different dates: the card counts a collection in the transaction
-// month, while this has historically credited a backdated receipt to the day it
-// was VERIFIED, so the daily AKI days line up with the Verified Today card.
-// That day choice is the only difference; ownership comes from the shared
-// helpers so it cannot drift.
+// about who collected what, OR on WHICH day. Both bucket by receipt_date (the
+// IST calendar day on the receipt book): a Sep-30 collection claimed/verified
+// on Oct 1 used to land on Oct 1 here while the card dated it Sep 30, so the
+// calendar and the card never added up.
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd, opts = {}) => {
   // receipt_date bounds must be IST days for the same reason as in
-  // getWorkerCollectionReceipts -- see receiptDayBounds(). The verified_at
-  // window below keeps the raw instants, because that column is a timestamptz
-  // and wants them.
+  // getWorkerCollectionReceipts -- see receiptDayBounds().
   const { startDay: monthStartDay, endDay: monthEndDay } = receiptDayBounds(monthStart, monthEnd, opts);
 
-  // Same operator-vs-worker resolution as the card loader: creditWorkerId may be
-  // a crm_agents uuid under an agent login, and a workers-keyed lookup against
-  // it returns nothing.
+  // Same operator-vs-worker resolution as the card loader: creditWorkerId may
+  // be an operator id rather than a workers id, and a workers-keyed lookup
+  // against it returns nothing.
   const credit = await resolveCreditTarget(workerId);
   const queryWorkerId = credit?.workerId || workerId;
 
-  // Authoritative window: linked to this worker's log, in the verified window so
-  // the bucket day can be the verification date. Fallback only, for receipts whose
-  // name resolved to nobody.
+  // Authoritative window: receipts linked to this worker's log, bounded by
+  // receipt_date so the bucket day and the card day are the same day.
+  // Fallback only, for receipts whose name resolved to nobody.
   let byLogId = [];
   try {
     byLogId = await sql(
-      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id,
-              l.verified_at AS verified_at
+      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id
        FROM receipts r
        JOIN fro_donor_logs l ON l.id = r.log_id
        WHERE l.fro_worker_id = $1
-         AND l.verified_at >= $2 AND l.verified_at <= $3`,
-      [queryWorkerId, monthStart, monthEnd]
+         AND r.receipt_date >= $2 AND r.receipt_date <= $3`,
+      [queryWorkerId, monthStartDay, monthEndDay]
     );
   } catch (e) { byLogId = []; }
 
@@ -394,11 +388,11 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd,
     }
   }
 
-  // Every receipt credited here is in the window by whichever date applies, and
+  // Every receipt credited here is in the window by receipt_date, and
   // deduplicated once across both windows before bucketing.
   const merged = mergeAttributedReceipts(
-    byName.map((r) => ({ ...r, verified_at: null })),
-    byLogId.map((r) => ({ ...r, verified_at: r.verified_at || null })),
+    byName,
+    byLogId,
     await getAllWorkerNameResolvers(),
     queryWorkerId,
   );
@@ -408,9 +402,9 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd,
   for (const r of merged) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
-    const vDay = r.verified_at ? String(r.verified_at).slice(0, 10) : null;
-    const rDay = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
-    const day = (vDay && vDay >= monthStartDay && vDay <= monthEndDay) ? vDay : rDay;
+    // receipt_date is the day the money was taken in — the same day the
+    // Collection card counts it on, so calendar and card always add up.
+    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
     if (!day) continue;
     const identity = paymentIdentity(r);
     if (seenPayments.has(identity)) continue;
@@ -580,9 +574,9 @@ export const getRangeCollectionByWorker = async (workerIds, startDay, endDay) =>
     (byName[k] = byName[k] || []).push(w.id);
   }
   // Widen the map with each worker's curated aliases. Without this, a receipt
-  // stamped "Agent 13" (the label an agent's work-as switch writes, see
-  // authController.js:960) matched no name here and was invisible to this
-  // batch total even though worker_aliases still maps it to its FRO.
+  // stamped with an alias rather than the canonical name matched no name here
+  // and was invisible to this batch total even though worker_aliases still maps
+  // it to its FRO.
   if (workerIds.length > 0) {
     try {
       const { data: aliasRows } = await db
@@ -717,11 +711,9 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
 //     it is the same rule the receipt loader applies by name, so the Verified
 //     figure sits with the same person the Collected figure sits with.
 //
-// Under an agent login creditWorkerId is a crm_agents uuid, which matches
-// nothing in fro_worker_id — that alone made both cards read zero for every
-// agent session. resolveCreditTarget maps it to the linked worker for the
-// no-cover half; the cover half has to match the id as handed in, because
-// operator_id holds the agent's uuid.
+// resolveCreditTarget maps an operator id to its worker for the no-cover half;
+// the cover half has to match the id as handed in, because operator_id holds
+// the ACTOR's id.
 const loadClaimRows = async ({ workerId, startDate, endDate, dateCol, status, attribution }) => {
   const scoped = () => db
     .from('fro_donor_logs')

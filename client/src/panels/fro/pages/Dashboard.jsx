@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
+import { useState, useEffect, useRef } from 'react'
+import { ChevronRight } from 'lucide-react'
+import { getMyDashboard, getMyCollections, getMonthlyDonors, getFroDonorList } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
@@ -8,7 +8,6 @@ import { cacheGet, cacheSet, cacheAge } from '../../../utils/cache'
 import { useCall } from '../CallContext'
 import { api, getUser } from '../api/auth'
 import { useIsMobile } from '../../../hooks/useIsMobile'
-import { formatIstTime } from '../utils/time'
 import { istMonthKey, istParts } from '../../../utils/istDate'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
@@ -76,8 +75,10 @@ function IncentiveCalendar({ akiPerDay = [], monthStr, onlyEligible }) {
     cells.push({ d, dateStr, rec, aki, eligible: aki > 0, show: !onlyEligible || aki > 0 })
   }
 
-  return (
-    <div>
+return (
+    // overflowX hidden: nothing on this page scrolls sideways; belt-and-braces
+    // so no child overflow can ever grow a horizontal scrollbar.
+    <div style={{ overflowX: 'hidden' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4, marginBottom: 6 }}>
         {weekday.map(w => (
           <div key={w} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>{w}</div>
@@ -85,21 +86,24 @@ function IncentiveCalendar({ akiPerDay = [], monthStr, onlyEligible }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
         {cells.map((c, i) => {
-          if (!c || !c.show) return <div key={i} style={{ height: 58 }} />
+          if (!c || !c.show) return <div key={i} style={{ height: 50 }} />
           const isToday = c.dateStr === todayStr
           return (
             <div key={i} title={c.rec ? `₹${Number(c.rec.collection || 0).toLocaleString('en-IN')} collected · AKI ₹${c.aki}` : undefined} style={{
-              height: 58, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
+              height: 50, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
               background: c.eligible ? 'linear-gradient(135deg, #dcfce7 0%, #f0fdf4 100%)' : '#f8fafc',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+              overflow: 'hidden',
               outline: isToday ? '2px solid var(--sage)' : 'none', outlineOffset: isToday ? 1 : 0,
             }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: c.eligible ? '#166534' : '#94a3b8' }}>{c.d}</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: c.eligible ? '#15803d' : '#64748b' }}>
-                {c.rec ? '₹' + Number(c.rec.collection || 0).toLocaleString('en-IN') : ''}
-              </span>
+              <span style={{ fontSize: 9.5, fontWeight: 800, color: c.eligible ? '#166534' : '#94a3b8', lineHeight: 1.1 }}>{c.d}</span>
+              {c.rec && (
+                <span style={{ fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', lineHeight: 1.1, color: c.eligible ? '#14532d' : '#334155' }}>
+                  {'₹' + Number(c.rec.collection || 0).toLocaleString('en-IN')}
+                </span>
+              )}
               {c.aki > 0 && (
-                <span style={{ fontSize: 8, fontWeight: 700, color: '#16a34a', background: '#bbf7d0', padding: '1px 5px', borderRadius: 999, lineHeight: 1.4 }}>
+                <span style={{ fontSize: 7.5, fontWeight: 800, color: '#166534', background: '#bbf7d0', padding: '1px 4px', borderRadius: 999, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                   AKI ₹{c.aki}
                 </span>
               )}
@@ -119,12 +123,6 @@ function IncentiveCalendar({ akiPerDay = [], monthStr, onlyEligible }) {
   )
 }
 
-const STATUS_COLORS = {
-  pending: '#fbbf24', contacted: '#60a5fa', follow_up: '#a78bfa',
-  donation_collected: '#34d399', lead_done: '#34d399', done: '#34d399', not_interested: '#f87171',
-  not_reachable: '#9ca3af', scheduled: '#a78bfa',
-}
-
 // How long a cached dashboard payload counts as fresh enough to skip refetching.
 // Short by design: the numbers only move when the FRO themselves act, but a
 // save must still show up promptly, so this only covers the bounce between
@@ -139,18 +137,19 @@ export default function Dashboard() {
   const CACHE_KEY = `fro_dashboard:${getUser()?.id ?? 'anon'}`
   const cached = cacheGet(CACHE_KEY)
   const cachedAge = cacheAge(CACHE_KEY)
-  const dashIsFresh = !!cached && (cachedAge ?? Infinity) < DASH_FRESH_MS
+  // Lookback window (last 1, 2 or 3 months) for the active/inactive donor
+  // split; default monthly.
+  const [donorView, setDonorView] = useState('1')
+  const [donorStatus, setDonorStatus] = useState('active')
+  // Fresh only for the window it was stored with — monthly counts differ
+  // from quarterly/yearly ones, so a cached yearly payload cannot back the
+  // monthly view (or vice versa).
+  const dashIsFresh = !!cached && (cachedAge ?? Infinity) < DASH_FRESH_MS && cached.donorView === donorView
   const { todayStats } = useCall()
   const isMobile = useIsMobile()
   const [dashData, setDashData] = useState(cached?.dash || null)
   const [targetData, setTargetData] = useState(cached?.target || null)
   const [loading, setLoading] = useState(!cached)
-  const [showRequest, setShowRequest] = useState(false)
-  const [reqMsg, setReqMsg] = useState('')
-  const [sending, setSending] = useState(false)
-  const [reqDone, setReqDone] = useState(false)
-  const [followUps, setFollowUps] = useState([])
-  const [leadStats, setLeadStats] = useState(null)
   const [monthlyDonors, setMonthlyDonors] = useState([])
   const [showMonthlyModal, setShowMonthlyModal] = useState(false)
   const [assignedView, setAssignedView] = useState('total')
@@ -163,12 +162,24 @@ export default function Dashboard() {
   const [ngoMap, setNgoMap] = useState({})
   const [collectionsMonth, setCollectionsMonth] = useState('current')
   const [collectionsMonthLabel, setCollectionsMonthLabel] = useState('')
-  const [reactivatedFilter, setReactivatedFilter] = useState('today')
-  const [reactivatedDonors, setReactivatedDonors] = useState([])
-  const [reactivatedCount, setReactivatedCount] = useState(0)
-  const [reactivatedLoading, setReactivatedLoading] = useState(false)
-  const [showReactivatedModal, setShowReactivatedModal] = useState(false)
-  const [incentiveOnly, setIncentiveOnly] = useState(false)
+  const [connectedView, setConnectedView] = useState('daily')
+  const [donationView, setDonationView] = useState('today')
+  const [splitModal, setSplitModal] = useState(null)
+  const [splitDonors, setSplitDonors] = useState([])
+  const [splitTotal, setSplitTotal] = useState(0)
+  const [splitLoading, setSplitLoading] = useState(false)
+  // The notices list fills whatever height the grid gives it, so without a
+  // definite height the row grows to the notices' natural content height and
+  // the card dwarfs the calendar. Measure the calendar and pin the notices to
+  // exactly that height instead.
+  const calRef = useRef(null)
+  const [calHeight, setCalHeight] = useState(null)
+  useEffect(() => {
+    if (!calRef.current) return
+    const ro = new ResizeObserver(() => setCalHeight(calRef.current?.offsetHeight || null))
+    ro.observe(calRef.current)
+    return () => ro.disconnect()
+  }, [loading])
 
   const today = new Date()
   const istToday = istParts(today)
@@ -191,7 +202,7 @@ export default function Dashboard() {
     if (dashIsFresh) {
       safeSet(setLoading, false)
     } else {
-      const dashboardRequest = getMyDashboard()
+      const dashboardRequest = getMyDashboard(donorView)
         .catch((err) => { console.error('API error:', err.message); return null })
       const targetRequest = getMyTarget()
         .catch((err) => { console.error('API error:', err.message); return null })
@@ -204,17 +215,9 @@ export default function Dashboard() {
       targetRequest.then(data => safeSet(setTargetData, data))
 
       Promise.all([dashboardRequest, targetRequest]).then(([dash, target]) => {
-        if (dash || target) cacheSet(CACHE_KEY, { dash, target }, 5 * 60 * 1000)
+        if (dash || target) cacheSet(CACHE_KEY, { dash, target, donorView }, 5 * 60 * 1000)
       })
     }
-
-    getFollowUps()
-      .then(data => safeSet(setFollowUps, data || []))
-      .catch((err) => { console.error('API error:', err.message); safeSet(setFollowUps, []) })
-
-    getLeadStats(monthStr)
-      .then(data => safeSet(setLeadStats, data))
-      .catch((err) => { console.error('API error:', err.message); safeSet(setLeadStats, null) })
 
     if (isMonthlyPopupSeason) {
       getMonthlyDonors(monthStr)
@@ -229,29 +232,42 @@ export default function Dashboard() {
     return () => { cancelled = true }
   }, [])
 
+  // The mount fetch covers the initial window; switching the active-donor
+  // toggle re-requests only the dashboard payload (target, follow-ups and lead
+  // stats are window-independent).
+  const donorViewRef = useRef(donorView)
   useEffect(() => {
-    setReactivatedLoading(true)
-    getReactivatedDonors(reactivatedFilter).then(data => {
-      setReactivatedDonors(data?.donors || [])
-      setReactivatedCount(data?.count || 0)
-    }).catch(() => { setReactivatedDonors([]); setReactivatedCount(0) })
-      .finally(() => setReactivatedLoading(false))
-  }, [reactivatedFilter])
+    if (donorViewRef.current === donorView) return
+    donorViewRef.current = donorView
+    let cancelled = false
+    getMyDashboard(donorView)
+      .then(data => { if (!cancelled && data) setDashData(data) })
+      .catch((err) => { console.error('API error:', err.message) })
+    return () => { cancelled = true }
+  }, [donorView])
 
-  const handleSendRequest = async () => {
-    if (!reqMsg.trim()) return
-    setSending(true)
-    try {
-      await requestMoreData(reqMsg)
-      setReqDone(true)
-      setReqMsg('')
-      setTimeout(() => { setShowRequest(false); setReqDone(false) }, 2000)
-    } catch (err) {
-      alert(err.message)
-    } finally {
-      setSending(false)
-    }
-  }
+  // Donor roster for the active/inactive/total modals — fetched on open, not
+  // with the dashboard payload, because a couple thousand names would bloat
+  // every dashboard fetch for a list only shown on click.
+  useEffect(() => {
+    if (!splitModal) return
+    let cancelled = false
+    setSplitLoading(true)
+    setSplitDonors([])
+    setSplitTotal(0)
+    // Inactive ignores the window pills entirely (fixed one-month rule), so
+    // don't send the pill state along — a leftover 'all' from an earlier
+    // session would otherwise ride on the request.
+    getFroDonorList(splitModal.status, splitModal.status === 'inactive' ? '1' : donorView)
+      .then(data => {
+        if (cancelled) return
+        setSplitDonors(data?.donors || [])
+        setSplitTotal(data?.total ?? 0)
+      })
+      .catch((err) => { console.error('API error:', err.message) })
+      .finally(() => { if (!cancelled) setSplitLoading(false) })
+    return () => { cancelled = true }
+  }, [splitModal])
 
   const openCollections = async (ngoId, month) => {
     const isToggle = month !== undefined
@@ -332,23 +348,14 @@ export default function Dashboard() {
       monthly_connected: d.connected?.monthly,
       daily_connected: d.connected?.daily,
       daily_donations: d.donations?.daily,
-      new_donors_today: d.donations?.new_donors?.today,
-      new_donors_monthly: d.donations?.new_donors?.monthly,
-      reactivated_today: d.reactivations?.today,
-      reactivated_monthly: d.reactivations?.monthly,
+      daily_donor_count: d.donations?.daily_donors,
+      monthly_donor_count: d.donations?.monthly_donors,
       data_used: d.data?.used,
-      data_unused: d.data?.unused,
-      total_donations: d.donations?.total,
       active_donors: d.donors?.active,
       inactive_donors: d.donors?.inactive,
-      verified_month_amount: d.verification?.month?.verified?.amount,
       verified_month_count: d.verification?.month?.verified?.count,
-      unverified_month_amount: d.verification?.month?.unverified?.amount,
-      unverified_month_count: d.verification?.month?.unverified?.count,
       verified_today_amount: d.verification?.today?.verified?.amount,
       verified_today_count: d.verification?.today?.verified?.count,
-      unverified_today_amount: d.verification?.today?.unverified?.amount,
-      unverified_today_count: d.verification?.today?.unverified?.count,
       stats: d.stats,
       assignedData: d.assignedData,
     }
@@ -357,26 +364,15 @@ export default function Dashboard() {
   const target = ts.target || ds.target || 0
   const collected = ts.collected ?? ds.collected ?? 0
   const akiPerDay = ts.incentive?.akiPerDay || []
-  const totalAKI = ts.incentive?.totalCollectionAKI != null ? ts.incentive.totalCollectionAKI : akiPerDay.reduce((s, r) => s + (r.aki || 0), 0)
-  const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
   const displayCollected = collected
   const collectedByNgo = ts.collected_by_ngo || []
   const remaining = Math.max(0, target - displayCollected)
   const progress = target > 0 ? Math.min(100, (displayCollected / target) * 100) : 0
-
-  const pieData = ts.stats
-    ? Object.entries(ts.stats).filter(([k]) => k !== 'total').map(([k, v]) => ({
-        name: k.replace(/_/g, ' '),
-        value: v,
-        color: STATUS_COLORS[k] || '#94a3b8',
-      }))
-    : []
-
-  const barData = target > 0 ? [
-    { name: 'Target', amount: target, fill: '#94a3b8' },
-    { name: 'Collected', amount: displayCollected, fill: '#34d399' },
-    { name: 'Remaining', amount: remaining, fill: '#f87171' },
-  ] : []
+  const donorWindowLabel = donorView === '12'
+    ? 'yearly donors'
+    : donorView === '1'
+      ? 'monthly donors'
+      : `${donorView}-month donors`
 
   const cq = collectionSearch.trim().toLowerCase()
   const visibleCollections = (collectionsByNgo[selectedCollectionNgo] || []).filter(c => !cq ||
@@ -388,10 +384,10 @@ return (
     <div>
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: 14, marginBottom: 20,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))',
+        gap: 14, marginBottom: 14,
       }}>
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: `1.5px solid ${ds.is_punched_in ? 'var(--sage)' : '#f87171'}`, background: ds.is_punched_in ? 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' : 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: `1.5px solid ${ds.is_punched_in ? 'var(--sage)' : '#f87171'}`, background: ds.is_punched_in ? 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' : 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: ds.is_active ? (ds.is_punched_in ? '#16a34a' : '#f87171') : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{ds.is_punched_in ? 'check_circle' : ds.is_active ? 'schedule' : 'cancel'}</span>
@@ -406,15 +402,12 @@ return (
                 <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600 }}>
                   Data: {ds.data_used ?? 0}/{stats.total ?? 0}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)' }}>
-                  Today: {currency(ds.daily_donations ?? 0)}
-                </span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: '1.5px solid #8b5cf6', background: 'linear-gradient(135deg, #faf5ff 0%, #fff 100%)' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: '1.5px solid #8b5cf6', background: 'linear-gradient(135deg, #faf5ff 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color="#8b5cf6">
               <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
@@ -437,7 +430,7 @@ return (
           </div>
         </div>
 
-        <div className="card" onClick={openCollections} style={{ marginBottom: 0, padding: '16px 18px', border: '1.5px solid var(--sage)', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.06)' }} onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
+        <div className="card" onClick={openCollections} style={{ position: 'relative', marginBottom: 0, padding: '12px 16px', border: '1.5px solid var(--sage)', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.06)' }} onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color="var(--sage)">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="17" y2="12"/><path d="M17 6v12"/>
@@ -452,13 +445,11 @@ return (
               Collected{ts.month ? ` · ${monthLabel(ts.month)}` : ''}
             </span>
             <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--sage)' }}>{currency(displayCollected)}</span>
+            <ChevronRight size={18} color="var(--sage)" style={{ flexShrink: 0 }} />
           </div>
           <div style={{ height: 4, borderRadius: 2, background: 'var(--md-outline-variant)', overflow: 'hidden', marginBottom: 4 }}>
             <div style={{ height: '100%', borderRadius: 2, background: 'var(--sage)', width: `${progress}%`, transition: 'width .4s' }} />
           </div>
-          {achieved_target != null && (
-            <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 500 }}>Admin target: ₹{Number(achieved_target).toLocaleString('en-IN')}</div>
-          )}
           {collectedByNgo.length > 1 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
               {collectedByNgo.map(item => (
@@ -468,12 +459,9 @@ return (
               ))}
             </div>
           )}
-          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-            View collections →
-          </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: `1.5px solid ${remaining > 0 ? '#e53e3e' : 'var(--sage)'}`, background: remaining > 0 ? 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: `1.5px solid ${remaining > 0 ? '#e53e3e' : 'var(--sage)'}`, background: remaining > 0 ? 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color={remaining > 0 ? '#e53e3e' : 'var(--sage)'}>
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
@@ -487,423 +475,238 @@ return (
         </div>
       </div>
 
+      {/* Flex, not grid: the cards need UNEVEN widths (Incentive compact,
+          Active Donors roomy for its pills) while still wrapping as a unit
+          when the panel gets narrow. Grow factors share the spare width. */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: 14, marginBottom: 20,
+        display: 'flex', flexWrap: 'wrap',
+        gap: 14, marginBottom: 14,
       }}>
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="var(--sage)">
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1 1 190px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Icon color={connectedView === 'daily' ? '#3b82f6' : 'var(--sage)'}>
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Monthly Connected</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--sage)' }}>{ds.monthly_connected ?? stats.contacted ?? 0}</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Connected</span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donors connected this month</div>
+          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
+            {[['daily', 'Daily'], ['month', 'Monthly']].map(([v, label]) => (
+              <button key={v} onClick={() => setConnectedView(v)}
+                style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                  background: connectedView === v ? 'var(--sage)' : 'transparent',
+                  color: connectedView === v ? '#fff' : 'var(--ink-soft)' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: connectedView === 'daily' ? '#3b82f6' : 'var(--sage)' }}>
+            {connectedView === 'daily' ? (ds.daily_connected ?? 0) : (ds.monthly_connected ?? stats.contacted ?? 0)}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
+            {connectedView === 'daily' ? 'Donors connected today' : 'Donors connected this month'}
+          </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#3b82f6">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Daily Connected</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6' }}>{ds.daily_connected ?? 0}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donors connected today</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="var(--sage)">
-              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="17" y2="12"/><path d="M17 6v12"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Monthly Donations</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--sage)' }}>{currency(collected)}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donations this month</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1 1 190px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color="#3b82f6">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="6" x2="21" y2="6"/>
             </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Daily Donations</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6' }}>{currency(ds.daily_donations ?? 0)}</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Collection</span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donations today</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#16a34a">
-              <polyline points="20 6 9 17 4 12"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>{currency(ds.verified_month_amount ?? 0)}</div>
-              <div style={{ fontSize: 10, color: '#16a34a', opacity: 0.7 }}>{ds.verified_month_count ?? 0} leads</div>
-            </div>
+          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
+            {[['today', 'Today'], ['month', 'Monthly']].map(([v, label]) => (
+              <button key={v} onClick={() => setDonationView(v)}
+                style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                  background: donationView === v ? 'var(--sage)' : 'transparent',
+                  color: donationView === v ? '#fff' : 'var(--ink-soft)' }}>
+                {label}
+              </button>
+            ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
-            <span>Today: {currency(ds.verified_today_amount ?? 0)} ({ds.verified_today_count ?? 0})</span>
-            <span>Verified by Accts</span>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#3b82f6' }}>
+            {currency(donationView === 'today' ? (ds.daily_donations ?? 0) : collected)}
           </div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#f59e0b">
-              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Unverified</span>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b', lineHeight: 1.2 }}>{currency(ds.unverified_month_amount ?? 0)}</div>
-              <div style={{ fontSize: 10, color: '#f59e0b', opacity: 0.7 }}>{ds.unverified_month_count ?? 0} leads</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
-            <span>Today: {currency(ds.unverified_today_amount ?? 0)} ({ds.unverified_today_count ?? 0})</span>
-            <span>Pending verification</span>
+          <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
+            {donationView === 'today'
+              ? `${ds.daily_donor_count ?? 0} donors today`
+              : `${ds.monthly_donor_count ?? 0} donors this month`}
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#16a34a">
-              <polyline points="20 6 9 17 4 12"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Data Used</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>{ds.data_used ?? (stats.contacted ?? 0) + (stats.donation_collected ?? 0) + (stats.follow_up ?? 0)}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donors in connected statuses</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#f87171">
-              <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Data Unused</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#f87171' }}>{ds.data_unused ?? (stats.pending ?? 0) + (stats.not_reachable ?? 0) + (stats.not_interested ?? 0)}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donors in non-connected statuses</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        {/* Smallest of the row — just an icon, one number and a caption. */}
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '0.72 1 160px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Icon color="#8b5cf6">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </Icon>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Incentive</span>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#8b5cf6' }}>{currency(ts.incentive?.totalCollectionAKI ?? 0)}</div>
+          <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>This month</div>
+        </div>
+
+        {/* Widest of the row — holds the Active/Inactive toggle plus six
+            cadence pills, which need the extra room to stay on one line. */}
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1.7 1 300px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Icon color="#16a34a">
+              <polyline points="20 6 9 17 4 12"/>
             </Icon>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Active Donors</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#8b5cf6' }}>{ds.active_donors ?? 0}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donated in last 1 year</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#f97316">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Inactive Donors</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#f97316' }}>{ds.inactive_donors ?? 0}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No donation in last 1 year</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="var(--sage)">
-              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="17" y2="12"/><path d="M17 6v12"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Total Donations</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--sage)' }}>{currency(ds.total_donations ?? collected)}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Lifetime donations collected</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-            <Icon color="var(--ink)">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1, minWidth: 80 }}>Assigned Data</span>
-            <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2, flexWrap: 'wrap' }}>
-              {['total', 'ngo', 'station', 'type'].map(v => (
-                <button key={v} onClick={() => setAssignedView(v)}
-                  style={{ padding: '3px 6px', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
-                    background: assignedView === v ? 'var(--sage)' : 'transparent',
-                    color: assignedView === v ? '#fff' : 'var(--ink-soft)' }}>
-                  {v === 'total' ? 'Total' : v === 'ngo' ? 'By NGO' : v === 'station' ? 'By Station' : 'By Type'}
+            <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+              {[['active', 'Active'], ['inactive', 'Inactive']].map(([v, label]) => (
+                <button key={v} onClick={() => setDonorStatus(v)}
+                  style={{ padding: '3px 8px', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                    background: donorStatus === v ? 'var(--sage)' : 'transparent',
+                    color: donorStatus === v ? '#fff' : 'var(--ink-soft)' }}>
+                  {label}
                 </button>
               ))}
             </div>
           </div>
+          {donorStatus === 'active' && (
+            <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
+              {[['1', '1M'], ['2', '2M'], ['3', '3M'], ['6', '6M'], ['8', '8M'], ['12', '1Y']].map(([v, label]) => (
+                <button key={v} onClick={() => setDonorView(v)}
+                  style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                    background: donorView === v ? 'var(--sage)' : 'transparent',
+                    color: donorView === v ? '#fff' : 'var(--ink-soft)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setSplitModal({ status: donorStatus })}
+            style={{ display: 'block', padding: donorStatus === 'active' ? 0 : '6px 0 0', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: donorStatus === 'active' ? '#8b5cf6' : '#f97316' }}>
+              {donorStatus === 'active' ? (ds.active_donors ?? 0) : (ds.inactive_donors ?? 0)}
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', marginLeft: 5 }}>donors</span>
+            </div>
+          </button>
+          <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 3 }}>
+            {donorStatus === 'active'
+              ? `${donorWindowLabel} · inactive = no donation in past one month`
+              : "Didn't donate in the past one month (incl. never donated)"}
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '10px 14px', overflow: 'hidden', flex: '1 1 190px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Icon color="var(--ink)">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
+            </Icon>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Assigned Data</span>
+          </div>
+          <div style={{ display: 'flex', gap: 3, background: 'var(--bg)', borderRadius: 6, padding: 2, marginBottom: 6 }}>
+            {[['total', 'Total'], ['ngo', 'NGO'], ['station', 'Station']].map(([v, label]) => (
+              <button key={v} onClick={() => setAssignedView(v)}
+                style={{ flex: 1, padding: '3px 0', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                  background: assignedView === v ? 'var(--sage)' : 'transparent',
+                  color: assignedView === v ? '#fff' : 'var(--ink-soft)' }}>
+                {label}
+              </button>
+            ))}
+          </div>
           {assignedView === 'total' && (
             <>
-              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{stats.total ?? ts.stats?.total ?? 0}</span>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Total donors assigned</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--ink)' }}>{stats.total ?? ts.stats?.total ?? 0}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total donors assigned</div>
             </>
           )}
           {assignedView === 'ngo' && (
             ds.assignedData?.byNgo?.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 96, overflowY: 'auto' }}>
                 {ds.assignedData.byNgo.map(n => (
-                  <div key={n.ngo_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '2px 0', minWidth: 0 }}>
+                  <div key={n.ngo_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, padding: '1px 0', minWidth: 0 }}>
                     <span style={{ color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, marginRight: 8 }}>{n.ngo_name}</span>
                     <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{n.count}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No NGO data</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>No NGO data</div>
             )
           )}
           {assignedView === 'station' && (
             ds.assignedData?.byStation?.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 96, overflowY: 'auto' }}>
                 {ds.assignedData.byStation.map(s => (
-                  <div key={s.station} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '2px 0', minWidth: 0 }}>
+                  <div key={s.station} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, padding: '1px 0', minWidth: 0 }}>
                     <span style={{ color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, marginRight: 8 }}>{s.station}</span>
                     <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{s.count}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No station data</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>No station data</div>
             )
           )}
-          {assignedView === 'type' && (
-            ds.assignedData?.byType?.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-                {ds.assignedData.byType.map(t => (
-                  <div key={t.type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '2px 0', minWidth: 0 }}>
-                    <span style={{ color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, marginRight: 8 }}>{t.type === 'new_data' ? 'New Data' : t.type === 'old_data' ? 'Old Data' : t.type}</span>
-                    <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{t.count}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No type data</div>
-            )
-          )}
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#8b5cf6">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>New Donors Today</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#8b5cf6' }}>{ds.new_donors_today ?? 0}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>First-time donors today</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#8b5cf6">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>New Donors This Month</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#8b5cf6' }}>{ds.new_donors_monthly ?? 0}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>First-time donors this month</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#f59e0b">
-              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Reactivated Donors</span>
-            <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
-              <button onClick={() => setReactivatedFilter('today')}
-                style={{ padding: '4px 12px', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
-                  background: reactivatedFilter === 'today' ? 'var(--sage)' : 'transparent',
-                  color: reactivatedFilter === 'today' ? '#fff' : 'var(--ink-soft)' }}>
-                Today
-              </button>
-              <button onClick={() => setReactivatedFilter('month')}
-                style={{ padding: '4px 12px', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
-                  background: reactivatedFilter === 'month' ? 'var(--sage)' : 'transparent',
-                  color: reactivatedFilter === 'month' ? '#fff' : 'var(--ink-soft)' }}>
-                Month
-              </button>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: '#f59e0b' }}>{reactivatedLoading ? '—' : reactivatedCount}</span>
-              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>donor{reactivatedCount !== 1 ? 's' : ''} reactivated {reactivatedFilter === 'today' ? 'today' : 'this month'}</span>
-            </div>
-            {reactivatedCount > 0 && (
-              <button onClick={() => { setShowReactivatedModal(true); }}
-                style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', transition: 'opacity .15s' }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
-                View
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
-      {showReactivatedModal && (
+      {splitModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
-          onClick={() => setShowReactivatedModal(false)}>
+          onClick={() => setSplitModal(null)}>
           <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>Reactivated Donors</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{reactivatedFilter === 'today' ? 'Today' : 'This month'} — {reactivatedCount} donor{reactivatedCount !== 1 ? 's' : ''}</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>
+                  {splitModal.status === 'active' ? 'Active Donors' : splitModal.status === 'inactive' ? 'Inactive Donors' : 'Total Donors'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
+                  {splitModal.status === 'total'
+                    ? `Donated this financial year · ${splitTotal} donor${splitTotal !== 1 ? 's' : ''}`
+                    : splitModal.status === 'inactive'
+                      ? `No donation in past one month · ${splitTotal} donor${splitTotal !== 1 ? 's' : ''}`
+                      : `${donorWindowLabel} · ${splitTotal} donor${splitTotal !== 1 ? 's' : ''}`}
+                </div>
               </div>
-              <button onClick={() => setShowReactivatedModal(false)}
+              <button onClick={() => setSplitModal(null)}
                 style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
                 ×
               </button>
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
-              {reactivatedDonors.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No reactivated donors</div>
+              {splitLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px' }}>
+                      <div className="sk" style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="sk" style={{ height: 9, width: `${52 + (i % 3) * 14}%`, borderRadius: 5, marginBottom: 5 }} />
+                        <div className="sk" style={{ height: 7, width: '35%', borderRadius: 5 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : splitDonors.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No donors</div>
               ) : (
-                reactivatedDonors.map(d => (
-                  <div key={d.donor_id} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
-                    background: 'var(--bg)', border: '1px solid var(--line)',
-                  }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                      {d.donor_name?.charAt(0) || '?'}
+                <>
+                  {splitDonors.map(d => (
+                    <div key={d.donor_id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
+                      background: 'var(--bg)', border: '1px solid var(--line)',
+                    }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                        {d.donor_name?.charAt(0) || '?'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.donor_name}</div>
+                        <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.donor_mobile || '—'}</div>
+                      </div>
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.donor_name}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.donor_mobile || '—'}</div>
+                  ))}
+                  {splitTotal > splitDonors.length && (
+                    <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 10, color: 'var(--ink-soft)' }}>
+                      Showing first {splitDonors.length} of {splitTotal}
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(d.amount)}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{fmtStamp(d.date)}</div>
-                    </div>
-                  </div>
-                ))
+                  )}
+                </>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      <div className="fro-flex-row" style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: isMobile ? 'wrap' : undefined }}>
-        <div className="card" style={{ marginBottom: 0, flex: 1, minWidth: isMobile ? '100%' : undefined }}>
-          <div className="card-head"><h3>Lead Stats — {monthStr}</h3></div>
-          <div className="card-pad">
-            {leadStats ? (
-              <div style={{ display:'flex', gap:12 }}>
-                <div style={{ flex:1, padding:12, borderRadius:8, background:'#eff6ff', border:'1px solid #bfdbfe' }}>
-                  <div style={{ fontSize:9, textTransform:'uppercase', fontWeight:600, color:'#3b82f6', marginBottom:2 }}>New Donors</div>
-                  <div style={{ fontSize:20, fontWeight:800, color:'#1d4ed8' }}>{leadStats.new_donors}</div>
-                  <div style={{ fontSize:10, color:'#3b82f6' }}>₹{Number(leadStats.new_amount).toLocaleString('en-IN')}</div>
-                </div>
-                <div style={{ flex:1, padding:12, borderRadius:8, background:'#f0fdf4', border:'1px solid #bbf7d0' }}>
-                  <div style={{ fontSize:9, textTransform:'uppercase', fontWeight:600, color:'#16a34a', marginBottom:2 }}>Existing Donors</div>
-                  <div style={{ fontSize:20, fontWeight:800, color:'#15803d' }}>{leadStats.existing_donors}</div>
-                  <div style={{ fontSize:10, color:'#16a34a' }}>₹{Number(leadStats.existing_amount).toLocaleString('en-IN')}</div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ textAlign:'center', padding:20, color:'var(--md-outline)', fontSize:11 }}>No lead data for this month.</div>
-            )}
-          </div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, flex: 1 }}>
-          <div className="card-head"><h3>Follow-ups Today</h3></div>
-          <div className="card-pad">
-            {followUps.length === 0 ? (
-              <div style={{ textAlign:'center', padding:20, color:'var(--md-outline)', fontSize:11 }}>No follow-ups scheduled for today.</div>
-            ) : (
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                {followUps.map(fu => (
-                  <div key={fu.id} style={{
-                    display:'flex', alignItems:'center', gap:8, padding:'6px 8px', borderRadius:8,
-                    background: fu.is_overdue ? '#fef2f2' : '#f0fdf4',
-                    border: '1px solid ' + (fu.is_overdue ? '#fecaca' : '#bbf7d0'),
-                  }}>
-                    <span style={{ fontSize:10, fontWeight:600, color:'var(--ink-soft)', minWidth:50 }}>
-                      {formatIstTime(fu.scheduled_at)}
-                    </span>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:11, fontWeight:600 }}>{fu.donor_name}</div>
-                      <div style={{ fontSize:9, color:'var(--md-outline)' }}>{fu.donor_mobile}</div>
-                    </div>
-                    {fu.ngo_name && <span className="bento-pill bento-pill-gray" style={{fontSize:8}}>{fu.ngo_name}</span>}
-                    {fu.is_overdue && <span className="bento-pill" style={{background:'#f87171', color:'#fff', fontSize:8}}>Overdue</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 14, flexDirection:'row', alignItems:'center', justifyContent:'space-between', padding:'12px 16px' }}>
-        <div>
-          <div style={{ fontSize:13, fontWeight:700 }}>Need more donor data?</div>
-          <div style={{ fontSize:10, color:'var(--md-outline)', marginTop:2 }}>Request additional assignments or data from the Admin.</div>
-        </div>
-        <button onClick={() => setShowRequest(true)}
-          style={{ padding:'8px 20px', border:'none', borderRadius:8, background:'var(--sage)', color:'#fff', fontSize:11, fontWeight:700, fontFamily:'inherit', cursor:'pointer', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
-          <span className="material-symbols-outlined" style={{ fontSize:16 }}>add_circle</span>
-          Request More Data
-        </button>
-      </div>
-
-      {barData.length > 0 && (
-      <div className="fro-flex-row" style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: isMobile ? 'wrap' : undefined }}>
-          <div className="card" style={{ marginBottom: 0, flex: isMobile ? 1 : 7, minWidth: isMobile ? '100%' : undefined }}>
-            <div className="card-head"><h3>Target vs Collection</h3></div>
-            <div className="card-pad" style={{ width:'100%', height:220 }}>
-              <ResponsiveContainer>
-                <BarChart data={barData} margin={{ top:8, right:8, left:-8, bottom:4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" tick={{ fontSize:11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => '₹' + (v / 1000).toFixed(0) + 'k'} />
-                  <Tooltip formatter={(v) => [currency(v), 'Amount']} contentStyle={{ fontSize:11, borderRadius:8, border:'1px solid #e2e8f0' }} />
-                  <Bar dataKey="amount" radius={[6,6,0,0]} barSize={48}>
-                    {barData.map((e, i) => <Cell key={i} fill={e.fill} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="card" style={{ marginBottom: 0, flex: 5 }}>
-            <div className="card-head"><h3>Donor Status</h3></div>
-            <div className="card-pad" style={{ width:'100%', height:220, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              {pieData.length > 0 ? (
-                <ResponsiveContainer>
-                  <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={3} dataKey="value">
-                      {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip formatter={(v, n) => [v, n]} contentStyle={{ fontSize:11, borderRadius:8, border:'1px solid #e2e8f0' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ fontSize:11, color:'var(--ink-soft)' }}>No status data</div>
-              )}
-            </div>
-            {pieData.length > 0 && (
-              <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 10px', marginTop:6, justifyContent:'center', paddingBottom: 8 }}>
-                {pieData.map(e => (
-                  <div key={e.name} style={{ display:'flex', alignItems:'center', gap:4, fontSize:9, color:'var(--ink-soft)' }}>
-                    <span style={{ width:8, height:8, borderRadius:2, background:e.color, display:'inline-block' }} />
-                    {e.name} ({e.value})
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -984,7 +787,18 @@ return (
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
               {collectionsLoading ? (
-                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px' }}>
+                      <div className="sk" style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="sk" style={{ height: 9, width: `${48 + (i % 3) * 16}%`, borderRadius: 5, marginBottom: 5 }} />
+                        <div className="sk" style={{ height: 7, width: '30%', borderRadius: 5 }} />
+                      </div>
+                      <div className="sk" style={{ width: 56, height: 12, borderRadius: 5, flexShrink: 0 }} />
+                    </div>
+                  ))}
+                </div>
               ) : visibleCollections.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>
                   {collectionSearch.trim() ? 'No matching collections' : `No collections in ${collectionsMonthLabel || 'this month'}`}
@@ -1059,61 +873,13 @@ return (
         </div>
       )}
 
-      {showRequest && (
-        <div style={{ position:'fixed', inset:0, zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => { if (!sending) { setShowRequest(false); setReqDone(false) } }}>
-          <div style={{ background:'#fff', borderRadius:12, width:400, padding:20, boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize:14, fontWeight:700, marginBottom:4 }}>Request More Data</div>
-            <div style={{ fontSize:10, color:'var(--ink-soft)', marginBottom:12 }}>Send a request to the Admin for additional donor assignments or data.</div>
-            {reqDone ? (
-              <div style={{ textAlign:'center', padding:'16px 0', color:'var(--sage)', fontWeight:600, fontSize:12 }}>
-                <span className="material-symbols-outlined" style={{ fontSize:18, verticalAlign:'middle', marginRight:4 }}>check_circle</span>
-                Request sent successfully
-              </div>
-            ) : (
-              <>
-                <textarea value={reqMsg} onChange={e => setReqMsg(e.target.value)} rows={4}
-                  placeholder="Describe what data you need..."
-                  style={{ width:'100%', padding:8, border:'1px solid var(--line)', borderRadius:6, fontSize:11, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
-                <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
-                  <button onClick={() => { setShowRequest(false); setReqMsg('') }}
-                    style={{ padding:'7px 16px', border:'1px solid var(--line)', borderRadius:6, background:'#fff', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer' }}>Cancel</button>
-                  <button onClick={handleSendRequest} disabled={sending || !reqMsg.trim()}
-                    style={{ padding:'7px 16px', border:'none', borderRadius:6, background:'var(--sage)', color:'#fff', fontSize:11, fontWeight:700, fontFamily:'inherit', cursor:'pointer', opacity: sending || !reqMsg.trim() ? .5 : 1 }}>
-                    {sending ? 'Sending...' : 'Send Request'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 14, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--sage)' }}>stack_star</span>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>Incentive Eligible?</span>
-        </div>
-        <button onClick={() => setIncentiveOnly(v => !v)}
-          style={{ padding: '6px 14px', borderRadius: 999, border: incentiveOnly ? 'none' : '1px solid var(--line)', background: incentiveOnly ? 'var(--sage)' : 'var(--bg)', color: incentiveOnly ? '#fff' : 'var(--ink-soft)', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'all .15s' }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: incentiveOnly ? '#fff' : '#cbd5e1' }} />
-          Only incentive eligible
-        </button>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 22, textAlign: 'right' }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .4 }}>Total Collected</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)' }}>{currency(displayCollected)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .4 }}>Total AKI</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sage)' }}>{currency(totalAKI)}</div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
-        <RecentNotices limit={5} containerStyle={{ marginTop: 0 }} />
-        <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      {/* min(320px, 100%): a bare 320px minimum makes two tracks wider than a
+          narrow panel, overflowing the page — the horizontal scrollbar then
+          appears right under this bottom row (over the notices card). */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 14, marginBottom: 14, alignItems: 'stretch', minWidth: 0 }}>
+        <RecentNotices limit={5} fill containerStyle={{ marginTop: 0, height: calHeight ? `${calHeight}px` : undefined, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }} />
+        <div ref={calRef} style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 16px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
                 width: 28, height: 28, borderRadius: 8, flexShrink: 0,
@@ -1124,9 +890,8 @@ return (
               </span>
               <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Incentive Calendar</h3>
             </div>
-            <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600 }}>{monthStr}</span>
           </div>
-          <IncentiveCalendar akiPerDay={akiPerDay} monthStr={monthStr} onlyEligible={incentiveOnly} />
+          <IncentiveCalendar akiPerDay={akiPerDay} monthStr={monthStr} />
         </div>
       </div>
     </div>

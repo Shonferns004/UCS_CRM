@@ -45,7 +45,7 @@ Each PANEL.md: Overview (Verified) · Screens & UI · Features · Technical Impl
 - [ER-DIAGRAM](05-Database-Documentation/ER-DIAGRAM.md) — core CRM / beneficiary / event / communication domains
 
 ## 06 — API Reference
-- [README](06-API-Reference/README.md) — module index (1,039+ routes) · [API-01](06-API-Reference/API-01-Authentication.md) … [API-11](06-API-Reference/API-11-Special-Apps.md)
+- [README](06-API-Reference/README.md) — module index (1,032+ routes) · [API-01](06-API-Reference/API-01-Authentication.md) … [API-11](06-API-Reference/API-11-Special-Apps.md)
 
 ## 07 — Business Logic
 - [BUSINESS-LOGIC-INDEX](07-Business-Logic/BUSINESS-LOGIC-INDEX.md) — logic → controller/service → panel-doc map + deep-dive pointers
@@ -121,8 +121,8 @@ Screenshots of the running app are **pending** — the application was not run d
 | Area | Count | Status |
 | --- | --- | --- |
 | Panels (12 + 2 embedded) | 14 | Documented |
-| Route files | 85 | Indexed → 1,039+ endpoints |
-| Controllers / Models / Services / Bootstraps | 90 / 91 / 79 / 28 | Indexed |
+| Route files | 86 | Indexed → 1,032+ endpoints |
+| Controllers / Models / Services / Bootstraps | 89 / 91 / 76 / 27 | Indexed |
 | Tables | 179 | Dictionary |
 | Model files | 88 | Indexed |
 | Backend tests | 44 | Inventoried (not executed) |

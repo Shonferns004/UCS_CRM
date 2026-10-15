@@ -1,6 +1,6 @@
 # API Reference — FRO-Incentives
 
-> 132 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
+> 133 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
 
 # API — FRO-Incentives
 
@@ -24,6 +24,7 @@
 | POST | `/api/fro/status/resume-self` | `authenticate, resumeOwnPause` |
 | GET | `/api/fro/my-stations` | `getMyStations` |
 | GET | `/api/fro/dashboard` | `getDashboard` |
+| GET | `/api/fro/dashboard/donors` | `getDonorSplitList` |
 | GET | `/api/fro/allotment-summary` | `getMyAllotmentSummary` |
 | GET | `/api/fro/my-performance` | `getMyPerformance` |
 | GET | `/api/fro/dashboard/collections` | `getMyCollections` |

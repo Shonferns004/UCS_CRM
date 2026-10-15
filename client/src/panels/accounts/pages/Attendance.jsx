@@ -48,6 +48,142 @@ function istTimeStr(iso) {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+// Builds and downloads the monthly attendance sheet (In/Out per day, status
+// colors, per-worker Present/Absent/Sunday/Half Day totals) for a date range.
+// Shared by this page's Export Sheet bar and the Salary & Advances page's
+// "Export Excel" modal. Callers that already hold the data pass it in as
+// `preload`; otherwise it is fetched here.
+export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
+  try {
+    if (!exportFrom || !exportTo) { alert('Please select both a From and To date.'); return; }
+    if (exportTo < exportFrom) { alert('The "To" date cannot be before the "From" date.'); return; }
+
+    let workers = preload?.workers;
+    let allRecords = preload?.allRecords;
+    if (!workers || !allRecords) {
+      const results = await Promise.allSettled([
+        apiGet('/workers?status=all'),
+        apiGet('/attendance/all'),
+      ]);
+      workers = results[0].status === 'fulfilled' ? (results[0].value || []) : [];
+      allRecords = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+    }
+
+    const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const days = [];
+    const cur = new Date(exportFrom + 'T00:00:00+05:30');
+    const stop = new Date(exportTo + 'T00:00:00+05:30');
+    while (cur <= stop) {
+      days.push(`${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}-${String(cur.getUTCDate()).padStart(2, '0')}`);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    if (days.length === 0) { alert('The date range is empty.'); return; }
+    const todayStr = getIstDateStr(new Date());
+
+    const fmtFrom = new Date(exportFrom + 'T12:00:00Z');
+    const fmtTo = new Date(exportTo + 'T12:00:00Z');
+    const sameMonth = fmtFrom.getUTCMonth() === fmtTo.getUTCMonth() && fmtFrom.getUTCFullYear() === fmtTo.getUTCFullYear();
+    const monthLabel = fmtFrom.toLocaleString('en-US', { month: 'long' });
+    const rangeLabel = sameMonth ? `${monthLabel} ${fmtFrom.getUTCFullYear()}` : `${exportFrom} to ${exportTo}`;
+
+    const recCache = {};
+    allRecords.forEach(r => {
+      const date = r.date || (r.punch_in_time ? getIstDateStr(new Date(r.punch_in_time)) : '');
+      if (!date) return;
+      recCache[`${r.worker_id}|${date}`] = r;
+    });
+
+    const activeWorkers = workers
+      .filter(w => String(w.employment_status || '').toLowerCase().trim() !== 'absconded')
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    const totalCols = 3 + days.length + 4;
+    const wsData = [
+      ['No. ', 'Week ', rangeLabel, ...days.map(d => WEEKDAYS[new Date(d + 'T12:00:00Z').getUTCDay()]), 'Present', 'Absent', 'Sunday', 'Half Day'],
+      ['Sr.', 'Name of the Staff', 'Day ', ...days.map(d => parseInt(d.slice(8), 10)), '', '', '', ''],
+    ];
+
+    activeWorkers.forEach((w, idx) => {
+      const joinDate = (w.created_at || '').slice(0, 10);
+      let present = 0, absent = 0, sunday = 0, halfDay = 0;
+      const inCells = [];
+      const outCells = [];
+      for (const ds of days) {
+        const dow = new Date(ds + 'T12:00:00Z').getUTCDay();
+        if (ds > todayStr) { inCells.push(''); outCells.push(''); continue; }
+        if (joinDate && ds < joinDate) { inCells.push(''); outCells.push(''); continue; }
+        if (dow === 0) { sunday++; inCells.push(''); outCells.push(''); continue; }
+        const rec = recCache[`${w.id}|${ds}`];
+        if (!rec) { absent++; inCells.push('A'); outCells.push(''); continue; }
+        if (rec.status === 'present' || rec.status === 'late') {
+          present++;
+          inCells.push(istTimeStr(rec.punch_in_time) || 'P');
+          outCells.push(istTimeStr(rec.punch_out_time) || '');
+        } else if (rec.status === 'half-day') {
+          halfDay++;
+          inCells.push(istTimeStr(rec.punch_in_time) || 'HD');
+          outCells.push('HD');
+        } else if (rec.status === 'leave') {
+          absent++;
+          inCells.push('L'); outCells.push('');
+        } else {
+          absent++;
+          inCells.push('A'); outCells.push('');
+        }
+      }
+      wsData.push([idx + 1, w.name || `Worker ${w.id}`, 'In ', ...inCells, present, absent, sunday, halfDay]);
+      wsData.push(['', '', 'Out', ...outCells, '', '', '', '']);
+      wsData.push(Array(totalCols).fill(''));
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{ wch: 4 }, { wch: 26 }, { wch: 7 }, ...days.map(() => ({ wch: 8 })), { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 9 }];
+
+    for (let r = 0; r < 2; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        if (cell) cell.s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };
+      }
+    }
+    for (let i = 2; i < wsData.length; i++) {
+      const row = wsData[i];
+      const rowNum = i;
+      if (row.every(v => v === '' || v == null)) {
+        for (let c = 0; c < totalCols; c++) {
+          ws[XLSX.utils.encode_cell({ r: rowNum, c })] = { t: 's', v: '', s: { fill: { fgColor: { rgb: 'FF111111' } } } };
+        }
+        continue;
+      }
+      const nameCell = ws[XLSX.utils.encode_cell({ r: rowNum, c: 1 })];
+      if (nameCell) nameCell.s = { font: { bold: true } };
+      for (let c = 0; c < days.length; c++) {
+        const v = row[3 + c];
+        const addr = XLSX.utils.encode_cell({ r: rowNum, c: 3 + c });
+        const cell = ws[addr];
+        if (!cell) continue;
+        if (v === 'A') cell.s = { fill: { fgColor: { rgb: 'FFFDE2E1' } }, font: { bold: true, color: { rgb: 'FFB91C1C' } } };
+        else if (v === 'L') cell.s = { fill: { fgColor: { rgb: 'FFFEF3C7' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
+        else if (v === 'HD') cell.s = { fill: { fgColor: { rgb: 'FFFFEDD5' } }, font: { bold: true, color: { rgb: 'FFC2410C' } } };
+      }
+      for (let c = totalCols - 4; c < totalCols; c++) {
+        const addr = XLSX.utils.encode_cell({ r: rowNum, c });
+        if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8F5E9' } } };
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    link.download = `attendance-sheet-${exportFrom}_to_${exportTo}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (e) {
+    alert('Export failed: ' + e.message);
+  }
+}
+
 export default function Attendance() {
   const [workers, setWorkers] = useState([]);
   const [todayRecords, setTodayRecords] = useState([]);
@@ -132,123 +268,10 @@ export default function Attendance() {
   };
 
   const handleExportSheet = () => {
-    try {
-      if (!exportFrom || !exportTo) { alert('Please select both a From and To date.'); return; }
-      if (exportTo < exportFrom) { alert('The "To" date cannot be before the "From" date.'); return; }
-
-      const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const days = [];
-      const cur = new Date(exportFrom + 'T00:00:00+05:30');
-      const stop = new Date(exportTo + 'T00:00:00+05:30');
-      while (cur <= stop) {
-        days.push(`${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}-${String(cur.getUTCDate()).padStart(2, '0')}`);
-        cur.setUTCDate(cur.getUTCDate() + 1);
-      }
-      if (days.length === 0) { alert('The date range is empty.'); return; }
-      const todayStr = getIstDateStr(new Date());
-
-      const fmtFrom = new Date(exportFrom + 'T12:00:00Z');
-      const fmtTo = new Date(exportTo + 'T12:00:00Z');
-      const sameMonth = fmtFrom.getUTCMonth() === fmtTo.getUTCMonth() && fmtFrom.getUTCFullYear() === fmtTo.getUTCFullYear();
-      const monthLabel = fmtFrom.toLocaleString('en-US', { month: 'long' });
-      const rangeLabel = sameMonth ? `${monthLabel} ${fmtFrom.getUTCFullYear()}` : `${exportFrom} to ${exportTo}`;
-
-      const recCache = {};
-      allRecords.forEach(r => {
-        const date = r.date || (r.punch_in_time ? getIstDateStr(new Date(r.punch_in_time)) : '');
-        if (!date) return;
-        recCache[`${r.worker_id}|${date}`] = r;
-      });
-
-      const activeWorkers = workers
-        .filter(w => String(w.employment_status || '').toLowerCase().trim() !== 'absconded')
-        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-      const totalCols = 3 + days.length + 4;
-      const wsData = [
-        ['No. ', 'Week ', rangeLabel, ...days.map(d => WEEKDAYS[new Date(d + 'T12:00:00Z').getUTCDay()]), 'Present', 'Absent', 'Sunday', 'Half Day'],
-        ['Sr.', 'Name of the Staff', 'Day ', ...days.map(d => parseInt(d.slice(8), 10)), '', '', '', ''],
-      ];
-
-      activeWorkers.forEach((w, idx) => {
-        const joinDate = (w.created_at || '').slice(0, 10);
-        let present = 0, absent = 0, sunday = 0, halfDay = 0;
-        const inCells = [];
-        const outCells = [];
-        for (const ds of days) {
-          const dow = new Date(ds + 'T12:00:00Z').getUTCDay();
-          if (ds > todayStr) { inCells.push(''); outCells.push(''); continue; }
-          if (joinDate && ds < joinDate) { inCells.push(''); outCells.push(''); continue; }
-          if (dow === 0) { sunday++; inCells.push(''); outCells.push(''); continue; }
-          const rec = recCache[`${w.id}|${ds}`];
-          if (!rec) { absent++; inCells.push('A'); outCells.push(''); continue; }
-          if (rec.status === 'present' || rec.status === 'late') {
-            present++;
-            inCells.push(istTimeStr(rec.punch_in_time) || 'P');
-            outCells.push(istTimeStr(rec.punch_out_time) || '');
-          } else if (rec.status === 'half-day') {
-            halfDay++;
-            inCells.push(istTimeStr(rec.punch_in_time) || 'HD');
-            outCells.push('HD');
-          } else if (rec.status === 'leave') {
-            absent++;
-            inCells.push('L'); outCells.push('');
-          } else {
-            absent++;
-            inCells.push('A'); outCells.push('');
-          }
-        }
-        wsData.push([idx + 1, w.name || `Worker ${w.id}`, 'In ', ...inCells, present, absent, sunday, halfDay]);
-        wsData.push(['', '', 'Out', ...outCells, '', '', '', '']);
-        wsData.push(Array(totalCols).fill(''));
-      });
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [{ wch: 4 }, { wch: 26 }, { wch: 7 }, ...days.map(() => ({ wch: 8 })), { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 9 }];
-
-      for (let r = 0; r < 2; r++) {
-        for (let c = 0; c < totalCols; c++) {
-          const cell = ws[XLSX.utils.encode_cell({ r, c })];
-          if (cell) cell.s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };
-        }
-      }
-      for (let i = 2; i < wsData.length; i++) {
-        const row = wsData[i];
-        const rowNum = i;
-        if (row.every(v => v === '' || v == null)) {
-          for (let c = 0; c < totalCols; c++) {
-            ws[XLSX.utils.encode_cell({ r: rowNum, c })] = { t: 's', v: '', s: { fill: { fgColor: { rgb: 'FF111111' } } } };
-          }
-          continue;
-        }
-        const nameCell = ws[XLSX.utils.encode_cell({ r: rowNum, c: 1 })];
-        if (nameCell) nameCell.s = { font: { bold: true } };
-        for (let c = 0; c < days.length; c++) {
-          const v = row[3 + c];
-          const addr = XLSX.utils.encode_cell({ r: rowNum, c: 3 + c });
-          const cell = ws[addr];
-          if (!cell) continue;
-          if (v === 'A') cell.s = { fill: { fgColor: { rgb: 'FFFDE2E1' } }, font: { bold: true, color: { rgb: 'FFB91C1C' } } };
-          else if (v === 'L') cell.s = { fill: { fgColor: { rgb: 'FFFEF3C7' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
-          else if (v === 'HD') cell.s = { fill: { fgColor: { rgb: 'FFFFEDD5' } }, font: { bold: true, color: { rgb: 'FFC2410C' } } };
-        }
-        for (let c = totalCols - 4; c < totalCols; c++) {
-          const addr = XLSX.utils.encode_cell({ r: rowNum, c });
-          if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8F5E9' } } };
-        }
-      }
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      link.download = `attendance-sheet-${exportFrom}_to_${exportTo}.xlsx`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (e) {
-      alert('Export failed: ' + e.message);
-    }
+    // The sheet builder lives at module level so the Salary & Advances page
+    // can drive the same export through its month-picker modal; here we just
+    // hand it the data this page already has loaded.
+    exportAttendanceSheet(exportFrom, exportTo, { workers, allRecords });
   };
 
   const fmt = (t) => {

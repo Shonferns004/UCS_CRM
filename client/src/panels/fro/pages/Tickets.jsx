@@ -4,7 +4,7 @@ import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { deptLabel } from '../../../lib/labels';
-import { routeFor, routeLabel } from '../../../lib/ticketRouting';
+import { routeFor, routeLabel, categoryLabel } from '../../../lib/ticketRouting';
 
 const DEPARTMENTS = [
   { value: 'accounts', label: 'Accounts' },
@@ -18,8 +18,9 @@ const CATEGORIES = [
   { value: 'payment_issue', label: 'Payment Issue' },
   { value: 'receipt_issue', label: 'Receipt Issue' },
   { value: 'technical', label: 'Technical' },
-  { value: 'digital_team', label: 'Digital Team' },
+  { value: 'social_media', label: 'Social Media Team' },
   { value: 'hr_issue', label: 'HR Related' },
+  { value: 'super_admin', label: 'Super Admin' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -44,6 +45,8 @@ const PANEL_LABELS = {
   ngo_admin: 'Admin',
   event_head: 'Event Head',
   recruiter: 'Recruiter',
+  social: 'Social Media',
+  super_admin: 'Super Admin',
   other: 'Other',
 };
 
@@ -393,7 +396,7 @@ export default function FroTickets() {
                         {t._source === 'developer' ? 'Dev' : deptLabel(t.department)}
                       </span>
                     </td>
-                    <td style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--ink-soft)' }}>{CATEGORIES.find(c => c.value === t.category)?.label || t.category}</td>
+                    <td style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--ink-soft)' }}>{categoryLabel(t.category)}</td>
                     <td>
                       <span className={`pill ${t.priority === 'high' ? 'pill-red' : t.priority === 'medium' ? 'pill-yellow' : 'pill-gray'}`} style={{ textTransform: 'capitalize', fontSize: 11 }}>
                         {t.priority}
@@ -452,7 +455,7 @@ export default function FroTickets() {
                     {showDetail.status?.replace('_', ' ')}
                   </span>
                   <span className="pill" style={{ textTransform: 'capitalize', fontSize: 10 }}>{deptLabel(showDetail.department)}</span>
-                  <span className="pill" style={{ textTransform: 'capitalize', fontSize: 10 }}>{CATEGORIES.find(c => c.value === showDetail.category)?.label || showDetail.category}</span>
+                  <span className="pill" style={{ textTransform: 'capitalize', fontSize: 10 }}>{categoryLabel(showDetail.category)}</span>
                   <span className={`pill ${showDetail.priority === 'high' ? 'pill-red' : showDetail.priority === 'medium' ? 'pill-yellow' : 'pill-gray'}`} style={{ textTransform: 'capitalize', fontSize: 10 }}>
                     {showDetail.priority}
                   </span>

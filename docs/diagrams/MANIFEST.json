@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-13T12:50:43.233Z",
+  "generated": "2026-10-15T05:00:36.424Z",
   "figures": [
     {
       "id": "fig-panel-navigation-1",
@@ -103,7 +103,7 @@
       "title": "Flowchart — 02-System-Architecture/SYSTEM-ARCHITECTURE.md #2",
       "type": "Flowchart",
       "version": 3,
-      "hash": "5563908332e8",
+      "hash": "751a06f6e791",
       "width": 456,
       "height": 1374,
       "png": "system-architecture-2.png",
@@ -115,7 +115,7 @@
       "title": "Flowchart — 02-System-Architecture/SYSTEM-ARCHITECTURE.md #3",
       "type": "Flowchart",
       "version": 3,
-      "hash": "beb0aae7454d",
+      "hash": "a7093ddd5284",
       "width": 360,
       "height": 1312,
       "png": "system-architecture-3.png",
@@ -175,9 +175,9 @@
       "title": "ER Diagram — 05-Database-Documentation/ER-DIAGRAM.md #1",
       "type": "ER Diagram",
       "version": 3,
-      "hash": "67a818cf6598",
+      "hash": "7a11a70e3a8b",
       "width": 1400,
-      "height": 834,
+      "height": 819,
       "png": "er-diagram-1.png",
       "figIndex": 15
     },

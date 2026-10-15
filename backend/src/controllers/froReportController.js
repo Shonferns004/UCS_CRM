@@ -61,13 +61,10 @@ async function accessibleFroIds(req) {
 
 export const getMyIdleReport = async (req, res) => {
   try {
-    const { human, agent } = splitWorkerContext(req.user);
+    const { human } = splitWorkerContext(req.user);
     const { from, to } = resolveRange(req.query);
-    // An agent reading their OWN idle report must see the intervals they were
-    // stamped on, not the covered FRO's whole day — the row is shared, the
-    // attribution is not.
-    const report = await getIdleReportForWorker({ workerId: human.id, from, to, agentId: agent?.id ?? null });
-    return res.json({ worker_id: human.id, agent_id: agent?.id ?? null, from, to, ...report });
+    const report = await getIdleReportForWorker({ workerId: human.id, from, to });
+    return res.json({ worker_id: human.id, from, to, ...report });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -75,10 +72,10 @@ export const getMyIdleReport = async (req, res) => {
 
 export const getMyIdleSessions = async (req, res) => {
   try {
-    const { human, agent } = splitWorkerContext(req.user);
+    const { human } = splitWorkerContext(req.user);
     const date = DATE_RE.test(req.query.date || '') ? req.query.date : istDateStr();
-    const data = await getIdleSessionsForDay({ workerId: human.id, date, agentId: agent?.id ?? null });
-    return res.json({ worker_id: human.id, agent_id: agent?.id ?? null, date, ...data });
+    const data = await getIdleSessionsForDay({ workerId: human.id, date });
+    return res.json({ worker_id: human.id, date, ...data });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

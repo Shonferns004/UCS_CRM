@@ -317,7 +317,6 @@ the observed client IP in staging before enabling enforcement.
 
 **Severity:** Low · Confirmed
 
-- `backend/src/models/crmAgentModel.js:20` — `DEFAULT_AGENT_PASSWORD = '123456'`.
 - `backend/src/controllers/workerController.js:46` — returns `'123456'` as the
   default worker password.
 - `backend/src/controllers/authController.js:222-223` — admin login compares

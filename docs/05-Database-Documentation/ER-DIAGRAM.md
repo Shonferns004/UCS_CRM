@@ -13,7 +13,6 @@
 ```mermaid
 erDiagram
   USERS ||--o{ WORKERS : "worker account"
-  USERS ||--o{ CRM_AGENTS : "agent account"
   USERS ||--o{ LEADS : "owner"
   WORKERS ||--o{ ATTENDANCE : "punches"
   WORKERS ||--o{ LEAVES : "applies"
@@ -34,7 +33,7 @@ erDiagram
 
 </details>
 
-**Explanation.** `workers`/`crm_agents` are the operational personnel; `leads` become `donor_profiles` on verification and then generate `receipts`. FRO workflows revolve around `fro_assignments`, `fro_donor_logs`, `fro_targets`. NGO allocations tie worker salaries to funding NGOs. Confirm each FK in the matching `ensure*Schema.js` bootstrap.
+**Explanation.** `workers` are the operational personnel; `leads` become `donor_profiles` on verification and then generate `receipts`. FRO workflows revolve around `fro_assignments`, `fro_donor_logs`, `fro_targets`. NGO allocations tie worker salaries to funding NGOs. Confirm each FK in the matching `ensure*Schema.js` bootstrap.
 
 **Sources:** table names from `backend/src/**` `.from()` references; cardinalities from naming (`_id` suffixes) — **inferred**.
 

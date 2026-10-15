@@ -5,6 +5,7 @@
 
 | Model file | Primary table (first `.from()`) | Lines | Fn-like defs | Has test |
 | --- | --- | --- | --- | --- |
+| `absenceProofModel.js` | `absence_proofs` | 119 | 7 |  |
 | `achievementModel.js` | `achievements` | 54 | 5 |  |
 | `attendanceCorrectionModel.js` | `attendance_corrections` | 106 | 8 |  |
 | `attendanceModel.js` | `attendance` | 174 | 32 |  |
@@ -30,7 +31,6 @@
 | `causeModel.js` | `causes` | 55 | 5 |  |
 | `chatModel.js` | `—` | 874 | 63 |  |
 | `configModel.js` | `app_config` | 49 | 6 |  |
-| `crmAgentModel.js` | `crm_agents` | 391 | 40 |  |
 | `dailyAchievementModel.js` | `daily_achievements` | 95 | 9 |  |
 | `dailyReportModel.js` | `daily_reports` | 139 | 9 |  |
 | `dataSourceModel.js` | `data_sources` | 51 | 5 |  |

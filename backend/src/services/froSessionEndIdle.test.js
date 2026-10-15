@@ -66,9 +66,3 @@ test('a missing identity is skipped rather than closing nobody', () => {
   assert.deepEqual(idleIdentitiesToClose({ humanId: null, paintedId: 'fro-9' }), ['fro-9']);
   assert.deepEqual(idleIdentitiesToClose({ humanId: undefined, paintedId: undefined }), []);
 });
-
-test('an agent session does not duplicate one id into two', () => {
-  // An agent's human id IS the painted FRO until Fix D moves it; the de-dup keeps
-  // that from committing the same row twice.
-  assert.deepEqual(idleIdentitiesToClose({ humanId: 'fro-9', paintedId: 'fro-9' }), ['fro-9']);
-});

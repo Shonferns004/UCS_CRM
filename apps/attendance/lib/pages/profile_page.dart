@@ -195,19 +195,22 @@ class _ProfilePageState extends State<ProfilePage> {
     final lateJoin = bd['joinedThisMonth'] == true && joinDay > 10;
     if (absentCount >= 6 || lateJoin) deducted.addAll(sundays);
 
-    // Sundays beyond the free pool that were not worked are unpaid.
-    final attended = <String>{
-      for (final r in records)
-        if (['present', 'late', 'half-day'].contains(r['status']?.toString()))
-          r['date'].toString(),
-    };
-    final freeRaw =
-        (((bd['paidSundayCount'] as num?) ?? 0) - ((bd['attendedSundayCount'] as num?) ?? 0)).toInt();
-    final free = freeRaw < 0 ? 0 : freeRaw;
-    final eligibleNotWorked =
-        sundays.where((s) => !deducted.contains(s) && !attended.contains(s)).toList();
-    final unpaidCount = eligibleNotWorked.length - free;
-    if (unpaidCount > 0) deducted.addAll(eligibleNotWorked.take(unpaidCount));
+    // Sundays beyond the free pool that were not paid are unpaid. The new rules
+    // pay every eligible Sunday, so nothing extra is ever deducted for them.
+    if (!_newSundayRules) {
+      final attended = <String>{
+        for (final r in records)
+          if (['present', 'late', 'half-day'].contains(r['status']?.toString()))
+            r['date'].toString(),
+      };
+      final freeRaw =
+          (((bd['paidSundayCount'] as num?) ?? 0) - ((bd['attendedSundayCount'] as num?) ?? 0)).toInt();
+      final free = freeRaw < 0 ? 0 : freeRaw;
+      final eligibleNotWorked =
+          sundays.where((s) => !deducted.contains(s) && !attended.contains(s)).toList();
+      final unpaidCount = eligibleNotWorked.length - free;
+      if (unpaidCount > 0) deducted.addAll(eligibleNotWorked.take(unpaidCount));
+    }
 
     return deducted;
   }
@@ -572,8 +575,17 @@ class _ProfilePageState extends State<ProfilePage> {
     return (480 * (_lateGrace / 180)).round();
   }
 
+  // Unauthorized absence forfeits the month's grace (Option A single budget —
+  // the backend breakdown already computed it, including proof outcomes).
+  bool get _graceForfeited => _selectedBreakdown?['graceForfeited'] == true;
+
+  // With forfeiture the grace is charged up-front, so the tier ladder runs on
+  // (used + grace) — mirrors backend/src/utils/latePolicy.js forfeited path.
+  double get _lateEffectiveMinutes =>
+      _graceForfeited ? (_selectedLateMinutes + _lateGrace).toDouble() : _selectedLateMinutes.toDouble();
+
   double get _lateTier {
-    final used = _selectedLateMinutes;
+    final used = _lateEffectiveMinutes;
     if (used <= _lateGrace) return 0;
     if (used <= _lateHalf) return 1;
     if (used <= _lateFull) return 2;
@@ -622,11 +634,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String get _lateTierDesc {
     final used = _selectedLateMinutes;
+    if (_graceForfeited) {
+      return 'Unauthorized absence this month — the $_lateGrace min grace is charged up-front '
+          '(eff = $used + $_lateGrace), then the normal tiers apply. Approved proof keeps the grace safe.';
+    }
     switch (_lateTier) {
       case 0: return '$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
       case 1: return '$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
-      case 2: return '$used min used — exceeds half-day threshold. One full day will be deducted from expenses.';
-      case 3: return '$used min used — exceeds $_lateFull min. Proportional deduction (total min / $_lateFull) applied to salary.';
+      case 2: return '$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
+      case 3: return '$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
       default: return '';
     }
   }
@@ -639,11 +655,29 @@ class _ProfilePageState extends State<ProfilePage> {
     return dt.year == _calYear && dt.month == _calMonth;
   }
 
+  // New Sunday policy — a Sunday is voluntary and every eligible Sunday is paid
+  // — applies from 2026-10-01. Keep in sync with backend/src/utils/sundayRules.js.
+  static const String _sundayRulesFrom = '2026-10-01';
+
+  bool get _newSundayRules {
+    final key = '$_calYear-${_calMonth.toString().padLeft(2, '0')}-01';
+    return key.compareTo(_sundayRulesFrom) >= 0;
+  }
+
+  static bool _isVoluntarySunday(String dateKey) {
+    final day = dateKey.length >= 10 ? dateKey.substring(0, 10) : dateKey;
+    if (day.compareTo(_sundayRulesFrom) < 0) return false;
+    final dt = DateTime.tryParse(day);
+    return dt != null && dt.weekday == DateTime.sunday;
+  }
+
   int _lateMinutesForMonth(int ym) {
     var minutes = 0;
     _historyByDate.forEach((key, rec) {
       final dt = DateTime.tryParse(key);
       if (dt == null || dt.year * 100 + dt.month != ym) return;
+      // A voluntary Sunday never carries late minutes.
+      if (_isVoluntarySunday(key)) return;
       final lm = rec['late_minutes'];
       if (lm is num) minutes += lm.toInt();
     });
@@ -831,10 +865,20 @@ class _ProfilePageState extends State<ProfilePage> {
 
   num get _fallbackLateDeductionDays {
     final minutes = _selectedLateMinutes;
+    if (_graceForfeited) {
+      // Grace charged up-front (single budget — clawback does NOT add it a
+      // second time). Plain tier ladder on the effective total.
+      final eff = minutes + _lateGrace;
+      if (eff > _lateFull) return (((eff / _lateFull) * 2).roundToDouble()) / 2;
+      if (eff > _lateHalf) return 1;
+      if (eff > _lateGrace) return 0.5;
+      return 0;
+    }
     if (minutes <= _lateGrace) return 0;
     if (minutes <= _lateHalf) return 0.5;
-    if (minutes <= _lateFull) return 1;
-    return ((minutes / _lateFull) * 2).roundToDouble() / 2;
+    // Grace clawback (mirrors backend/src/utils/latePolicy.js): once the 1-day
+    // tier is reached the grace is charged too, added exactly once.
+    return (((minutes + _lateGrace) / _lateFull) * 2).roundToDouble() / 2;
   }
 
   Widget _summaryCardsGrid(AppColors colors, ColorScheme scheme) {

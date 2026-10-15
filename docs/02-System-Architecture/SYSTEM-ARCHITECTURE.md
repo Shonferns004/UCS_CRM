@@ -96,7 +96,7 @@ flowchart TB
     CORS --> JSON[express.json + rawBody capture]
     JSON --> HEALTH[health / diagnostics]
     HEALTH --> LOCALDB[localDbAccess gate]
-    LOCALDB --> ROUTES["~85 mounted routers under /api/*"]
+    LOCALDB --> ROUTES["~86 mounted routers under /api/*"]
     ROUTES --> AUTH{authMiddleware<br/>authenticate / authenticateRole}
     AUTH -->|401/403| ERR[error response]
     AUTH -->|ok| CTRL[Controller]
@@ -126,7 +126,7 @@ flowchart TB
     MOUNTS --> VERCEl{process.env.VERCEL?}
     VERCEl -->|yes| EXPORT[Export app as serverless handler]
     VERCEl -->|no| LISTEN[app.listen PORT]
-    LISTEN --> BOOT[Run 28 ensure*Schema bootstraps]
+    LISTEN --> BOOT[Run 27 ensure*Schema bootstraps]
     BOOT --> SCHED[Start scheduler services]
     SCHED --> WATCH[Start memory watchdog]
     WATCH --> SOCK[initRealtime Socket.IO]
@@ -193,7 +193,7 @@ See `docs/10-Security/` and the existing `docs/security/` set for the full analy
 
 ## 7. Known Architectural Constraints (Verified)
 
-1. **Bootstrap-enforced schema** — there is no single migration chain; schema is ensured at boot by 28 functions, so schema drift risk exists.
+1. **Bootstrap-enforced schema** — there is no single migration chain; schema is ensured at boot by 27 functions, so schema drift risk exists.
 2. **Mixed DB access styles** — Supabase query builder and raw SQL coexist, so SQL style is not uniform.
 3. **CORS is `origin: '*'`** in `backend/src/index.js` (line ~154) — permissive; noted in the security set.
 4. **Vercel mode** disables `app.listen` and Socket.IO (`process.env.VERCEL`), so realtime is not available on the serverless deployment path.

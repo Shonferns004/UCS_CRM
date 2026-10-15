@@ -225,17 +225,17 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/ngo-admin/*" element={
-          <ProtectedRoute role={['admin']}>
+          <ProtectedRoute role={['admin', 'super_admin']}>
             <PanelWrapper roleKey="admin" />
           </ProtectedRoute>
         } />
         <Route path="/fro/*" element={
-          <ProtectedRoute role={['fro', 'worker', 'FRO']}>
+          <ProtectedRoute role={['fro', 'worker', 'FRO', 'super_admin']}>
             <PanelWrapper roleKey="fro" />
           </ProtectedRoute>
         } />
         <Route path="/accounts/*" element={
-          <ProtectedRoute role={['accounts', 'admin']}>
+          <ProtectedRoute role={['accounts', 'admin', 'super_admin']}>
             <PanelWrapper roleKey="accounts" />
           </ProtectedRoute>
         } />

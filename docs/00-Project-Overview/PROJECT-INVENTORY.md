@@ -28,7 +28,7 @@ UCS_CRM/
 ├── backend/                 Primary REST API + realtime server (Node.js / Express, ESM)
 ├── client/                  Main CRM single-page application (React 19 / Vite 6)
 ├── apps/                    8 Flutter mobile/desktop applications
-├── whtsapp/                 Vendored WhatsApp workspace (backend snapshot + WhatsApp CRM API + React client)
+├── whtsapp/                 Vendored WhatsApp workspace (WhatsApp CRM API backend + React client)
 ├── others/                  9 standalone React SPAs / PWAs and reference documents
 ├── infra/                   Deployment configuration (Caddyfile, nginx conf, README)
 ├── scripts/                 Local-to-HEAD sync automation (sync-head.ps1)
@@ -44,7 +44,7 @@ UCS_CRM/
 | CRM Backend API | `backend/` | Node 24, Express 4, PostgreSQL | **Verified** | `backend/package.json`, `backend/src/index.js` |
 | CRM Client SPA | `client/` | React 19, Vite 6, React Router 7, Tailwind 4 | **Verified** | `client/package.json`, `client/src/App.jsx` |
 | Flutter apps | `apps/*` | Flutter / Dart | Active/legacy mix | each `apps/*/pubspec.yaml` |
-| WhatsApp workspace | `whtsapp/` | Node/Express + React + Vite | Vendored | `whtsapp/server`, `whtsapp/backend`, `whtsapp/frontend` |
+| WhatsApp workspace | `whtsapp/` | Node/Express + React + Vite | Vendored | `whtsapp/backend`, `whtsapp/frontend` |
 | Standalone web tools | `others/*` | React 19 + Vite (+ Supabase for sevak-library) | Active | each `others/*/package.json` |
 
 **Verified:** `backend/` and `client/` are the two production deploy targets (see `infra/README.md`, `.github/workflows/deploy.yml`, `.github/workflows/deploy-frontend.yml`).
@@ -72,14 +72,16 @@ UCS_CRM/
 
 | Artifact | Count | Location |
 | --- | --- | --- |
-| Route files | 85 | `backend/src/routes/` |
-| Controllers | 90 | `backend/src/controllers/` |
+| Route files | 86 | `backend/src/routes/` |
+| Controllers | 89 | `backend/src/controllers/` |
 | Models | 91 | `backend/src/models/` |
-| Services | 79 | `backend/src/services/` |
-| Schema bootstraps | 28 | `backend/src/bootstrap/` |
-| Utilities | 47 | `backend/src/utils/` |
-| SQL migration files | 4 (root) + 7 (`src/migrations`) | `backend/migrations/`, `backend/src/migrations/` |
+| Services | 76 | `backend/src/services/` |
+| Schema bootstraps | 27 | `backend/src/bootstrap/` |
+| Utilities | 57 | `backend/src/utils/` |
+| SQL migration files | 6 (root) + 7 (`src/migrations`) | `backend/migrations/`, `backend/src/migrations/` |
 | Test files (`*.test.js`) | see §9 | across `src/` |
+
+> **Counting note:** artifact counts are `*.js` files including co-located `*.test.js`; the [MODELS-INDEX](../05-Database-Documentation/MODELS-INDEX.md) enumerates the 88 model modules only (3 `*.test.js` excluded). Counts refreshed after the CRM-agents removal.
 
 ### 2.2 Client (`client/`)
 
@@ -97,7 +99,7 @@ UCS_CRM/
 | Realtime | `socket.io-client` `^4.8.3` | `client/src/lib/socket.js` |
 | HTTP | hand-rolled `fetch` wrapper (axios only in Metropad sub-app) | `client/src/api/auth.js` |
 
-**Client source counts (Verified):** 587 files under `client/src/`, of which 14 panel folders exist under `client/src/panels/`.
+**Client source counts (Verified):** 598 files under `client/src/`, of which 14 panel folders exist under `client/src/panels/`.
 
 ---
 
@@ -163,13 +165,13 @@ The functional modules discovered from routes, controllers, models and panel scr
 | Realtime changes | Socket.IO custom events + `onDbChange` client helper | `backend/src/socket.js`, `client/src/lib/socket.js` |
 | Models | 91 model modules (query/data-access style) | `backend/src/models/` |
 
-**Note (Verified):** there is **no single canonical migration chain**; schema readiness is primarily enforced by 28 `ensure*Schema.js` bootstrap functions invoked at server startup (`backend/src/index.js`), with SQL migrations used for specific changes.
+**Note (Verified):** there is **no single canonical migration chain**; schema readiness is primarily enforced by 27 `ensure*Schema.js` bootstrap functions invoked at server startup (`backend/src/index.js`), with SQL migrations used for specific changes.
 
 ---
 
 ## 6. API Structure
 
-- All application routes are mounted under `/api/*` in `backend/src/index.js` (85 router files, plus inline handlers).
+- All application routes are mounted under `/api/*` in `backend/src/index.js` (86 router files, plus inline handlers).
 - Auth is JWT bearer token via `Authorization: Bearer <token>`, verified in `backend/src/middleware/authMiddleware.js`.
 - Router mounts are enumerated with their prefixes in `backend/src/index.js`. Route prefix → router mapping is documented in `docs/06-API-Reference/` (Phase 4).
 - A pre-existing **Postman collection with 243 endpoint entries** exists at `others/imp files/docs/postman/ucs-crm-postman-collection.json`. It is treated as reference material only and will be re-verified against `backend/src/routes/` before inclusion.
@@ -216,7 +218,7 @@ CI/CD workflows (`.github/workflows/`): `deploy.yml` (backend → prod EC2 with 
 | --- | --- | --- |
 | Framework | Node.js built-in test runner (`node --test`) | `backend/package.json` `scripts.test` |
 | Test glob | `src/**/*.test.js` | `backend/package.json` |
-| Test file count | ~45 across `services/`, `utils/`, `models/`, `config/`, `middleware/` | `Get-ChildItem -Recurse *.test.js` |
+| Test file count | 44 across `services/`, `utils/`, `models/`, `config/`, `middleware/` | `Get-ChildItem -Recurse *.test.js` |
 | Client test | `test:sidebar` (`node sidebar-smoke.mjs`) | `client/package.json` |
 | Coverage tooling | None detected | — |
 
@@ -244,7 +246,7 @@ Loaded via `dotenv.config()`. Names are derived from `backend/.env.example` and 
 | --- | --- | --- |
 | Security documentation set (12+ docs) | `docs/security/` | **Mature; reference.** Includes a **confirmed open P0** S3 PII exposure (`docs/security/S3-PII-EXPOSURE-REMEDIATION.md`). |
 | In-app documentation panel | `client/src/panels/documentation/` | Working `/docs` panel with per-panel Mermaid and API data. Left untouched per project decision. |
-| Legacy master documentation | `others/imp files/docs/MASTER_DOCUMENTATION.md` (2,920 lines) + `.docx`/`.html` | **Stale** (cites 47 controllers / 37 models / 42 routes; current is 90/91/85). Used only as a cross-check. |
+| Legacy master documentation | `others/imp files/docs/MASTER_DOCUMENTATION.md` (2,920 lines) + `.docx`/`.html` | **Stale** (cites 47 controllers / 37 models / 42 routes; current is 89/91/86). Used only as a cross-check. |
 | Postman collection | `others/imp files/docs/postman/ucs-crm-postman-collection.json` | 243 endpoint entries; used as a seed to re-verify. |
 | Cron/backup references | `others/imp files/docs/BACKUP_DISASTER_RECOVERY.md`, `CALENDAR_DAILY_TRACKING.md` | Reference. |
 | `docs/PANELS.docx` | `docs/PANELS.docx` | Pre-existing panel reference (content not yet audited). |

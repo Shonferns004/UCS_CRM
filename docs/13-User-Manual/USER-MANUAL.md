@@ -25,7 +25,7 @@ Staff **cannot** see other panels they are not entitled to; the app redirects to
 ## 2. Per-Panel Quick Start
 
 - **Super Admin** — dashboard KPIs; `Data Management` to import donor data; `Organization`, `Employees`, `Tickets`, `Notices`, `Incentives`, `Live FRO`, `Fro Idle`. Embeds other panels read-only.
-- **NGO Admin** — station management, FRO attendance, master search, codes, agents, meeting mode, logout-all-FROs.
+- **NGO Admin** — station management, FRO attendance, master search, codes, meeting mode, logout-all-FROs.
 - **HR** — employees, attendance, leaves, letters, HR forms, recruiters, reports, daily/social reports, quizzes, holidays, QR, loans, NGO salary, FRO targets, library.
 - **Accounts** — lead audit, receipts, donors, volunteers/payroll, teams & targets, incentive setup/verification, certificates, asset register, reports, SIM, beneficiaries, bill reminders, library.
 - **FRO** — dashboard, my leads, call/workflow (suspense), donors, idle, history, incentive info, lead incentive, tickets, chat.

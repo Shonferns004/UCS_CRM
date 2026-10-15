@@ -33,6 +33,14 @@ const todayIst = () => istDateOf(Date.now())
 const shiftDay = (iso, n) =>
   new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10)
 
+// A date as "Mon, 6 Oct 2026" for the team-schedule headings. Anything that is
+// not a strict ISO day is passed through untouched so a weird row still reads.
+const fmtDay = (iso) => {
+  const text = String(iso ?? '')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return text || '—'
+  return new Date(`${text}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 const emptyData = (sections) => {
   const out = {}
   for (const s of sections) {
@@ -138,6 +146,7 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
   const assigned = assignedTasks.map((t) => ({
     ...t,
     status: TASK_STATUSES.includes(t.status) ? t.status : 'pending',
+    day: istDateOf(t.task_date),
   }))
   const empty = items.length === 0 && assigned.length === 0
   return (
@@ -193,7 +202,7 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
                   <div key={`assigned-${t.id}`} className={`dr-task dr-task-${col.id} dr-task-assigned`}>
                     <div className="dr-task-text">{t.title}</div>
                     <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      Assigned{t.assigned_by_name ? ` · ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''}
+                      Assigned{t.assigned_by_name ? ` · ${t.assigned_by_name}` : ''}{t.day ? ` · ${fmtDay(t.day)}` : ''}
                     </div>
                     <div className="dr-task-actions" role="group" aria-label="Update assigned task">
                       {TASK_COLUMNS.map((c) => (
@@ -280,7 +289,9 @@ export default function DailyReport({
   summaryTitle = 'Today at a glance',
   loadSummary,
   loadAssignedTasks,
+  loadTeamTasks,
   notify,
+  lockToToday = false,
 }) {
   // The dev panel mounts its own ToastProvider, not the global ToastContainer,
   // so callers can hand in their local toast; HR (and others) use the global one.
@@ -289,6 +300,8 @@ export default function DailyReport({
   const [data, setData] = useState(() => emptyData(sections))
   const [summary, setSummary] = useState(null)
   const [assigned, setAssigned] = useState([])
+  const [teamTasks, setTeamTasks] = useState([])
+  const [teamLoading, setTeamLoading] = useState(false)
   const [updatingId, setUpdatingId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [summaryLoading, setSummaryLoading] = useState(false)
@@ -360,12 +373,41 @@ export default function DailyReport({
         setAssigned([])
       }
     }
+    // The whole team's assignments (optionally filtered by the caller), shown
+    // date-wise below the report so the panel sees who is doing what, when.
+    if (loadTeamTasks) {
+      setTeamLoading(true)
+      try {
+        setTeamTasks((await loadTeamTasks(d)) || [])
+      } catch {
+        setTeamTasks([])
+      } finally {
+        setTeamLoading(false)
+      }
+    }
     // sections / loadSummary are module-level constants in every caller, so
     // [panel, date] is the only thing that actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel, date])
 
   useEffect(() => { load(date) }, [date, load])
+
+  // A tab left open across midnight kept the previous day's date, so a report
+  // finished the next morning was filed onto the old day and the head reviewing
+  // "today" never saw it. When the IST day rolls over, follow it — unless the
+  // reporter deliberately navigated to another date.
+  const todayRef = useRef(todayIst())
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = todayIst()
+      if (now !== todayRef.current) {
+        const prev = todayRef.current
+        todayRef.current = now
+        setDate((d) => (d === prev ? now : d))
+      }
+    }, 30000)
+    return () => clearInterval(id)
+  }, [])
 
   const pickDate = (next) => {
     const value = typeof next === 'string' ? next : (next?.target?.value ?? '')
@@ -399,6 +441,23 @@ export default function DailyReport({
     ? new Date(lastSavedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
     : 'Not saved yet'
 
+  // The team's assignments bucketed by their task date, dates ascending and the
+  // members inside a day A→Z, so the schedule always reads the same way.
+  const teamGroups = (() => {
+    const map = new Map()
+    for (const t of teamTasks) {
+      const day = istDateOf(t.task_date) || '—'
+      if (!map.has(day)) map.set(day, [])
+      map.get(day).push(t)
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, list]) => [
+        day,
+        list.slice().sort((a, b) => String(a.assignee_name || '').localeCompare(String(b.assignee_name || ''))),
+      ])
+  })()
+
   return (
     <div className="dr-root">
       <div className="dr-print-only dr-masthead">
@@ -417,9 +476,17 @@ export default function DailyReport({
       <div className="card dr-toolbar no-print">
         <div className="dr-toolbar-row">
           <span className="dr-toolbar-label">Report date</span>
-          <DatePicker value={date} onChange={pickDate} max={todayIst()} />
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(todayIst())}>Today</button>
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(shiftDay(todayIst(), -1))}>Yesterday</button>
+          {lockToToday ? (
+            <span className="dr-toolbar-today">
+              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
+          ) : (
+            <>
+              <DatePicker value={date} onChange={pickDate} max={todayIst()} />
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(todayIst())}>Today</button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(shiftDay(todayIst(), -1))}>Yesterday</button>
+            </>
+          )}
         </div>
         <div className="dr-toolbar-row dr-toolbar-right">
           <span className={`dr-status${dirty ? ' dirty' : ''}`}>
@@ -570,6 +637,36 @@ export default function DailyReport({
           </div>
         </div>
       ))}
+
+      {loadTeamTasks && (
+        <div className="dr-block">
+          <h3 className="dr-section-title">Team Tasks — by date</h3>
+          {teamLoading && <div className="dr-muted">Loading team tasks…</div>}
+          {!teamLoading && teamGroups.length === 0 && (
+            <div className="dr-muted">No tasks assigned to the team this month.</div>
+          )}
+          {!teamLoading && teamGroups.map(([day, list]) => (
+            <div key={day} className="dr-team-day">
+              <div className="dr-team-date">{fmtDay(day)}</div>
+              <div className="dr-team-grid">
+                {list.map((t) => {
+                  const st = TASK_STATUSES.includes(t.status) ? t.status : 'pending'
+                  return (
+                    <div key={t.id} className={`dr-task dr-task-${st}`}>
+                      <div className="dr-task-text">{t.title}</div>
+                      <div className="dr-team-meta">
+                        {t.assignee_name || '—'}{t.content_type ? ` · ${t.content_type}` : ''}
+                        {t.assigned_by_name ? ` · by ${t.assigned_by_name}` : ''}
+                      </div>
+                      <span className={`dr-team-status dr-team-status-${st}`}>{st}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="dr-print-only dr-sign">
         <div>Reported by: {reporterName || '____________________'}</div>

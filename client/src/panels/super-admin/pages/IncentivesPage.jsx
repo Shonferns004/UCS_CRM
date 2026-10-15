@@ -1,13 +1,16 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Trophy, ChartBar } from '@phosphor-icons/react'
+import { Trophy, ChartBar, ChartLineUp } from '@phosphor-icons/react'
 
 const TABS = [
   { to: 'sir', label: 'NGO wise Incentive', Icon: Trophy },
   { to: 'lead', label: 'Lead Incentive', Icon: ChartBar },
+  // The old standalone "Incentive" page (Daily AKI slabs + rules) lives here now.
+  { to: 'setup', label: 'Incentive Daily Chart', Icon: ChartLineUp },
 ]
 
-// Merged "Incentives" page: NGO wise Incentive + Lead Incentive as tabs.
-// Each tab keeps its own page, data logic and realtime behavior untouched.
+// Merged "Incentives" page: NGO wise Incentive + Lead Incentive + the Daily
+// AKI slab editor as tabs. Each tab keeps its own page, data logic and
+// realtime behavior untouched.
 export default function IncentivesPage() {
   return (
     <div>

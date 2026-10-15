@@ -5,8 +5,43 @@ import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import { projectedLoanDeduction } from '../utils/loanTerm.js';
 import { getSetting, upsertSetting } from './settingsModel.js';
 import { LIVE_LOAN_STATUSES } from './loanModel.js';
+import { getLeavesInRange } from './leaveModel.js';
+import { getAbsenceProofsInRange } from './absenceProofModel.js';
 
 const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
+
+// Leaves + absence proofs for a month, grouped by worker. Used by both
+// computePaidDays call sites so an unauthorized absence can forfeit the
+// month's late grace (utils/absenceRules.js). Tolerant: empty maps if a
+// table is missing.
+async function loadLeaveAndProofMaps(startDate, endDate) {
+  const leavesByWorker = {};
+  const proofsByWorker = {};
+  try {
+    const [allLeaves, allProofs] = await Promise.all([
+      getLeavesInRange(startDate, endDate).catch(() => []),
+      getAbsenceProofsInRange(startDate, endDate).catch(() => []),
+    ]);
+    for (const l of allLeaves || []) {
+      if (!leavesByWorker[l.worker_id]) leavesByWorker[l.worker_id] = [];
+      leavesByWorker[l.worker_id].push(l);
+    }
+    for (const p of allProofs || []) {
+      if (!proofsByWorker[p.worker_id]) proofsByWorker[p.worker_id] = [];
+      proofsByWorker[p.worker_id].push(p);
+    }
+  } catch (_) { /* tolerate missing tables */ }
+  return { leavesByWorker, proofsByWorker };
+}
+
+// A month-scoped export must only list the roster that month actually had:
+// anyone whose Date of Joining (workers.created_at) falls after the month's
+// last day — e.g. fresh joiners appearing while exporting a previous month —
+// was never employed in it. NULL created_at is kept so backfilled rows do not
+// silently vanish (same rule as the HR daily report roster CTE). The date is
+// sliced the same way as the exported DOJ column so filter and display agree.
+const joinedAfterMonth = (createdAt, endDate) =>
+  !!createdAt && String(createdAt).slice(0, 10) > endDate;
 
 // Sums the loan/advance amounts actually recovered in `monthDate` (a
 // 'YYYY-MM-01' value) per worker, from the rows written by
@@ -210,12 +245,13 @@ export const getPayrollData = async (month, extended = false) => {
 
   const selectFields = extended
     ? 'id, name, account_number, ifsc_code, account_holder_name, bank_name, department, created_at'
-    : 'id, name, account_number, ifsc_code';
-  const { data: workers, error: wErr } = await db
+    : 'id, name, account_number, ifsc_code, created_at';
+  let { data: workers, error: wErr } = await db
     .from('workers')
     .select(selectFields)
     .order('name');
   if (wErr) throw wErr;
+  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
 
   const { data: salaries, error: sErr } = await db
     .from('salary_history')
@@ -254,7 +290,7 @@ export const getPayrollData = async (month, extended = false) => {
       for (const a of achievements) {
         achievedByWorker[a.worker_id] = (achievedByWorker[a.worker_id] || 0) + parseFloat(a.amount || 0);
         const dayName = getDayName(a.date);
-        akiByWorker[a.worker_id] = (akiByWorker[a.worker_id] || 0) + calculateAKI(parseFloat(a.amount || 0), dayName, ranges);
+        akiByWorker[a.worker_id] = (akiByWorker[a.worker_id] || 0) + calculateAKI(parseFloat(a.amount || 0), dayName, ranges, a.date);
       }
     }
   }
@@ -440,10 +476,11 @@ export const getPresentDaysByMonth = async (month) => {
   const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
   const endDate = `${monthStr}-${pad(daysInMonth)}`;
 
-  const { data: workers, error: wErr } = await db
+  let { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, created_at');
   if (wErr) throw wErr;
+  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
   let graceByWorker = {};
@@ -473,6 +510,8 @@ export const getPresentDaysByMonth = async (month) => {
     .gte('date', startDate)
     .lte('date', endDate);
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
+
+  const { leavesByWorker, proofsByWorker } = await loadLeaveAndProofMaps(startDate, endDate);
 
   const { data: collLogs, error: collErr } = await db
     .from('fro_donor_logs')
@@ -511,6 +550,8 @@ export const getPresentDaysByMonth = async (month) => {
       createdAt: w.created_at || '',
       holidayDates,
       lateGraceMinutes: graceByWorker[w.id] ?? null,
+      leaves: leavesByWorker[w.id] || [],
+      absenceProofs: proofsByWorker[w.id] || [],
     });
     return {
       worker_id: w.id,
@@ -525,6 +566,7 @@ export const getPresentDaysByMonth = async (month) => {
       late_deduction_days: calc.lateDeductionDays,
       late_grace_minutes: calc.lateGraceMinutes,
       late_thresholds: calc.lateThresholds,
+      grace_forfeited: calc.graceForfeited,
       joining_deduction: calc.joiningDeduction,
       available_days: calc.available,
       absent_count: calc.absentDatesAfterJoin.length,
@@ -569,11 +611,13 @@ export const getPagarExportData = async (month) => {
 
   const akiranges = await getAKISlabs();
 
-  // 1. Workers with basic info
-  const { data: workers, error: wErr } = await db
+  // 1. Workers with basic info — scoped to the exported month so future joiners
+  // never leak into a previous month's file.
+  let { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id, documents_submitted');
   if (wErr) throw wErr;
+  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
   let graceByWorker = {};
@@ -666,6 +710,8 @@ export const getPagarExportData = async (month) => {
     .lte('date', endDate);
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
   const salaryCompensations = (await getSalaryCompensations()).filter((entry) => entry.month === monthStr);
+
+  const { leavesByWorker: payrollLeavesByWorker, proofsByWorker: payrollProofsByWorker } = await loadLeaveAndProofMaps(startDate, endDate);
 
   const attByWorker = {};
   for (const r of attRecords) {
@@ -923,6 +969,8 @@ export const getPagarExportData = async (month) => {
       includeHolidayPay: true,
       compensatoryWorkdays: salaryCompensations,
       lateGraceMinutes: w.late_grace_minutes ?? null,
+      leaves: payrollLeavesByWorker[w.id] || [],
+      absenceProofs: payrollProofsByWorker[w.id] || [],
     });
 
     const target = targetByWorker[w.id] || 0;
@@ -946,8 +994,9 @@ export const getPagarExportData = async (month) => {
     for (let d = 1; d <= daysInMonth; d++) {
       const amount = daily[d] || 0;
       if (amount > 0) {
-        const dayName = getDayName(`${year}-${pad(monthIdx + 1)}-${pad(d)}`);
-        totalAKI += calculateAKI(amount, dayName, akiranges);
+        const dateStr = `${year}-${pad(monthIdx + 1)}-${pad(d)}`;
+        const dayName = getDayName(dateStr);
+        totalAKI += calculateAKI(amount, dayName, akiranges, dateStr);
       }
     }
     const akiPayout = (target > 0 && achieved >= target)

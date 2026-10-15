@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Block, Kpi, Empty, StatusPill, StatusBar, ReporterBar, TableWrap, ProseList } from '../components/drShared'
 
 // Developer summary inside Super-Admin Daily Reports → Developer tab, built from
 // the day's daily_reports rows (panel="dev"). Four blocks:
@@ -20,8 +21,6 @@ const taskStatusOf = (it) => {
   if (it?.status === 'wip') return 'wip'
   return 'pending'
 }
-
-const STATUS_LABEL = { done: 'Done', wip: 'In Progress', pending: 'Pending' }
 
 // Combine every developer's checklist into one task list with a status badge,
 // and count statuses across reports.
@@ -55,31 +54,6 @@ const textEntries = (devReports, section, field) => {
   return out
 }
 
-function Block({ title, children, ...rest }) {
-  return (
-    <div className="sa-card" style={{ padding: 16, marginBottom: 16 }} {...rest}>
-      <div className="sa-card-title" style={{ marginBottom: 12 }}>{title}</div>
-      {children}
-    </div>
-  )
-}
-
-function ProseList({ entries }) {
-  if (entries.length === 0) return <div className="sa-muted" style={{ fontSize: 13 }}>Nothing reported.</div>
-  return (
-    <div>
-      {entries.map((e, i) => (
-        <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border, #e5e7eb)' }}>
-          <div className="sa-muted" style={{ fontSize: 11, fontWeight: 600, marginBottom: 3 }}>{e.reporter || 'Report'}</div>
-          {e.lines.map((line, j) => (
-            <div key={j} style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>• {line}</div>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export default function DeveloperDashboard({ date, devReports = [] }) {
   const { tasks, counts } = useMemo(() => collectTasks(devReports), [devReports])
   const technicalIssues = useMemo(() => textEntries(devReports, 'dev_notes', 'technical_issues'), [devReports])
@@ -88,58 +62,37 @@ export default function DeveloperDashboard({ date, devReports = [] }) {
   const reporters = [...new Set(devReports.map((r) => r.reporter_name).filter(Boolean))]
 
   return (
-    <div>
-      <div className="sa-muted" style={{ fontSize: 12, marginBottom: 12 }} data-date={date}>
-        {reporters.length > 0 ? `Developer report by: ${reporters.join(', ')}` : 'No developer report submitted on this date.'}
-      </div>
+    <div data-date={date}>
+      <ReporterBar names={reporters} emptyText="No developer report submitted on this date." />
 
-      <Block title="1. Today's Tasks">
+      <Block title="1. Today's Tasks" aside={tasks.length ? `${tasks.length} total` : null}>
         <div className="dr-kpis">
-          <div className="dr-kpi" style={{ borderTop: '3px solid #22c55e' }}>
-            <div className="dr-kpi-value" style={{ fontSize: 20 }}>{counts.done}</div>
-            <div className="dr-kpi-label">Done</div>
-          </div>
-          <div className="dr-kpi" style={{ borderTop: '3px solid #f59e0b' }}>
-            <div className="dr-kpi-value" style={{ fontSize: 20 }}>{counts.wip}</div>
-            <div className="dr-kpi-label">In Progress</div>
-          </div>
-          <div className="dr-kpi" style={{ borderTop: '3px solid #6b7280' }}>
-            <div className="dr-kpi-value" style={{ fontSize: 20 }}>{counts.pending}</div>
-            <div className="dr-kpi-label">Pending</div>
-          </div>
+          <Kpi label="Done" value={counts.done} accent="#22c55e" />
+          <Kpi label="In Progress" value={counts.wip} accent="#f59e0b" />
+          <Kpi label="Pending" value={counts.pending} accent="#64748b" />
         </div>
+        <StatusBar done={counts.done} wip={counts.wip} pending={counts.pending} />
         {tasks.length === 0 ? (
-          <div className="sa-muted" style={{ fontSize: 13, marginTop: 10 }}>No tasks reported.</div>
+          <div style={{ marginTop: 14 }}><Empty>No tasks reported.</Empty></div>
         ) : (
-          <div style={{ marginTop: 10, overflowX: 'auto' }}>
-            <table className="sa-table">
-              <thead>
-                <tr>
-                  <th>Task</th>
-                  <th>Status</th>
-                  <th>Developer</th>
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Status</th>
+                <th>Developer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((t, i) => (
+                <tr key={i}>
+                  <td>{t.text}</td>
+                  <td><StatusPill status={t.status} /></td>
+                  <td>{t.reporter || '—'}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {tasks.map((t, i) => (
-                  <tr key={i}>
-                    <td>{t.text}</td>
-                    <td>
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        background: t.status === 'done' ? '#dcfce7' : t.status === 'wip' ? '#fef3c7' : '#e5e7eb',
-                        color: t.status === 'done' ? '#166534' : t.status === 'wip' ? '#92400e' : '#374151',
-                      }}>{STATUS_LABEL[t.status]}</span>
-                    </td>
-                    <td>{t.reporter || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </TableWrap>
         )}
       </Block>
 
@@ -147,9 +100,9 @@ export default function DeveloperDashboard({ date, devReports = [] }) {
         <ProseList entries={technicalIssues} />
       </Block>
 
-      <Block title="3. Support Required from HOD">
+      {/* <Block title="3. Support Required from HOD">
         <ProseList entries={support} />
-      </Block>
+      </Block> */}
 
       <Block title="4. Next Working Day Plan">
         <ProseList entries={plans} />

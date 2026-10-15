@@ -2,9 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
+import { useTeams } from '../../../components/useTeams';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check, Flask } from '../icons';
 import { api } from '../../../api/auth';
+import { istMonthKey, istDayKey } from '../../../utils/istDate';
+import { exportAttendanceSheet } from '../../accounts/pages/Attendance';
 import { parseDocumentsValue, joinDocumentLabels } from '../../../lib/documents';
 import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
@@ -15,6 +18,46 @@ function load() {
 function save(v) {
   try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch (e) { console.error('Error:', e.message); }
 }
+
+// --- Team pill styles (mirrors accounts/pages/Teams.jsx) ---
+const TEAM_STYLE = {
+  UFS1: { bg: '#E7F3EC', fg: '#1f6f3f' },
+  UFS2: { bg: '#EAF1FB', fg: '#2563eb' },
+  UFS3: { bg: '#FDF2E3', fg: '#B45309' },
+  UFS4: { bg: '#F3E8F8', fg: '#7C3AED' },
+  'No Team': { bg: '#F3F4F6', fg: '#6b7280' },
+};
+const teamTs = (name) => TEAM_STYLE[name] || { bg: '#EEF1F5', fg: '#4B5563' };
+
+// Target source pills — same labels/colours as the FRO Targets screen, so the
+// two views never disagree about where a number came from.
+const fmtMonthShort = (m) => {
+  if (!m) return 'an earlier month';
+  const p = String(m).slice(0, 7).split('-');
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${names[parseInt(p[1], 10) - 1]} ${p[0]}`;
+};
+const TARGET_SOURCE_STYLE = {
+  auto: { bg: '#fef3c7', color: '#92400e' },
+  manual: { bg: '#dcfce7', color: '#166534' },
+  carried_forward: { bg: '#dbeafe', color: '#1e40af' },
+  not_set: { bg: '#fee2e2', color: '#991b1b' },
+};
+const targetSourceLabel = (t) => {
+  if (!t) return '—';
+  if (t.target_source === 'auto') return `Auto · month ${Math.min((t.months_employed ?? 0) + 1, 3)}`;
+  if (t.target_source === 'manual') return 'Set for this month';
+  if (t.target_source === 'carried_forward') return `Carried over from ${fmtMonthShort(t.target_source_month)}`;
+  return 'Not set';
+};
+
+// The filter dropdowns have a fixed width so they don't resize when a longer
+// option (e.g. "Absconded") is picked — the selected label gets ellipsised.
+const clipValue = (fallback) => (selected) => (
+  <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+    {selected ? (typeof selected === 'string' ? selected : selected.label) : fallback}
+  </span>
+);
 
 function isComplete(w) {
   const val = (v) => v && typeof v === 'string' && v.trim() !== '';
@@ -108,10 +151,17 @@ function WhoWithPhoto({ name, role, photo_url }) {
   );
 }
 
-export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false, showPayExports = true }) {
+export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false, showPayExports = true, salaryMode = false, onActionsReady }) {
   const { addWorker, DEPTS, deptLabel, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
+  const { teams } = useTeams();
+  const [teamFilter, setTeamFilter] = useState('');
+  const [teamMsg, setTeamMsg] = useState('');
+  const [teamErr, setTeamErr] = useState('');
+  const [targetMap, setTargetMap] = useState({});
+  const [targetDrafts, setTargetDrafts] = useState({});
+  const [targetSaving, setTargetSaving] = useState({});
   const [workers, setWorkers] = useState([]);
   const [empIdMap, setEmpIdMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -127,6 +177,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [showTest, setShowTest] = useState(load().showTest || false);
   const [entityFilter, setEntityFilter] = useState('All');
   const [page, setPage] = useState(load().page || 1);
+  // Accounts loads the table incrementally: 10 rows now, +10 per "Load more".
+  const [visibleCount, setVisibleCount] = useState(10);
   const [created, setCreated] = useState(null);
   const [salaryMap, setSalaryMap] = useState({});
   const [ngos, setNgos] = useState([]);
@@ -135,6 +187,25 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [workerDetails, setWorkerDetails] = useState({});
   const [pagarMonth, setPagarMonth] = useState('');
   const [showPagarModal, setShowPagarModal] = useState(false);
+  // Attendance Excel export: month picker modal (defaults to the current IST
+  // month each time it opens) driving the shared sheet builder.
+  const [attExportMonth, setAttExportMonth] = useState('');
+  const [showAttExportModal, setShowAttExportModal] = useState(false);
+
+  const doAttExport = async () => {
+    if (!attExportMonth || !/^\d{4}-\d{2}$/.test(attExportMonth)) return;
+    setShowAttExportModal(false);
+    const [y, m] = attExportMonth.split('-').map(Number);
+    const from = `${attExportMonth}-01`;
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const monthEnd = `${attExportMonth}-${String(lastDay).padStart(2, '0')}`;
+    const today = istDayKey();
+    // A future month, or the tail of the current one, stops at today — the
+    // sheet leaves future days blank anyway.
+    const to = monthEnd > today ? today : monthEnd;
+    if (to < from) { alert('No attendance to export for that month yet.'); return; }
+    await exportAttendanceSheet(from, to);
+  };
   const [salaryCompensations, setSalaryCompensations] = useState([]);
   const [showCompensationModal, setShowCompensationModal] = useState(false);
   const [compensationMonth, setCompensationMonth] = useState('');
@@ -242,12 +313,18 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     return name === 'OTHER' ? 'Other' : (name || 'Other');
   };
   const filtered = workers.filter(w => {
-    if (w.is_test && !showTest) return false;
+    if (w.is_test && (salaryMode || !showTest)) return false;
     const role = w.department || 'Team Member';
     if (roleFilter && role !== roleFilter) return false;
     const empStatus = w.employment_status || 'active';
     if (statusFilter && statusFilter !== 'all' && empStatus !== statusFilter) return false;
     if (entityFilter && entityFilter !== 'All' && clientOf(w) !== entityFilter) return false;
+    if (salaryMode && teamFilter) {
+      const isFro = (w.department || '').trim().toLowerCase() === 'fro';
+      if (!isFro) return false;
+      const t = (w.team || '').trim();
+      if (teamFilter === 'No Team' ? t : t !== teamFilter) return false;
+    }
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return w.name.toLowerCase().includes(q) ||
@@ -258,6 +335,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const visibleRows = salaryMode ? filtered.slice(0, visibleCount) : paginated;
 
   const CLIENTS = [...new Set([
     ...(ngos || []).filter(n => (n.name || '').trim().toUpperCase() !== 'TESTING')
@@ -273,12 +351,145 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const clientTotal = CLIENTS.reduce((s, c) => s + (clientCounts[c] || 0), 0);
   const clientPct = (c) => clientTotal ? Math.round((clientCounts[c] / clientTotal) * 100) : 0;
 
+  // --- Salary-mode team tools (mirrors accounts/pages/Teams.jsx) ---
+  const activeFros = workers.filter(w => !w.is_test && (w.department || '').trim().toLowerCase() === 'fro' && (w.employment_status || 'active') === 'active');
+  const teamCounts = {};
+  activeFros.forEach(w => { const t = w.team || 'No Team'; teamCounts[t] = (teamCounts[t] || 0) + 1; });
+  const noTeamCount = teamCounts['No Team'] || 0;
+  const teamOverview = [...teams.map(t => ({ key: t, label: t, count: teamCounts[t] || 0 })), ...(noTeamCount > 0 ? [{ key: 'No Team', label: 'No Team', count: noTeamCount }] : [])];
+
+  // Same worklist as the FRO Targets screen: active FROs with no target for the
+  // current month. Absconded FROs cannot collect, so they are never counted.
+  const needsTargetNames = salaryMode ? Object.entries(targetMap).filter(([id, t]) => {
+    if ((t.target_source || 'not_set') !== 'not_set') return false;
+    const worker = workers.find(x => String(x.id) === String(id));
+    return !worker || String(worker.employment_status || 'active').toLowerCase() !== 'absconded';
+  }).map(([, t]) => t.name || 'Unknown').sort() : [];
+  const needsTargetCount = needsTargetNames.length;
+
+  // Active FROs still sitting in "No Team" — same worklist idea, so the names
+  // behind the unassigned count are one glance away. (The overview's
+  // `noTeamCount` above counts the same rows; this one carries the names.)
+  const unassignedFroNames = salaryMode
+    ? activeFros.filter(w => !(w.team || '').trim()).map(w => w.name || 'Unknown').sort()
+    : [];
+
+  const flashTeam = (m) => { setTeamMsg(m); setTimeout(() => setTeamMsg(''), 2600); };
+
+  const setWorkerTeam = async (w, val) => {
+    // Local first so the dropdown feels instant; rollback on failure.
+    setWorkers(prev => prev.map(x => (x.id === w.id ? { ...x, team: val || null } : x)));
+    try { await updateWorker(w.id, { team: val || null }); }
+    catch (e) { setTeamErr(e.message); }
+  };
+
+  // Targets come from the one shared resolver (GET /ngo-admin/targets) so this
+  // column shows the same number as the FRO Targets screen. Editing writes the
+  // current IST month, exactly like FroTargets' modal does.
+  const saveTarget = async (w) => {
+    const raw = targetDrafts[w.id];
+    if (raw === undefined) return;
+    const saved = Number(targetMap[w.id]?.target || 0);
+    const amount = Math.round(Number(raw === '' ? 0 : raw));
+    if (!Number.isFinite(amount) || amount < 0) {
+      setTargetDrafts(d => ({ ...d, [w.id]: String(saved) }));
+      setTeamErr('Target must be a non-negative number.');
+      return;
+    }
+    if (amount === saved) {
+      if (String(raw) !== String(saved)) setTargetDrafts(d => ({ ...d, [w.id]: String(saved) }));
+      return;
+    }
+    setTargetSaving(s => ({ ...s, [w.id]: true }));
+    try {
+      await api('/ngo-admin/targets', {
+        method: 'POST',
+        body: JSON.stringify({ fro_worker_id: w.id, month: istMonthKey(), target_amount: amount, ngo_id: w.ngo_id || undefined }),
+        _prefix: 'ucs',
+      });
+      setTargetMap(m => ({ ...m, [w.id]: { ...(m[w.id] || {}), target: amount, target_source: 'manual' } }));
+      setTargetDrafts(d => { const n = { ...d }; delete n[w.id]; return n; });
+      flashTeam(`Target for ${w.name} set to ₹${amount.toLocaleString('en-IN')}.`);
+    } catch (e) {
+      setTargetDrafts(d => ({ ...d, [w.id]: String(saved) }));
+      setTeamErr(e.message);
+    } finally {
+      setTargetSaving(s => { const n = { ...s }; delete n[w.id]; return n; });
+    }
+  };
+
+  // Salary mode: this month's per-FRO targets for the Target column.
+  useEffect(() => {
+    if (!salaryMode) return;
+    let alive = true;
+    api('/ngo-admin/targets?month=' + istMonthKey(), { _prefix: 'ucs' })
+      .then(d => {
+        if (!alive) return;
+        const m = {};
+        (Array.isArray(d) ? d : []).forEach(r => { m[r.id] = { name: r.name, login_id: r.login_id, salary: r.salary, employment_status: r.employment_status, target: r.target, target_source: r.target_source, months_employed: r.months_employed, target_source_month: r.target_source_month }; });
+        setTargetMap(m);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [salaryMode]);
+
+  // The Manage Teams modal (and useTeams itself) announce team-list changes on
+  // this event; a renamed or removed team must show up in the table immediately.
+  useEffect(() => {
+    if (!salaryMode) return;
+    const onTeamsUpdated = () => { fetchWorkers('all').then(l => setWorkers(l || [])).catch(() => {}); };
+    window.addEventListener('teams-updated', onTeamsUpdated);
+    return () => window.removeEventListener('teams-updated', onTeamsUpdated);
+  }, [salaryMode, fetchWorkers]);
+
+  // FRO Targets' Download button, reused here: exports every row of the shared
+  // /ngo-admin/targets feed (the FRO department only) for the current month.
+  const downloadFroTargets = () => {
+    const rows = Object.entries(targetMap).sort((a, b) => String(a[1].name || '').localeCompare(String(b[1].name || '')));
+    if (!rows.length) { setTeamErr('No FRO targets to download yet.'); return; }
+    try {
+      const workerById = {};
+      workers.forEach(w => { workerById[String(w.id)] = w; });
+      const data = rows.map(([id, r]) => ({
+        'FRO Name': r.name || '',
+        'Login ID': r.login_id || '',
+        'Salary': Number(r.salary) || 0,
+        'Team': workerById[String(id)]?.team || 'No Team',
+        'Tenure (months)': r.months_employed != null ? r.months_employed + 1 : '',
+        'Target': Number(r.target) || 0,
+        'Source': targetSourceLabel(r),
+        'Status': String(r.employment_status || 'active').toLowerCase() === 'absconded' ? 'Absconded' : 'Active',
+        'Set for Month': fmtMonthShort(istMonthKey()),
+      }));
+
+      const header = Object.keys(data[0]);
+      const ws = XLSX.utils.json_to_sheet(data, { header });
+      ws['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 12 }, { wch: 32 }, { wch: 12 }, { wch: 14 }];
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'FRO Targets');
+
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheet' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `fro-targets-${istMonthKey()}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      flashTeam(`Downloaded targets for ${data.length} FRO${data.length === 1 ? '' : 's'}.`);
+    } catch (e) { setTeamErr(e.message); }
+  };
+
   const mountedSearch = useRef(false);
   useEffect(() => { if (!mountedSearch.current) { mountedSearch.current = true; return; } save({ search, page: 1 }); setPage(1); }, [search]);
   const mountedRole = useRef(false);
   useEffect(() => { if (!mountedRole.current) { mountedRole.current = true; return; } save({ roleFilter, page: 1 }); setPage(1); }, [roleFilter]);
   const mountedStatus = useRef(false);
   useEffect(() => { if (!mountedStatus.current) { mountedStatus.current = true; return; } save({ statusFilter, page: 1 }); setPage(1); }, [statusFilter]);
+  useEffect(() => { setVisibleCount(10); }, [search, roleFilter, statusFilter, entityFilter, teamFilter]);
   useEffect(() => { save({ page }); }, [page]);
   useEffect(() => {
     if (tableRef.current) tableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -410,6 +621,34 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     setPagarMonth(defaultMonth);
     setShowPagarModal(true);
   };
+
+  // In salary mode these four buttons live on the page's top strip next to
+  // Manage Teams (AccountsPanel) instead of the card head. The strip can't
+  // reach this component's state directly, so the handlers are handed up
+  // once — through a ref that always holds the latest closures, so stale
+  // captures (an empty targetMap on first render) never leak out. HR keeps
+  // the same buttons down in the card head.
+  const actionsRef = useRef(null);
+  actionsRef.current = {
+    downloadFroTargets,
+    openAttExport: () => { setAttExportMonth(istMonthKey()); setShowAttExportModal(true); },
+    openPagar: handlePagarExport,
+    openCompensations: () => {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      setCompensationMonth(pagarMonth || currentMonth);
+      setShowCompensationModal(true);
+    },
+  };
+  useEffect(() => {
+    if (!onActionsReady) return undefined;
+    onActionsReady({
+      downloadFroTargets: (...a) => actionsRef.current?.downloadFroTargets(...a),
+      openAttExport: (...a) => actionsRef.current?.openAttExport(...a),
+      openPagar: (...a) => actionsRef.current?.openPagar(...a),
+      openCompensations: (...a) => actionsRef.current?.openCompensations(...a),
+    });
+    return () => onActionsReady(null);
+  }, [onActionsReady]);
 
   const doPagarExport = async (month) => {
     try {
@@ -953,13 +1192,112 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         )}
       </div>
 
+      {salaryMode && (
+        <>
+          <style>{`
+            @keyframes tfSpin { to { transform: rotate(360deg); } }
+            .tf-tile { cursor: pointer; transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease; }
+            .tf-tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+            .tf-select { appearance: none; -webkit-appearance: none; padding: 7px 28px 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-weight: 600; font-family: inherit; color: var(--ink); cursor: pointer; outline: none; background: #fff url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center; }
+            .tf-select:hover { border-color: #9ca3af; }
+            .tf-select:focus { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-soft); }
+            .target-input { -moz-appearance: textfield; }
+            .target-input::-webkit-outer-spin-button, .target-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+            .target-input:focus { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-soft); outline: none; }
+            .status-filter { width: 150px; }
+            .org-filter { width: 160px; }
+            .role-filter { width: 175px; }
+            .status-filter .dropdown-trigger { padding: 8px 12px; font-size: 13.5px; }
+            .org-filter .dropdown-trigger, .role-filter .dropdown-trigger { padding: 8px 12px; font-size: 13.5px; }
+            .status-filter .dropdown-menu { max-height: none; overflow: visible; }
+            .org-filter .dropdown-menu, .role-filter .dropdown-menu { min-width: 240px; }
+            .status-filter .dropdown-item { padding: 11px 14px; font-size: 14px; }
+            .wf-table thead th { background: var(--sand); }
+          `}</style>
+
+          {teamMsg && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#B9EFCE', color: '#1B7A3D', fontSize: 13, fontWeight: 600 }}>{teamMsg}</div>
+          )}
+          {teamErr && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#FBDBD6', color: '#B3392B', fontSize: 13 }}>{teamErr}</div>
+          )}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:12, marginBottom: needsTargetCount > 0 || unassignedFroNames.length > 0 ? 14 : 0 }}>
+          {needsTargetCount > 0 && (
+            <div style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--line)', background:'var(--sand)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, fontWeight:700, fontSize:13, color:'var(--ink)' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ color:'var(--ink-soft)', flexShrink:0 }}>
+                  <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
+                  <path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
+                </svg>
+                <span>{needsTargetCount} FRO{needsTargetCount === 1 ? '' : 's'} still {needsTargetCount === 1 ? 'has' : 'have'} no target · {fmtMonthShort(istMonthKey())}</span>
+              </div>
+              <div style={{ marginTop:3, fontSize:12, color:'var(--ink-soft)' }}>
+                Set one so their incentive and leaderboard rank calculate.
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:9 }}>
+                {needsTargetNames.map(n => (
+                  <span key={n} style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:6, background:'var(--paper)', border:'1px solid var(--line)', color:'var(--ink)' }}>{n}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {unassignedFroNames.length > 0 && (
+            <div style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--line)', background:'var(--sage-soft)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, fontWeight:700, fontSize:13, color:'var(--ink)' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color:'var(--ink-soft)', flexShrink:0 }}>
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <span>{unassignedFroNames.length} FRO{unassignedFroNames.length === 1 ? '' : 's'} {unassignedFroNames.length === 1 ? 'is' : 'are'} not in any team</span>
+              </div>
+              <div style={{ marginTop:3, fontSize:12, color:'var(--ink-soft)' }}>
+                Assign a team with the dropdown below.
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:9 }}>
+                {unassignedFroNames.map(n => (
+                  <span key={n} style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:6, background:'var(--paper)', border:'1px solid var(--line)', color:'var(--ink)' }}>{n}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          </div>
+
+          {teamOverview.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', padding: '4px 0', marginBottom: 14 }}>
+              {teamOverview.map(t => {
+                const st = teamTs(t.label);
+                const pct = activeFros.length ? Math.round((t.count / activeFros.length) * 100) : 0;
+                const active = teamFilter === t.key;
+                return (
+                  <div key={t.key} className="stat-card tf-tile" onClick={() => setTeamFilter(active ? '' : t.key)}
+                    title="Click to filter the table below"
+                    style={{ width: 200, maxWidth: '100%', boxSizing: 'border-box', border: active ? '2px solid var(--sage)' : undefined }}>
+                    <div className="stat-icon" style={{ background: st.bg, color: st.fg }}>
+                      {t.label === 'No Team' ? '—' : t.label.slice(-1)}
+                    </div>
+                    <div className="stat-info">
+                      <div className="stat-lbl" style={{ fontSize: 12 }}>{t.label}</div>
+                      <div className="stat-num" style={{ fontSize: 20 }}>{t.count}</div>
+                      <div className="stat-sub">{pct}% of active FROs</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
       <div className="card" ref={tableRef}>
         <div className="card-head"><h3>{title}</h3>
           <div className="search-input-wrap">
+            {/* Download Targets + Export Excel moved to the top strip (see
+                onActionsReady above); Salary File and Compensations go there
+                too in salary mode and stay here for HR. */}
             {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             {showPayExports && <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>}
-            {showPagarExport && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
-            {showPagarExport && <button className="btn btn-outline btn-sm" onClick={() => {
+            {showPagarExport && !salaryMode && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
+            {showPagarExport && !salaryMode && <button className="btn btn-outline btn-sm" onClick={() => {
               const currentMonth = new Date().toISOString().slice(0, 7);
               setCompensationMonth(pagarMonth || currentMonth);
               setShowCompensationModal(true);
@@ -967,27 +1305,33 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>}
             {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>}
             {showBulkPrint && <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>}
-            <span className="sub">{filtered.length} total</span>
-            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} />
+            {!salaryMode && <span className="sub">{filtered.length} total</span>}
+            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} renderValue={clipValue('All')} />
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
-              options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:deptLabel(r)}))]} />
+              options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:deptLabel(r)}))]} renderValue={clipValue('All members')} />
             <Dropdown className="status-filter" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
+              renderValue={clipValue('Active')}
               options={[
                 {value:'active', label:'Active'},
                 {value:'absconded', label:'Absconded'},
                 {value:'offboarded', label:'Offboarded'},
                 {value:'all', label:'All'},
               ]} />
+            {!salaryMode && (
             <button className={`btn btn-sm ${showTest ? 'btn-primary' : 'btn-outline'}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
               onClick={()=>{ const v = !showTest; setShowTest(v); save({ showTest: v }); }}
               title={showTest ? 'Hide test member accounts' : 'Show test member accounts (they stay excluded from stats)'}>
               <Flask width={14}/> {showTest ? 'Hide test' : 'Show test'}
             </button>
+            )}
             <input className="search-input" value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Search by name, email, or team…"
               style={{ marginTop:0, maxWidth:200 }} />
           </div>
         </div>
+        {/* The hidden/visible salary status bar is HR-only; in salary mode the
+            Unlock/Hide control lives on the page's top strip instead. */}
+        {!salaryMode && (
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
           marginBottom: 12, padding: '8px 14px', borderRadius: 8,
@@ -1012,8 +1356,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             </button>
           )}
         </div>
-        <table>
-          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Documents</th><th>Status</th><th></th></tr></thead>
+        )}
+        <table className="wf-table">
+          <thead><tr><th>Name</th>{salaryMode && <th style={{ width:92 }}>Status</th>}<th>NGO</th>
+            {!salaryMode && <><th>Emp ID</th><th>Joined</th></>}
+            {salaryMode && <><th>Team</th><th>Target</th><th>Source</th></>}
+            <th>Salary</th><th>Documents</th>{!salaryMode && <th>Status</th>}<th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -1027,9 +1375,21 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         </div>
                       </div>
                     </td>
+                    {salaryMode && <td><div className="sk" style={{ width:56, height:18, borderRadius:4 }} /></td>}
                     <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
-                  <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
-                  <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
+                  {!salaryMode && (
+                    <>
+                      <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
+                      <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
+                    </>
+                  )}
+                  {salaryMode && (
+                    <>
+                      <td><div className="sk" style={{ width:70, height:18, borderRadius:4 }} /></td>
+                      <td><div className="sk" style={{ width:80, height:24, borderRadius:6 }} /></td>
+                      <td><div className="sk" style={{ width:74, height:18, borderRadius:10 }} /></td>
+                    </>
+                  )}
                   <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
                   <td><div className="sk" style={{ width:60, height:18, borderRadius:10 }} /></td>
                   <td style={{ textAlign:'right' }}><div className="sk" style={{ width:28, height:28, borderRadius:'50%', marginLeft:'auto' }} /></td>
@@ -1037,13 +1397,14 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
               ))
             ) : (
               <>
-                {paginated.map(w => {
+                {visibleRows.map(w => {
                   const sw = salaryMap[w.id];
                   const paid = sw?.current_salary_paid;
                   const currentMonth = new Date().toISOString().slice(0, 7);
                   const salaryFromMonth = sw?.current_salary_from?.slice(0, 7);
                   const isCurrent = salaryFromMonth && salaryFromMonth <= currentMonth;
                   const empId = w.employee_id || empIdMap[w.id];
+                  const statusLabel = w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active';
                   return (
                     <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
                       style={{ cursor:'pointer' }}>
@@ -1054,11 +1415,79 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                           {w.is_test && <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, fontWeight:800, letterSpacing:'.5px', background:'#fef3c7', color:'#92400e', border:'1px solid #fcd34d', flexShrink:0 }}>TEST</span>}
                         </div>
                       </td>
+                      {salaryMode && (
+                        <td>
+                          <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
+                            background: statusLabel === 'Absconded' ? '#fff3e0' : statusLabel === 'Offboarded' ? '#fce4ec' : '#e8f5e9',
+                            color: statusLabel === 'Absconded' ? '#e65100' : statusLabel === 'Offboarded' ? '#c62828' : '#2e7d32' }}>
+                            {statusLabel}
+                          </span>
+                        </td>
+                      )}
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#eef1f5', color:'#374151' }}>{clientOf(w)}</span>
                       </td>
-                      <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
-                      <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
+                      {!salaryMode && (
+                        <>
+                          <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
+                          <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
+                        </>
+                      )}
+                      {salaryMode && (
+                        <td onClick={e => e.stopPropagation()}>
+                          {(w.department || '').trim().toLowerCase() === 'fro' ? (
+                            <select
+                              className="tf-select"
+                              value={w.team || ''}
+                              onChange={e => setWorkerTeam(w, e.target.value)}
+                              title={`Assign team for ${w.name}`}
+                              style={{ maxWidth:140 }}>
+                              <option value="">No Team</option>
+                              {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
+                        </td>
+                      )}
+                      {salaryMode && (
+                        <td onClick={e => e.stopPropagation()}>
+                          {(w.department || '').trim().toLowerCase() === 'fro' ? (
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                              <span style={{ fontSize:12, fontWeight:600, color:'#6b7280' }}>₹</span>
+                              <input
+                                type="number" min="0" step="100"
+                                className="target-input"
+                                value={targetDrafts[w.id] !== undefined ? targetDrafts[w.id] : (targetMap[w.id]?.target ?? '')}
+                                onChange={e => setTargetDrafts(d => ({ ...d, [w.id]: e.target.value }))}
+                                onBlur={() => saveTarget(w)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') e.currentTarget.blur();
+                                  if (e.key === 'Escape') { setTargetDrafts(d => ({ ...d, [w.id]: String(targetMap[w.id]?.target ?? '') })); e.currentTarget.blur(); }
+                                }}
+                                placeholder="—"
+                                title={`Collection target for ${istMonthKey()}${targetMap[w.id]?.target_source ? ' · ' + String(targetMap[w.id].target_source).replace(/_/g, ' ') : ''} — press Enter to save`}
+                                style={{ width:92, padding:'5px 8px', fontSize:13, fontWeight:600, fontVariantNumeric:'tabular-nums', border:'1px solid var(--line)', borderRadius:6, background:'#fff', color:'var(--ink)', fontFamily:'inherit' }}
+                              />
+                              {targetSaving[w.id] && (
+                                <span style={{ width:12, height:12, border:'2px solid var(--line)', borderTopColor:'var(--sage)', borderRadius:'50%', animation:'tfSpin .7s linear infinite', display:'inline-block', flexShrink:0 }} />
+                              )}
+                            </span>
+                          ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
+                        </td>
+                      )}
+                      {salaryMode && (
+                        <td onClick={e => e.stopPropagation()}>
+                          {(w.department || '').trim().toLowerCase() === 'fro' && targetMap[w.id] ? (() => {
+                            const src = targetMap[w.id];
+                            const st = TARGET_SOURCE_STYLE[src.target_source] || TARGET_SOURCE_STYLE.not_set;
+                            return (
+                              <span title={targetSourceLabel(src)}
+                                style={{ background: st.bg, color: st.color, padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-block' }}>
+                                {targetSourceLabel(src)}
+                              </span>
+                            );
+                          })() : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
+                        </td>
+                      )}
                       <td>
                         {sw?.current_salary ? (
                           <span style={{ fontWeight:600 }}>
@@ -1092,6 +1521,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                           </span>
                         )}
                       </td>
+                      {!salaryMode && (
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
                           background: w.employment_status === 'absconded' ? '#fff3e0' : w.employment_status === 'offboarded' ? '#fce4ec' : '#e8f5e9',
@@ -1099,21 +1529,26 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                           {w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active'}
                         </span>
                       </td>
+                      )}
                       <td style={{ textAlign:'right' }}>
-                        <button className="btn btn-icon" onClick={(e)=>handleToggleTest(e, w)} aria-label="Toggle test member"
-                          title={w.is_test ? 'Unmark as test member' : 'Mark as test member (excluded from dashboard stats)'}
-                          style={{ color: w.is_test ? '#b45309' : '#9ca3af' }}><Flask width={16}/></button>
-                        <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard volunteer" style={{ color:'#dc2626' }}><Trash width={16}/></button>
+                        {!salaryMode && (
+                          <button className="btn btn-icon" onClick={(e)=>handleToggleTest(e, w)} aria-label="Toggle test member"
+                            title={w.is_test ? 'Unmark as test member' : 'Mark as test member (excluded from dashboard stats)'}
+                            style={{ color: w.is_test ? '#b45309' : '#9ca3af' }}><Flask width={16}/></button>
+                        )}
+                        {!salaryMode && (
+                          <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard volunteer" style={{ color:'#dc2626' }}><Trash width={16}/></button>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
-                {!filtered.length && <tr><td colSpan={7}><div className="empty">No volunteers found.</div></td></tr>}
+                {!filtered.length && <tr><td colSpan={salaryMode ? 9 : 7}><div className="empty">No volunteers found.</div></td></tr>}
               </>
             )}
           </tbody>
         </table>
-        {totalPages > 1 && (
+        {!salaryMode && totalPages > 1 && (
           <div className="pagination">
             <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
             <div className="pagination-dots">
@@ -1124,7 +1559,53 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
           </div>
         )}
+        {salaryMode && visibleCount < filtered.length && (
+          <div style={{ display:'flex', justifyContent:'center', marginTop:14, marginBottom:6 }}>
+            <button className="btn btn-outline" onClick={() => setVisibleCount(c => c + 10)}
+              style={{ gap:10, padding:'9px 24px', borderRadius:8, fontWeight:600, fontSize:13, border:'1px solid var(--line)', boxShadow:'0 1px 3px rgba(16,24,40,.06)' }}>
+              Load more <span style={{ fontSize:11, color:'var(--ink-soft)', fontWeight:700 }}>({filtered.length - visibleCount} more)</span>
+            </button>
+          </div>
+        )}
       </div>
+     {showAttExportModal && (
+       <div className="modal-overlay" onClick={() => setShowAttExportModal(false)}>
+         <div onClick={e => e.stopPropagation()} style={{
+           width: 360,
+           background: 'var(--card-bg)',
+           borderRadius: 14,
+           boxShadow: '0 12px 48px rgba(0,0,0,.15)',
+           border: '1px solid var(--line)',
+           maxHeight: 'calc(100vh - 40px)',
+           overflow: 'hidden'
+         }}>
+           <div style={{
+             display: 'flex',
+             alignItems: 'center',
+             justifyContent: 'space-between',
+             padding: '14px 18px',
+             borderBottom: '1px solid var(--line)'
+           }}>
+             <h4 style={{ margin: 0, fontSize: 15 }}>Export Attendance</h4>
+             <button onClick={() => setShowAttExportModal(false)} style={{
+               width: 28, height: 28, borderRadius: '50%', border: 'none',
+               background: 'rgba(0,0,0,.08)', color: '#666', fontSize: 18,
+               cursor: 'pointer', display: 'grid', placeItems: 'center', lineHeight: 1
+             }}>×</button>
+           </div>
+           <div style={{ padding: 20 }}>
+             <p style={{ marginBottom: 16, color: 'var(--ink-soft)' }}>Select which month's attendance sheet to export (defaults to the current month):</p>
+             <input type="month" className="input" value={attExportMonth} max={istMonthKey()}
+               onChange={e => setAttExportMonth(e.target.value)}
+               style={{ width: '100%', padding: '10px 12px', marginBottom: 16, fontSize: 14 }} />
+             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+               <button className="btn btn-outline" onClick={() => setShowAttExportModal(false)}>Cancel</button>
+               <button className="btn btn-primary" onClick={() => { doAttExport(); }}>Download</button>
+             </div>
+           </div>
+         </div>
+       </div>
+     )}
      {showPagarModal && (
       <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
         <div onClick={e => e.stopPropagation()} style={{ 
@@ -1178,9 +1659,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
              <button onClick={() => setShowCompensationModal(false)} style={{ width:28, height:28, borderRadius:'50%', border:'none', background:'rgba(0,0,0,.08)', color:'#666', fontSize:18, cursor:'pointer' }}>×</button>
            </div>
            <div style={{ padding: 20 }}>
-             <p style={{ margin:'0 0 14px', color:'var(--ink-soft)', fontSize:13 }}>
-               Link a worked Sunday to a holiday. The linked Sunday replaces the holiday and does not satisfy the separate required Sunday.
-             </p>
+              <p style={{ margin:'0 0 14px', color:'var(--ink-soft)', fontSize:13 }}>
+                Link a worked Sunday to a holiday. The linked Sunday replaces the holiday. For months before Oct 2026 it also does not satisfy the separate required Sunday; from Oct 2026 every eligible Sunday is paid anyway, so that quota no longer applies.
+              </p>
              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                <label className="field">Salary month
                  <input type="month" className="input" value={compensationMonth} onChange={e => setCompensationMonth(e.target.value)} />

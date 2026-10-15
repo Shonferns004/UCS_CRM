@@ -35,5 +35,5 @@ Build date: 2026-10-13 · Build register: [CHANGE-HISTORY](15-Change-History/CHA
 
 ## Traceability anchors
 - Architecture: `backend/src/index.js`, `backend/src/middleware/authMiddleware.js`, `client/src/App.jsx`
-- Endpoint inventory: `server.js` route registrations (85 route files → 1,039+ endpoints)
+- Endpoint inventory: `server.js` route registrations (86 route files → 1,032+ endpoints)
 - Subsystem notes carried forward: Beneficiaries 1-month OTP window (`beneficiaryController.js:164-171`); 6 beneficiary sub-list endpoints without role middleware; Sevak library dashboard tab unreachable; SIM has two divergent client copies; WhatsApp panel renders real FRO inbox; `/api/developer-tickets` = 13 route group.

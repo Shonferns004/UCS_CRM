@@ -14,7 +14,31 @@ const COLUMN_STEPS = [
   `ALTER TABLE developer_tickets ADD COLUMN IF NOT EXISTS desk_number     TEXT`,
   `ALTER TABLE developer_tickets ADD COLUMN IF NOT EXISTS ngo             TEXT`,
   `ALTER TABLE developer_tickets ADD COLUMN IF NOT EXISTS raised_by_panel TEXT`,
+  // Super-admin tickets: the env Super Admin authenticates with a non-UUID id
+  // (0) and has no workers row, so raised_by cannot hold them — keep the display
+  // name in its own column and let raised_by be null for those rows.
+  `ALTER TABLE support_tickets   ADD COLUMN IF NOT EXISTS raised_by_name  TEXT`,
+  `ALTER TABLE support_tickets   ALTER COLUMN raised_by DROP NOT NULL`,
 ];
+
+// The department column may carry a CHECK from before the 'super_admin' (raise to
+// SA) and 'all' (SA broadcast) destinations existed. Drop any such constraint so
+// those values can be inserted. The name is discovered, never hard-coded.
+const DEPT_CHECK_DDL = `
+  DO $$
+  DECLARE c record;
+  BEGIN
+    FOR c IN
+      SELECT con.conname
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+      WHERE con.contype = 'c' AND ns.nspname = 'public' AND rel.relname = 'support_tickets'
+        AND pg_get_constraintdef(con.oid) ILIKE '%department%'
+    LOOP
+      EXECUTE format('ALTER TABLE support_tickets DROP CONSTRAINT IF EXISTS %I', c.conname);
+    END LOOP;
+  END $$`;
 
 const TICKET_TABLES = ['support_tickets', 'ticket_replies', 'developer_tickets'];
 
@@ -92,6 +116,15 @@ export async function ensureTicketSchema() {
     } catch (e) {
       // Column may already exist under a race / parallel boot; not fatal.
       console.warn('[ticket schema] skip:', e?.message || String(e));
+    }
+  }
+
+  if (present.support_tickets) {
+    try {
+      await runPopupDdl(DEPT_CHECK_DDL);
+    } catch (e) {
+      // Constraint likely absent already; the insert would surface it if not.
+      console.warn('[ticket schema] department check drop skipped:', e?.message || String(e));
     }
   }
 

@@ -1,6 +1,6 @@
 # API Reference — Attendance-QR
 
-> 37 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
+> 42 endpoints · mount prefixes from backend/src/index.js · auth strings verbatim (may be truncated).
 
 # API — Attendance-QR
 
@@ -77,3 +77,15 @@
 | GET | `/api/meeting/` | `authenticate, (req, res, next) => { res.set('Cache-Control', 'no-store'` |
 | POST | `/api/meeting/start` | `authenticateRole('admin', 'super_admin'), startMeeting` |
 | POST | `/api/meeting/end` | `authenticateRole('admin', 'super_admin'), endMeeting` |
+
+## absenceProofRoutes.js
+
+**Mount prefix:** `/api/absence-proofs`
+
+| Method | Path | Auth / controller (as written) |
+| --- | --- | --- |
+| GET | `/api/absence-proofs/actionable` | `authenticate, myActionable` |
+| POST | `/api/absence-proofs/` | `authenticate, upload` |
+| GET | `/api/absence-proofs/pending` | `adminOrHrOrHo, listPending` |
+| GET | `/api/absence-proofs/worker/:workerId` | `adminOrHrOrHo, workerMonth` |
+| PUT | `/api/absence-proofs/:id/status` | `adminOrHrOrHo, review` |

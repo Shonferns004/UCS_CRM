@@ -162,4 +162,4 @@ sequenceDiagram
 
 ## 7. Unverified Items
 
-- Per-route auth gates: not every one of the ~85 mounts was individually inspected. Each route's gate must be confirmed during Phase 4 (API reference). Status: **Partially verified**.
+- Per-route auth gates: not every one of the ~86 mounts was individually inspected. Each route's gate must be confirmed during Phase 4 (API reference). Status: **Partially verified**.
