@@ -47,7 +47,6 @@ const NAV = [
   { id: 'organization', path: '/sa/organization', label: 'Organization', eyebrow: 'Organization', icon: Buildings },
   { id: 'employees', path: '/sa/employees', label: 'Volunteers', eyebrow: 'People', icon: Users },
   { id: 'leaves', path: '/sa/leaves', label: 'Leaves', eyebrow: 'HR', icon: Airplane },
-  { id: 'tickets', path: '/sa/tickets', label: 'Tickets', eyebrow: 'Support', icon: Ticket },
   { id: 'support-tickets', path: '/sa/support-tickets', label: 'Support Tickets', eyebrow: 'Support', icon: Ticket },
   { id: 'ngo-admin', path: '/sa/ngo-admin', label: 'Admin', eyebrow: 'Admin', icon: BuildingOffice },
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
@@ -78,7 +77,7 @@ NAV.forEach(n => { navMap[n.id] = n })
 const CATEGORIES = [
   { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter'] },
   { id: 'people', label: 'People', icon: Users, items: ['daily-reports', 'organization', 'admin-attendance'] },
-  { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'tickets', 'support-tickets', 'data-management'] },
+  { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'support-tickets', 'data-management'] },
   { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
   { id: 'comms', label: 'Communication', icon: Megaphone, items: ['notices', 'chat'] },
   { id: 'less', label: 'Less used', icon: Clipboard, items: ['employees', 'leaves', 'late-policy', 'assets', 'metropad'] },

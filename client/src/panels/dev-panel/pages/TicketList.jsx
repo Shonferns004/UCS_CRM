@@ -5,7 +5,6 @@ import { getUnifiedDevTickets, getMyUnifiedTickets, getUnassignedTickets, getDev
 import { deptLabel } from '../../../lib/labels';
 
 const STATUS_TABS = [
-  { key: '', label: 'All' },
   { key: 'open', label: 'Open' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'under_review', label: 'Under Review' },
@@ -245,7 +244,6 @@ export default function TicketList({ filter = 'all' }) {
         {filter === 'all' && (
           <select value={assignedFilter} onChange={e => setAssignedFilter(e.target.value)} style={{ padding: '7px 8px', fontSize: 11, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'var(--card-bg)', fontFamily: 'inherit' }}>
             <option value="">All Assignees</option>
-            <option value="null">Unassigned</option>
             {assignees.map(a => <option key={a.id} value={a.id}>{a.name || a.login_id}</option>)}
           </select>
         )}
