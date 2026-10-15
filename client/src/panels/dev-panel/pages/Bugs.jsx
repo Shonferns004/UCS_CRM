@@ -331,6 +331,7 @@ export default function Bugs() {
                   <button title="Delete bug" onClick={e => { e.stopPropagation(); deleteCard(bug.id); }} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '0 2px' }} onMouseEnter={e => e.currentTarget.style.color = '#dc2626'} onMouseLeave={e => e.currentTarget.style.color = '#9ca3af'}>×</button>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 10, marginBottom: 4 }}>
+                  <span style={{ padding: '1px 6px', borderRadius: 999, background: '#f3f4f6', color: '#6b7280', fontWeight: 700 }}>#{bug.id}</span>
                   <span style={{ padding: '1px 6px', borderRadius: 999, background: SEVERITY_COLORS[bug.severity]?.bg || '#f3f4f6', color: SEVERITY_COLORS[bug.severity]?.color || '#6b7280' }}>{bug.severity}</span>
                   {bug.module && <span style={{ padding: '1px 6px', borderRadius: 999, background: '#eef2ff', color: '#4338ca' }}>{bug.module}</span>}
                   {bug.status === 'fixed' && bug.fixed_at && <span style={{ color: '#16a34a', fontWeight: 700 }}>Fixed · {fmtAgo(bug.fixed_at)}</span>}
@@ -418,7 +419,7 @@ export default function Bugs() {
         <div className="modal-overlay" onClick={() => setShowDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 'min(720px, calc(100% - 20px))', maxHeight: '92vh', overflowY: 'auto', background: '#fff', borderRadius: 12, boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
             <div className="modal-head" style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: 14, flex: 1, marginRight: 8 }}>{showDetail.title}</h3>
+              <h3 style={{ margin: 0, fontSize: 14, flex: 1, marginRight: 8 }}><span style={{ color: '#6b7280', fontWeight: 600 }}>#{showDetail.id}</span> {showDetail.title}</h3>
               <button onClick={() => setShowDetail(null)} style={{ border: 'none', background: 'none', fontSize: 18, cursor: 'pointer' }}>×</button>
             </div>
             <div className="modal-body" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
