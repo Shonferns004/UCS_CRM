@@ -13,23 +13,11 @@ const TICKET_GATE = {
   sessionKey: 'ucs_ticket_unlocked',
 };
 
-const DEPARTMENTS = [
-  { value: 'accounts', label: 'Accounts' },
-  { value: 'developers', label: 'Developers' },
-  { value: 'hr', label: 'HR' },
-  { value: 'fro', label: 'FRO' },
-  { value: 'super_admin', label: 'Super Admin' },
-  { value: 'ngo_admin', label: 'NGO Admin' },
-  { value: 'socialmedia', label: 'Social Media' },
-  { value: 'technical', label: 'Technical' },
-];
-
 const CATEGORIES = [
   { value: 'suspense', label: 'Suspense' },
   { value: 'payment_issue', label: 'Payment Issue' },
   { value: 'receipt_issue', label: 'Receipt Issue' },
   { value: 'technical', label: 'Technical' },
-  { value: 'digital_team', label: 'Digital Team' },
   { value: 'hr_issue', label: 'HR Related' },
   { value: 'super_admin', label: 'Super Admin' },
   { value: 'developers', label: 'Developers' },
@@ -119,7 +107,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [replies, setReplies] = useState([]);
   const [replyText, setReplyText] = useState('');
   const [form, setForm] = useState({
-    department: 'accounts',
+    department: 'developers',
     category: 'technical',
     subject: '',
     description: '',
@@ -769,12 +757,6 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
               </div>
 
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                  Department *
-                  <select value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
-                    {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
-                </label>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   Category *
                   <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
