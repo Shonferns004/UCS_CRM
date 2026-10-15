@@ -4,11 +4,13 @@ import db from '../config/db.js';
 // denormalized onto the row at write time, so no worker joins are needed here
 // and the board renders without a second round-trip.
 
-const STATUSES = ['reported', 'in_progress', 'fixed'];
+const STATUSES = ['reported', 'in_progress', 'ready_for_test', 'closed', 'reopened'];
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
+const TYPES = ['bug', 'feature', 'task', 'improvement', 'story'];
 
 export const BUG_STATUSES = STATUSES;
 export const BUG_SEVERITIES = SEVERITIES;
+export const BUG_TYPES = TYPES;
 
 export const insertBug = async (bug) => {
   const { data, error } = await db
@@ -27,6 +29,7 @@ export const selectBugs = async (filters = {}) => {
     .order('created_at', { ascending: false });
 
   if (filters.status) query = query.eq('status', filters.status);
+  if (filters.type) query = query.eq('type', filters.type);
   if (filters.severity) query = query.eq('severity', filters.severity);
   if (filters.module) query = query.eq('module', filters.module);
   if (filters.assigned_to) {
@@ -90,7 +93,9 @@ export const getBugStats = async () => {
     total: all.length,
     reported: countBy('status', 'reported'),
     in_progress: countBy('status', 'in_progress'),
-    fixed: countBy('status', 'fixed'),
+    ready_for_test: countBy('status', 'ready_for_test'),
+    closed: countBy('status', 'closed'),
+    reopened: countBy('status', 'reopened'),
     by_severity: {
       low: countBy('severity', 'low'),
       medium: countBy('severity', 'medium'),
@@ -98,4 +103,26 @@ export const getBugStats = async () => {
       critical: countBy('severity', 'critical'),
     },
   };
+};
+
+// ── History ────────────────────────────────────────────────────────────────
+// One row per status/assignee change, so the issue view can render a timeline.
+
+export const insertBugHistory = async (rows) => {
+  const list = Array.isArray(rows) ? rows : [rows];
+  const clean = list.filter(Boolean);
+  if (clean.length === 0) return [];
+  const { data, error } = await db.from('bug_history').insert(clean).select();
+  if (error) throw error;
+  return data || [];
+};
+
+export const selectBugHistory = async (bugId) => {
+  const { data, error } = await db
+    .from('bug_history')
+    .select('*')
+    .eq('bug_id', bugId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 };
