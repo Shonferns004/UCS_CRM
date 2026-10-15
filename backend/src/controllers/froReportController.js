@@ -43,15 +43,18 @@ async function accessibleFroIds(req) {
   const isSuper = req.user.role === 'super_admin';
   const access = await getUserNgoAccess(req.user.id, req.user.role);
   const ngoIds = access.map((a) => a.ngo_id).filter(Boolean);
+  // Names come free with the access rows; carried out so idle rows can label the
+  // NGO instead of leaking a raw uuid to the picker and the table.
+  const ngoNameById = new Map(access.map((a) => [String(a.ngo_id), a.ngo_name || null]));
   if (!isSuper && ngoIds.length === 0 && req.user.ngo_id) ngoIds.push(req.user.ngo_id);
   if (isSuper && ngoIds.length === 0) {
-    const { data } = await db.from('workers').select('id').eq('department', 'FRO').eq('is_test', false);
-    return { isSuper, ids: (data || []).map((w) => String(w.id)), workers: data || [] };
+    const { data } = await db.from('workers').select('id, ngo_id').eq('department', 'FRO').eq('is_test', false);
+    return { isSuper, ids: (data || []).map((w) => String(w.id)), workers: data || [], ngoNameById };
   }
   const lists = await Promise.all(ngoIds.map((id) => getFroWorkersByNgo(id)));
   const byId = new Map();
   for (const w of lists.flat()) byId.set(String(w.id), w);
-  return { isSuper, ids: [...byId.keys()], workers: [...byId.values()] };
+  return { isSuper, ids: [...byId.keys()], workers: [...byId.values()], ngoNameById };
 }
 
 // ── Self ────────────────────────────────────────────────────────
@@ -96,7 +99,7 @@ export const getIdleReport = async (req, res) => {
 
     // No worker selected: one total per FRO, straight from the ledger (single
     // aggregate query — never ship every session to the client).
-    const { workers } = await accessibleFroIds(req);
+    const { workers, ngoNameById } = await accessibleFroIds(req);
     const ids = workers.map((w) => String(w.id));
     const totals = await getFroIdleTotalsForRange(ids, from, to);
     const rows = workers
@@ -105,6 +108,7 @@ export const getIdleReport = async (req, res) => {
         name: w.name || w.login_id || 'Unknown',
         login_id: w.login_id || null,
         ngo_id: w.ngo_id || null,
+        ngo_name: w.ngo_id ? (ngoNameById.get(String(w.ngo_id)) || null) : null,
         total_idle_seconds: totals[String(w.id)] || 0,
       }))
       .sort((a, b) => b.total_idle_seconds - a.total_idle_seconds);
