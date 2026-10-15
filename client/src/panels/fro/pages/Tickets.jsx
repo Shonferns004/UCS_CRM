@@ -6,13 +6,6 @@ import { useRealtime } from '../../../hooks/useRealtime';
 import { deptLabel } from '../../../lib/labels';
 import { routeFor, routeLabel, categoryLabel } from '../../../lib/ticketRouting';
 
-const DEPARTMENTS = [
-  { value: 'accounts', label: 'Accounts' },
-  { value: 'developers', label: 'Developers' },
-  { value: 'hr', label: 'HR' },
-  { value: 'fro', label: 'FRO' },
-];
-
 const CATEGORIES = [
   { value: 'suspense', label: 'Suspense' },
   { value: 'payment_issue', label: 'Payment Issue' },
@@ -559,12 +552,6 @@ export default function FroTickets() {
                   Ticket Details
                 </div>
                 <div className="fro-raise-grid">
-                  <label className="field">
-                    Department *
-                    <select value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
-                      {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-                    </select>
-                  </label>
                   <label className="field">
                     Category *
                     <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>

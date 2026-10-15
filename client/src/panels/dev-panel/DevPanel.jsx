@@ -17,7 +17,6 @@ const SuperAdminTicketSection = lazy(() => import('../../components/SuperAdminTi
 
 const NAV = [
   { id: 'dashboard', path: '/dev-panel', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'tickets', path: '/dev-panel/tickets', label: 'All Tickets', icon: 'confirmation_number' },
   { id: 'my-tickets', path: '/dev-panel/my-tickets', label: 'My Tickets', icon: 'person' },
   { id: 'unassigned', path: '/dev-panel/unassigned', label: 'Unassigned', icon: 'assignment_late' },
   { id: 'daily-report', path: '/dev-panel/daily-report', label: 'Daily Report', icon: 'description' },
@@ -103,7 +102,6 @@ export default function DevPanel() {
           <ToastProvider>
           <Routes>
             <Route index element={<Dashboard />} />
-            <Route path="tickets" element={<TicketList filter="all" />} />
             <Route path="my-tickets" element={<MyTickets />} />
             <Route path="unassigned" element={<TicketList filter="unassigned" />} />
             <Route path="daily-report" element={<DevDailyReport />} />
