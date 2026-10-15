@@ -31,8 +31,6 @@ const CSS = `
 .fir-bar { height: 8px; border-radius: 999px; background: #FEE4E2; overflow: hidden; min-width: 60px; }
 .fir-bar > span { display: block; height: 100%; background: #D92D20; }
 .fir-drill { border-top: 1px solid #E7EFF9; background: #FBFDFF; padding: 14px; }
-.fir-drill-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.fir-drill-title { font-size: 14px; font-weight: 700; color: #10213D; }
 .fir-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
 .fir-day { background: #fff; border: 1px solid #E7EFF9; border-radius: 9px; padding: 9px 11px; }
 .fir-day-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -45,6 +43,18 @@ const CSS = `
 .fir-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: #EFF6FF; color: #287FE8; }
 .fir-state { background: #fff; border: 1px solid #DCE7F5; border-radius: 12px; padding: 44px 20px; text-align: center; margin-top: 12px; color: #6D7E95; font-size: 13px; }
 .fir-link { border: none; background: none; color: #287FE8; font-weight: 700; font-size: 11px; cursor: pointer; font-family: inherit; padding: 0; }
+.fir-drill-hero { display: flex; align-items: center; gap: 12px; }
+.fir-avatar { width: 42px; height: 42px; border-radius: 12px; background: #E8F0FB; color: #2E6FD8; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 17px; flex-shrink: 0; }
+.fir-drill-name { font-size: 14px; font-weight: 700; color: #10213D; line-height: 1.25; }
+.fir-drill-sub { font-size: 11.5px; color: #6D7E95; margin-top: 1px; }
+.fir-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-top: 14px; }
+.fir-chip { background: #fff; border: 1px solid #E7EFF9; border-radius: 9px; padding: 8px 11px; min-width: 0; }
+.fir-chip b { display: block; font-size: 15px; font-weight: 700; color: #10213D; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.fir-chip span { display: block; font-size: 10px; color: #6D7E95; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-top: 1px; }
+.fir-day-bar { height: 5px; border-radius: 999px; background: #EFF2F7; overflow: hidden; margin-top: 8px; }
+.fir-day-bar > span { display: block; height: 100%; }
+.fir-day-wk { font-size: 10.5px; color: #8A96AB; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.fir-empty { padding: 18px; font-size: 12.5px; color: #6D7E95; text-align: center; }
 @media (max-width: 900px) { .fir-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `
 
@@ -108,7 +118,10 @@ export default function FroIdleReportPanel({ title = 'FRO Idle Report', subtitle
 
   const ngos = useMemo(() => {
     const map = new Map()
-    for (const r of rows) if (r.ngo_id && !map.has(String(r.ngo_id))) map.set(String(r.ngo_id), r.ngo_id)
+    for (const r of rows) {
+      if (!r.ngo_id || map.has(String(r.ngo_id))) continue
+      map.set(String(r.ngo_id), r.ngo_name || String(r.ngo_id).slice(0, 8))
+    }
     return [...map.entries()]
   }, [rows])
 
@@ -167,7 +180,7 @@ export default function FroIdleReportPanel({ title = 'FRO Idle Report', subtitle
         <input className="fir-input" type="month" value={month} max={thisMonth()} onChange={(e) => setMonth(e.target.value || thisMonth())} aria-label="Month" />
         <select className="fir-select" value={ngoId} onChange={(e) => setNgoId(e.target.value)} aria-label="NGO">
           <option value="all">All NGOs</option>
-          {ngos.map(([id]) => <option key={id} value={id}>{String(id).slice(0, 8)}…</option>)}
+          {ngos.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
         <input className="fir-input" placeholder="Search FRO name or login…" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
@@ -208,7 +221,7 @@ export default function FroIdleReportPanel({ title = 'FRO Idle Report', subtitle
                         <div className="fir-name">{r.name}</div>
                         {r.login_id ? <div className="fir-login">{r.login_id}</div> : null}
                       </td>
-                      <td>{r.ngo_id ? String(r.ngo_id).slice(0, 8) : '—'}</td>
+                      <td>{r.ngo_name || (r.ngo_id ? String(r.ngo_id).slice(0, 8) : '—')}</td>
                       <td className="fir-num" style={{ color: r.total_idle_seconds > 0 ? '#D92D20' : '#6D7E95', fontWeight: 700 }}>{fmtDuration(r.total_idle_seconds || 0)}</td>
                       <td><div className="fir-bar"><span style={{ width: `${pct}%` }} /></div></td>
                     </tr>
@@ -216,48 +229,89 @@ export default function FroIdleReportPanel({ title = 'FRO Idle Report', subtitle
                       <tr>
                         <td colSpan={4} style={{ padding: 0 }}>
                           <div className="fir-drill">
-                            <div className="fir-drill-head">
-                              <div className="fir-drill-title">{r.name} — daily idle, {from} to {to}</div>
-                            </div>
-                            {drill.loading ? <div className="fir-day-meta">Loading days…</div>
-                              : drill.error ? <div className="fir-day-meta" style={{ color: '#D92D20' }}>{drill.error}</div>
-                              : (
-                                <div className="fir-days">
-                                  {(drill.data?.daily || []).filter((d) => d.idle_seconds > 0).map((d) => {
-                                    const key = `${id}:${d.date}`
-                                    const s = sessions[key]
-                                    return (
-                                      <div className="fir-day" key={d.date}>
-                                        <div className="fir-day-top">
-                                          <span className="fir-day-date">{d.date}</span>
-                                          <span className="fir-day-idle">{fmtDuration(d.idle_seconds)}</span>
+                            {drill.loading ? (
+                              <div className="fir-day-meta">Loading days…</div>
+                            ) : drill.error ? (
+                              <div className="fir-day-meta" style={{ color: '#D92D20' }}>{drill.error}</div>
+                            ) : (
+                              (() => {
+                                const daily = drill.data?.daily || []
+                                const idleDays = daily.filter((d) => d.idle_seconds > 0)
+                                const dayMax = Math.max(1, ...idleDays.map((d) => d.idle_seconds))
+                                const t = drill.data?.total || {}
+                                return (
+                                  <Fragment>
+                                    <div className="fir-drill-hero">
+                                      <div className="fir-avatar">{(r.name || '?').trim().charAt(0).toUpperCase() || '?'}</div>
+                                      <div style={{ minWidth: 0 }}>
+                                        <div className="fir-drill-name">{r.name}</div>
+                                        <div className="fir-drill-sub">
+                                          {r.login_id ? `${r.login_id} · ` : ''}Daily idle · {from} to {to}
                                         </div>
-                                        <div className="fir-day-meta">
-                                          Worked {fmtDuration(d.worked_seconds)} · Meeting {fmtDuration(d.meeting_seconds)} · Internet {fmtDuration(d.internet_problem_seconds)}
-                                        </div>
-                                        <button className="fir-link" onClick={() => loadSessions(id, d.date)}>
-                                          {s?.loading ? 'Loading…' : s?.data ? 'Hide sessions' : 'View sessions'}
-                                        </button>
-                                        {s?.data && (
-                                          <div className="fir-sessions">
-                                            {(s.data.sessions || []).map((x, i) => (
-                                              <div className="fir-session" key={i}>
-                                                <span>
-                                                  <b>{fmtClock(x.started_at)}</b> – {x.open ? 'now' : fmtClock(x.ended_at)}
-                                                  {' '}<span className="fir-tag">{STATE_LABEL[x.state] || x.state}</span>
-                                                </span>
-                                                <b>{fmtDuration(x.duration_seconds)}</b>
-                                              </div>
-                                            ))}
-                                            {(s.data.sessions || []).length === 0 ? <div className="fir-day-meta">No sessions.</div> : null}
-                                          </div>
-                                        )}
                                       </div>
-                                    )
-                                  })}
-                                  {(drill.data?.daily || []).every((d) => d.idle_seconds === 0) ? <div className="fir-day-meta">No idle this period.</div> : null}
-                                </div>
-                              )}
+                                    </div>
+
+                                    <div className="fir-chips">
+                                      <div className="fir-chip"><b>{fmtDuration(t.idle_seconds)}</b><span>Idle</span></div>
+                                      <div className="fir-chip"><b>{fmtDuration(t.worked_seconds)}</b><span>Worked</span></div>
+                                      <div className="fir-chip"><b>{fmtDuration(t.meeting_seconds)}</b><span>Meetings</span></div>
+                                      <div className="fir-chip"><b>{fmtDuration(t.internet_problem_seconds)}</b><span>Internet</span></div>
+                                      <div className="fir-chip"><b>{fmtDuration(t.sleep_hidden_seconds)}</b><span>Sleep / Hidden</span></div>
+                                    </div>
+
+                                    {idleDays.length === 0 ? (
+                                      <div className="fir-empty">No idle recorded for this period — nothing to drill into.</div>
+                                    ) : (
+                                      <div className="fir-days" style={{ marginTop: 12 }}>
+                                        {idleDays.map((d) => {
+                                          const key = `${id}:${d.date}`
+                                          const s = sessions[key]
+                                          const pct = Math.round((d.idle_seconds / dayMax) * 100)
+                                          const date = new Date(`${d.date}T00:00:00`)
+                                          const weekday = Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-IN', { weekday: 'short' })
+                                          return (
+                                            <div className="fir-day" key={d.date}>
+                                              <div className="fir-day-top">
+                                                <span>
+                                                  <span className="fir-day-date">{d.date}</span>
+                                                  {weekday ? <span className="fir-day-wk"> · {weekday}</span> : null}
+                                                </span>
+                                                <span className="fir-day-idle">{fmtDuration(d.idle_seconds)}</span>
+                                              </div>
+                                              <div className="fir-day-bar">
+                                                <span style={{ width: `${pct}%`, background: pct >= 50 ? '#DC2626' : '#F59E0B' }} />
+                                              </div>
+                                              <div className="fir-day-meta">
+                                                Worked {fmtDuration(d.worked_seconds)}
+                                                {d.meeting_seconds > 0 ? ` · Meet ${fmtDuration(d.meeting_seconds)}` : ''}
+                                                {d.internet_problem_seconds > 0 ? ` · Net ${fmtDuration(d.internet_problem_seconds)}` : ''}
+                                              </div>
+                                              <button className="fir-link" onClick={() => loadSessions(id, d.date)}>
+                                                {s?.loading ? 'Loading…' : s?.data ? 'Hide sessions' : 'View sessions'}
+                                              </button>
+                                              {s?.data && (
+                                                <div className="fir-sessions">
+                                                  {(s.data.sessions || []).map((x, i) => (
+                                                    <div className="fir-session" key={i}>
+                                                      <span>
+                                                        <b>{fmtClock(x.started_at)}</b> – {x.open ? 'now' : fmtClock(x.ended_at)}
+                                                        {' '}<span className="fir-tag">{STATE_LABEL[x.state] || x.state}</span>
+                                                      </span>
+                                                      <b>{fmtDuration(x.duration_seconds)}</b>
+                                                    </div>
+                                                  ))}
+                                                  {(s.data.sessions || []).length === 0 ? <div className="fir-day-meta">No sessions.</div> : null}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </Fragment>
+                                )
+                              })()
+                            )}
                           </div>
                         </td>
                       </tr>

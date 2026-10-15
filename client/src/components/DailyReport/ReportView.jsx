@@ -22,6 +22,17 @@ const isBlank = (v) =>
 
 const STATUS_LABEL = { done: 'Done', wip: 'WIP', pending: 'Pending' }
 
+// The `task_date` column is a DATE but the driver hands it back as a JS Date at
+// IST midnight, which serialises to the previous UTC day (…T18:30:00Z). Adding
+// the IST offset recovers the calendar day the planner actually assigned.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
+const taskDay = (ts) => {
+  if (!ts) return ''
+  const t = new Date(ts).getTime()
+  if (Number.isNaN(t)) return ''
+  return new Date(t + IST_OFFSET_MS).toISOString().slice(0, 10)
+}
+
 const text = (v) => (v == null ? '' : String(v))
 
 const toRows = (field, value) => {
@@ -101,7 +112,7 @@ function Field({ field, value, assignedTasks = [] }) {
                 <span>
                   {t.title}
                   <span className="drv-task-meta">
-                    Assigned{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}{t.task_date ? ` · ${t.task_date}` : ''} · {STATUS_LABEL[t.status] || 'Pending'}
+                    Assigned{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}{taskDay(t.task_date) ? ` · ${taskDay(t.task_date)}` : ''} · {STATUS_LABEL[t.status] || 'Pending'}
                   </span>
                 </span>
               </li>
