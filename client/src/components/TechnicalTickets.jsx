@@ -107,8 +107,8 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [replies, setReplies] = useState([]);
   const [replyText, setReplyText] = useState('');
   const [form, setForm] = useState({
-    department: 'developers',
-    category: 'technical',
+    department: panel ? (panel === 'social' ? 'social' : panel === 'super_admin' ? 'super_admin' : 'accounts') : 'developers',
+    category: panel ? (panel === 'social' ? 'social_media' : panel === 'super_admin' ? 'super_admin' : 'technical') : 'technical',
     subject: '',
     description: '',
     reference_id: '',
@@ -232,9 +232,10 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   };
 
   const openRaise = () => {
+    const isSocialPanel = panel === 'social';
     setForm({
-      department: toSuperAdmin ? 'super_admin' : 'accounts',
-      category: toSuperAdmin ? 'super_admin' : 'technical',
+      department: toSuperAdmin ? 'super_admin' : isSocialPanel ? 'social' : 'accounts',
+      category: toSuperAdmin ? 'super_admin' : isSocialPanel ? 'social_media' : 'technical',
       subject: '',
       description: '',
       reference_id: '',
