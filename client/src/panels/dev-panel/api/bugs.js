@@ -13,6 +13,7 @@ export const getBugs = (params = {}) => {
 
 export const getBugStats = () => p('/bugs/stats')
 export const getBugAssignees = () => p('/bugs/assignees')
+export const getBugHistory = (id) => p(`/bugs/${id}/history`)
 export const getBug = (id) => p(`/bugs/${id}`)
 
 export const createBug = (data) =>

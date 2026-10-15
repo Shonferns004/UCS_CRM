@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS bugs (
   expected_result   TEXT,
   actual_result     TEXT,
   module            TEXT,
+  type              TEXT        NOT NULL DEFAULT 'bug',
   severity          TEXT        NOT NULL DEFAULT 'medium',
   status            TEXT        NOT NULL DEFAULT 'reported',
   environment       TEXT,
@@ -38,8 +39,10 @@ ALTER TABLE bugs ADD COLUMN IF NOT EXISTS description       TEXT;
 ALTER TABLE bugs ADD COLUMN IF NOT EXISTS steps             TEXT;
 ALTER TABLE bugs ADD COLUMN IF NOT EXISTS expected_result   TEXT;
 ALTER TABLE bugs ADD COLUMN IF NOT EXISTS actual_result     TEXT;
-ALTER TABLE bugs ADD COLUMN IF NOT EXISTS module            TEXT;
-ALTER TABLE bugs ADD COLUMN IF NOT EXISTS severity          TEXT NOT NULL DEFAULT 'medium';
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS module          TEXT;
+-- Issue type: bug | feature | task | improvement | story (defaults to bug).
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS type            TEXT NOT NULL DEFAULT 'bug';
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS severity        TEXT NOT NULL DEFAULT 'medium';
 ALTER TABLE bugs ADD COLUMN IF NOT EXISTS status            TEXT NOT NULL DEFAULT 'reported';
 ALTER TABLE bugs ADD COLUMN IF NOT EXISTS environment       TEXT;
 ALTER TABLE bugs ADD COLUMN IF NOT EXISTS screenshot_url    TEXT;
@@ -55,7 +58,35 @@ ALTER TABLE bugs ADD COLUMN IF NOT EXISTS updated_at        TIMESTAMPTZ NOT NULL
 
 -- The board reads by status; filters run on severity/module/assignee.
 CREATE INDEX IF NOT EXISTS idx_bugs_status   ON bugs (status);
+CREATE INDEX IF NOT EXISTS idx_bugs_type     ON bugs (type);
 CREATE INDEX IF NOT EXISTS idx_bugs_severity ON bugs (severity);
 CREATE INDEX IF NOT EXISTS idx_bugs_module   ON bugs (module);
 CREATE INDEX IF NOT EXISTS idx_bugs_assigned ON bugs (assigned_to);
 CREATE INDEX IF NOT EXISTS idx_bugs_created  ON bugs (created_at DESC);
+
+-- ── Lifecycle (report -> fix -> test -> close/reopen) ──────────────────────
+-- status values: reported | in_progress | ready_for_test | closed | reopened
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS ready_for_test_at    TIMESTAMPTZ;
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS ready_for_test_by_id TEXT;
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS closed_at            TIMESTAMPTZ;
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS closed_by_id         TEXT;
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS reopened_at          TIMESTAMPTZ;
+ALTER TABLE bugs ADD COLUMN IF NOT EXISTS reopen_count         INTEGER NOT NULL DEFAULT 0;
+
+-- Legacy: 'fixed' meant "developer done, awaiting test" -> now 'ready_for_test'.
+UPDATE bugs SET status = 'ready_for_test' WHERE status = 'fixed';
+
+-- Audit trail: one row per status/assignee change so the detail view can show
+-- the full cycle (who moved it, from where to where, when).
+CREATE TABLE IF NOT EXISTS bug_history (
+  id         BIGSERIAL   PRIMARY KEY,
+  bug_id     BIGINT      NOT NULL REFERENCES bugs(id) ON DELETE CASCADE,
+  field      TEXT,
+  from_value TEXT,
+  to_value   TEXT,
+  actor_id   TEXT,
+  actor_name TEXT,
+  note       TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bug_history_bug ON bug_history (bug_id, created_at DESC);
