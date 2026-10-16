@@ -206,19 +206,41 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
     };
   }
 
-  // Fetch verified leads within the day & competition window
-  const { data: leads } = await db
+  // Fetch verified leads within the day & competition window.
+  //
+  // Credit follows the person at the keyboard — the SAME rule as the FRO panel's
+  // Collected/Verified cards and froDonorLogModel.loadClaimRows(attribution:
+  // 'credit'). Under a "work as" session fro_donor_logs splits the identities:
+  // fro_worker_id holds the COVERED FRO (the account used) and operator_id holds
+  // the ACTOR (who actually collected). So a FRO is credited for:
+  //   • their own rows   — fro_worker_id = them AND operator_id IS NULL
+  //   • cover rows they ran — operator_id = them
+  // Without this, an operator's collection wrongly landed on the covered FRO.
+  const windowed = () => db
     .from('fro_donor_logs')
     .select('id, donor_id, amount_collected, verified_at')
-    .eq('fro_worker_id', froId)
     .eq('action', 'disposition')
     .eq('disposition_detail', 'lead_done')
     .eq('accounts_status', 'verified')
     .gte('verified_at', winStart.toISOString())
-    .lte('verified_at', winEnd.toISOString())
-    .order('verified_at', { ascending: false });
+    .lte('verified_at', winEnd.toISOString());
 
-  const allLeads = leads || [];
+  const leadById = new Map();
+  // Own half. Tolerated failures: a non-uuid id would make Postgres refuse the
+  // comparison, and the board must lose a slice of detail rather than the whole
+  // computation.
+  try {
+    const { data } = await windowed().eq('fro_worker_id', froId).is('operator_id', null);
+    for (const r of data || []) leadById.set(String(r.id), r);
+  } catch (e) { /* own half stands alone */ }
+  // Cover half — rows this worker actually collected while acting as someone else.
+  try {
+    const { data } = await windowed().eq('operator_id', froId);
+    for (const r of data || []) leadById.set(String(r.id), r);
+  } catch (e) { /* cover half is optional for an id outside operator_id's spaces */ }
+
+  const allLeads = [...leadById.values()]
+    .sort((a, b) => new Date(b.verified_at) - new Date(a.verified_at));
   // Flat-prize model: EVERY verified lead counts toward the day's collection —
   // there is no per-lead minimum (even a ₹10 lead counts). The only threshold a
   // range has is amount_to_win: the total day collection that first reaches it
@@ -733,6 +755,10 @@ export const getFroRanks = async (date, { includeWon = false } = {}) => {
     ranges.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
+      // Competition window (set from the accounts panel): the FRO popup shows
+      // these start/end times so each range's race time is clear.
+      started_at: slab.started_at || null,
+      ended_at: slab.ended_at || null,
       amount_to_win: slab?.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
       incentive_amount: Number(slab.incentive_amount) || 0,
       tier_mode: !!tierInfo,

@@ -131,6 +131,8 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
   const items = Array.isArray(value) ? value : []
   const [draft, setDraft] = useState('')
   const [draftStatus, setDraftStatus] = useState('pending')
+  const [dragItem, setDragItem] = useState(null)   // { type: 'own', index } | { type: 'assigned', id }
+  const [dragOver, setDragOver] = useState(null)   // column id being hovered
   const add = () => {
     const text = draft.trim()
     if (!text) return
@@ -138,6 +140,7 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
     setDraft('')
   }
   const setStatusAt = (idx, status) => onChange(items.map((it, i) => (i === idx ? toTask(it.text, status) : it)))
+  const setTextAt = (idx, text) => onChange(items.map((it, i) => (i === idx ? { ...it, text } : it)))
   const removeAt = (idx) => onChange(items.filter((_, i) => i !== idx))
   const indexed = items.map((it, i) => ({ it, i }))
   // Tasks a manager assigned to this reporter, shown as cards in the same board
@@ -149,15 +152,36 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
     day: istDateOf(t.task_date),
   }))
   const empty = items.length === 0 && assigned.length === 0
+
+  // Drag a card onto a column to move it to that status. Own tasks go through
+  // onChange; manager-assigned ones go through onAssignedStatus.
+  const dropTo = (colId) => {
+    if (!dragItem) return
+    if (dragItem.type === 'own') setStatusAt(dragItem.index, colId)
+    else if (onAssignedStatus) onAssignedStatus(dragItem.id, colId)
+    setDragItem(null)
+    setDragOver(null)
+  }
+  const startDrag = (item) => (e) => {
+    setDragItem(item)
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData('text/plain', '') } catch { /* some browsers throw */ }
+    const card = e.currentTarget.closest('.dr-task')
+    if (card) e.dataTransfer.setDragImage(card, 24, 18)
+  }
+  const endDrag = () => { setDragItem(null); setDragOver(null) }
+  const dragging = (item) => dragItem && dragItem.type === item.type && (item.type === 'own' ? dragItem.index === item.index : dragItem.id === item.id)
+
   return (
     <div className="dr-check">
       <div className="dr-check-add">
-        <input
-          className="dr-input"
+        <textarea
+          className="dr-input dr-task-add"
+          rows={2}
           value={draft}
           placeholder={placeholder || 'Add a task…'}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add() } }}
         />
         <select className="dr-input dr-check-status-pick" value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)} aria-label="Status of the new task">
           {TASK_COLUMNS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -171,16 +195,28 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
             const colItems = indexed.filter(({ it }) => it.status === col.id)
             const colAssigned = assigned.filter((t) => t.status === col.id)
             return (
-              <div key={col.id} className={`dr-col dr-col-${col.id}`}>
+              <div
+                key={col.id}
+                className={`dr-col dr-col-${col.id}${dragOver === col.id ? ' drag-over' : ''}`}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOver !== col.id) setDragOver(col.id) }}
+                onDrop={(e) => { e.preventDefault(); dropTo(col.id) }}
+              >
                 <div className="dr-col-head">
                   <span>{col.label}</span>
                   <span className="dr-col-count">{colItems.length + colAssigned.length}</span>
                 </div>
                 {colItems.length === 0 && colAssigned.length === 0 && <div className="dr-col-empty">No tasks</div>}
                 {colItems.map(({ it, i }) => (
-                  <div key={i} className={`dr-task dr-task-${it.status}`}>
+                  <div key={i} className={`dr-task dr-task-${it.status}${dragging({ type: 'own', index: i }) ? ' dragging' : ''}`}>
                     <div className="dr-task-top">
-                      <span className="dr-task-text">{it.text}</span>
+                      <span className="dr-drag-handle" draggable onDragStart={startDrag({ type: 'own', index: i })} onDragEnd={endDrag} title="Drag to move" aria-label="Drag task">⠿</span>
+                      <textarea
+                        className="dr-input dr-task-input"
+                        rows={2}
+                        value={it.text}
+                        placeholder="Task"
+                        onChange={(e) => setTextAt(i, e.target.value)}
+                      />
                       <button type="button" className="dr-check-del" onClick={() => removeAt(i)} title="Remove" aria-label="Remove task">×</button>
                     </div>
                     <div className="dr-task-actions" role="group" aria-label="Move task">
@@ -199,8 +235,11 @@ function ChecklistField({ value, onChange, placeholder, assignedTasks = [], onAs
                   </div>
                 ))}
                 {colAssigned.map((t) => (
-                  <div key={`assigned-${t.id}`} className={`dr-task dr-task-${col.id} dr-task-assigned`}>
-                    <div className="dr-task-text">{t.title}</div>
+                  <div key={`assigned-${t.id}`} className={`dr-task dr-task-${col.id} dr-task-assigned${dragging({ type: 'assigned', id: t.id }) ? ' dragging' : ''}`}>
+                    <div className="dr-task-top">
+                      <span className="dr-drag-handle" draggable onDragStart={startDrag({ type: 'assigned', id: t.id })} onDragEnd={endDrag} title="Drag to move" aria-label="Drag task">⠿</span>
+                      <span className="dr-task-text">{t.title}</span>
+                    </div>
                     <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>
                       Assigned{t.assigned_by_name ? ` · ${t.assigned_by_name}` : ''}{t.day ? ` · ${fmtDay(t.day)}` : ''}
                     </div>
@@ -313,6 +352,7 @@ export default function DailyReport({
   const [lastSavedAt, setLastSavedAt] = useState(null)
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(emptyData(sections)))
   const snapshotRef = useRef(savedSnapshot)
+  const savingRef = useRef(false)
 
   const dirty = JSON.stringify(data) !== savedSnapshot
 
@@ -420,22 +460,34 @@ export default function DailyReport({
     setData((prev) => ({ ...prev, [sectionId]: { ...prev[sectionId], [fieldId]: value } }))
   }
 
-  const save = async () => {
-    if (saving || !dirty) return
-    setSaving(true)
-    try {
-      await saveDailyReport(panel, date, data)
-      const snap = JSON.stringify(data)
-      setSavedSnapshot(snap)
-      snapshotRef.current = snap
-      setLastSavedAt(new Date().toISOString())
-      toast('Report saved', 'success')
-    } catch (err) {
-      toast(err.message || 'Could not save the report', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
+  // Auto-save: the report is written as soon as the reporter pauses typing
+  // (short debounce) — there is no Save button. Saves are serialized through
+  // savingRef so a slow request never overlaps the next one. Errors surface via
+  // toast; the status pill reflects the saving / saved state.
+  useEffect(() => {
+    if (loading) return
+    if (JSON.stringify(data) === savedSnapshot) return
+    const payload = data
+    const id = setTimeout(async () => {
+      if (savingRef.current) return
+      savingRef.current = true
+      setSaving(true)
+      try {
+        await saveDailyReport(panel, date, payload)
+        const snap = JSON.stringify(payload)
+        snapshotRef.current = snap
+        setSavedSnapshot(snap)
+        setLastSavedAt(new Date().toISOString())
+      } catch (err) {
+        toast(err.message || 'Could not save the report', 'error')
+      } finally {
+        savingRef.current = false
+        setSaving(false)
+      }
+    }, 900)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, savedSnapshot, loading, panel, date])
 
   const savedLabel = lastSavedAt
     ? new Date(lastSavedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
@@ -465,38 +517,45 @@ export default function DailyReport({
         <div style={{ fontSize: 12 }}>Date: {date}</div>
       </div>
 
-      <div className="dr-head no-print">
-        <div>
-          <h2 className="dr-title">{title}</h2>
+      {/* Hero */}
+      <div className="dr-hero no-print">
+        <div className="dr-hero-main">
+          <span className="dr-hero-eyebrow">Daily Report</span>
+          <h1 className="dr-hero-title">{title}</h1>
           {subtitle && <p className="dr-sub">{subtitle}</p>}
+        </div>
+        <div className="dr-hero-side">
+          <span className={`dr-status${dirty ? ' dirty' : ''}`}>
+            <span className="dr-status-dot" />
+            {saving ? 'Saving…' : dirty ? 'Unsaved changes' : `Saved · ${savedLabel}`}
+          </span>
+          <div className="dr-hero-buttons">
+            <button type="button" className="btn btn-primary dr-print-btn" onClick={() => window.print()} disabled={loading}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 9V2h12v7" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <rect x="6" y="14" width="12" height="8" />
+              </svg>
+              Print
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="card dr-toolbar no-print">
-        <div className="dr-toolbar-row">
-          <span className="dr-toolbar-label">Report date</span>
-          {lockToToday ? (
-            <span className="dr-toolbar-today">
-              {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-            </span>
-          ) : (
-            <>
-              <DatePicker value={date} onChange={pickDate} max={todayIst()} />
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(todayIst())}>Today</button>
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(shiftDay(todayIst(), -1))}>Yesterday</button>
-            </>
-          )}
-        </div>
-        <div className="dr-toolbar-row dr-toolbar-right">
-          <span className={`dr-status${dirty ? ' dirty' : ''}`}>
-            {dirty ? 'Unsaved changes' : `Saved · ${savedLabel}`}
+      {/* Date controls */}
+      <div className="dr-datebar no-print">
+        <span className="dr-toolbar-label">Report date</span>
+        {lockToToday ? (
+          <span className="dr-toolbar-today">
+            {new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
           </span>
-          <button type="button" className="btn btn-outline" onClick={() => window.print()} disabled={loading}>Print</button>
-          <button type="button" className="btn btn-primary" onClick={save} disabled={saving || !dirty}>
-            {saving ? 'Saving…' : 'Save report'}
-          </button>
-        </div>
+        ) : (
+          <div className="dr-datebar-controls">
+            <DatePicker value={date} onChange={pickDate} max={todayIst()} />
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(todayIst())}>Today</button>
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => pickDate(shiftDay(todayIst(), -1))}>Yesterday</button>
+          </div>
+        )}
       </div>
 
       {reporters.length > 0 && (
@@ -517,7 +576,7 @@ export default function DailyReport({
       {loadSummary && (
         <div className="dr-block">
           <div className="dr-print-only print-section-title">{summaryTitle}</div>
-          <h3 className="dr-section-title no-print">{summaryTitle}</h3>
+          <div className="dr-block-head no-print"><h3 className="dr-section-title">{summaryTitle}</h3></div>
           {summaryLoading && <div className="dr-muted">Loading summary…</div>}
           {!summaryLoading && summary?.cards?.length > 0 && (
             <div className="dr-kpis">
@@ -537,10 +596,10 @@ export default function DailyReport({
       {sections.map((s) => (
         <div className="dr-block" key={s.id}>
           <div className="dr-print-only print-section-title">{s.label}</div>
-          <h3 className="dr-section-title no-print">
-            {s.label}
+          <div className="dr-block-head no-print">
+            <h3 className="dr-section-title">{s.label}</h3>
             {s.description && <span className="dr-section-desc">{s.description}</span>}
-          </h3>
+          </div>
           <div className="dr-grid">
             {s.fields.map((f) => {
               const value = data[s.id]?.[f.id] ?? ''
@@ -640,7 +699,9 @@ export default function DailyReport({
 
       {loadTeamTasks && (
         <div className="dr-block">
-          <h3 className="dr-section-title">Team Tasks — by date</h3>
+          <div className="dr-block-head">
+            <h3 className="dr-section-title">Team Tasks — by date</h3>
+          </div>
           {teamLoading && <div className="dr-muted">Loading team tasks…</div>}
           {!teamLoading && teamGroups.length === 0 && (
             <div className="dr-muted">No tasks assigned to the team this month.</div>

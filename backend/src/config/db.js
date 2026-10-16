@@ -127,6 +127,8 @@ const REALTIME_TABLES = new Set([
   // developer_tickets rides along so the "ticket raised" popup fires the
   // moment one is raised, not on the next poll.
   'support_tickets', 'ticket_replies', 'developer_tickets',
+  // QA bug board: a raised/fixed bug must move on every open board live.
+  'bugs',
 ]);
 
 // High-volume tables whose rows are written in bulk (imports, scrapes, donor
