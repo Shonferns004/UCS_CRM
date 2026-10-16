@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { useTeams } from '../../../components/useTeams';
 import { Who, Avatar, Dropdown } from './ui';
+import NgoSalary from './NgoSalary';
 import { Plus, Trash, Check, Flask } from '../icons';
 import { api } from '../../../api/auth';
 import { istMonthKey, istDayKey } from '../../../utils/istDate';
 import { exportAttendanceSheet } from '../../accounts/pages/Attendance';
 import { parseDocumentsValue, joinDocumentLabels } from '../../../lib/documents';
 import * as XLSX from 'xlsx-js-style';
-import JSZip from 'jszip';
 
 function load() {
   try { return JSON.parse(sessionStorage.getItem('wrk') || '{}'); } catch { return {}; }
@@ -86,45 +85,6 @@ function isComplete(w) {
   );
 }
 
-function allFormsHTML(w) {
-  const tc = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
-  const edu = w.education || w.education_details || [];
-  const fam = w.family || w.family_details || [];
-  const orgs = w.previous_organizations || [];
-  const dd = w.declaration_date || w.date_of_joining || w.created_at || '';
-  const pl = w.declaration_place || 'Mumbai';
-  const addrWrap = (s) => s ? (s.match(/.{1,35}/g) || []).join('\n') : '';
-  const eRow = edu.length ? edu.slice(0, 1).map(e => `<tr><td>${tc(e.degree)}</td><td>${tc(e.institution)}</td><td colspan="2">${e.year_of_passing || e.year || ''}</td><td>${e.percentage || ''}</td></tr>`).join('') : '<tr><td></td><td></td><td colspan="2"></td><td></td></tr>';
-  const oRows = (orgs.length ? orgs.slice(0, 3) : [{}, {}, {}]).map((o, i) => `<tr><td style="text-align:center">${i + 1}</td><td style="height:40px">${tc(o.name || o.organization_name)}</td><td>${tc(o.role || o.designation)}</td><td style="text-align:center">${o.from_year || o.fromYear || ''}</td><td style="text-align:center">${o.to_year || o.toYear || ''}</td></tr>`).join('');
-  const fRows = [0, 1, 2].map(i => { const f = fam[i] || {}; return `<tr><td style="text-align:center">${i + 1}</td><td style="height:35px;text-align:center">${f.name ? tc(f.name) : '-'}</td><td style="text-align:center">${f.relationship ? tc(f.relationship) : '-'}</td><td style="text-align:center">${f.occupation ? tc(f.occupation) : '-'}</td><td style="text-align:center">${f.phone || '-'}</td></tr>`; }).join('');
-  const d = dd ? new Date(dd).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${tc(w.name)} - All Forms</title>
-<style>
-@media print{body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4;margin:0}}
-.pb{page-break-before:always}
-${t1CSS()}${t2CSS()}${t4CSS()}${t5CSS()}${t6CSS()}${t6bCSS()}
-</style></head><body>
-${t1Body(w, tc, addrWrap, eRow, oRows, fRows)}
-<div class="pb"></div>${t2Body()}
-<div class="pb"></div>${t4Body()}
-<div class="pb"></div>${t5Body(w, tc)}
-<div class="pb"></div>${t6Body(w, tc, d, pl)}
-<div class="pb"></div>${t6bBody(w, tc, d, pl)}
-</body></html>`;
-}
-function t1CSS(){return`.t1 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}.t1{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column}.t1 h1{text-align:center;font-size:34px;font-family:Georgia,serif}.t1 .subtitle{text-align:center;font-size:10px;margin-bottom:2px}.t1 .top-line{border-top:3px solid #7d1e1e;margin:3px 0}.t1 .form-title{text-align:center;font-size:24px;font-weight:bold;text-decoration:underline;margin-bottom:12px}.t1 table{width:100%;border-collapse:collapse}.t1 td,.t1 th{border:1px solid #666;padding:12px 8px;vertical-align:top}.t1 .section{background:#d8d8d8;font-weight:bold;font-size:18px}.t1 .label{font-weight:bold;width:25%;white-space:nowrap}.t1 .photo{width:100px;text-align:center;vertical-align:middle;font-weight:bold;font-size:27px;min-height:220px;height:220px}.t1 .edu td{height:45px}.t1 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:8pt;line-height:1.3}`}
-function t2CSS(){return`.t2 *{box-sizing:border-box}.t2{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:12px 14px;font-family:"Times New Roman",serif;overflow:hidden;display:flex;flex-direction:column}.t2 h1{text-align:center;margin:0 0 1px;font-size:24pt}.t2 .sub{text-align:center;font-size:10pt;margin:0 0 3px}.t2 .red{height:2px;background:#7b2020;margin:2px 0 6px}.t2 .sec{color:#7b2020;font-weight:bold;font-size:12pt;margin-top:12px}.t2 .title{text-align:center;color:#1f3f73;font-size:15pt;font-weight:bold;margin:12px 0}.t2 p{font-size:10pt;line-height:1.55;text-align:justify;margin:3px 0}.t2 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:9pt;line-height:1.3}`}
-function t4CSS(){return`.t4 *{box-sizing:border-box}.t4{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:8mm 12mm;font-family:"Times New Roman",serif;overflow:hidden;display:flex;flex-direction:column}.t4 h1{text-align:center;margin:0 0 1px;font-size:24pt}.t4 .sub{text-align:center;font-size:10pt;margin:0 0 3px}.t4 .red{height:2px;background:#7b2020;margin:1px 0 4px}.t4 .sec{color:#7b2020;font-weight:bold;font-size:12pt;margin-top:5px}.t4 p{font-size:10pt;line-height:1.25;text-align:justify;margin:1.5px 0}.t4 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:10pt;line-height:1.3}`}
-function t5CSS(){return`.t5 *{box-sizing:border-box;font-family:'Times New Roman',Times,serif}.t5{width:210mm;height:297mm;margin:40px auto;background:#fff;border:8px double #000;padding:2mm 8mm 4mm 8mm;position:relative;overflow:hidden;display:flex;flex-direction:column}.t5 h1{margin:0;text-align:center;font-size:25px;font-family:'Times New Roman',Times,serif;font-weight:bold;line-height:1.1}.t5 .sub{text-align:center;font-size:9px;margin:0 0 0.3mm 0;line-height:1.1;letter-spacing:0.3px}.t5 .redline{border-top:2px solid #7a2020;margin:0.5mm auto;width:100%}.t5 p{font-size:11pt;line-height:1.3;text-align:justify;margin:2px 0}.t5 .section{color:#7a2020;font-weight:bold;font-size:12pt;margin:4px 0 2px 0}.t5 table{width:100%;border-collapse:collapse;margin:1.5px 0;page-break-inside:avoid}.t5 th,.t5 td{border:1px solid #000;padding:3px 5px;font-size:10.5pt;vertical-align:top;text-align:left}.t5 th{background:#d9d9d9;text-align:left}.t5 .sign{display:flex;justify-content:space-between;gap:20px;margin:2px 0}.t5 .sign .field{flex:1}.t5 .sign .field:first-child{margin-right:6px}.t5 .sign .field:last-child{margin-left:6px}.t5 .line{border-bottom:1px solid #000;height:15px;padding-left:4px}.t5 .consent{text-align:center;font-size:12px;font-weight:bold;color:#1f3f73;margin:4px 0 2px 0}.t5 .row{display:flex;align-items:center;margin:2px 0;font-size:10.5pt}.t5 .row .label{font-weight:bold;white-space:nowrap;margin-right:4px}.t5 .row .line{flex:1;border-bottom:1px solid #000;min-height:13px;padding-left:4px}.t5 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:2px;text-align:center;font-size:8.5pt;line-height:1.3}.t5 .footer-sep{display:none}`}
-function t6CSS(){return`.t6 *{box-sizing:border-box}.t6{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;position:relative;padding:10px 18px 12px 18px;overflow:hidden;font-family:"Times New Roman",serif;display:flex;flex-direction:column}.t6 .inner{border:1px solid #222;padding:6px 16px 10px 16px;flex:1;display:flex;flex-direction:column}.t6 h1{margin:0;text-align:center;font-size:34px;font-weight:700}.t6 .sub{text-align:center;font-size:15px;margin-top:4px}.t6 .red{height:3px;background:#7f2d2d;margin:5px 8px 4px}.t6 p{margin:2px 0;font-size:16px;line-height:1.3;text-align:justify}.t6 .b{font-weight:bold}.t6 .blue{font-size:26px;color:#29446f;text-align:center;font-weight:bold;margin:10px 0 6px}.t6 .row{font-size:16px;margin:1.5px 0}.t6 .line{display:inline-block;border-bottom:1px solid #000;min-width:120px;height:15px;vertical-align:bottom}.t6 .long{min-width:230px}.t6 .med{min-width:180px}.t6 .small{min-width:80px}.t6 .sigwrap{display:flex;justify-content:space-between;margin-top:20px}.t6 .sig{width:260px}.t6 .sig .l{border-bottom:1px solid #000;height:22px}.t6 .sig div:last-child{text-align:left;font-size:15px;margin-top:3px}.t6 .footer{margin-top:auto;border-top:2px solid #8b3434;padding-top:4px;text-align:center;font-size:14px;color:#333}`}
-function t6bCSS(){return`.t6b *{margin:0;padding:0;box-sizing:border-box;font-family:"Times New Roman",Times,serif}.t6b{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column}.t6b h1{text-align:center;font-size:26px;font-weight:bold;margin-bottom:4px}.t6b .top-line{border-top:3px solid #7d1e1e;margin:6px 0 8px}.t6b .subtitle{text-align:center;font-size:10px;margin-bottom:12px}.t6b .form-title{text-align:center;font-size:22px;font-weight:bold;text-decoration:underline;margin-bottom:16px;color:#1f3f73}.t6b p{margin:8px 0;font-size:13pt;line-height:1.4;text-align:justify}.t6b .agreement{margin:12px 0;font-size:13pt;font-weight:bold}.t6b .two-column{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:10px 0}.t6b .two-column ul{margin:0;padding-left:30px;list-style-type:disc}.t6b .two-column li{margin-bottom:8px;font-size:13pt;line-height:1.4}.t6b .section{background:#d8d8d8;font-weight:bold;font-size:15px;padding:6px 8px;margin:12px 0 8px}.t6b .field{display:flex;align-items:center;margin:8px 0;font-size:13pt}.t6b .label{font-weight:bold;min-width:200px;padding-right:8px;font-size:13pt}.t6b .line{flex:1;border-bottom:1px solid #000;height:20px}.t6b .two{display:flex;gap:30px}.t6b .two .field{flex:1}.t6b .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:8px;text-align:center;font-size:8.5pt;line-height:1.35}`}
-function t1Body(w,tc,aw,er,or,fr){return`<div class="t1"><h1>Being Sevak Charitable Trust</h1><div class="top-line"></div><div class="subtitle">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div><div class="form-title">VOLUNTEER JOINING FORM</div><table><tbody><tr><td colspan="3" class="section">PERSONAL DETAILS</td></tr><tr><td class="label">Name :</td><td style="font-weight:600">${tc(w.name)}</td><td rowspan="4" class="photo">${w.photo_url?'<img src="'+w.photo_url+'" alt="" style="width:100%;height:100%;object-fit:cover;display:block;margin:auto" />':'PHOTOGRAPH'}</td></tr><tr><td class="label">Father&apos;s / Husband Name :</td><td style="font-weight:600">${tc(w.father_husband_name)}</td></tr><tr><td class="label" style="height:65px">Correspondence Address :</td><td style="font-weight:600;height:65px;white-space:pre-wrap">${tc(aw(w.address))}</td></tr><tr><td class="label" style="height:65px">Permanent Address :</td><td style="font-weight:600;height:65px;white-space:pre-wrap">${tc(aw(w.permanent_address||w.address))}</td></tr><tr><td><strong>Mobile 1 :</strong> ${w.phone||''}</td><td><strong>Mobile 2:</strong> ${w.alternate_phone||''}</td><td><strong>Email ID :</strong> ${w.email||''}</td></tr><tr><td><strong>Date of Birth :</strong> ${w.dob||''}</td><td><strong>Marital Status :</strong> ${tc(w.marital_status)}</td><td><strong>Gender :</strong> ${tc(w.gender)}</td></tr><tr><td><strong>PAN Card No :</strong> ${w.pan_number||''}</td><td><strong>Aadhaar Card No :</strong> ${w.aadhar_number||''}</td><td></td></tr><tr><td colspan="3" class="section">EDUCATIONAL DETAILS (higher education)</td></tr></tbody></table><table class="edu"><tbody><tr><th>Degree</th><th>University / Institute</th><th colspan="2" width="28%">Year of Passing</th><th width="10%">%</th></tr>${er}</tbody></table><table><tbody><tr><td colspan="5" class="section">VOLUNTEER DETAILS (PREVIOUS ORGANISATIONS / AFFILIATIONS)</td></tr><tr><th width="8%">Sr.No</th><th>Organisation / Trust</th><th>Role / Designation</th><th width="14%">From</th><th width="14%">To</th></tr>${or}</tbody></table><table><tbody><tr><td colspan="5" class="section">FAMILY DETAILS / PERSONAL REFERENCE</td></tr><tr><th width="8%">S.No</th><th>Name</th><th>Relation</th><th>Occupation</th><th>Mobile No</th></tr>${fr}</tbody></table><div class="footer">Reg. Add.: Office No. 402, 4th Floor, &apos;A&apos; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org</div></div>`}
-function t2Body(){return`<div class="t2"><h1>Being Sevak Charitable Trust</h1><div class="red"></div><div class="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div><div class="title">VOLUNTEER GUIDELINES</div><div class="sec">1. Volunteer Association</div><p>Welcome to Being Sevak Charitable Trust. We are grateful for your decision to volunteer with us. Every volunteer plays a vital role in serving society with honesty, compassion, integrity, and dedication. This handbook outlines the policies, responsibilities, expectations, and code of conduct applicable to all volunteers associated with the Trust. Volunteers are onboarded based on the requirements of the Trust and their individual skills, qualifications, and suitability for specific projects or activities. Every volunteer shall work under the guidance of the respective Team Leader, Head of Department (HOD), Project Coordinator, or any authorized representative of the Trust. The Trust reserves the right to assign, transfer, or modify the volunteer&#39;s project, work location, or responsibilities whenever required in the interest of the Trust&#39;s operations.</p><div class="sec">2. Orientation Period</div><p>Every newly onboarded volunteer shall undergo an orientation and familiarization period during which the Trust will assess the volunteer&#39;s attendance, punctuality, discipline, communication skills, teamwork, work ethic, behaviour, and overall involvement. This orientation period is intended to familiarize volunteers with the Trust&#39;s mission, values, policies, and operational procedures. The Trust reserves the right to discontinue the volunteer&#39;s association at any time during or after the orientation period if the volunteer&#39;s conduct, involvement, or suitability is found to be unsatisfactory or inconsistent with the values and expectations of the Trust.</p><div class="sec">3. Volunteer Timings</div><p>The standard volunteer timings shall ordinarily be from 10:00 AM to 7:00 PM or 9:30 AM to 6:30 PM, inclusive of the prescribed break time, unless otherwise communicated by the Trust. Volunteers are expected to report to their assigned place of work punctually and remain available during their scheduled hours. Attendance shall be recorded through the designated attendance system or any manual process authorized by the Trust. Regular late reporting, early departures, or irregular attendance may be reviewed by the Trust coordinators and may affect the continuity of volunteer association.</p><div class="sec">4. Lunch Break</div><p>Volunteers shall be entitled to a lunch break of 30 minutes, generally scheduled between 1:30 PM and 2:00 PM, unless modified due to operational requirements. Volunteers are expected to resume their duties promptly upon completion of the lunch break and ensure that the break does not interfere with the smooth functioning of the Trust&#39;s activities.</p><div class="sec">5. Attendance</div><p>Every volunteer is expected to maintain regular attendance, report to duty on time, and record attendance through the prescribed system every working day. In the event that a volunteer is unable to attend due to unavoidable circumstances, the concerned Team Leader or coordinator must be informed at the earliest possible opportunity. Continuous absence without prior information or valid justification may be treated as abandonment of volunteer responsibilities and may result in the conclusion of the volunteer&#39;s association with the Trust.</p><div class="sec">6. Conduct at Trust Premises</div><p>Volunteers are expected to maintain the highest standards of discipline, professionalism, and ethical conduct throughout their association with the Trust. Every volunteer shall treat beneficiaries, visitors, fellow volunteers, and members of the public with dignity, courtesy, and respect. Volunteers are required to follow the reasonable instructions of their coordinators, maintain cleanliness within the Trust premises, and adhere to the prescribed attire guidelines. Activities such as personal shopping, personal grooming during working hours, excessive or unnecessary mobile phone usage, playing games, or engaging in activities unrelated to the Trust&#39;s work are strictly discouraged and may invite appropriate action if found to interfere with the Trust&#39;s activities.</p><div class="sec">7. Mobile Phone Usage</div><p>The use of personal mobile phones during volunteer hours shall be limited to emergencies or designated break periods. Volunteers are encouraged to remain focused on their assigned duties while on the Trust premises. Family members and personal contacts should communicate with volunteers during working hours only in cases of genuine emergency to avoid unnecessary interruptions to the Trust&#39;s activities.</p><div class="footer">Reg. Add.: Office No. 402, 4th Floor, &apos;A&apos; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org</div></div>`}
-function t4Body(){return`<div class="t4"><h1>Being Sevak Charitable Trust</h1><div class="red"></div><div class="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div><div class="sec">8. Trust Assets &amp; Resources</div><p>All assets, equipment, documents, electronic devices, identification cards, communication tools, and other property belonging to the Trust are provided solely for the Trust&#39;s work. Volunteers shall exercise due care while using such resources and shall not use them for personal or unauthorized activities. Any loss, theft, damage, or misuse resulting from negligence or misconduct may be reviewed by the Trust. Upon completion or conclusion of the volunteer association, all Trust property must be returned immediately in good condition.</p><div class="sec">9. Confidentiality</div><p>Volunteers shall maintain strict confidentiality regarding all information obtained during their association with the Trust. Confidential information includes, but is not limited to, donor details, beneficiary records, financial information, internal reports, project documentation, login credentials, CRM data, operational strategies, and any other non-public information belonging to the Trust. Volunteers shall not disclose, copy, share, or use confidential information for personal benefit or disclose it to any third party without prior written authorization from the Trust.</p><div class="sec">10. Social Media Usage</div><p>Volunteers shall not publish, post, upload, or distribute any information, photographs, videos, documents, or confidential material relating to the Trust through personal social media platforms or any public forum without obtaining prior approval from the authorized representatives of the Trust. The Trust may, however, use photographs, videos, names, testimonials, or recordings of volunteers for its official website, social media platforms, awareness campaigns, reports, newsletters, brochures, and other promotional or educational purposes unless the volunteer has submitted a written objection in advance.</p><div class="sec">11. Child &amp; Beneficiary Protection</div><p>Every volunteer is responsible for ensuring the safety, dignity, and well-being of all beneficiaries associated with the Trust. Volunteers shall treat every child, beneficiary, and community member with respect and shall refrain from any form of abuse, harassment, discrimination, intimidation, exploitation, or inappropriate behaviour. The privacy and confidentiality of beneficiaries must always be protected, and any safeguarding concern, misconduct, or suspected abuse must be reported immediately to the appropriate authority within the Trust.</p><div class="sec">12. Time Away / Absence</div><p>Volunteers are expected to inform their coordinator well in advance whenever they need to be away from their duties. Emergency absences shall be communicated immediately through appropriate means. Repeated absenteeism, unnotified absence, or continuous absence without proper information may adversely affect the volunteer&#39;s association with the Trust and may result in the conclusion of the volunteer&#39;s association.</p><div class="sec">13. Restricted Areas</div><p>Certain areas within the Trust premises are restricted to authorized personnel only. Volunteers shall not enter management cabins, the Accounts Department, coordination offices, server rooms, storage areas, or any other restricted location without obtaining prior permission from the concerned authority. Unauthorized access to restricted areas may lead to appropriate action.</p><div class="sec">14. Attire Guidelines</div><p>Volunteers are expected to maintain a clean, neat, and presentable appearance at all times while representing the Trust. Formal attire shall be worn from Monday to Friday, while smart casual attire may be permitted on Saturdays unless otherwise instructed. Volunteers are expected to present themselves in a manner consistent with the values and image of the Trust.</p><div class="sec">15. Code of Conduct</div><p>Every volunteer shall perform assigned responsibilities honestly, ethically, and responsibly while respecting fellow volunteers, coordinators, beneficiaries, donors, visitors, and members of the public. Volunteers are expected to protect Trust property, maintain punctuality, preserve confidentiality, comply with all organizational guidelines, and conduct themselves with integrity and accountability throughout their period of association with the Trust.</p><div class="sec">16. Grievance Resolution</div><p>Any volunteer experiencing concerns, disputes, or grievances relating to conduct within the Trust, operations, or interpersonal issues should first report the matter to the concerned Team Leader. If the matter remains unresolved, the volunteer may escalate the issue to the Volunteer Coordination Team or the Trustee for appropriate review and resolution. The Trust is committed to addressing genuine concerns fairly, impartially, and confidentially.</p><div class="sec">17. Voluntary Withdrawal</div><p>A volunteer who wishes to discontinue their association with the Trust should communicate their decision in writing to the appropriate authority and complete the proper handover of all assigned responsibilities, documents, equipment, identification cards, and other Trust assets before their final day of association.</p><div class="sec">18. Conclusion of Volunteer Association</div><p>The Trust reserves the right to conclude the association of any volunteer at its discretion in cases involving misconduct, repeated absenteeism, misuse of Trust property, breach of confidentiality, fraud, harassment, violation of organizational guidelines, or any conduct considered detrimental to the interests, reputation, or objectives of the Trust.</p><div class="sec">19. Volunteer Appreciation Certificate</div><p>The Trust may issue a Volunteer Appreciation Certificate or Letter of Gratitude to volunteers who have successfully completed their period of service with satisfactory involvement and conduct, subject to the applicable guidelines and approval of the Trust management.</p><div class="footer">Reg. Add.: Office No. 402, 4th Floor, &apos;A&apos; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org</div></div>`}
-function t5Body(w,tc){return`<div class="t5"><h1>Being Sevak Charitable Trust</h1><div class="redline"></div><div class="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div><p>You shall abide by the Trust&#39;s guidelines and volunteer policies as presented in the Volunteer Guidelines, and by all general or administrative rules, regulations, and directives of the Trust made from time to time, so long as they are not inconsistent with this agreement. For any work-related matter, issue, or communication, the volunteer must contact the concerned coordinator directly. <strong>Attire Guidelines:</strong> Monday to Friday [Formals]; Saturday [Smart Casuals].</p><div class="section">Holiday &amp; Absence Policy (Clubbing Rule)</div><p>Volunteer attendance will be considered for the entire month while determining monthly volunteer involvement. If a volunteer is absent immediately before or after a Sunday, weekly off, or declared public holiday, the intervening day(s) will also be counted as part of the absence. If a volunteer remains absent for more than 6 days in a calendar month, all Sundays, weekly offs, and public holidays during that month will also be considered. Exceptions may be reviewed by the Trust management for genuine reasons.</p><div class="section">Volunteer Timings</div><p>Volunteer timings are 10.00 AM to 7.00 PM OR 9.30 AM to 6.30 PM [including break time]; attendance is recorded through the attendance system OR manually. Lunch break is 30 minutes, between 1.30 and 2.00 PM. Half-day: reporting time is 2.00 PM and departure time is 3.00 PM; no lunch break is applicable on a half-day, and arriving late on a half-day will be recorded as absent. A cumulative grace period of 180 minutes per month is allowed for late arrival / early departure, as follows:</p><table><tr><th>Late / Early Departure Duration Per Month</th><th>Attendance Record Impact</th></tr><tr><td>Up to 180 minutes</td><td>No impact on attendance record</td></tr><tr><td>181 – 240 minutes</td><td>Recorded as half-day absence</td></tr><tr><td>241 – 480 minutes</td><td>Recorded as one-day absence</td></tr><tr><td>More than 480 minutes</td><td>Attendance reviewed by Trust management as per volunteer guidelines</td></tr></table><div class="section">Voluntary Withdrawal &amp; Separation</div><p>A volunteer who wishes to step down must complete the handover process and return all assigned duties, documents, equipment, and Trust resources. A Letter of Appreciation is issued to volunteers who have completed at least one year of satisfactory association with the Trust.</p><table><tr><th width="28%">Guideline</th><th>Description</th></tr><tr><td><b>Voluntary Withdrawal</b></td><td>Intimation Period: At least one month&#39;s advance notice is requested. Stepping down without completing the intimation period may affect the volunteer&#39;s eligibility for a Letter of Appreciation.</td></tr><tr><td><b>Discontinuation Without Intimation</b></td><td>Absence from Trust activities for seven consecutive days without any communication will be treated as abandonment of volunteer responsibilities.</td></tr><tr><td><b>Conclusion of Association</b></td><td>The association may be concluded due to non-involvement or violation of the Trust&#39;s Code of Conduct.</td></tr></table><div class="section">Acknowledgement</div><p style="margin-bottom:30px">The volunteer agrees to maintain confidentiality and indemnify the Trust from damages, claims, or disputes arising from any violation of confidentiality or obligations. Signing below confirms that the volunteer has read, understood, and accepted all terms.</p><p style="margin-bottom:8px">Yours sincerely,<br /><b style="display:block;margin-top:8px">For Being Sevak Charitable Trust – HOD</b></p><p style="margin-bottom:16px">I accept all the terms and conditions as mentioned in this letter.</p><div class="sign" style="margin-bottom:16px"><div class="field">Volunteer Name <div class="line" style="display:block;margin-top:25px;padding-bottom:4px;min-height:22px">${tc(w.name)}</div></div><div class="field">Signature <div class="line" style="display:block;margin-top:25px"></div></div></div><div class="sign"><div class="field">Manager Name / HOD <div class="line" style="display:block;margin-top:25px"></div></div><div class="field">Signature <div class="line" style="display:block;margin-top:25px"></div></div></div><div class="footer">Reg. Add.: Office No. 402, 4th Floor, &apos;A&apos; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org</div></div>`}
-function t6Body(w,tc,d,pl){return`<div class="t6"><div class="inner"><h1>Being Sevak Charitable Trust</h1><div class="red"></div><div class="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div><div class="blue" style="margin-top:20px">VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div><p>This agreement is made between Being Sevak Charitable Trust and the Volunteer on <span class="line med">${tc(w.name)}</span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p><p><span class="b">A.</span> Confidential Information and Proprietary Data are the Trust&#39;s exclusive property. The Volunteer shall keep them confidential, take reasonable steps to protect them, and not disclose or use them for personal benefit or the benefit of others during or after association with the Trust.</p><p><span class="b">B.</span> Notes, notebooks, computer disks, pen drives, documents, equipment, and devices containing such information are the property of the Trust and must not be removed from Trust premises. They shall be returned immediately upon conclusion of the volunteer association.</p><p><span class="b">C.</span> The Volunteer shall not reproduce or commercially use Confidential Information for any purpose other than carrying out duties for the Trust.</p><p><span class="b">D.</span> The Trust may take appropriate action, including conclusion of the volunteer association, and pursue civil or criminal remedies for violations. This agreement is governed by the laws of Maharashtra (Mumbai).</p><p><span class="b">E.</span> On withdrawal, the Volunteer shall surrender all Trust assets, official WhatsApp, email ID, contact number, and other Trust-related items. Failure to comply may result in appropriate action.</p><p><span class="b">F.</span> All provisions apply only to the extent they do not violate applicable law. The Volunteer warrants that no conflicting obligation exists.</p><p style="margin-top:14px;padding-top:10px"><span class="b">Declaration :</span></p><div style="display:flex;align-items:flex-start;gap:8px"><input type="checkbox" style="margin-top:3px;width:14px;height:14px;accentColor:#7f2d2d;flexShrink:0" /><p style="margin:0">I hereby declare that the above statement made in my application is true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</p></div><div class="row" style="margin-top:12px;padding-top:8px;display:flex;align-items:center;gap:20px"><span>Date: ${d||'<span class="line small"></span>/<span class="line small"></span>/<span class="line small"></span>'}</span><span>Place: <span class="line med">${pl}</span></span></div><p style="margin-top:14px">Signing below signifies that the Volunteer agrees to the terms and conditions stated above.</p><div class="sigwrap"><div class="sig"><div class="l"></div><div>Volunteer Name &amp; Signature</div></div><div class="sig"><div class="l"></div><div>For Being Sevak Charitable Trust (Authorized Signatory)</div></div></div></div><div class="footer">Reg. Add.: Office No. 402, 4th Floor, &apos;A&apos; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />Contact Sevak: 8879035035 / 8879034034 | E-Mail: being.sevak@gmail.com | Website: www.beingsevak.org</div></div>`}
-function t6bBody(w,tc,d,pl){return`<div class="t6b"><h1>Being Sevak Charitable Trust</h1><div class="top-line"></div><div class="subtitle">Public Charitable Trust (Reg.) E-31948 No. | Income Tax Exempted Under 80G</div><div class="form-title">VOLUNTEER PHOTO, VIDEO &amp; PUBLICITY CONSENT FORM</div><p>I, ${tc(w.name)||'________________________'}, voluntarily authorize Being Sevak Charitable Trust (&quot;the Trust&quot;) to capture and use my photographs, videos, audio recordings, name, image, voice, and testimonials for lawful purposes related to the Trust&#39;s charitable activities, including awareness campaigns, fundraising, reports, publications, training, social media, website, donor communications, and other promotional or educational materials.</p><div class="agreement">I understand and agree that:</div><div class="two-column"><ul><li>My participation is voluntary, and I have no objection to the Trust using the above materials.</li><li>I will not claim any royalty, payment, or compensation for such use.</li><li>The Trust may edit or modify the materials without misrepresenting my identity or participation.</li></ul><ul><li>All photographs, videos, and recordings created by or for the Trust shall remain the property of the Trust.</li><li>I may withdraw my consent by giving written notice. Such withdrawal will apply only to future use, wherever reasonably practicable, and will not affect materials already published or distributed.</li></ul></div><p>I confirm that I have read and understood this consent and agree to its terms. This consent shall be governed by the laws of India, and any disputes shall be subject to the jurisdiction of the courts at Mumbai, Maharashtra.</p><div class="section">VOLUNTEER DETAILS</div><div class="field"><span class="label">Volunteer Name:</span><span class="line">${tc(w.name)||''}</span></div><div class="field"><span class="label">Volunteer ID (if any):</span><span class="line"></span></div><div class="field"><span class="label">Signature:</span><span class="line"></span></div><div class="field"><span class="label">Date:</span><span class="line">${d||''}</span></div><div class="field"><span class="label">Place:</span><span class="line">${pl||'Mumbai'}</span></div><div class="section">FOR VOLUNTEERS BELOW 18 YEARS</div><p>I, ________________________, parent/legal guardian of the above volunteer, hereby give my consent on behalf of the minor.</p><div class="field"><span class="label">Parent/Guardian Signature:</span><span class="line"></span></div><div class="field"><span class="label">Date:</span><span class="line">${d||''}</span></div><div class="section">FOR BEING SEVAK CHARITABLE TRUST</div><div class="field"><span class="label">Authorized Signatory:</span><span class="line" style="flex:none;width:200px"></span></div><div class="footer">Reg. Add.: Office No. 402, 4th Floor, &quot;A&quot; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai – 400092<br />Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org</div></div>`}
-
 function WhoWithPhoto({ name, role, photo_url }) {
   const [photoErr, setPhotoErr] = useState(false);
   const [photoLoaded, setPhotoLoaded] = useState(false);
@@ -154,7 +114,6 @@ function WhoWithPhoto({ name, role, photo_url }) {
 export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false, showPayExports = true, salaryMode = false, onActionsReady }) {
   const { addWorker, DEPTS, deptLabel, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
-  const navigate = useNavigate();
   const { teams } = useTeams();
   const [teamFilter, setTeamFilter] = useState('');
   const [teamMsg, setTeamMsg] = useState('');
@@ -176,9 +135,10 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [statusFilter, setStatusFilter] = useState(['active','absconded','offboarded','all'].includes(load().statusFilter) ? load().statusFilter : 'active');
   const [showTest, setShowTest] = useState(load().showTest || false);
   const [entityFilter, setEntityFilter] = useState('All');
-  const [page, setPage] = useState(load().page || 1);
-  // Accounts loads the table incrementally: 10 rows now, +10 per "Load more".
-  const [visibleCount, setVisibleCount] = useState(10);
+  // The table renders incrementally: PAGE_SIZE rows now, +PAGE_SIZE per
+  // "Load more" click — no page-number jumping, so the first paint stays fast.
+  const PAGE_SIZE = 20;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [created, setCreated] = useState(null);
   const [salaryMap, setSalaryMap] = useState({});
   const [ngos, setNgos] = useState([]);
@@ -187,6 +147,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [workerDetails, setWorkerDetails] = useState({});
   const [pagarMonth, setPagarMonth] = useState('');
   const [showPagarModal, setShowPagarModal] = useState(false);
+  // NGO & Salary opens as an in-place modal instead of navigating to /hr/ngo.
+  const [showNgoModal, setShowNgoModal] = useState(false);
   // Attendance Excel export: month picker modal (defaults to the current IST
   // month each time it opens) driving the shared sheet builder.
   const [attExportMonth, setAttExportMonth] = useState('');
@@ -213,8 +175,23 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [compensationHolidayDate, setCompensationHolidayDate] = useState('');
   const [compensationName, setCompensationName] = useState('');
   const [compensationSaving, setCompensationSaving] = useState(false);
-  const PAGE_SIZE = 20;
   const tableRef = useRef(null);
+
+  // Freeze the page behind open modals: this layout scrolls on the body, so
+  // hiding body overflow blocks wheel/touch/keyboard scrolling while a modal
+  // is up. The padding-right compensates the vanishing scrollbar so the page
+  // doesn't jump sideways.
+  const anyModalOpen = showNgoModal || showPagarModal || showAttExportModal || showCompensationModal;
+  useEffect(() => {
+    if (!anyModalOpen) return;
+    const body = document.body;
+    const gap = window.innerWidth - document.documentElement.clientWidth;
+    const prevOverflow = body.style.overflow;
+    const prevPad = body.style.paddingRight;
+    body.style.overflow = 'hidden';
+    if (gap > 0) body.style.paddingRight = `${gap}px`;
+    return () => { body.style.overflow = prevOverflow; body.style.paddingRight = prevPad; };
+  }, [anyModalOpen]);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -332,10 +309,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       role.toLowerCase().includes(q);
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const visibleRows = salaryMode ? filtered.slice(0, visibleCount) : paginated;
+  const visibleRows = filtered.slice(0, visibleCount);
 
   const CLIENTS = [...new Set([
     ...(ngos || []).filter(n => (n.name || '').trim().toUpperCase() !== 'TESTING')
@@ -484,16 +458,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   };
 
   const mountedSearch = useRef(false);
-  useEffect(() => { if (!mountedSearch.current) { mountedSearch.current = true; return; } save({ search, page: 1 }); setPage(1); }, [search]);
+  useEffect(() => { if (!mountedSearch.current) { mountedSearch.current = true; return; } save({ search }); }, [search]);
   const mountedRole = useRef(false);
-  useEffect(() => { if (!mountedRole.current) { mountedRole.current = true; return; } save({ roleFilter, page: 1 }); setPage(1); }, [roleFilter]);
+  useEffect(() => { if (!mountedRole.current) { mountedRole.current = true; return; } save({ roleFilter }); }, [roleFilter]);
   const mountedStatus = useRef(false);
-  useEffect(() => { if (!mountedStatus.current) { mountedStatus.current = true; return; } save({ statusFilter, page: 1 }); setPage(1); }, [statusFilter]);
-  useEffect(() => { setVisibleCount(10); }, [search, roleFilter, statusFilter, entityFilter, teamFilter]);
-  useEffect(() => { save({ page }); }, [page]);
-  useEffect(() => {
-    if (tableRef.current) tableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [safePage]);
+  useEffect(() => { if (!mountedStatus.current) { mountedStatus.current = true; return; } save({ statusFilter }); }, [statusFilter]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [search, roleFilter, statusFilter, entityFilter, teamFilter]);
 
   const submit = async () => {
     if (!name.trim()) return;
@@ -518,101 +488,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     } catch (e) {
       setErr(e.message);
     }
-  };
-
-  const handleFullPayExport = async () => {
-    const now = new Date();
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    try {
-      const data = await api('/salary/payroll?month=' + month + '&extended=true', { _prefix: 'ucs' });
-      if (!data.rows || data.rows.length === 0) { alert('No payroll data for this month'); return; }
-
-      const groups = {};
-      for (const r of data.rows) {
-        if (!groups[r.ngo_name]) groups[r.ngo_name] = [];
-        groups[r.ngo_name].push(r);
-      }
-
-      const headers = [
-        'Team Name', 'Branch Name', 'Agent Name', 'Date of Joining',
-        'Salary', 'Target', 'Achieved', 'Balance', 'Achieved %',
-        'May Present Days', 'Late Deduction', 'Sunday Deduction', 'Training Deduction',
-        'Sunday Need To Add', 'Net May Present Days', 'May Salary',
-        'Monthly 10% Incentive', 'Aaj Ka Incentive (Daily 50% for PC)',
-        'Weekly Incentive / TL', 'Gross Payable Salary',
-        'OT/Appreciation/Extra Incentive', 'Any Pending Expenses Paid for Previous Month',
-        'Advance need to be deducted in May, 2026', 'Net Payable Salary',
-        'ACCOUNT HOL', 'ACC COL', 'Bank', 'IFSC Code',
-      ];
-
-      const wsData = [headers];
-      for (const [ngo, rows] of Object.entries(groups)) {
-        for (const r of rows) {
-          wsData.push([
-            r.department || '',
-            r.ngo_name,
-            r.name,
-            r.date_of_joining ? (() => { const d = r.date_of_joining.split('T')[0].split('-'); return `${d[2]}-${d[1]}-${d[0]}`; })() : '',
-            r.salary || 0,           // E: Salary
-            r.target || 0,           // F: Target
-            r.achieved || 0,         // G: Achieved
-            null,                     // H: Balance (formula)
-            null,                     // I: Achieved % (formula)
-            r.present_days || 0,     // J: May Present Days
-            0,                        // K: Late Deduction
-            0,                        // L: Sunday Deduction
-            0,                        // M: Training Deduction
-            0,                        // N: Sunday Need To Add
-            null,                     // O: Net May Present Days (formula)
-            r.total_due || 0,        // N: May Salary
-            r.monthly_incentive || 0,  // O: Monthly 10% Incentive
-            r.aki_payout || 0,         // P: Aaj Ka Incentive
-            0,                        // Q: Weekly Incentive
-            null,                     // R: Gross Payable Salary (formula)
-            0,                        // S: OT/Appreciation
-            0,                        // T: Pending Expenses
-            0,                        // U: Advance to Deduct
-            null,                     // V: Net Payable Salary (formula)
-            r.account_holder_name || '',  // W: ACCOUNT HOL
-            r.account_number || '',       // X: ACC COL
-            r.bank_name || '',            // Y: Bank
-            r.ifsc_code || '',            // Z: IFSC Code
-          ]);
-        }
-      }
-
-      for (let i = 1; i < wsData.length; i++) {
-        const row = i + 1;
-        wsData[i][7] = { f: `F${row}-G${row}` };                         // H: Balance (Target - Achieved)
-        wsData[i][8] = { f: `IF(F${row}>0,G${row}/F${row}*100,0)` };     // I: Achieved %
-        wsData[i][14] = { f: `J${row}-K${row}-L${row}-M${row}+N${row}` }; // O: Net May Present Days
-        wsData[i][16] = { f: `IF(F${row}>0,IF(G${row}>=F${row},(G${row}-F${row})*0.1,0),0)` }; // Q: Monthly 10% Incentive
-        wsData[i][19] = { f: `P${row}+Q${row}+R${row}+S${row}` };        // T: Gross Payable Salary
-        wsData[i][23] = { f: `T${row}+U${row}+V${row}-W${row}` };        // X: Net Payable Salary
-      }
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [
-        { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 14 },
-        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-        { wch: 16 }, { wch: 22 },
-        { wch: 16 }, { wch: 18 }, { wch: 14 },
-        { wch: 18 }, { wch: 26 }, { wch: 16 },
-        { wch: 20 }, { wch: 30 }, { wch: 30 },
-        { wch: 28 }, { wch: 18 },
-        { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 16 },
-        { wch: 14 }, // Idle Time (Hrs)
-      ];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      link.download = `payroll-full-${month}.xlsx`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (e) { alert(e.message); }
   };
 
   const handlePagarExport = async () => {
@@ -1055,61 +930,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     } catch (e) { alert(e.message); }
   };
 
-  const handleBulkPrint = async () => {
-    try {
-      const details = Object.values(workerDetails);
-      if (details.length === 0) { alert('No worker data loaded'); return; }
-      const verified = details.filter(d => d && isComplete(d));
-      if (verified.length === 0) { alert('No verified workers to print'); return; }
-      const zip = new JSZip();
-      for (const w of verified) {
-        zip.file(`${w.name.replace(/[\/:*?"<>|]/g, '_')}_forms.html`, allFormsHTML(w));
-      }
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(zipBlob);
-      link.download = `verified-workers-forms-${new Date().toISOString().slice(0, 10)}.zip`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (e) { alert(e.message); }
-  };
-
-  const handlePayExport = async () => {
-    const now = new Date();
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    try {
-      const data = await api('/salary/payroll?month=' + month, { _prefix: 'ucs' });
-      if (!data.rows || data.rows.length === 0) { alert('No payroll data for this month'); return; }
-
-      const groups = {};
-      for (const r of data.rows) {
-        if (!groups[r.ngo_name]) groups[r.ngo_name] = [];
-        groups[r.ngo_name].push(r);
-      }
-      const colWidths = [{ wch: 20 }, { wch: 25 }, { wch: 20 }, { wch: 16 }, { wch: 16 }];
-      const zip = new JSZip();
-      for (const [ngo, rows] of Object.entries(groups)) {
-        const wsData = [
-          ['NGO', 'Name', 'Account Number', 'IFSC Code', 'Total Due (₹)'],
-          ...rows.map(r => [r.ngo_name, r.name, r.account_number, r.ifsc_code, r.total_due]),
-        ];
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-        ws['!cols'] = colWidths;
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-        const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-        const safeName = ngo.replace(/[\/:*?"<>|]/g, '_');
-        zip.file(`${safeName}.xlsx`, xlsxBuf);
-      }
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(zipBlob);
-      link.download = `payroll-${month}.zip`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (e) { alert(e.message); }
-  };
-
   return (
     <>
       <div className="card" style={{ marginBottom:20 }}>
@@ -1294,17 +1114,14 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             {/* Download Targets + Export Excel moved to the top strip (see
                 onActionsReady above); Salary File and Compensations go there
                 too in salary mode and stay here for HR. */}
-            {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
-            {showPayExports && <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>}
+            {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => setShowNgoModal(true)} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             {showPagarExport && !salaryMode && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
             {showPagarExport && !salaryMode && <button className="btn btn-outline btn-sm" onClick={() => {
               const currentMonth = new Date().toISOString().slice(0, 7);
               setCompensationMonth(pagarMonth || currentMonth);
               setShowCompensationModal(true);
             }} title="Manage compensatory Sundays and holidays">Compensations</button>}
-            {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>}
             {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>}
-            {showBulkPrint && <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>}
             {!salaryMode && <span className="sub">{filtered.length} total</span>}
             <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} renderValue={clipValue('All')} />
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
@@ -1548,31 +1365,56 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             )}
           </tbody>
         </table>
-        {!salaryMode && totalPages > 1 && (
-          <div className="pagination">
-            <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
-            <div className="pagination-dots">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                <span key={p} className={`dot ${p === safePage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
-              ))}
-            </div>
-            <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
-          </div>
-        )}
-        {salaryMode && visibleCount < filtered.length && (
+        {visibleCount < filtered.length && (
           <div style={{ display:'flex', justifyContent:'center', marginTop:14, marginBottom:6 }}>
-            <button className="btn btn-outline" onClick={() => setVisibleCount(c => c + 10)}
+            <button className="btn btn-outline" onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
               style={{ gap:10, padding:'9px 24px', borderRadius:8, fontWeight:600, fontSize:13, border:'1px solid var(--line)', boxShadow:'0 1px 3px rgba(16,24,40,.06)' }}>
               Load more <span style={{ fontSize:11, color:'var(--ink-soft)', fontWeight:700 }}>({filtered.length - visibleCount} more)</span>
             </button>
           </div>
         )}
       </div>
+      {showNgoModal && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowNgoModal(false); }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: 'min(1040px, calc(100vw - 40px))',
+            maxHeight: 'calc(100vh - 40px)',
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--paper, #fff)',
+            borderRadius: 14,
+            boxShadow: '0 12px 48px rgba(0,0,0,.15)',
+            border: '1px solid var(--line)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 18px',
+              borderBottom: '1px solid var(--line)',
+              flexShrink: 0
+            }}>
+              <h4 style={{ margin: 0, fontSize: 15 }}>NGO &amp; Salary</h4>
+              <button onClick={() => setShowNgoModal(false)} style={{
+                width: 28, height: 28, borderRadius: '50%', border: 'none',
+                background: 'rgba(0,0,0,.08)', color: '#666', fontSize: 18,
+                cursor: 'pointer', display: 'grid', placeItems: 'center', lineHeight: 1
+              }}>×</button>
+            </div>
+            {/* The page body scrolls inside the modal; NgoSalary renders its own
+                nested modals (add/edit NGO) which paint over this one. */}
+            <div style={{ padding: 16, overflow: 'auto', minHeight: 0 }}>
+              <NgoSalary />
+            </div>
+          </div>
+        </div>
+      )}
      {showAttExportModal && (
        <div className="modal-overlay" onClick={() => setShowAttExportModal(false)}>
          <div onClick={e => e.stopPropagation()} style={{
            width: 360,
-           background: 'var(--card-bg)',
+           background: 'var(--paper, #fff)',
            borderRadius: 14,
            boxShadow: '0 12px 48px rgba(0,0,0,.15)',
            border: '1px solid var(--line)',
@@ -1610,7 +1452,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
         <div onClick={e => e.stopPropagation()} style={{ 
           width: 360, 
-          background: 'var(--card-bg)', 
+          background: 'var(--paper, #fff)', 
           borderRadius: 14, 
           boxShadow: '0 12px 48px rgba(0,0,0,.15)',
           border: '1px solid var(--line)',
@@ -1647,7 +1489,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
          <div onClick={e => e.stopPropagation()} style={{
            width: 540,
            maxWidth: 'calc(100vw - 32px)',
-           background: 'var(--card-bg)',
+           background: 'var(--paper, #fff)',
            borderRadius: 14,
            boxShadow: '0 12px 48px rgba(0,0,0,.15)',
            border: '1px solid var(--line)',

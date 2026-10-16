@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 import { getLeadList, verifyLead, quickVerifyLead, doneLead, rejectLead, goBackLead, undoLeadVerification, undoReceipt, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getAddressSuggestions, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, importReceiptNames, getReceiptByMobile, clearReceipts, getReceiptCount, getReceiptNumbers, getSuspenseByNgo, getDonorsList, quickSearchDonors, exportDonors, exportDuplicateDonorAssignments, getDonorDetail, updateDonor, deleteDonor, createDonorAssignment, importDonorAddresses, getExcludedReceipts, fixAndQueueReceipt, deleteQueueReceipt, getImportNgoOptions, getFroWorkersList, updateReceipt, getStationOptions, updateAssignmentStations, deleteAssignment, replaceAssignment, repairDonorSync, backfillReceiptAssignments, getReportTargets, putReportTargets, getReportData, getAgentTeamCollections, getAccessCodeStatus, createAccessCode, verifyAccessCode, changeAccessCode, getNgoCollections } from '../controllers/accountsController.js';
 import { restoreWrongAssignments } from '../controllers/ngoAdminController.js';
+import { getWorkerOverview, getWorkerCollectionTrend, getWorkerHeatmap, getWorkerTimeline } from '../services/workerOverviewService.js';
 
 const router = Router();
 
@@ -49,6 +50,13 @@ router.get('/receipts/numbers', getReceiptNumbers);
 router.get('/receipts/suspense-by-ngo', getSuspenseByNgo);
 router.get('/collections', getNgoCollections);
 router.get('/receipts', getReceiptList);
+// Employee Overview analytics (read-only, server-side aggregates). Declared
+// before /receipts/:... style routes is unnecessary — path is distinct — but
+// kept near the receipts block because it reuses the same attribution model.
+router.get('/workers/:id/overview', getWorkerOverview);
+router.get('/workers/:id/collection-trend', getWorkerCollectionTrend);
+router.get('/workers/:id/heatmap', getWorkerHeatmap);
+router.get('/workers/:id/timeline', getWorkerTimeline);
 router.get('/receipts/pending', getPendingReceipts);
 router.get('/receipts/excluded', getExcludedReceipts);
 router.post('/receipts/:id/fix-and-queue', fixAndQueueReceipt);

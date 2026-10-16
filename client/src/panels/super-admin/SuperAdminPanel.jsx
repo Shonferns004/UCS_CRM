@@ -12,28 +12,18 @@ import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { CHAT_NOTIFICATION_TYPE } from '../../components/chat/chatNotificationTypes'
 import { useRealtime } from '../../hooks/useRealtime'
-import { GridFour, Buildings, Users, Airplane, Ticket, Database } from '@phosphor-icons/react'
+import { GridFour, Users, Database } from '@phosphor-icons/react'
 import Dashboard from './pages/Dashboard'
-import Organization from './pages/Organization'
 import Workers from './pages/Workers'
 import WorkerDetail from './pages/WorkerDetail'
-import Leaves from './pages/Leaves'
 import DataManagement from './pages/DataManagement'
-import Tickets from './pages/Tickets'
-import SupportTickets from './pages/SupportTickets'
 import Events from './pages/Events'
-import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
 import IncentivesPage from './pages/IncentivesPage'
 import IncentiveSetup from '../accounts/pages/IncentiveSetup'
 import Notices from './pages/Notices'
-import LatePolicy from './pages/LatePolicy'
-import LiveFroStatus from './pages/LiveFroStatus'
-import FroIdleReport from './pages/FroIdleReport'
-import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock, Drop, Code } from '@phosphor-icons/react'
-import AdminAttendance from './pages/AdminAttendance'
-import MetropadPage from '../accounts/metropad/MetropadPage'
+import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Megaphone } from '@phosphor-icons/react'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
@@ -44,109 +34,49 @@ import DailyReportsOverview from './pages/DailyReportsOverview'
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', eyebrow: 'Super Admin', icon: GridFour },
   { id: 'data-management', path: '/sa/data-management', label: 'Data Management', eyebrow: 'Data', icon: Database },
-  { id: 'organization', path: '/sa/organization', label: 'Organization', eyebrow: 'Organization', icon: Buildings },
   { id: 'employees', path: '/sa/employees', label: 'Volunteers', eyebrow: 'People', icon: Users },
-  { id: 'leaves', path: '/sa/leaves', label: 'Leaves', eyebrow: 'HR', icon: Airplane },
-  { id: 'support-tickets', path: '/sa/support-tickets', label: 'Support Tickets', eyebrow: 'Support', icon: Ticket },
   { id: 'ngo-admin', path: '/sa/ngo-admin', label: 'Admin', eyebrow: 'Admin', icon: BuildingOffice },
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
-  { id: 'metropad', path: '/sa/metropad', label: 'Metropad', eyebrow: 'Operations', icon: Drop },
-  { id: 'event-head', path: '/sa/event-head', label: 'Event Head', eyebrow: 'Events', icon: CalendarBlank },
   { id: 'hr', path: '/sa/hr', label: 'HR', eyebrow: 'People', icon: Users },
-  { id: 'admin-attendance', path: '/sa/admin-attendance', label: 'Attendance', eyebrow: 'People', icon: Clock },
-  { id: 'recruiter', path: '/sa/recruiter', label: 'Recruiter', eyebrow: 'Recruitment', icon: MagnifyingGlass },
-  { id: 'developers', path: '/sa/developers', label: 'Developers', eyebrow: 'Engineering', icon: Code },
-  { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
-  { id: 'live-fro', path: '/sa/live-fro', label: 'Live FRO Status', eyebrow: 'Operations', icon: Radio },
-  { id: 'fro-idle', path: '/sa/fro-idle', label: 'FRO Idle Report', eyebrow: 'Operations', icon: Clock },
-  { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
-  { id: 'late-policy', path: '/sa/late-policy', label: 'Late Policy', eyebrow: 'HR', icon: Clock },
   { id: 'chat', path: '/sa/chat', label: 'UCS Chat', eyebrow: 'Team', icon: ChatIcon },
-  // { id: 'hr-report', path: '/sa/hr-report', label: 'HR & Recruitment Report', eyebrow: 'Reports', icon: Clipboard },
-  { id: 'daily-reports', path: '/sa/daily-reports', label: 'Daily Reports', eyebrow: 'Reports', icon: Clipboard },
+  { id: 'daily-reports', path: '/sa/daily-reports', label: 'Reports', eyebrow: 'Reports', icon: Clipboard },
 ]
 
 const navMap = {}
 NAV.forEach(n => { navMap[n.id] = n })
 
-// Sidebar categories. Dashboard stays on top, outside any category.
-// 'less' is the "Less used" bucket: those pages are duplicated inside another
-// panel (Leaves/Volunteers are also under HR), or are set-once settings.
-// It starts collapsed. To promote a page, move its id into another category.
-const CATEGORIES = [
-  { id: 'panels', label: 'Panels', icon: BuildingOffice, items: ['ngo-admin', 'hr', 'accounts', 'fro', 'event-head', 'recruiter', 'developers'] },
-  { id: 'people', label: 'People', icon: Users, items: ['daily-reports', 'organization', 'admin-attendance'] },
-  { id: 'ops', label: 'Operations', icon: Radio, items: ['live-fro', 'fro-idle', 'support-tickets', 'data-management'] },
-  { id: 'finance', label: 'Finance', icon: CurrencyCircleDollar, items: ['incentives'] },
-  { id: 'comms', label: 'Communication', icon: Megaphone, items: ['notices', 'chat'] },
-  { id: 'less', label: 'Less used', icon: Clipboard, items: ['employees', 'leaves', 'late-policy', 'assets', 'metropad'] },
+// Flat sidebar order under Dashboard (no group headers).
+// Any NAV id can be placed here; ids omitted are not shown.
+const SIDEBAR_ORDER = [
+  'employees',
+  'notices',
+  'data-management',
+  'incentives',
+  'chat',
+  'daily-reports',
 ]
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
-  const navigate = useNavigate()
-  const [openPanels, setOpenPanels] = useState([])
-  const [collapsedGroups, setCollapsedGroups] = useState(() => {
-    try {
-      const raw = localStorage.getItem('sa_collapsed_groups')
-      return raw === null ? ['less'] : JSON.parse(raw)
-    } catch { return ['less'] }
-  })
-
-  const toggleGroup = (id) => {
-    setCollapsedGroups(prev => {
-      const next = prev.includes(id) ? prev.filter(g => g !== id) : [...prev, id]
-      localStorage.setItem('sa_collapsed_groups', JSON.stringify(next))
-      return next
-    })
-  }
 
   // Segment-aware, so /sa/fro-idle does not light up /sa/fro.
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
 
+  // Flat sidebar entry: a single link straight to the page — or, for an
+  // embedded panel, straight to that panel's dashboard.
   const renderItem = (id) => {
     const n = navMap[id]
     if (!n) return null
     const Icon = n.icon
     const embed = EMBED_PANELS[id]
-    if (embed) {
-      const here = isActive(n.path)
-      const open = here || openPanels.includes(id)
-      return (
-        <div key={n.id}>
-          <div
-            className={`sa-nav-item sa-nav-sub${here ? ' active' : ''}`}
-            style={{ cursor: 'pointer' }}
-            onClick={() => {
-              if (!here) navigate(`${n.path}/${embed.items[0].path}`)
-              setOpenPanels(prev => prev.includes(id) && !here ? prev.filter(x => x !== id) : [...prev.filter(x => x !== id), id])
-            }}
-          >
-            <Icon className="sa-nav-icon" size={16} />
-            <span className="sa-nav-label">{n.label}</span>
-            <span className={`sa-nav-chevron${open ? ' open' : ''}`} style={{ marginLeft: 'auto' }}>▸</span>
-          </div>
-          {open && (
-            <div className="sa-nav-group-items">
-              {embed.items.map(it => {
-                const to = `${n.path}/${it.path}`
-                return (
-                  <NavLink key={it.path} to={to} className={`sa-nav-item sa-nav-sub${isActive(to) ? ' active' : ''}`}
-                    style={{ paddingLeft: 40 }}>
-                    <span className="sa-nav-label">{it.label}</span>
-                  </NavLink>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )
-    }
+    const to = embed ? `${n.path}/${embed.home || embed.items[0].path}` : n.path
+    // Light up for the dashboard link AND for deep links into the panel
+    // (isActive is segment-aware, so /sa/fro-idle never lights /sa/fro).
+    const active = isActive(to) || (embed && isActive(n.path))
     return (
-      <NavLink key={n.id} to={n.path} end={n.id !== 'employees'}
-        className={`sa-nav-item sa-nav-sub${isActive(n.path) ? ' active' : ''}`}>
+      <NavLink key={n.id} to={to} className={`sa-nav-item${active ? ' active' : ''}`}>
         <Icon className="sa-nav-icon" size={16} />
         <span className="sa-nav-label">{n.label}</span>
         {n.id === 'chat' && <ChatNavBadge />}
@@ -168,22 +98,7 @@ function Sidebar({ mobileOpen }) {
           <DashIcon className="sa-nav-icon" size={16} />
           <span className="sa-nav-label">{dash.label}</span>
         </NavLink>
-        {CATEGORIES.map(g => {
-          const GroupIcon = g.icon
-          const collapsed = collapsedGroups.includes(g.id)
-          return (
-            <div key={g.id}>
-              <div className="sa-nav-group-header" onClick={() => toggleGroup(g.id)}>
-                <GroupIcon className="sa-nav-icon" size={14} />
-                <span>{g.label}</span>
-                <span className={`sa-nav-chevron${collapsed ? '' : ' open'}`}>▸</span>
-              </div>
-              <div className={`sa-nav-group-items${collapsed ? ' collapsed' : ''}`} style={{ maxHeight: collapsed ? 0 : 'none' }}>
-                {g.items.map(renderItem)}
-              </div>
-            </div>
-          )
-        })}
+        {SIDEBAR_ORDER.map(renderItem)}
       </nav>
     </aside>
   )
@@ -271,7 +186,7 @@ function PageShell({ children }) {
 
   useEffect(() => { setMobileSidebar(false) }, [location.pathname])
 
-  const isIframeRoute = ['/sa/accounts', '/sa/fro', '/sa/ngo-admin', '/sa/hr', '/sa/event-head', '/sa/recruiter', '/sa/developers'].some(p => location.pathname.startsWith(p))
+  const isIframeRoute = ['/sa/accounts', '/sa/ngo-admin', '/sa/hr'].some(p => location.pathname.startsWith(p))
   // Community manages its own scrolling (rail + thread scroll independently), so
   // the host must not also scroll it. Without this the shell's overflow-y:auto
   // and the chat's internal panes fight each other and you get two scrollbars.
@@ -419,27 +334,14 @@ export default function SuperAdminPanel() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="data-management" element={<DataManagement />} />
-        <Route path="organization" element={<Organization />} />
         <Route path="employees" element={<EmployeePage />} />
         <Route path="employees/:id" element={<WorkerDetailPage />} />
-        <Route path="leaves" element={<Leaves />} />
-        <Route path="tickets" element={<Tickets />} />
-        <Route path="support-tickets" element={<SupportTickets />} />
         <Route path="events" element={<Events />} />
         <Route path="accounts/*" element={<PanelFrame panel="accounts" />} />
-        <Route path="metropad" element={<MetropadPage />} />
-        <Route path="fro/*" element={<PanelFrame panel="fro" />} />
-        <Route path="live-fro" element={<LiveFroStatus />} />
-        <Route path="fro-idle" element={<FroIdleReport />} />
         <Route path="ngo-admin/*" element={<PanelFrame panel="ngo-admin" />} />
         <Route path="hr/*" element={<PanelFrame panel="hr" />} />
-        <Route path="admin-attendance" element={<AdminAttendance />} />
         {/* <Route path="hr-report" element={<HrRecruitmentReport />} /> */}
         <Route path="daily-reports" element={<DailyReportsOverview />} />
-        <Route path="event-head/*" element={<PanelFrame panel="event-head" />} />
-        <Route path="recruiter/*" element={<PanelFrame panel="recruiter" />} />
-        <Route path="developers/*" element={<PanelFrame panel="developers" />} />
-        <Route path="assets" element={<AssetOverview />} />
         <Route path="incentives" element={<IncentivesPage />}>
           <Route index element={<Navigate to="sir" replace />} />
           <Route path="sir" element={<SpecialIncentives />} />
@@ -450,7 +352,6 @@ export default function SuperAdminPanel() {
         <Route path="special-incentive" element={<Navigate to="../incentives/sir" replace />} />
         <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
         <Route path="notices" element={<Notices />} />
-        <Route path="late-policy" element={<LatePolicy />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
