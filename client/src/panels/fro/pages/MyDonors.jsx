@@ -102,6 +102,23 @@ function filterDonors(list) {
   return list.filter(d => !HIDDEN_STATUSES.has(d.status));
 }
 
+// NGO labels for the OTHER NGOs a row belongs to. The backend's `ngo_names`
+// always includes the row's own NGO, so rendering it verbatim duplicates that
+// name on screen ("BSCT • BSCT") for the common single-NGO donor.
+function ngoNamesOther(primary, all) {
+  return (all || []).filter(n => n && n !== primary);
+}
+
+// Bucket scope for the Follow Ups / Overdue / History views. Those endpoints
+// return the worker's whole share across New, Old and High Tier; when the FRO is
+// sitting on the High Tier bucket we narrow them to the batch that was
+// distributed in, so the lists and their count badges match the tab. New/Old
+// keep the full (unscoped) list — an Old follow-up must not vanish just because
+// the FRO happens to be looking at New.
+function inActiveBucket(row, dataTab) {
+  return dataTab !== 'high_tier' || row?.batch_type === 'high_tier';
+}
+
 function dedupeDonors(list) {
   const seen = new Set();
   const out = [];
@@ -130,7 +147,10 @@ function isPendingStatus(d) {
 // allotment the admin moved in, so the FRO must see every disposition that
 // travelled with the batch (follow-up, callback, scheduled, connected, promise,
 // refusal…) instead of only the pending queue. The backend does the same for
-// `high_tier_only` and still hides completed donations + DND.
+// `high_tier_only`: it returns the WHOLE batch — a completed donation (or a row
+// the FRO dispositioned today) is kept and flagged is_suppressed rather than
+// deleted, so "visible + hidden" still reconciles with the batch the admin
+// distributed and nothing silently disappears from the tab.
 function filterAndSortDonors(list, allStatuses = false) {
   const base = dedupeDonors(list);
   return (allStatuses ? base : base.filter(isPendingStatus)).sort((a, b) => {
@@ -289,6 +309,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // Kept sticky per session (only ever turns on) so the tab cannot flicker away
   // while the FRO is working inside it.
   const [hasHighTier, setHasHighTier] = useState(false);
+  // High Tier batch accounting from the backend (counts.high_tier): raw rows the
+  // admin distributed vs the unique (donor, ngo) rows this list can show, plus
+  // how many are completed (behind "Hidden") or done today. Lets the footer
+  // reconcile "visible + hidden" with the batch the admin sees.
+  const [highTierStats, setHighTierStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
   const [detail, setDetail] = useState(null);
@@ -425,6 +450,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         // request). Sticky: once true it stays true so the tab never disappears
         // mid-session.
         if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
+        setHighTierStats(tab === 'high_tier' && r && !Array.isArray(r) ? (r.counts?.high_tier || null) : null);
         // Saved High Tier tab but nothing allotted any more (admin moved it
         // away): fall back to New instead of stranding the FRO on a hidden tab.
         // Only when unfiltered — the flag is scope-wide then, so an active
@@ -656,6 +682,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     const currentNgo = current?.ngo_id;
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
+      setHighTierStats(dataTab === 'high_tier' && r && !Array.isArray(r) ? (r.counts?.high_tier || null) : null);
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
       const fresh = filterAndSortDonors(loaded, dataTab === 'high_tier');
       // Preserve the current on-screen order so a background reload after a
@@ -1591,9 +1618,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     //
     // High Tier is the exception: it carries an already-worked allotment, so
     // filterAndSortDonors keeps every disposition that moved in with the batch
-    // (follow-up / callback / scheduled / connected / promise / refusal) and the
-    // backend hides completed donations + DND. Those rows are worked, not
-    // suppressed, so they show without the "Hidden" toggle.
+    // (follow-up / callback / scheduled / connected / promise / refusal). A
+    // completed donation is NOT deleted — the backend returns it flagged
+    // is_suppressed, so it sits behind the "Hidden" toggle and the counts
+    // reconcile with the batch the admin distributed. A lead the FRO worked
+    // today stays visible, badged "DONE TODAY".
     const suppressedCount = donors.filter(d => d.is_suppressed).length;
     const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
     const visible = donors.filter(d => {
@@ -1606,10 +1635,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     // Overdue tab: every past-due follow-up/callback/promise, most-overdue first,
     // fetched server-side from next_follow_up so it spans every past day/month.
     const isOverdueTab = listView === 'overdue';
-    const overdueList = overdueLeads;
+    const overdueList = overdueLeads.filter(d => inActiveBucket(d, dataTab));
     // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
     const searching = listView === 'leads' && searchQuery.trim().length >= 2;
-    const historyFiltered = isHistory ? historyLeads.filter(d => {
+    const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
+    const historyFiltered = isHistory ? historyScoped.filter(d => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
       return (d.donor_name || '').toLowerCase().includes(q)
@@ -1617,7 +1647,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         || (d.disposition_detail || '').toLowerCase().includes(q)
         || (d.station || '').toLowerCase().includes(q);
     }) : [];
-    const followUpFiltered = isFollowUps ? followUps.filter(d => {
+    const followUpFiltered = isFollowUps ? followUps.filter(d => inActiveBucket(d, dataTab)).filter(d => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
       return (d.donor_name || '').toLowerCase().includes(q)
@@ -1703,11 +1733,13 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
               <button onClick={() => setListView('history')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'history' ? 'var(--sage)' : 'transparent', color: listView === 'history' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'history' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                 History
-                {historyLeads.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'history' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'history' ? '#fff' : 'var(--ink-soft)' }}>{historyLeads.length}</span> : null}
+                {historyScoped.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'history' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'history' ? '#fff' : 'var(--ink-soft)' }}>{historyScoped.length}</span> : null}
               </button>
             </div>
-            {listView === 'leads' && (
-              <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
+            {/* Bucket tabs stay available in EVERY view. The active bucket now
+                also scopes Follow Ups / Overdue / History, so the High Tier tab
+                must not vanish the moment the FRO leaves Leads. */}
+            <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
                 <button onClick={() => switchTab('new')}
                   style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'new' ? 'var(--sage)' : 'transparent', color: dataTab === 'new' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'new' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                   New
@@ -1724,7 +1756,6 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   </button>
                 )}
               </div>
-            )}
             <select value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }}
               style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: selectedNgo ? 'var(--sage)' : 'var(--bg)', color: selectedNgo ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
               <option value="" style={{ color: 'var(--ink)' }}>All NGOs</option>
@@ -1738,8 +1769,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             {listView === 'leads' && (
               <button onClick={() => setListShowSuppressed(v => !v)}
                 title={listShowSuppressed
-                  ? 'Hide leads held back (DND, donated this month)'
-                  : `Show the ${suppressedCount} leads held back (DND, donated this month)`}
+                  ? `Hide leads held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'})`
+                  : `Show the ${suppressedCount} leads held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'})`}
                 style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listShowSuppressed ? 'var(--sage)' : 'var(--bg)', color: listShowSuppressed ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
                 {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
               </button>
@@ -1874,16 +1905,27 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                           {d.ngo_name && (
                             <span style={{ padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: '#5B6B4E1A', color: '#5B6B4E' }}>{d.ngo_name}</span>
                           )}
-                          {d.ngo_names && d.ngo_names.length > 0 && (
+                          {ngoNamesOther(d.ngo_name, d.ngo_names).length > 0 && (
                             <>
                               <span style={{ color: 'var(--line)' }}>•</span>
-                              {d.ngo_names.map((n, idx) => (
+                              {ngoNamesOther(d.ngo_name, d.ngo_names).map((n, idx) => (
                                 <span key={idx} style={{ padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: '#5B6B4E1A', color: '#5B6B4E' }}>{n}</span>
                               ))}
                             </>
                           )}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{d.station || '—'}</div>
+                        {/* High Tier drops the station line: its rows sit on a
+                            distribution TARGET station, which is not the FRO's own
+                            and reads as someone else's station (e.g. a BFD-x that
+                            belongs to another operator). The bucket name takes that
+                            slot instead, so the row still reads as High Tier data. */}
+                        {dataTab === 'high_tier' ? (
+                          <div style={{ marginTop: 3 }}>
+                            <span style={{ padding: '1px 6px', borderRadius: 999, background: '#b45309', color: '#fff', fontSize: 9, fontWeight: 800, letterSpacing: .5 }}>HIGH TIER</span>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{d.station || '—'}</div>
+                        )}
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                         {d.type ? (
@@ -1967,7 +2009,14 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads (total: ${total || donors.length})`
                     + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
                     + (closedCount ? ` · ${closedCount} already worked${dataTab === 'high_tier' ? '' : ' — filter by status'}` : '')
-                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
+                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'}) \u2014 use "Hidden: ${suppressedCount}" to view` : '')
+                    + (dataTab === 'high_tier' && highTierStats
+                      ? ` \u00b7 batch: ${highTierStats.batch_rows} row(s) distributed`
+                        + (highTierStats.duplicate_rows ? `, ${highTierStats.duplicate_rows} duplicate (same donor + NGO)` : '')
+                        + ` \u2014 ${highTierStats.unique_rows} unique`
+                        + (highTierStats.completed ? `, ${highTierStats.completed} completed` : '')
+                        + (highTierStats.disposed_today ? `, ${highTierStats.disposed_today} done today` : '')
+                      : '')}
         </div>
       </div>
     );
@@ -2008,7 +2057,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                 {donor.ngo_name && (
                   <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_names?.join(', ') || donor.ngo_name}</span>
                 )}
-                {donor.station && selectedStation === 'all' && (
+                {/* Same rule as the list row: no station label in High Tier. */}
+                {donor.station && selectedStation === 'all' && dataTab !== 'high_tier' && (
                   <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700, border: '1px solid #93c5fd' }}>{donor.station}</span>
                 )}
               </div>

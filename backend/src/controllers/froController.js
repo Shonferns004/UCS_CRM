@@ -2742,6 +2742,11 @@ export const getMyDonors = async (req, res) => {
     // the rows we already fetched (BEFORE the new/old/high_tier in-memory split
     // below), so it costs ZERO extra DB work — no new query, no new endpoint.
     let hasHighTier = false;
+    // Raw assignment ROWS in the High Tier bucket for this scope. The admin's
+    // batch card counts rows, while the list collapses twin rows that share a
+    // (donor, ngo) pair — carrying the raw count lets the panel reconcile the two
+    // instead of leaving the FRO to wonder where the difference went.
+    let highTierRowCount = 0;
 
     // Primary: ALL available leads in the FRO's assigned (station, ngo) scope.
     // Scoped by station/ngo pair (NOT by fro_worker_id) so the FRO sees their
@@ -2807,6 +2812,7 @@ export const getMyDonors = async (req, res) => {
         assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && (a.is_new === false || a.is_new == null)));
       } else if (req.query.high_tier_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'high_tier');
+        highTierRowCount = assignments.length;
       }
     }
 
@@ -3278,12 +3284,31 @@ export const getMyDonors = async (req, res) => {
     // kept — they are still work, not completed gifts.
     const HIGH_TIER_DONE_STATUSES = new Set(['donation_collected', 'lead_done', 'done', 'already_donated']);
     const isHighTierView = req.query.high_tier_only === 'true';
+    // Row accounting for the High Tier tab (see highTierRowCount): how many rows
+    // are completed donations (held behind "Hidden: N") and how many the FRO
+    // dispositioned today (kept visible, badged "DONE TODAY").
+    let highTierCompleted = 0;
+    let highTierDisposedToday = 0;
     if (req.query.verified_only !== 'true') {
       if (isHighTierView) {
-        filtered = result.filter(r =>
-          !HIGH_TIER_DONE_STATUSES.has(r.status) &&
-          !disposedTodayIds.has(r.donor_id)
-        );
+        // The tab shows the batch, not a work queue, so NOTHING is deleted:
+        //   • a row the FRO dispositioned TODAY keeps its place — it is part of
+        //     the batch and already carries its status badge, and dropping it
+        //     made today's work silently vanish from the tab;
+        //   • a completed donation (donation_collected / lead_done / done /
+        //     already_donated) is held behind the "Hidden: N" toggle instead of
+        //     being removed, so "visible + hidden" always reconciles with the
+        //     batch the admin distributed.
+        for (const r of result) {
+          const isDone = HIGH_TIER_DONE_STATUSES.has(r.status);
+          if (disposedTodayIds.has(r.donor_id) && !isDone) highTierDisposedToday += 1;
+          if (isDone) {
+            highTierCompleted += 1;
+            r.is_suppressed = true;
+            if (!r.suppress_reason) r.suppress_reason = 'money_done';
+          }
+        }
+        filtered = includeSuppressed ? result : result.filter(r => !r.is_suppressed);
       } else {
         filtered = filtered.filter(r => {
           const isPendingStatus = isQueueableStatus(r);
@@ -3440,6 +3465,17 @@ export const getMyDonors = async (req, res) => {
         allotted: result.length,
         // Rows returned in this response.
         visible: total,
+        // High Tier only: the batch accounting, so "visible + hidden" can be
+        // reconciled against the row count the admin distributed.
+        ...(isHighTierView ? {
+          high_tier: {
+            batch_rows: highTierRowCount,
+            unique_rows: result.length,
+            duplicate_rows: Math.max(0, highTierRowCount - result.length),
+            completed: highTierCompleted,
+            disposed_today: highTierDisposedToday,
+          },
+        } : {}),
         // Held back by default: DND, donated this month, or parked.
         suppressed: suppressedTotal,
         // Leads with a status (worked/closed) — visible, just badged.
@@ -4460,7 +4496,7 @@ export const getFroScheduled = async (req, res) => {
     const { data: contacts, error } = await withStationNgoPairs(
       db
         .from('fro_scheduled_contacts')
-        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, ngos(name))')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, batch_type, ngos(name))')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames)
         .order('scheduled_at', { ascending: true }),
@@ -4505,6 +4541,9 @@ export const getFroScheduled = async (req, res) => {
         donor_mobile: d?.mobile_number || '',
         scheduled_at: c.scheduled_at,
         station: a.station || null,
+        // Carried so the FRO panel can scope Follow Ups / Overdue / History to
+        // the High Tier batch the lead was distributed in.
+        batch_type: a.batch_type || null,
         schedule_id: c.id,
         schedule_notes: c.notes,
         assignment_id: a.id,
@@ -4575,6 +4614,7 @@ export const getFroCallbacks = async (req, res) => {
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
         station: a.station || null,
+        batch_type: a.batch_type || null,
         status: a.status,
         next_follow_up: a.next_follow_up,
         assignment_id: a.id,
@@ -4657,6 +4697,7 @@ export const getFroPromises = async (req, res) => {
         scheduled_at: scheduleMap[a.id] || null,
         due_date: a.next_follow_up || scheduleMap[a.id] || null,
         station: a.station || null,
+        batch_type: a.batch_type || null,
         status: a.status,
         next_follow_up: a.next_follow_up,
         assignment_id: a.id,
@@ -4828,6 +4869,7 @@ export const getFroOverdue = async (req, res) => {
         scheduled_at: dueBy,
         due_date: dueBy,
         station: a.station || null,
+        batch_type: a.batch_type || null,
         status: a.status,
         type: typeFromStatus(a.status),
         is_overdue: true,

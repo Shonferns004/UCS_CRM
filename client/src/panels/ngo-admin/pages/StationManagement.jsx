@@ -2050,6 +2050,12 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
   const [batchesLoading, setBatchesLoading] = useState(false);
   const [restoreBatch, setRestoreBatch] = useState(null);
   const [restoring, setRestoring] = useState(false);
+  // Wrong-station fix-up: re-point ONE target station's slice of a live batch to
+  // another station (D's 50 → E) without restoring the whole batch.
+  const [moveBatch, setMoveBatch] = useState(null);
+  const [moveFrom, setMoveFrom] = useState('');
+  const [moveTo, setMoveTo] = useState('');
+  const [moving, setMoving] = useState(false);
 
   const ngoId = selectedNgoId && selectedNgoId !== 'all' ? selectedNgoId : null;
   const ngo = allNgos.find(n => String(n.id) === String(ngoId));
@@ -2178,6 +2184,44 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
     }
   };
 
+  // Destination choices for a slice move: any station except the one being moved
+  // off and the batch's own source (going back to source is a Restore, and the
+  // backend rejects it here too).
+  const moveTargetOptions = (batch, from) => {
+    const exclude = new Set([from, batch.source_station].filter(Boolean));
+    const names = stations.map(s => s.station).filter(st => st && !exclude.has(st));
+    return [...new Set(names)].sort((a, b) => String(a).localeCompare(String(b)));
+  };
+
+  const openMove = (batch) => {
+    setError(null); setResult(null);
+    setRestoreBatch(null);
+    setMoveFrom(''); setMoveTo('');
+    setMoveBatch(batch);
+  };
+
+  const doMove = async (batch) => {
+    if (!moveFrom || !moveTo) return;
+    setMoving(true); setError(null);
+    try {
+      const res = await apiPost('/ngo-admin/high-tier-move', {
+        batch_id: batch.batch_id,
+        ngo_id: ngoId,
+        from_station: moveFrom,
+        to_station: moveTo,
+      });
+      setResult(res);
+      setMoveBatch(null); setMoveFrom(''); setMoveTo('');
+      await loadBatches();
+      if (onDistributed) onDistributed();
+    } catch (err) {
+      setError(err.message);
+      setMoveBatch(null);
+    } finally {
+      setMoving(false);
+    }
+  };
+
   const modeTabStyle = (active) => ({
     padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600,
     fontFamily: 'inherit', cursor: 'pointer',
@@ -2205,6 +2249,11 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
           {result.source_fro_assigned === false && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#92400e' }}>
               {result.source_station} has no FRO assigned right now — the data is back on the station and will reach an FRO as soon as one is assigned.
+            </div>
+          )}
+          {result.to_fro_assigned === false && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#92400e' }}>
+              {result.to_station} has no FRO assigned right now — the data sits on the station and will reach an FRO as soon as one is assigned.
             </div>
           )}
         </div>
@@ -2411,14 +2460,58 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                       <button className="btn btn-outline btn-sm" onClick={() => setRestoreBatch(null)} disabled={restoring}>Cancel</button>
                     </div>
                   </div>
+                ) : moveBatch && String(moveBatch.batch_id) === String(b.batch_id) ? (
+                  <div style={{ marginTop: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px' }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12.5, color: '#1e40af', lineHeight: 1.6 }}>
+                      Move ONE station's whole share of this batch to another station. The rest of the batch stays
+                      exactly where it is — no restore needed.
+                    </p>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select
+                        value={moveFrom}
+                        onChange={e => { setMoveFrom(e.target.value); setMoveTo(''); }}
+                        style={{ fontSize: 12.5, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}
+                      >
+                        <option value="">From station…</option>
+                        {(b.targets || []).map(t => (
+                          <option key={t.station} value={t.station}>
+                            {t.station} — {Number(t.count || 0).toLocaleString('en-IN')} leads
+                          </option>
+                        ))}
+                      </select>
+                      <span style={{ color: 'var(--ink-soft)' }}>→</span>
+                      <select
+                        value={moveTo}
+                        onChange={e => setMoveTo(e.target.value)}
+                        disabled={!moveFrom}
+                        style={{ fontSize: 12.5, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}
+                      >
+                        <option value="">To station…</option>
+                        {moveTargetOptions(b, moveFrom).map(st => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                      <button className="btn btn-primary btn-sm" onClick={() => doMove(b)} disabled={moving || !moveFrom || !moveTo}>
+                        {moving ? 'Moving…' : 'Move'}
+                      </button>
+                      <button className="btn btn-outline btn-sm" onClick={() => { setMoveBatch(null); setMoveFrom(''); setMoveTo(''); }} disabled={moving}>Cancel</button>
+                    </div>
+                  </div>
                 ) : (
-                  <div style={{ marginTop: 10 }}>
+                  <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button
                       className="btn btn-outline btn-sm"
-                      onClick={() => { setError(null); setResult(null); setRestoreBatch(b); }}
-                      disabled={busy || restoring}
+                      onClick={() => { setError(null); setResult(null); setMoveBatch(null); setRestoreBatch(b); }}
+                      disabled={busy || restoring || moving}
                     >
                       Restore to {b.source_station}
+                    </button>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => openMove(b)}
+                      disabled={busy || restoring || moving}
+                    >
+                      Move a station's share
                     </button>
                   </div>
                 )}
