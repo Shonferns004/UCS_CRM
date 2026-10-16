@@ -27,7 +27,6 @@ const NAV = [
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
   { id:'daily-report', path:'/recruiter/daily-report', label:'Daily Report', icon:FileTxt, eyebrow:'Daily', sub:'Your hiring report for the day' },
   { id:'tickets',    path:'/recruiter/tickets',    label:'Tickets',    icon:FileTxt, eyebrow:'Support',   sub:'Raise and track your tickets' },
-  { id:'to-super-admin', path:'/recruiter/to-super-admin', label:'To Super Admin', icon:FileTxt, eyebrow:'Support', sub:'All tickets raised to the Super Admin' },
   { id:'chat',       path:'/recruiter/chat',       label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
 

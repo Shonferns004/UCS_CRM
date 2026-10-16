@@ -18,11 +18,35 @@ export default function Workers({ onViewWorker }) {
   const [err, setErr] = useState('')
   const [resetWorker, setResetWorker] = useState(null)
 
+  const [causes, setCauses] = useState([])
+  const [ngoForm, setNgoForm] = useState({ name: '', code: '', address: '', registration_no: '' })
+  const [showNgoForm, setShowNgoForm] = useState(false)
+  const [causeForm, setCauseForm] = useState({ ngo_id: '', name: '', description: '' })
+  const [showCauseForm, setShowCauseForm] = useState(false)
+
   const load = () => {
     api('/workers').then(setWorkers).catch(e => setErr(e.message))
     api('/ngos').then(setNgos).catch((err) => { console.error('Error:', err.message); })
+    api('/causes').then(setCauses).catch((err) => { console.error('Error:', err.message); })
   }
   useEffect(load, [])
+
+  const openNewNgo = () => { setNgoForm({ name: '', code: '', address: '', registration_no: '' }); setShowNgoForm(true) }
+  const saveNgo = async () => {
+    setErr('')
+    try {
+      await api('/ngos', { method: 'POST', body: JSON.stringify(ngoForm) })
+      setShowNgoForm(false); load()
+    } catch (e) { setErr(e.message) }
+  }
+  const openNewCause = () => { setCauseForm({ ngo_id: '', name: '', description: '' }); setShowCauseForm(true) }
+  const saveCause = async () => {
+    setErr('')
+    try {
+      await api('/causes', { method: 'POST', body: JSON.stringify(causeForm) })
+      setShowCauseForm(false); load()
+    } catch (e) { setErr(e.message) }
+  }
 
   const remove = async (id) => {
     if (!confirm('Delete this worker?')) return
@@ -53,9 +77,90 @@ export default function Workers({ onViewWorker }) {
     <div className="sa-page">
       <div className="sa-page-header">
         <h3>Workers</h3>
-        <span className="sa-muted">{workers.length} total</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="sa-muted">{workers.length} total</span>
+          <button className="btn btn-primary btn-sm" onClick={openNewNgo}>+ Add NGO</button>
+          <button className="btn btn-primary btn-sm" onClick={openNewCause}>+ Add Cause</button>
+        </div>
       </div>
       {err && <div className="sa-err-card">{err}</div>}
+
+      {showNgoForm && (
+        <div className="sa-modal-overlay" onClick={() => setShowNgoForm(false)}>
+          <div className="sa-modal" onClick={e => e.stopPropagation()}>
+            <h3>NGOs</h3>
+            <div style={{ maxHeight: 190, overflowY: 'auto', marginBottom: 14, border: '1px solid var(--border)', borderRadius: 8 }}>
+              {ngos.length === 0 ? (
+                <div className="sa-muted sa-center" style={{ padding: 14 }}>No NGOs yet</div>
+              ) : ngos.map(n => (
+                <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line, #f3f4f6)' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 7, background: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+                    {n.name?.charAt(0)?.toUpperCase() || 'N'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{n.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-soft)' }}>
+                      {n.code ? <code style={{ background: '#f3f4f6', padding: '1px 4px', borderRadius: 3 }}>{n.code}</code> : null}
+                      {n.registration_no ? <> · {n.registration_no}</> : null}
+                    </div>
+                  </div>
+                  <span className={`sa-badge ${n.is_active !== false ? 'active' : 'inactive'}`} style={{ fontSize: 9, flexShrink: 0 }}>
+                    {n.is_active !== false ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, paddingTop: 2, borderTop: '1px solid var(--border)' }}>Add new NGO</div>
+            <label className="field">Name <input value={ngoForm.name} onChange={e => setNgoForm({...ngoForm, name: e.target.value})} /></label>
+            <label className="field">Code <input value={ngoForm.code} onChange={e => setNgoForm({...ngoForm, code: e.target.value})} /></label>
+            <label className="field">Registration No. <input value={ngoForm.registration_no} onChange={e => setNgoForm({...ngoForm, registration_no: e.target.value})} /></label>
+            <label className="field">Address <textarea value={ngoForm.address} onChange={e => setNgoForm({...ngoForm, address: e.target.value})} /></label>
+            <div className="sa-modal-actions">
+              <button className="btn" onClick={() => setShowNgoForm(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveNgo}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCauseForm && (
+        <div className="sa-modal-overlay" onClick={() => setShowCauseForm(false)}>
+          <div className="sa-modal" onClick={e => e.stopPropagation()}>
+            <h3>Causes</h3>
+            <div style={{ maxHeight: 190, overflowY: 'auto', marginBottom: 14, border: '1px solid var(--border)', borderRadius: 8 }}>
+              {causes.length === 0 ? (
+                <div className="sa-muted sa-center" style={{ padding: 14 }}>No causes yet</div>
+              ) : causes.map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line, #f3f4f6)' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 7, background: '#fef2f2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+                    {c.name?.charAt(0)?.toUpperCase() || 'C'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-soft)' }}>{ngos.find(n => n.id === c.ngo_id)?.name || '—'}</div>
+                  </div>
+                  <span className={`sa-badge ${c.is_active !== false ? 'active' : 'inactive'}`} style={{ fontSize: 9, flexShrink: 0 }}>
+                    {c.is_active !== false ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, paddingTop: 2, borderTop: '1px solid var(--border)' }}>Add new cause</div>
+            <label className="field">NGO
+              <select value={causeForm.ngo_id} onChange={e => setCauseForm({...causeForm, ngo_id: e.target.value})}>
+                <option value="">— Select NGO —</option>
+                {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+              </select>
+            </label>
+            <label className="field">Cause Name <input value={causeForm.name} onChange={e => setCauseForm({...causeForm, name: e.target.value})} /></label>
+            <label className="field">Description <textarea value={causeForm.description} onChange={e => setCauseForm({...causeForm, description: e.target.value})} /></label>
+            <div className="sa-modal-actions">
+              <button className="btn" onClick={() => setShowCauseForm(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCause}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="sa-filters">
         <input placeholder="Search name / login_id…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />

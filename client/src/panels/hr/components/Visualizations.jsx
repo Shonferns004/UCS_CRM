@@ -619,7 +619,7 @@ export default function Visualizations() {
       </div>
 
       {/* ============ NOTICES ============ */}
-      <div style={{ marginTop: 20 }}>
+      <div style={{ gridColumn: '1 / -1', marginTop: 20 }}>
         <div className="card">
           <div className="card-head">
             <h3>Create Notice</h3>

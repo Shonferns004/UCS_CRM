@@ -594,7 +594,7 @@ Before declaring the black book complete:
 
 Never claim the report is submission-ready if required academic details, screenshots, actual test results, or institutional formatting requirements are still missing.
 
-Save the final files in a clearly named output directory, such as docs/output/, without overwriting existing user files.
+Save the final files in a clearly named output directory, such as docs/output/, without overwriting existing user files.  
 
 ## Start Now
 

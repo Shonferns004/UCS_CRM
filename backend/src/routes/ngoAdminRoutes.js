@@ -46,6 +46,9 @@ import {
   getDataRequests,
   resolveDataRequest,
   transferStationData,
+  highTierDistribute,
+  getHighTierBatches,
+  highTierRestore,
   returnTransferEarly,
   getTransferHistory,
   getTransferDonors,
@@ -180,6 +183,13 @@ router.put('/station-assignments/:id/reassign', reassignStationFro);
 router.put('/stations/:station/update-ngos', updateStationNgos);
 router.delete('/stations/:station', removeStationByName);
 router.post('/stations/:station/transfer-data', transferStationData);
+// High Tier: move a station's whole allotment into the High Tier bucket and
+// split it across target stations in one shot. Admin-only (mutates allotments).
+router.post('/stations/:station/high-tier-distribute', authenticateRole('admin', 'super_admin'), highTierDistribute);
+// Live High Tier batches (grouped by source) and bringing a whole batch back to
+// its source station. Read is admin-visible; restore mutates allotments.
+router.get('/high-tier-batches', authenticateRole('admin', 'super_admin'), getHighTierBatches);
+router.post('/high-tier-restore', authenticateRole('admin', 'super_admin'), highTierRestore);
 router.get('/transfers', getTransferHistory);
 router.get('/transfers/:id/donors', getTransferDonors);
 router.post('/transfers/:id/return-early', returnTransferEarly);

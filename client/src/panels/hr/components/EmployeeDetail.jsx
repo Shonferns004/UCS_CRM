@@ -13,8 +13,16 @@ import { API_BASE } from '../../../lib/apiBase';
 import { safeImgSrc, signatureSourceLabel, signatureStatusPill } from '../signatureUtils';
 import { isVoluntarySunday, newSundayRulesMonth } from '../../../lib/sundayRules';
 import { lateThresholds, calcLateDeductionDays } from '../../../lib/latePolicy';
+import EmployeeOverview from './employeeOverview/EmployeeOverview';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+
+// 'YYYY-MM' -> 'Oct 2026' for profile-card month labels.
+const monthShortLabel = (monthKey) => {
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [y, m] = String(monthKey || '').split('-');
+  return m ? `${M[Number(m) - 1]} ${y}` : '';
+};
 
 // DOC_OPTIONS now lives in lib/labels so the ODAR form shares the same list.
 
@@ -59,7 +67,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [form, setForm] = useState({});
-  const [tab, setTab] = useState(accountsMode ? 'attendance' : 'overview');
+  const [tab, setTab] = useState('overview');
   const [salaries, setSalaries] = useState([]);
   const [salaryForm, setSalaryForm] = useState({ salary: '' });
   const [salarySubmitting, setSalarySubmitting] = useState(false);
@@ -76,6 +84,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const [holdBusy, setHoldBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
   const [docModal, setDocModal] = useState(false);
+  // Accounts profile card: current-month collection/target from the overview
+  // endpoint (salary comes from the already-loaded salary rows).
+  const [monthStats, setMonthStats] = useState(null);
   const [docValue, setDocValue] = useState([]);
   const [docOther, setDocOther] = useState('');
   const [holdModal, setHoldModal] = useState(false);
@@ -182,6 +193,20 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
       .catch((err) => { console.error('API error:', err.message); });
     return () => { cancelled = true; };
   }, [worker.id]);
+
+  // Accounts profile card — this month's collection + target (IST month).
+  // Salary for the month comes from salary_history already in `salaries`.
+  useEffect(() => {
+    if (!accountsMode || !worker.id) return
+    let cancelled = false
+    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
+    const from = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`
+    const to = now.toISOString().slice(0, 10)
+    api(`/accounts/workers/${worker.id}/overview?from=${from}&to=${to}`, { _prefix: 'ucs' })
+      .then(ov => { if (!cancelled) setMonthStats(ov) })
+      .catch(() => { if (!cancelled) setMonthStats(false) }) // false = failed → '—'
+    return () => { cancelled = true }
+  }, [accountsMode, worker.id])
 
   // Fetch Sunday pay + incentive data whenever the viewing month changes
   useEffect(() => {
@@ -392,12 +417,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
   const ngoName = ngos.find(n => n.id === data.ngo_id)?.name || 'NA';
 
-  // Accounts' Salary section keeps a lean strip: no Overview, Leaves or
-  // Settings — Bank Details moved to the top of the page instead (below).
-  // Loans & Advances lives on its own full page in the Salary & Advances
-  // strip (/accounts/volunteers/loans), not in this detail view.
+  // Accounts' section keeps a lean three-tab strip: Overview (analytics),
+  // Attendance, Salary — no Leaves or Settings. Bank Details stays pinned at
+  // the top of the page instead (below). Loans & Advances lives on its own
+  // full page in the Salary & Advances strip (/accounts/volunteers/loans).
   const TABS = accountsMode
     ? [
+        { key: 'overview', label: 'Overview' },
         { key: 'attendance', label: 'Attendance' },
         { key: 'salary', label: 'Salary' },
       ]
@@ -800,6 +826,32 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
             <SideField label="Joined" value={data.created_at ? new Date(data.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '\u2014'} />
             {/* Resolved so the profile never shows a raw JSON array string. */}
             {!accountsMode && <SideField label="Documents Submitted" value={joinDocumentLabels(parseDocumentsValue(data.documents_value, data.documents_other).selected, data.documents_other) || '\u2014'} />}
+            {accountsMode && (
+              <div style={{ margin:'10px 0 4px', padding:'10px 12px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', background:'var(--sand)' }}>
+                <div style={{ fontSize:10, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:2 }}>
+                  {monthShortLabel(defaultMonthKey)}
+                </div>
+                <SideField
+                  label="Salary"
+                  value={(() => {
+                    const mSalary = sortedSalaries.find(s =>
+                      (s.from_month || '').slice(0, 7) <= defaultMonthKey &&
+                      (!s.to_month || s.to_month.slice(0, 7) >= defaultMonthKey));
+                    return mSalary?.salary != null
+                      ? (isSalaryUnlocked ? formatSalary(mSalary.salary) : maskSalary(mSalary.salary))
+                      : '\u2014';
+                  })()}
+                />
+                <SideField
+                  label="Collection"
+                  value={monthStats ? '₹' + Math.round(monthStats.collection?.amount || 0).toLocaleString('en-IN') : (monthStats === false ? '\u2014' : '…')}
+                />
+                <SideField
+                  label="Target"
+                  value={monthStats ? (monthStats.target?.amount > 0 ? '₹' + Math.round(monthStats.target.amount).toLocaleString('en-IN') : 'No target') : (monthStats === false ? '\u2014' : '…')}
+                />
+              </div>
+            )}
           </div>
           </div>
         </div>
@@ -814,6 +866,18 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
           {tab === 'overview' && (
             <div className="detail-cards-scroll">
+              {accountsMode && (
+                <div style={{ marginBottom:16 }}>
+                  <EmployeeOverview workerId={worker.id} onOpenAttendance={() => setTab('attendance')} />
+                </div>
+              )}
+
+              {/* Personal profile cards belong to HR's Overview; Accounts' Overview
+                  is analytics-only (KPIs, chart, heatmap, timeline) — profile data
+                  stays reachable via the header side fields and the Salary tab's
+                  pinned Bank Details. */}
+              {!accountsMode && (
+              <>
               <div className="card" style={{ marginBottom:16 }}>
                 <div className="card-head"><h3>Personal Details</h3></div>
                 <div className="detail-grid">
@@ -952,6 +1016,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                   )}
                 </div>
               </div>
+              </>
+              )}
 
               {[data.aadhar_front_url, data.aadhar_back_url, data.pan_card_url, data.bank_proof_url, data.light_bill_url].some(Boolean) && (
                 <div className="card" style={{ marginTop:16 }}>

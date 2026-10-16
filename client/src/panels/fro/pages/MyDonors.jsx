@@ -277,6 +277,10 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const [donors, setDonors] = useState([]);
   const [total, setTotal] = useState(0);
   const [dataTab, setDataTab] = useState('new');
+  // High Tier tab is shown only to FROs who actually hold high-tier allotment.
+  // Kept sticky per session (only ever turns on) so the tab cannot flicker away
+  // while the FRO is working inside it.
+  const [hasHighTier, setHasHighTier] = useState(false);
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
   const [detail, setDetail] = useState(null);
@@ -409,6 +413,22 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
+        // High-tier availability rides along on the list response (no extra
+        // request). Sticky: once true it stays true so the tab never disappears
+        // mid-session.
+        if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
+        // Saved High Tier tab but nothing allotted any more (admin moved it
+        // away): fall back to New instead of stranding the FRO on a hidden tab.
+        // Only when unfiltered — the flag is scope-wide then, so an active
+        // NGO/station filter can never bounce the FRO off the High Tier tab.
+        if (
+          tab === 'high_tier' &&
+          r && !Array.isArray(r) && r.has_high_tier === false &&
+          !selectedNgo && (!selectedStation || selectedStation === 'all')
+        ) {
+          setDataTab('new');
+          return;
+        }
         let { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
         let sortedDonors = filterAndSortDonors(loaded);
         // Stale-filter escape: if this tab is filtered (NGO/station) and comes
@@ -422,6 +442,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
           const br = await getMyDonors(null, null, {
             newOnly: tab === 'new',
             oldOnly: tab === 'old',
+            highTierOnly: tab === 'high_tier',
             includeSuppressed: true,
           });
           if (cancelled) return;
@@ -440,7 +461,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         // how an FRO could sit on the New tab convinced their Old allotment was
         // empty. The combined-empty banner below already covers the both-empty
         // case, so we no longer need autoTabRef / autoFallbackToOldRef.
-        if (sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
+        // High Tier is a separate bucket and never shunts to/from New/Old — an
+        // empty High Tier tab stays put so it reads as "nothing allotted here".
+        if (tab !== 'high_tier' && sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
           autoFallbackAttemptedRef.current = true;
           const otherTab = tab === 'new' ? 'old' : 'new';
           const alt = await getMyDonors(null, null, {
@@ -496,13 +519,17 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             const progress = await api('/fro/progress', { _prefix: 'ucs' });
             const progressStation = progress?.station || 'all';
             if (progressStation === (selectedStation !== 'all' ? selectedStation : 'all')) {
-              const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
+              const savedId = tab === 'new' ? progress?.new_donor_id
+                : tab === 'high_tier' ? progress?.high_tier_donor_id
+                  : progress?.old_donor_id;
               if (savedId) {
                 const found = sortedDonors.findIndex(d => d.id === savedId);
                 if (found >= 0) { setIndex(found); restored = true; }
               }
               if (!restored) {
-                const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
+                const savedIndex = tab === 'new' ? progress?.new_donor_index
+                  : tab === 'high_tier' ? progress?.high_tier_donor_index
+                    : progress?.old_donor_index;
                 if (savedIndex != null && savedIndex < sortedDonors.length) {
                   setIndex(savedIndex); restored = true;
                 }
@@ -604,7 +631,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   }, []);
 
   const stationOpts = (tab, station) => {
-    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
+    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old', highTierOnly: tab === 'high_tier' };
     // Ask the backend for the FULL allotted list. It returns every assigned donor
     // and flags the suppressed ones (is_suppressed / suppress_reason) rather than
     // deleting them, so the list can show everything behind the "Show
@@ -620,6 +647,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     const currentId = current?.id;
     const currentNgo = current?.ngo_id;
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
+      if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
       const fresh = filterAndSortDonors(loaded);
       // Preserve the current on-screen order so a background reload after a
@@ -751,7 +779,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const isInsertInCurrentView = (row) => {
     if (!row) return false;
     if (row.status === 'reassigned') return false;
-    if (row.batch_type && row.batch_type !== (dataTab === 'old' ? 'old_data' : 'new_data')) return false;
+    const wantBatch = dataTab === 'old' ? 'old_data' : dataTab === 'high_tier' ? 'high_tier' : 'new_data';
+    if (row.batch_type && row.batch_type !== wantBatch) return false;
     if (selectedStation !== 'all' && row.station !== selectedStation) return false;
     if (selectedNgo && row.ngo_id && row.ngo_id !== selectedNgo) return false;
     return true;
@@ -780,6 +809,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     if (tab === 'new') {
       body.new_donor_id = donorId;
       body.new_donor_index = donorIndex;
+    } else if (tab === 'high_tier') {
+      body.high_tier_donor_id = donorId;
+      body.high_tier_donor_index = donorIndex;
     } else {
       body.old_donor_id = donorId;
       body.old_donor_index = donorIndex;
@@ -819,6 +851,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
           localStorage.setItem(`${p.dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: p.donor.id, idx: p.index }));
           const body = { data_tab: p.dataTab, station: selectedStation !== 'all' ? selectedStation : null };
           if (p.dataTab === 'new') { body.new_donor_id = p.donor.id; body.new_donor_index = p.index; }
+          else if (p.dataTab === 'high_tier') { body.high_tier_donor_id = p.donor.id; body.high_tier_donor_index = p.index; }
           else { body.old_donor_id = p.donor.id; body.old_donor_index = p.index; }
           navigator.sendBeacon && navigator.sendBeacon(
             API_BASE + '/fro/progress',
@@ -1669,6 +1702,13 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'old' ? 'var(--sage)' : 'transparent', color: dataTab === 'old' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'old' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                   Old
                 </button>
+                {(hasHighTier || dataTab === 'high_tier') && (
+                  <button onClick={() => switchTab('high_tier')}
+                    style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'high_tier' ? 'var(--sage)' : 'transparent', color: dataTab === 'high_tier' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'high_tier' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>workspace_premium</span>
+                    High Tier
+                  </button>
+                )}
               </div>
             )}
             <select value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }}
@@ -1747,17 +1787,19 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             listView === 'leads' && donors.length === 0 ? (
               <div className="fro-empty-state" style={{ padding: '34px 20px', marginTop: 4 }}>
                 <div className="fro-empty-icon">
-                  <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'var(--sage)', opacity: .5 }}>{dataTab === 'new' ? 'fiber_new' : 'history'}</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'var(--sage)', opacity: .5 }}>{dataTab === 'new' ? 'fiber_new' : dataTab === 'high_tier' ? 'workspace_premium' : 'history'}</span>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : 'old'} data allotted</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : dataTab === 'high_tier' ? 'high tier' : 'old'} data allotted</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5 }}>
                   {stations.length === 0
                     ? 'You are not assigned to any station yet. Ask your Admin to assign you to a station.'
                     : (dataTab === 'new'
                       ? 'New data will appear here once distributed to your station.'
-                      : 'Old data will appear here once uploaded to your station.')}
+                      : dataTab === 'high_tier'
+                        ? 'High Tier data will appear here once your admin distributes it to your station.'
+                        : 'Old data will appear here once uploaded to your station.')}
                 </div>
-                {(autoFallbackAttemptedRef.current) && (
+                {(autoFallbackAttemptedRef.current && dataTab !== 'high_tier') && (
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
                     No new or old data is currently available at your station. Contact your admin if you expect data here.
                   </div>
@@ -1806,7 +1848,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontSize: isCompact ? 12.5 : 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.donor_name || 'Unknown'}</span>
-                          {d.is_new && (
+                          {d.is_new && dataTab !== 'high_tier' && (
                             <span style={{ flexShrink: 0, padding: '1px 6px', borderRadius: 999, background: '#16a34a', color: '#fff', fontSize: isCompact ? 8 : 9, fontWeight: 700 }}>NEW</span>
                           )}
                         </div>
@@ -1933,11 +1975,14 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
               <div className="detail-name">{donor.donor_name}</div>
               <div className="fro-donor-position">#{index + 1} of {total || donors.length}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                  {donor.is_new && (
+                  {donor.is_new && dataTab !== 'high_tier' && (
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
                   )}
                   {dataTab === 'old' && (
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#7c3aed', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>OLD</span>
+                  )}
+                  {dataTab === 'high_tier' && (
+                    <span style={{ padding: '1px 6px', borderRadius: 4, background: '#b45309', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>HIGH TIER</span>
                   )}
                 {statusPill(donor.status || 'pending')}
                 {donor.rollover_from_status && (

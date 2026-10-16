@@ -258,6 +258,31 @@ export const bustTlCache = () => {
     if (k.startsWith('tl:')) _rCache.delete(k);
   }
 };
+
+// fro_assignments.assigned_by is a FK to users(id), but the persona behind a CRM
+// login can be a workers-table row (e.g. an FRO/FRO-admin whose UUID lives in
+// workers, not users). Writing that UUID straight into assigned_by trips
+// fro_assignments_assigned_by_fkey. Resolve the actor to a genuine users.id and
+// fall back to NULL when the token subject is not a users row (worker logins,
+// env admin) — the column is nullable and NULL simply means "system/unknown".
+// Mirrors resolveAssignedBy in accountsController.js.
+const resolveAssignedBy = async (user) => {
+  if (!user) return null;
+  const { id, email } = user;
+  if (!id || id === 0 || id === -1) return null;
+  if (!email) return null;
+  try {
+    const { data, error } = await db.from('users').select('id').eq('id', id).maybeSingle();
+    if (error) {
+      console.error('resolveAssignedBy: users lookup failed (falling back to null):', error.message);
+      return null;
+    }
+    return data?.id ?? null;
+  } catch (e) {
+    console.error('resolveAssignedBy: unexpected error (falling back to null):', e.message);
+    return null;
+  }
+};
 const CONNECTED_STATUSES = [
   'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
   'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
@@ -2183,7 +2208,7 @@ export const reassignStationFro = async (req, res) => {
 
     // Reassign donors in this station
     const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
-    const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, req.user.id);
+    const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, await resolveAssignedBy(req.user));
 
     // Moves every donor in the station, so both the station list and the
     // disposition roll-up are now wrong, not just the FRO label.
@@ -4440,7 +4465,7 @@ export const transferStationData = async (req, res) => {
     const autoReturnAt = new Date(Date.now() + 10 * 60 * 60 * 1000).toISOString();
     const result = await createTemporaryTransfer(
       sourceAssign.fro_worker_id, ngoIds,
-      station.trim(), target_station.trim(), donor_count, autoReturnAt, req.user.id
+      station.trim(), target_station.trim(), donor_count, autoReturnAt, await resolveAssignedBy(req.user)
     );
 
     // Moved donors between two stations, so both stations' counts and the
@@ -4451,6 +4476,429 @@ export const transferStationData = async (req, res) => {
       message: `Transferred ${result.transferred} donors to ${target_station}`,
       transfer: result.transfer,
       transferred: result.transferred,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── High Tier distribution ──────────────────────────────────────────────
+//
+// Moves ONE source station's entire live allotment into the High Tier bucket
+// and splits it across the selected target stations in a single shot. "High
+// Tier" is a third data bucket alongside new_data/old_data, so it never mixes
+// with the FRO's New/Old tabs — the FRO sees it only under its own High Tier
+// tab.
+//
+// Nothing is left behind: every non-'reassigned' assignment of the source
+// station is handed to a target. Manual mode must add up to the exact total;
+// equal mode splits as evenly as possible (remainder to the first stations).
+//
+// Each moved row keeps its donor/status/disposition history. It only changes
+// owner: station -> target, batch_type -> 'high_tier', fro_worker_id -> the
+// target station's currently assigned FRO (null when that station has none).
+// Past receipts and fro_donor_logs are untouched, so future leads/collections
+// credit the FRO who now works the lead.
+export const highTierDistribute = async (req, res) => {
+  try {
+    const sourceStation = String(req.params.station || '').trim();
+    const { ngo_id, mode = 'equal', targets } = req.body || {};
+    if (!sourceStation) return res.status(400).json({ message: 'Source station is required' });
+
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO assigned' });
+
+    const scope = resolveStationNgoScope(ngoIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    const scopeNgoIds = scope.ids;
+
+    // The whole live allotment of the source station (any status, dispositions
+    // included). Only 'reassigned' tombstones are skipped — they are not data.
+    // `batch_type` / `high_tier_batch_id` come along so we can leave High Tier
+    // rows that belong to an EARLIER batch (from some other source station)
+    // untouched — otherwise distributing this station would silently steal
+    // another source's data and overwrite its origin.
+    const { data: sourceRows, error: srcErr } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, ngo_id, batch_type, high_tier_batch_id, fro_worker_id')
+      .eq('station', sourceStation)
+      .in('ngo_id', scopeNgoIds)
+      .not('status', 'eq', 'reassigned');
+    if (srcErr) throw srcErr;
+
+    const allRows = sourceRows || [];
+    // Native data only. Rows already moved into High Tier by an earlier batch
+    // (they carry a batch id, or a legacy 'high_tier' batch_type from before
+    // provenance existed) stay put, keeping their own source_station/batch id.
+    const rows = allRows.filter(r => r.high_tier_batch_id == null && r.batch_type !== 'high_tier');
+    const total = rows.length;
+    if (total === 0) {
+      const message = allRows.length > 0
+        ? `${sourceStation} only holds High Tier data from another source; nothing native to distribute.`
+        : `No data found on ${sourceStation} to distribute`;
+      return res.status(400).json({ message });
+    }
+
+    // Normalise targets: unique stations, source excluded, integer counts.
+    const cleanTargets = [];
+    const seen = new Set();
+    for (const t of Array.isArray(targets) ? targets : []) {
+      const st = String(t?.station || '').trim();
+      if (!st || st === sourceStation || seen.has(st)) continue;
+      seen.add(st);
+      cleanTargets.push({ station: st, count: Math.max(0, parseInt(t?.count, 10) || 0) });
+    }
+    if (cleanTargets.length === 0) {
+      return res.status(400).json({ message: 'Select at least one target station' });
+    }
+
+    let allocation;
+    if (mode === 'equal') {
+      const n = cleanTargets.length;
+      const base = Math.floor(total / n);
+      let remainder = total % n;
+      allocation = cleanTargets.map((t) => {
+        const extra = remainder > 0 ? 1 : 0;
+        if (remainder > 0) remainder -= 1;
+        return { station: t.station, count: base + extra };
+      });
+    } else {
+      const sum = cleanTargets.reduce((s, t) => s + t.count, 0);
+      if (sum !== total) {
+        return res.status(400).json({
+          message: `Manual counts must add up to exactly ${total} (currently ${sum}). Nothing can be left behind.`,
+        });
+      }
+      allocation = cleanTargets.filter((t) => t.count > 0);
+    }
+
+    const allocTotal = allocation.reduce((s, t) => s + t.count, 0);
+    if (allocTotal !== total) {
+      return res.status(400).json({ message: `Allocation adds up to ${allocTotal}, expected ${total}` });
+    }
+
+    // Target station FROs, keyed (station, ngo) then station-wide fallback, so a
+    // donor moves to the FRO who owns that NGO's data on the target station.
+    const targetNames = allocation.map((t) => t.station);
+    const { data: stationAssigns } = await db
+      .from('fro_station_assignments')
+      .select('station, fro_worker_id, ngo_id')
+      .in('station', targetNames)
+      .in('ngo_id', scopeNgoIds);
+    const froByStationNgo = new Map();
+    const froAnyByStation = new Map();
+    for (const sa of stationAssigns || []) {
+      if (!sa.fro_worker_id) continue;
+      froByStationNgo.set(`${sa.station}::${sa.ngo_id}`, sa.fro_worker_id);
+      if (!froAnyByStation.has(sa.station)) froAnyByStation.set(sa.station, sa.fro_worker_id);
+    }
+    const froFor = (st, ngoId) => froByStationNgo.get(`${st}::${ngoId}`) ?? froAnyByStation.get(st) ?? null;
+
+    // assigned_by is a FK to users(id); the acting admin may be a worker-persona
+    // row, so resolve it (NULL when not a users row) before the raw UPDATEs.
+    const assignedBy = await resolveAssignedBy(req.user);
+
+    const nowIso = new Date().toISOString();
+    // One id per distribute operation: every moved row carries it, so a later
+    // restore can bring back exactly this source's data even when several
+    // sources sit in the same target station.
+    const batchId = crypto.randomUUID();
+    const chunkSize = 200;
+    const touchedFroIds = new Set();
+    let moved = 0;
+    let cursor = 0;
+    const summary = [];
+    const remainingAtSource = allRows.length - rows.length;
+    let clearedSourceCount = 0;
+    // The FROs who OWN these rows right now lose them to the targets, so their
+    // cached donor list has to be dropped too — otherwise it keeps showing the
+    // moved leads until the 30-60s TTL lapses.
+    for (const r of rows) if (r.fro_worker_id) touchedFroIds.add(r.fro_worker_id);
+
+    // The whole move runs in ONE transaction, on a dedicated client, so a
+    // mid-way failure rolls back instead of leaving the source half-emptied.
+    // It writes through raw SQL rather than db.from() for two reasons: the
+    // wrapper cannot join an external transaction, and fro_assignments is a
+    // realtime table — the wrapper would broadcast one db:change per moved row
+    // to every connected panel, which for a whole station is exactly the
+    // bulk-emit socket fan-out we must avoid.
+    const client = await db._pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const target of allocation) {
+        const slice = rows.slice(cursor, cursor + target.count);
+        cursor += target.count;
+        if (slice.length === 0) continue;
+
+        // Group the slice by resolved FRO AND previous batch_type, so each
+        // update batch shares one owner and one origin bucket (both written per
+        // row).
+        const groups = new Map();
+        for (const row of slice) {
+          const fro = froFor(target.station, row.ngo_id);
+          const prevBatch = row.batch_type ?? null;
+          const key = `${fro == null ? 'null' : String(fro)}|${prevBatch ?? 'null'}`;
+          if (!groups.has(key)) groups.set(key, { fro: fro ?? null, prevBatch, ids: [] });
+          groups.get(key).ids.push(row.id);
+          if (fro != null) touchedFroIds.add(fro);
+        }
+
+        for (const { fro, prevBatch, ids } of groups.values()) {
+          for (let i = 0; i < ids.length; i += chunkSize) {
+            const chunk = ids.slice(i, i + chunkSize);
+            await client.query(
+              `UPDATE fro_assignments
+                  SET station = $1,
+                      fro_worker_id = $2,
+                      batch_type = 'high_tier',
+                      assigned_at = $3,
+                      assigned_by = $4,
+                      updated_at = $3,
+                      high_tier_source_station = $5,
+                      high_tier_prev_batch_type = $6,
+                      high_tier_batch_id = $7,
+                      high_tier_distributed_at = $3
+                WHERE id = ANY($8)`,
+              [target.station, fro, nowIso, assignedBy, sourceStation, prevBatch, batchId, chunk]
+            );
+          }
+        }
+
+        moved += slice.length;
+        summary.push({
+          station: target.station,
+          count: slice.length,
+          fro_worker_id: froFor(target.station, slice[0].ngo_id),
+        });
+      }
+
+      // Unassign the source station's FRO only when NOTHING is left on it. If
+      // another source's High Tier batch still lives here, its FRO/allotment must
+      // stay so that data remains workable.
+      if (remainingAtSource === 0) {
+        const res = await client.query(
+          `UPDATE fro_station_assignments
+              SET fro_worker_id = NULL, updated_at = $1
+            WHERE station = $2 AND ngo_id = ANY($3)`,
+          [nowIso, sourceStation, scopeNgoIds]
+        );
+        clearedSourceCount = res.rowCount || 0;
+      }
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    // Station counts and the FRO donor caches both changed. Station roll-ups are
+    // synchronous-ish (in-memory + Redis prefix); the FRO caches are best-effort.
+    bustStationCache();
+    try {
+      const { invalidateFroCaches } = await import('./froController.js');
+      for (const froId of touchedFroIds) invalidateFroCaches(froId);
+    } catch (cacheErr) {
+      console.warn('highTierDistribute: FRO cache invalidation failed:', cacheErr.message);
+    }
+
+    return res.json({
+      message: `Distributed ${moved} lead${moved === 1 ? '' : 's'} from ${sourceStation} into High Tier across ${summary.length} station${summary.length === 1 ? '' : 's'}.`,
+      moved,
+      total,
+      source_station: sourceStation,
+      batch_id: batchId,
+      remaining_at_source: remainingAtSource,
+      source_fro_cleared: clearedSourceCount > 0,
+      per_station: summary,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// NGO-admin view of every live High Tier batch in scope: which source station a
+// batch came from, the target stations it spread into, how many leads, and when
+// it was distributed. Multiple sources can sit in the same target station, so a
+// batch (grouped by high_tier_batch_id) is the unit of restore.
+export const getHighTierBatches = async (req, res) => {
+  try {
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.json({ batches: [] });
+
+    const scope = resolveStationNgoScope(ngoIds, req.query.ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    const scopeNgoIds = scope.ids;
+    if (scopeNgoIds.length === 0) return res.json({ batches: [] });
+
+    // Aggregate in SQL (GROUP BY) so we never pull thousands of rows just to
+    // count them; the partial index on high_tier_batch_id keeps this cheap.
+    // `= ANY($1)` deliberately has NO cast: Postgres infers the array element
+    // type from the ngo_id column, so this stays correct whether the id is uuid
+    // or integer (ngo_id is uuid here — different tables in this codebase vary).
+    const { rows } = await db._pool.query(
+      `SELECT high_tier_batch_id AS batch_id,
+              high_tier_source_station AS source_station,
+              ngo_id,
+              station,
+              high_tier_distributed_at AS distributed_at,
+              COUNT(*)::int AS count
+         FROM fro_assignments
+        WHERE high_tier_batch_id IS NOT NULL
+          AND status IS DISTINCT FROM 'reassigned'
+          AND ngo_id = ANY($1)
+        GROUP BY 1, 2, 3, 4, 5
+        ORDER BY high_tier_distributed_at DESC NULLS LAST`,
+      [scopeNgoIds]
+    );
+
+    const grouped = new Map();
+    for (const r of rows || []) {
+      const key = String(r.batch_id);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          batch_id: r.batch_id,
+          source_station: r.source_station,
+          ngo_id: r.ngo_id,
+          distributed_at: r.distributed_at,
+          total: 0,
+          targets: [],
+        });
+      }
+      const batch = grouped.get(key);
+      batch.total += r.count;
+      batch.targets.push({ station: r.station, count: r.count });
+    }
+
+    return res.json({ batches: [...grouped.values()] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Bring a whole High Tier batch back to its source station. Only the rows
+// carrying this batch id move, so other sources living in the same targets are
+// untouched. The row's original New/Old bucket (high_tier_prev_batch_type) is
+// restored, and the provenance markers are cleared.
+export const highTierRestore = async (req, res) => {
+  try {
+    const { batch_id, ngo_id } = req.body || {};
+    if (!batch_id) return res.status(400).json({ message: 'batch_id is required' });
+
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO assigned' });
+
+    const scope = resolveStationNgoScope(ngoIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    const scopeNgoIds = scope.ids;
+
+    const { data: batchRows, error } = await db
+      .from('fro_assignments')
+      .select('id, ngo_id, high_tier_source_station, high_tier_prev_batch_type, fro_worker_id')
+      .eq('high_tier_batch_id', batch_id)
+      .in('ngo_id', scopeNgoIds);
+    if (error) throw error;
+
+    const rows = batchRows || [];
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'High Tier batch not found (it may already be restored).' });
+    }
+    const sourceStation = rows.find(r => r.high_tier_source_station)?.high_tier_source_station;
+    if (!sourceStation) {
+      return res.status(400).json({ message: 'This batch has no source station recorded.' });
+    }
+
+    // Data goes to the source station's CURRENT FRO for each (station, ngo). If
+    // the station has no FRO right now the rows land unassigned on the source
+    // station — they still surface through station scope once an FRO is set.
+    const { data: stationAssigns } = await db
+      .from('fro_station_assignments')
+      .select('station, fro_worker_id, ngo_id')
+      .eq('station', sourceStation)
+      .in('ngo_id', scopeNgoIds);
+    const froByNgo = new Map();
+    let froAny = null;
+    for (const sa of stationAssigns || []) {
+      if (!sa.fro_worker_id) continue;
+      froByNgo.set(String(sa.ngo_id), sa.fro_worker_id);
+      if (!froAny) froAny = sa.fro_worker_id;
+    }
+    const froFor = (ngoId) => froByNgo.get(String(ngoId)) ?? froAny ?? null;
+
+    // assigned_by is a FK to users(id); resolve the acting admin the same way as
+    // distribute (NULL when the subject is not a users row).
+    const assignedBy = await resolveAssignedBy(req.user);
+
+    const nowIso = new Date().toISOString();
+    const chunkSize = 200;
+    const touchedFroIds = new Set();
+    let restored = 0;
+
+    // Group by resolved owner + original bucket so each update shares one pair.
+    const groups = new Map();
+    for (const row of rows) {
+      const fro = froFor(row.ngo_id);
+      const prevBatch = row.high_tier_prev_batch_type ?? null;
+      const key = `${fro == null ? 'null' : String(fro)}|${prevBatch ?? 'null'}`;
+      if (!groups.has(key)) groups.set(key, { fro: fro ?? null, prevBatch, ids: [] });
+      groups.get(key).ids.push(row.id);
+      if (fro != null) touchedFroIds.add(fro);
+      // The current owner at the TARGET station loses this row on restore, so
+      // drop their cached list as well or it lingers until the TTL.
+      if (row.fro_worker_id) touchedFroIds.add(row.fro_worker_id);
+    }
+
+    // Same reasoning as highTierDistribute: one transaction so a mid-way failure
+    // rolls back, and raw SQL on a dedicated client so the realtime wrapper does
+    // not broadcast one db:change per restored row.
+    const client = await db._pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const { fro, prevBatch, ids } of groups.values()) {
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunk = ids.slice(i, i + chunkSize);
+          await client.query(
+            `UPDATE fro_assignments
+                SET station = $1,
+                    fro_worker_id = $2,
+                    batch_type = $3,
+                    assigned_at = $4,
+                    assigned_by = $5,
+                    updated_at = $4,
+                    high_tier_source_station = NULL,
+                    high_tier_prev_batch_type = NULL,
+                    high_tier_batch_id = NULL,
+                    high_tier_distributed_at = NULL
+              WHERE id = ANY($6)`,
+            [sourceStation, fro, prevBatch, nowIso, assignedBy, chunk]
+          );
+        }
+        restored += ids.length;
+      }
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    bustStationCache();
+    try {
+      const { invalidateFroCaches } = await import('./froController.js');
+      for (const froId of touchedFroIds) invalidateFroCaches(froId);
+    } catch (cacheErr) {
+      console.warn('highTierRestore: FRO cache invalidation failed:', cacheErr.message);
+    }
+
+    return res.json({
+      message: `Restored ${restored} lead${restored === 1 ? '' : 's'} back to ${sourceStation}.`,
+      restored,
+      source_station: sourceStation,
+      source_fro_assigned: froAny != null,
+      batch_id,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

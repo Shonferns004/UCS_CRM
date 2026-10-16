@@ -133,7 +133,7 @@ const FRO_DONORS_REDIS_MAX_BYTES = 512 * 1024;
 // list would let two differently-filtered views share one entry and show the FRO
 // the wrong queue.
 const FRO_DONORS_KEY_PARAMS = [
-  'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only',
+  'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only', 'high_tier_only',
   'verified_only', 'active_only', 'inactive_only', 'include_suppressed',
   'period', 'limit', 'offset',
 ];
@@ -2738,6 +2738,10 @@ export const getMyDonors = async (req, res) => {
     const limit = parseInt(req.query.limit, 10);
     const offset = parseInt(req.query.offset, 10);
     let assignments = null;
+    // Scope-wide high-tier flag for the client's tab visibility. Computed from
+    // the rows we already fetched (BEFORE the new/old/high_tier in-memory split
+    // below), so it costs ZERO extra DB work — no new query, no new endpoint.
+    let hasHighTier = false;
 
     // Primary: ALL available leads in the FRO's assigned (station, ngo) scope.
     // Scoped by station/ngo pair (NOT by fro_worker_id) so the FRO sees their
@@ -2788,12 +2792,21 @@ export const getMyDonors = async (req, res) => {
         }
       }
       assignments = data || [];
+      // Reflects the whole allotment in this scope, not just the tab being asked
+      // for: high-tier rows are present in `data` regardless of new/old filters
+      // (those are applied in memory just below).
+      hasHighTier = assignments.some(a => a.batch_type === 'high_tier');
       // Robust new/old filter: handle legacy rows where batch_type is NULL.
       // New = batch_type new_data OR (null + is_new != false); Old = batch_type old_data OR (null + is_new == false)
+      // High Tier = batch_type high_tier (the dedicated third tab). High-tier rows
+      // are deliberately excluded from New/Old: their batch_type matches neither
+      // branch, so they only surface when the High Tier tab asks for them.
       if (req.query.new_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
       } else if (req.query.old_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && (a.is_new === false || a.is_new == null)));
+      } else if (req.query.high_tier_only === 'true') {
+        assignments = assignments.filter(a => a.batch_type === 'high_tier');
       }
     }
 
@@ -2802,7 +2815,12 @@ export const getMyDonors = async (req, res) => {
     // returns nothing, the queue is simply empty — we never pull in leads from
     // other stations or NGOs as a "claimable pool", because that would expose
     // donors outside the FRO's allotment.
-    if (!assignments || assignments.length === 0) return res.json([]);
+    if (!assignments || assignments.length === 0) {
+      // Object (not a bare array) so the High Tier flag survives an empty result
+      // — otherwise a FRO whose only High Tier lead was just moved away would
+      // keep seeing the tab. Callers normalise both shapes.
+      return res.json({ donors: [], total: 0, has_high_tier: hasHighTier });
+    }
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
@@ -3308,7 +3326,7 @@ export const getMyDonors = async (req, res) => {
     if (req.query.queue_current === 'true') {
       try {
         const operatorId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : null;
-        const queueTab = req.query.new_only === 'true' ? 'new' : 'old';
+        const queueTab = req.query.new_only === 'true' ? 'new' : (req.query.high_tier_only === 'true' ? 'high_tier' : 'old');
         const queueStation = req.query.station && req.query.station !== 'all' ? req.query.station : null;
         // The queue is fed `workableFiltered`, NOT `filtered`. `filtered` now
         // serves the full allotted list when include_suppressed is set, and the
@@ -3394,6 +3412,10 @@ export const getMyDonors = async (req, res) => {
     const payload = {
       donors: page,
       total,
+      // Drives the High Tier tab: shown only when this FRO holds high-tier
+      // allotment somewhere in scope. Same response as the list, so the flag can
+      // never disagree with the data on screen.
+      has_high_tier: hasHighTier,
       counts: {
         // Raw allotment for this scope (what the dashboard reports).
         allotted: result.length,
@@ -5824,7 +5846,7 @@ export const getMyProgress = async (req, res) => {
     const { human: humanCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
-      .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
+      .select('new_donor_id, old_donor_id, high_tier_donor_id, new_donor_index, old_donor_index, high_tier_donor_index, data_tab, current_batch_id, station')
       .eq('worker_id', humanCtx.id)
       .maybeSingle();
     return res.json(data || {});
@@ -5837,7 +5859,7 @@ export const saveMyProgress = async (req, res) => {
   try {
     const { human: humanCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
-    const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
+    const { new_donor_id, old_donor_id, high_tier_donor_id, new_donor_index, old_donor_index, high_tier_donor_index, data_tab, current_batch_id, station } = req.body;
     const payload = {
       current_batch_id: current_batch_id || null,
       station: station || null,
@@ -5853,6 +5875,8 @@ export const saveMyProgress = async (req, res) => {
     if (new_donor_index !== undefined) payload.new_donor_index = new_donor_index ?? null;
     if (old_donor_id !== undefined) payload.old_donor_id = old_donor_id || null;
     if (old_donor_index !== undefined) payload.old_donor_index = old_donor_index ?? null;
+    if (high_tier_donor_id !== undefined) payload.high_tier_donor_id = high_tier_donor_id || null;
+    if (high_tier_donor_index !== undefined) payload.high_tier_donor_index = high_tier_donor_index ?? null;
 
     await db
       .from('fro_live_status')

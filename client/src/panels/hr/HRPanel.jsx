@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { useHR } from './store'
-import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star, ChartBar, Heart } from './icons'
+import { Grid, Users, Clock, FileTxt, Bell, Star, ChartBar } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -13,22 +13,13 @@ import Overview from './components/Overview'
 import Workers from './components/Workers'
 import EmployeeDetail from './components/EmployeeDetail'
 import Offboarding from './components/Offboarding'
-import Leaves from './components/Leaves'
 import Attendance from './components/Attendance'
-import Letters from './components/Letters'
-import HRForms from './components/HRForms'
-import Holidays from './components/Holidays'
+import LettersForms from './components/LettersForms'
 import Recruiters from './components/Recruiters'
 import Reports from './components/Reports'
-import HrDailyReport from './components/HrDailyReport'
-import SocialReport from './components/SocialReport'
-import GenerateQR from './components/GenerateQR'
-import Loans from './components/Loans'
 import Tickets from './components/Tickets'
 import Quizzes from './components/Quizzes'
 import SettingsPage from './components/Settings'
-import NgoSalary from './components/NgoSalary'
-import FroTargets from '../../components/FroTargets'
 import ChangeSalaryAccessCode from './components/ChangeSalaryAccessCode'
 import { fetchTicketCount } from './store'
 import ToastContainer from '../../components/Toast'
@@ -45,22 +36,13 @@ const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
   { id:'employees',  path:'/hr/employees',   label:'Volunteers',  icon:Users,   eyebrow:'People',      sub:'Add and manage volunteers' },
   { id:'attendance', path:'/hr/attendance',  label:'Attendance',  icon:Clock,   eyebrow:'Daily',       sub:'Mark who is in today' },
-  { id:'leaves',     path:'/hr/leaves',      label:'Leaves',      icon:Plane,   eyebrow:'Time off',    sub:'Requests and approvals' },
-  { id:'letters',    path:'/hr/letters',     label:'Letters',     icon:FileTxt, eyebrow:'Documents',   sub:'Generate HR letters' },
-  { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Volunteer onboarding forms' },
+  { id:'letters',    path:'/hr/letters',     label:'Letters & Forms', icon:FileTxt, eyebrow:'Documents',   sub:'Letters and volunteer onboarding forms' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
-  { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:ChartBar,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
-  { id:'hr-daily-report', path:'/hr/daily-report', label:'Daily Report', icon:ChartBar, eyebrow:'Daily', sub:'Your HR report for the day' },
-  { id:'social-report', path:'/hr/social-report', label:'Social Report', icon:Heart, eyebrow:'Daily', sub:'Social media content and reach' },
   { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:Star,    eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
-  { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
-  { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
-  { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
-  { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
-  { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
-  { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
+  { id:'tickets',    path:'/hr/tickets',     label:'Tickets',     icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
   { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
   { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
+  { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:ChartBar,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
 ]
 
 const hrSettingsViews = [
@@ -272,19 +254,11 @@ export default function HRPanel() {
         <Route path="employees/:id" element={<EmployeeDetailPage />} />
         <Route path="employees/:id/offboard" element={<OffboardPage />} />
         <Route path="attendance" element={<Attendance />} />
-        <Route path="leaves" element={<Leaves />} />
-        <Route path="letters" element={<Letters />} />
-        <Route path="hr-forms" element={<HRForms />} />
+        <Route path="letters" element={<LettersForms />} />
+        <Route path="hr-forms" element={<Navigate to="/hr/letters" replace />} />
         <Route path="recruiters" element={<Recruiters />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="daily-report" element={<HrDailyReport />} />
-        <Route path="social-report" element={<SocialReport />} />
         <Route path="quizzes" element={<Quizzes />} />
-        <Route path="holidays" element={<Holidays />} />
-        <Route path="qr" element={<GenerateQR />} />
-        <Route path="loans" element={<Loans />} />
-        <Route path="ngo" element={<NgoSalary />} />
-        <Route path="fro-targets" element={<FroTargets />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="to-super-admin" element={<SuperAdminTicketSection panel="hr" />} />
         <Route path="chat" element={<ChatWorkspace />} />
