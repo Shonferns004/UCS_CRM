@@ -15,6 +15,7 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (options.inactiveOnly) params.set('inactive_only', 'true');
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
+  if (options.highTierOnly) params.set('high_tier_only', 'true');
   if (options.includeSuppressed) params.set('include_suppressed', 'true');
   if (options.station) params.set('station', options.station);
   if (options.ngoId) params.set('ngo_id', options.ngoId);
@@ -31,6 +32,7 @@ export async function getQueueCurrent(options = {}) {
   const params = new URLSearchParams();
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
+  if (options.highTierOnly) params.set('high_tier_only', 'true');
   if (options.station) params.set('station', options.station);
   if (options.ngoId) params.set('ngo_id', options.ngoId);
   const qs = params.toString();

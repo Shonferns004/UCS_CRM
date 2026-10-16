@@ -2023,6 +2023,414 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
   );
 }
 
+// ─── High Tier ────────────────────────────────────────────────────────────
+//
+// High Tier is a third data bucket on the FRO panel's My Leads (alongside New
+// and Old). This panel moves ONE source station's entire allotment into that
+// bucket and splits it across the chosen target stations in a single shot.
+//
+// Nothing is left on the source: every lead is handed to a target. Equal mode
+// divides as evenly as possible (remainder to the first stations); manual mode
+// requires the per-station counts to add up to the exact total before the
+// distribute button unlocks. The source station is emptied and its FRO is
+// unassigned by the backend, so it can then be deleted.
+function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistributed }) {
+  const [sourceStation, setSourceStation] = useState('');
+  const [mode, setMode] = useState('equal');
+  const [selected, setSelected] = useState([]); // target station names, in pick order
+  const [counts, setCounts] = useState({});      // manual mode: station -> string
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+
+  // Live High Tier batches for this NGO (grouped by source station), so an admin
+  // can see where each source's data went and bring a whole batch back.
+  const [batches, setBatches] = useState([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  const [restoreBatch, setRestoreBatch] = useState(null);
+  const [restoring, setRestoring] = useState(false);
+
+  const ngoId = selectedNgoId && selectedNgoId !== 'all' ? selectedNgoId : null;
+  const ngo = allNgos.find(n => String(n.id) === String(ngoId));
+  const ngoName = ngo?.name || 'this NGO';
+
+  const countFor = (s) => Number(s?.donor_count?.[ngoId] || 0);
+  const froNameOf = (id) => froWorkers.find(f => String(f.id) === String(id))?.name || null;
+
+  const sourceRow = stations.find(s => s.station === sourceStation) || null;
+  const total = sourceRow ? countFor(sourceRow) : 0;
+  const targetCandidates = stations.filter(s => s.station !== sourceStation);
+
+  // Equal split: base share for everyone, first `remainder` stations get one more.
+  const n = selected.length;
+  const base = n > 0 ? Math.floor(total / n) : 0;
+  const remainder = n > 0 ? total % n : 0;
+  const equalCountFor = (st) => {
+    const idx = selected.indexOf(st);
+    if (idx < 0) return 0;
+    return base + (idx < remainder ? 1 : 0);
+  };
+
+  const manualSum = selected.reduce((sum, st) => sum + (parseInt(counts[st], 10) || 0), 0);
+  const distributed = mode === 'equal' ? (n > 0 ? total : 0) : manualSum;
+  const remaining = total - distributed;
+  const canDistribute = !busy && !!ngoId && !!sourceStation && total > 0 && n > 0 && remaining === 0;
+
+  const loadBatches = async () => {
+    if (!ngoId) { setBatches([]); return; }
+    setBatchesLoading(true);
+    try {
+      const res = await apiGet(`/ngo-admin/high-tier-batches?ngo_id=${encodeURIComponent(ngoId)}`);
+      setBatches(Array.isArray(res?.batches) ? res.batches : []);
+    } catch {
+      setBatches([]);
+    } finally {
+      setBatchesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBatches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ngoId]);
+
+  if (!ngoId) {
+    return (
+      <div className="empty-state" style={{ padding: '36px 16px' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
+          Pick a specific NGO above to distribute High Tier data.
+        </p>
+      </div>
+    );
+  }
+
+  const clearFeedback = () => { setResult(null); setError(null); setConfirming(false); };
+
+  const toggleTarget = (st) => {
+    clearFeedback();
+    setSelected(prev => prev.includes(st) ? prev.filter(x => x !== st) : [...prev, st]);
+  };
+
+  const switchMode = (m) => {
+    clearFeedback();
+    // Seed manual counts from the equal split so the admin edits instead of
+    // starting from a wall of empty boxes.
+    if (m === 'manual' && mode === 'equal' && n > 0) {
+      const seed = {};
+      selected.forEach(st => { seed[st] = String(equalCountFor(st)); });
+      setCounts(seed);
+    }
+    setMode(m);
+  };
+
+  const reseedEqual = () => {
+    clearFeedback();
+    const seed = {};
+    selected.forEach(st => { seed[st] = String(equalCountFor(st)); });
+    setCounts(seed);
+  };
+
+  const reset = () => {
+    setSourceStation(''); setSelected([]); setCounts({}); setConfirming(false);
+    setError(null); setResult(null);
+  };
+
+  const distribute = async () => {
+    setBusy(true); setError(null);
+    try {
+      const res = await apiPost(
+        `/ngo-admin/stations/${encodeURIComponent(sourceStation)}/high-tier-distribute`,
+        {
+          ngo_id: ngoId,
+          mode,
+          targets: selected.map(st => ({
+            station: st,
+            count: mode === 'equal' ? equalCountFor(st) : (parseInt(counts[st], 10) || 0),
+          })),
+        },
+      );
+      setResult(res);
+      setSourceStation(''); setSelected([]); setCounts({}); setConfirming(false);
+      loadBatches();
+      if (onDistributed) onDistributed();
+    } catch (err) {
+      setError(err.message);
+      setConfirming(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doRestore = async (batch) => {
+    setRestoring(true); setError(null);
+    try {
+      const res = await apiPost('/ngo-admin/high-tier-restore', { batch_id: batch.batch_id, ngo_id: ngoId });
+      setResult(res);
+      setRestoreBatch(null);
+      await loadBatches();
+      if (onDistributed) onDistributed();
+    } catch (err) {
+      setError(err.message);
+      setRestoreBatch(null);
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const modeTabStyle = (active) => ({
+    padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600,
+    fontFamily: 'inherit', cursor: 'pointer',
+    background: active ? '#fff' : 'transparent',
+    color: active ? 'var(--ink)' : 'var(--ink-soft)',
+    boxShadow: active ? '0 1px 3px rgba(0,0,0,.1)' : 'none',
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+      {result && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#166534' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Check size={14} color="#16a34a" />
+            <strong>{result.message}</strong>
+          </div>
+          {Array.isArray(result.per_station) && result.per_station.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {result.per_station.map(p => (
+                <span key={p.station} className="pill pill-blue">{p.station}: {p.count}</span>
+              ))}
+            </div>
+          )}
+          {result.source_fro_assigned === false && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#92400e' }}>
+              {result.source_station} has no FRO assigned right now — the data is back on the station and will reach an FRO as soon as one is assigned.
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#b91c1c' }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ background: '#f8fafc', border: '1px solid var(--line, #e2e8f0)', borderRadius: 10, padding: '12px 16px', fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.6 }}>
+        High Tier lives in its own bucket on the FRO panel — it never mixes with New or Old data.
+        Pick a source station of <strong style={{ color: 'var(--ink)' }}>{ngoName}</strong>, choose how to split its
+        full data, then distribute. The source station is emptied and its FRO is unassigned in one step.
+      </div>
+
+      {/* Step 1 — source */}
+      <div>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
+          1. Source station ({ngoName})
+        </label>
+        <select
+          value={sourceStation}
+          onChange={e => { setSourceStation(e.target.value); setSelected([]); setCounts({}); clearFeedback(); }}
+          style={{ width: '100%', maxWidth: 420, fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}
+        >
+          <option value="">-- Select source station --</option>
+          {stations.filter(s => countFor(s) > 0).map(s => (
+            <option key={s.station} value={s.station}>
+              {s.station} — {countFor(s).toLocaleString('en-IN')} leads
+              {s.fro_worker_id ? ` · FRO ${froNameOf(s.fro_worker_id) || '—'}` : ' · no FRO'}
+            </option>
+          ))}
+        </select>
+        {sourceStation && total === 0 && (
+          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#b45309' }}>
+            This station has no data to move.
+          </p>
+        )}
+      </div>
+
+      {sourceStation && total > 0 && (
+        <>
+          {/* Step 2 — mode */}
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
+              2. Split mode
+            </label>
+            <div style={{ display: 'inline-flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
+              <button style={modeTabStyle(mode === 'equal')} onClick={() => switchMode('equal')}>Equal split</button>
+              <button style={modeTabStyle(mode === 'manual')} onClick={() => switchMode('manual')}>Manual counts</button>
+            </div>
+          </div>
+
+          {/* Step 3 — targets */}
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
+              3. Target stations ({n} selected)
+            </label>
+            {targetCandidates.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+                No other stations available for {ngoName}.
+              </p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8 }}>
+                {targetCandidates.map(s => {
+                  const on = selected.includes(s.station);
+                  const targetFro = s.fro_worker_id ? (froNameOf(s.fro_worker_id) || '—') : null;
+                  return (
+                    <div
+                      key={s.station}
+                      onClick={() => toggleTarget(s.station)}
+                      style={{
+                        border: `1px solid ${on ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`,
+                        background: on ? '#f0fdf4' : '#fff',
+                        borderRadius: 10, padding: '8px 10px', cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <strong style={{ fontSize: 13 }}>{s.station}</strong>
+                        <span style={{ fontSize: 10.5, color: targetFro ? 'var(--ink-soft)' : '#b45309' }}>
+                          {targetFro ? `FRO ${targetFro}` : 'No FRO'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
+                        {countFor(s).toLocaleString('en-IN')} existing
+                      </div>
+                      {on && (
+                        <div style={{ marginTop: 6 }}>
+                          {mode === 'equal' ? (
+                            <span className="pill pill-blue">+{equalCountFor(s.station)}</span>
+                          ) : (
+                            <input
+                              type="number" min="0" inputMode="numeric"
+                              value={counts[s.station] ?? ''}
+                              placeholder="0"
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => { setCounts(prev => ({ ...prev, [s.station]: e.target.value })); clearFeedback(); }}
+                              style={{ width: 100, fontSize: 12.5, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit' }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Step 4 — summary + confirm */}
+          {n > 0 && (
+            <div style={{ border: '1px solid var(--line, #e2e8f0)', borderRadius: 10, padding: '12px 16px', background: '#fff' }}>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13 }}>
+                <span>Total: <strong>{total.toLocaleString('en-IN')}</strong></span>
+                <span>Distributed: <strong style={{ color: remaining === 0 ? '#16a34a' : '#b45309' }}>{distributed.toLocaleString('en-IN')}</strong></span>
+                <span>Remaining: <strong style={{ color: remaining === 0 ? '#16a34a' : '#dc2626' }}>{remaining.toLocaleString('en-IN')}</strong></span>
+              </div>
+
+              {mode === 'manual' && (
+                <button className="btn btn-sm btn-outline" style={{ marginTop: 10 }} onClick={reseedEqual} disabled={busy}>
+                  Auto-split equally
+                </button>
+              )}
+
+              {confirming ? (
+                <div style={{ marginTop: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12.5, color: '#92400e', lineHeight: 1.6 }}>
+                    This moves all <strong>{total.toLocaleString('en-IN')}</strong> leads from <strong>{sourceStation}</strong> into
+                    High Tier across {n} station{n === 1 ? '' : 's'}. The source station will be emptied and its FRO unassigned.
+                    You can bring this batch back later from &quot;Active High Tier batches&quot; below.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary btn-sm" onClick={distribute} disabled={busy}>
+                      {busy ? 'Distributing…' : 'Yes, distribute'}
+                    </button>
+                    <button className="btn btn-outline btn-sm" onClick={() => setConfirming(false)} disabled={busy}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" disabled={!canDistribute} onClick={() => setConfirming(true)}>
+                    Review &amp; Distribute
+                  </button>
+                  <button className="btn btn-outline" onClick={reset} disabled={busy}>Reset</button>
+                  {mode === 'manual' && remaining !== 0 && (
+                    <span style={{ fontSize: 12, color: '#dc2626' }}>
+                      Counts must add up to {total.toLocaleString('en-IN')} — {remaining.toLocaleString('en-IN')} left.
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* High Tier management — every live batch for this NGO, grouped by source.
+          Two sources can live in the same target station; each batch restores
+          independently. */}
+      <div>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
+          Active High Tier batches ({batches.length})
+        </label>
+        {batchesLoading ? (
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)' }}>Loading…</p>
+        ) : batches.length === 0 ? (
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+            No High Tier data is currently distributed for {ngoName}.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {batches.map(b => (
+              <div key={String(b.batch_id)} style={{ border: '1px solid var(--line, #e2e8f0)', borderRadius: 10, padding: '10px 12px', background: '#fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                  <div>
+                    <strong style={{ fontSize: 13 }}>{b.source_station}</strong>
+                    <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 8 }}>
+                      {Number(b.total || 0).toLocaleString('en-IN')} leads from this source
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                    {b.distributed_at ? new Date(b.distributed_at).toLocaleString('en-IN') : ''}
+                  </div>
+                </div>
+                <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(b.targets || []).map(t => (
+                    <span key={t.station} className="pill pill-blue">{t.station}: {Number(t.count || 0).toLocaleString('en-IN')}</span>
+                  ))}
+                </div>
+
+                {restoreBatch && String(restoreBatch.batch_id) === String(b.batch_id) ? (
+                  <div style={{ marginTop: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px' }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12.5, color: '#92400e', lineHeight: 1.6 }}>
+                      Bring all <strong>{Number(b.total || 0).toLocaleString('en-IN')}</strong> leads back to
+                      <strong> {b.source_station}</strong>? They return to their original New/Old bucket. Data from
+                      other sources stays where it is.
+                    </p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-primary btn-sm" onClick={() => doRestore(b)} disabled={restoring}>
+                        {restoring ? 'Restoring…' : 'Yes, restore'}
+                      </button>
+                      <button className="btn btn-outline btn-sm" onClick={() => setRestoreBatch(null)} disabled={restoring}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      onClick={() => { setError(null); setResult(null); setRestoreBatch(b); }}
+                      disabled={busy || restoring}
+                    >
+                      Restore to {b.source_station}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -2489,6 +2897,7 @@ export default function StationManagement() {
               { key: 'all', label: 'All Stations' },
               { key: 'old', label: 'Old Stations' },
               { key: 'fresh', label: 'Fresh Stations (FD)' },
+              { key: 'high-tier', label: 'High Tier' },
             ].map(tab => (
               <button key={tab.key} onClick={() => setStationTab(tab.key)}
                 style={{
@@ -2498,12 +2907,15 @@ export default function StationManagement() {
                   boxShadow: stationTab === tab.key ? '0 1px 3px rgba(0,0,0,.1)' : 'none',
                 }}>
                 {tab.label}
-                <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 400, opacity: .6 }}>({stationCounts[tab.key]})</span>
+                {tab.key !== 'high-tier' && (
+                  <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 400, opacity: .6 }}>({stationCounts[tab.key]})</span>
+                )}
               </button>
             ))}
           </div>
 
-          {/* Search + primary actions */}
+          {/* Search + primary actions (station list only) */}
+          {stationTab !== 'high-tier' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 200, border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '6px 10px', background: '#fff' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -2515,10 +2927,19 @@ export default function StationManagement() {
               + Add Station
             </button>
           </div>
+          )}
         </div>
 
         <div className="card-pad">
-          {loading ? (
+          {stationTab === 'high-tier' ? (
+            <HighTierPanel
+              stations={stations}
+              froWorkers={froWorkers}
+              selectedNgoId={selectedNgoId}
+              allNgos={allNgos}
+              onDistributed={() => fetchData()}
+            />
+          ) : loading ? (
             <div className="loading">Loading stations...</div>
           ) : filteredStations.length === 0 ? (
             <div className="empty-state"><p>No {stationTab === 'fresh' ? 'FRESH (FD)' : stationTab === 'old' ? 'OLD' : ''} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
