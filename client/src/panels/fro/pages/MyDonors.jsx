@@ -124,8 +124,15 @@ function isPendingStatus(d) {
 // queue of work still to do; anything already dispositioned this month lives in
 // History / Callbacks / Follow-ups / Overdue and comes back here when the
 // monthly rollover resets it to pending.
-function filterAndSortDonors(list) {
-  return dedupeDonors(list).filter(isPendingStatus).sort((a, b) => {
+//
+// `allStatuses` is the High Tier exception. That bucket holds an ALREADY-WORKED
+// allotment the admin moved in, so the FRO must see every disposition that
+// travelled with the batch (follow-up, callback, scheduled, connected, promise,
+// refusal…) instead of only the pending queue. The backend does the same for
+// `high_tier_only` and still hides completed donations + DND.
+function filterAndSortDonors(list, allStatuses = false) {
+  const base = dedupeDonors(list);
+  return (allStatuses ? base : base.filter(isPendingStatus)).sort((a, b) => {
       // Suppressed (DND / donated this month) always sorts last so the
       // workable stack stays on top even with "Show suppressed" on.
       const aHidden = a.is_suppressed ? 1 : 0;
@@ -430,7 +437,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
           return;
         }
         let { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-        let sortedDonors = filterAndSortDonors(loaded);
+        let sortedDonors = filterAndSortDonors(loaded, tab === 'high_tier');
         // Stale-filter escape: if this tab is filtered (NGO/station) and comes
         // back EMPTY, but the SAME tab with no filter has data, the previously
         // saved filter (localStorage view state) is stale — its leads were
@@ -446,7 +453,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             includeSuppressed: true,
           });
           if (cancelled) return;
-          const broad = filterAndSortDonors(normalizeDonorResponse(br).donors);
+          const broad = filterAndSortDonors(normalizeDonorResponse(br).donors, tab === 'high_tier');
           if (broad.length > 0) {
             setSelectedStation('all');
             setSelectedNgo(null);
@@ -471,7 +478,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             includeSuppressed: true,
           });
           if (cancelled) return;
-          const altList = filterAndSortDonors(normalizeDonorResponse(alt).donors);
+          const altList = filterAndSortDonors(normalizeDonorResponse(alt).donors, otherTab === 'high_tier');
           if (altList.length > 0) {
             autoChoseTabRef.current = true;
             setDataTab(otherTab);
@@ -649,7 +656,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-      const fresh = filterAndSortDonors(loaded);
+      const fresh = filterAndSortDonors(loaded, dataTab === 'high_tier');
       // Preserve the current on-screen order so a background reload after a
       // save never re-sorts the queue and snaps the "#N of M" cursor to a
       // random value. Walk the existing list first (refreshing in place), then
@@ -1375,7 +1382,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       // It becomes eligible again tomorrow per the existing retry rules.
       // Remove the just-worked lead locally (backend already enforces same-day
       // suppression; this is UX so stale UI can never re-show it today).
-      const newDonors = filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)));
+      const newDonors = filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)), dataTab === 'high_tier');
       setDonors(newDonors);
 
       // No auto-advance: in the list flow we return to the list after saving.
@@ -1580,6 +1587,12 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     // because they hid work; the "Hidden: N" toggle below only parks
     // DND / donated-this-month leads, which are no longer in a pending-only
     // list and so effectively show nothing here by design.
+    //
+    // High Tier is the exception: it carries an already-worked allotment, so
+    // filterAndSortDonors keeps every disposition that moved in with the batch
+    // (follow-up / callback / scheduled / connected / promise / refusal) and the
+    // backend hides completed donations + DND. Those rows are worked, not
+    // suppressed, so they show without the "Hidden" toggle.
     const suppressedCount = donors.filter(d => d.is_suppressed).length;
     const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
     const visible = donors.filter(d => {
@@ -1952,7 +1965,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
                   : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads (total: ${total || donors.length})`
                     + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
-                    + (closedCount ? ` · ${closedCount} already worked — filter by status` : '')
+                    + (closedCount ? ` · ${closedCount} already worked${dataTab === 'high_tier' ? '' : ' — filter by status'}` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
         </div>
       </div>

@@ -1888,7 +1888,13 @@ export const getStations = async (req, res) => {
 
     for (const a of assignments) {
       const s = a.station.trim();
-      const agentLabel = agentLabelFor(a);
+      // NOTE: the agent-of-record label used to be resolved here via
+      // `agentLabelFor(a)` + `stationAgentLabelMap`. That helper and its map were
+      // removed with the CRM-agent feature, but a later merge reintroduced this
+      // call without the definition, which threw `agentLabelFor is not defined`
+      // and 500'd the whole stations screen. The station row reports the FRO of
+      // record (`fro_worker_id` / `fro_worker_name`) only; no client reads an
+      // agent label from this endpoint.
       if (!stationMap[s]) {
         stationMap[s] = {
           station: s,
@@ -1907,12 +1913,6 @@ export const getStations = async (req, res) => {
         stationMap[s].fro_worker_id = displayFroId(a);
         stationMap[s].fro_worker_name = displayFroName(a);
       }
-      if (!stationMap[s].crm_agent_id && a.crm_agent_id) {
-        stationMap[s].crm_agent_id = a.crm_agent_id;
-      }
-      if (!stationMap[s].agent_label && agentLabel) {
-        stationMap[s].agent_label = agentLabel;
-      }
     }
 
     // Also add stations from donor_profiles not in fro_station_assignments
@@ -1923,8 +1923,6 @@ export const getStations = async (req, res) => {
           ngos: [],
           fro_worker_id: null,
           fro_worker_name: null,
-          crm_agent_id: null,
-          agent_label: null,
         };
       }
     }

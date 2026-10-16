@@ -572,13 +572,12 @@ await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid password' });
     }
-    // Fourth and last way into a worker account (bare login_id, no @). Same
-    // block, same reason: every remaining door has to be shut or the covered FRO
-    // simply walks in through whichever one was missed.
-    if (!isHrFormLogin && String(worker.department || '').toLowerCase().trim() === 'fro') {
-      const covered = await rejectIfCoveredFro(worker);
-      if (covered) return res.status(403).json(covered);
-    }
+    // NOTE: the CRM-agent "covered FRO" guard that used to sit here was removed
+    // along with the rest of the agent feature (there is no agent login any more,
+    // so blocking a FRO's own credentials would lock the account out entirely).
+    // A later merge reintroduced the call without its `rejectIfCoveredFro`
+    // definition, which threw `rejectIfCoveredFro is not defined` (500) on every
+    // bare-login-id FRO sign-in.
     const dept = (worker.department || '').toLowerCase().trim();
     if (dept === 'fro' && !isHrFormLogin) {
       await reconcileSessionHandover(worker.id);

@@ -3266,19 +3266,38 @@ export const getMyDonors = async (req, res) => {
     // reconciliation list, not a calling queue.
     const isQueueableStatus = (r) => r.status === 'pending' || r.status == null || r.status === ''
       || RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
+    // High Tier is NOT a fresh queue: the admin distributes an ALREADY-WORKED
+    // allotment into it, so its rows keep the source FRO's disposition (follow-up,
+    // callback, scheduled, contacted, promise, refusal…). Filtering that bucket to
+    // pending work alone made the tab look like most of the batch had vanished —
+    // only the still-pending/ringing rows showed. Serve the whole batch instead.
+    // Completed donations are dropped (the donor already gave, so there is
+    // nothing to call for); DND and donated-this-month rows STAY, flagged
+    // is_suppressed, so the client's existing "Hidden: N" toggle still works.
+    // Pending promises (promise_to_pay / payment_pending / …) are deliberately
+    // kept — they are still work, not completed gifts.
+    const HIGH_TIER_DONE_STATUSES = new Set(['donation_collected', 'lead_done', 'done', 'already_donated']);
+    const isHighTierView = req.query.high_tier_only === 'true';
     if (req.query.verified_only !== 'true') {
-      filtered = filtered.filter(r => {
-        const isPendingStatus = isQueueableStatus(r);
-        // A lead dispositioned today must leave Leads even when its surfaced
-        // assignment row still reads 'pending' — which happens when the donor
-        // has a duplicate/twin assignment row and today's disposition log was
-        // written against the other row. The queue path (workableFiltered)
-        // already applies this same disposedTodayIds exclusion; the list must
-        // match it or a "DONE TODAY" lead keeps sitting in the Leads tab.
-        if (!isPendingStatus) return false;
-        if (disposedTodayIds.has(r.donor_id)) return false;
-        return true;
-      });
+      if (isHighTierView) {
+        filtered = result.filter(r =>
+          !HIGH_TIER_DONE_STATUSES.has(r.status) &&
+          !disposedTodayIds.has(r.donor_id)
+        );
+      } else {
+        filtered = filtered.filter(r => {
+          const isPendingStatus = isQueueableStatus(r);
+          // A lead dispositioned today must leave Leads even when its surfaced
+          // assignment row still reads 'pending' — which happens when the donor
+          // has a duplicate/twin assignment row and today's disposition log was
+          // written against the other row. The queue path (workableFiltered)
+          // already applies this same disposedTodayIds exclusion; the list must
+          // match it or a "DONE TODAY" lead keeps sitting in the Leads tab.
+          if (!isPendingStatus) return false;
+          if (disposedTodayIds.has(r.donor_id)) return false;
+          return true;
+        });
+      }
     }
 
     // The workable set — original exclusion semantics, preserved verbatim for the
