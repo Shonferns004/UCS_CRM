@@ -9,6 +9,8 @@ import {
   uploadBeneficiaryDocumentBase64,
   sendCollectionOtp, verifyCollectionOtp,
   exportBeneficiariesController,
+  getFingerprintImagesController,
+  listKitGivenEventsController,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -70,6 +72,12 @@ router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'ac
 // Export — every beneficiary matching the current list filters as xlsx rows.
 // Declared before '/:id' so 'export' is not parsed as an id.
 router.get('/export', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), exportBeneficiariesController);
+// Latest enrolled fingerprint image for a page of beneficiaries. Declared
+// before '/:id' so the plural path is not parsed as an id.
+router.get('/fingerprint-images', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getFingerprintImagesController);
+// Events present on kit-given rows — powers the Kit Given page's event filter.
+// Declared before '/:id' so 'kit-events' is not parsed as an id.
+router.get('/kit-events', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listKitGivenEventsController);
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
 router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), createNewBeneficiary);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);

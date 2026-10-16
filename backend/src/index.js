@@ -77,6 +77,10 @@ import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
 import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
 import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
+import whatsappAutomationRoutes from './routes/whatsappAutomationRoutes.js';
+import whatsappAccountsRoutes from './routes/whatsappAccountsRoutes.js';
+import whatsappCallingRoutes from './routes/whatsappCallingRoutes.js';
+import whatsappPerformanceRoutes from './routes/whatsappPerformanceRoutes.js';
 import simCardRoutes from './routes/simCardRoutes.js';
 import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import reminderRoutes from './routes/reminderRoutes.js';
@@ -113,6 +117,7 @@ import { ensureCertificateSchema } from './bootstrap/ensureCertificateSchema.js'
 import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js';
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
 import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema.js';
+import { ensureHighTierProvenanceSchema } from './bootstrap/ensureHighTierProvenanceSchema.js';
 import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureReminderPaymentSchema } from './bootstrap/ensureReminderPaymentSchema.js';
@@ -129,6 +134,7 @@ import { ensureSevakRenewalSchema } from './bootstrap/ensureSevakRenewalSchema.j
 import { ensureFroDonorLogOperatorSchema } from './bootstrap/ensureFroDonorLogOperatorSchema.js';
 import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSchema.js';
 import { ensureTaskAssignmentSchema } from './bootstrap/ensureTaskAssignmentSchema.js';
+import { ensureEventHeadPlannerEventLinkSchema } from './bootstrap/ensureEventHeadPlannerEventLinkSchema.js';
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
@@ -291,6 +297,10 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappEnhancementsRoutes);
+app.use('/api/whatsapp/automation', whatsappAutomationRoutes);
+app.use('/api/whatsapp/accounts', whatsappAccountsRoutes);
+app.use('/api/whatsapp/calling', whatsappCallingRoutes);
+app.use('/api/whatsapp/performance', whatsappPerformanceRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
@@ -1198,6 +1208,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureCertificateSchema().catch(e => console.error('ensureCertificateSchema failed:', e?.message || e));
     await ensureNoticeSchema().catch(e => console.error('ensureNoticeSchema failed:', e?.message || e));
     await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));
+    await ensureHighTierProvenanceSchema().catch(e => console.error('ensureHighTierProvenanceSchema failed:', e?.message || e));
     await ensureMeetingSchema().catch(e => console.error('ensureMeetingSchema failed:', e?.message || e));
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
@@ -1215,6 +1226,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
     await ensureTaskAssignmentSchema().catch(e => console.error('ensureTaskAssignmentSchema failed:', e?.message || e));
+    await ensureEventHeadPlannerEventLinkSchema().catch(e => console.error('ensureEventHeadPlannerEventLinkSchema failed:', e?.message || e));
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');

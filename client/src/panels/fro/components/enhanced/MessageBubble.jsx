@@ -1,42 +1,60 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import MediaPreviewModal from './MediaPreviewModal'
 import { API_BASE as apiBase } from '../../../../lib/apiBase'
 import { istDateString } from '../../utils/time'
+import { classifyDeliveryFailure } from '../../../../lib/whatsappErrorCodes'
+
+// WhatsApp tick semantics, which agents rely on to know whether a donor has
+// actually seen a message:
+//   1 grey tick = handed to WhatsApp
+//   2 grey ticks = delivered to the phone
+//   2 blue ticks = opened by the donor
+// The double tick is drawn as two overlapping chevrons; using one chevron for
+// both delivered and read made the two states look identical.
+const TICK_GREY = '#8696a0'
+const TICK_BLUE = '#53bdeb'
+
+function SingleTick({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" data-ticks="1">
+      <polyline points="5,13 9.5,17.5 19,7" />
+    </svg>
+  )
+}
+
+function DoubleTick({ color }) {
+  return (
+    <svg width="18" height="16" viewBox="0 0 26 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" data-ticks="2">
+      <polyline points="2,13 6.5,17.5 15,8" />
+      <polyline points="9,14.5 11,17.5 20.5,7" />
+    </svg>
+  )
+}
 
 function MessageStatusIcon({ status }) {
   if (status === 'queued' || status === 'sending') {
     return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="#8696a0">
-        <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z"/>
-        <path d="M12.5 7H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={TICK_GREY} strokeWidth="2" strokeLinecap="round" data-ticks="clock" title="Sending">
+        <circle cx="12" cy="12" r="9" />
+        <polyline points="12,7 12,12 15.5,14" />
       </svg>
     )
   }
-  if (status === 'sent') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="#8696a0">
-        <path d="M9 16.2l-3.5-3.5c-.4-.4-1-.4-1.4 0s-.4 1 0 1.4l4.2 4.2c.4.4 1 .4 1.4 0L20.3 7.7c.4-.4.4-1 0-1.4s-1-.4-1.4 0L9 16.2z"/>
-      </svg>
-    )
+  if (status === 'sent' || status === 'accepted') {
+    return <span title="Sent ΓÇö handed to WhatsApp"><SingleTick color={TICK_GREY} /></span>
   }
   if (status === 'delivered') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="#8696a0">
-        <path d="M18 7.5c-.4-.4-1-.4-1.4 0L10 14.2l-2.6-2.6c-.4-.4-1-.4-1.4 0s-.4 1 0 1.4l3.3 3.3c.4.4 1 .4 1.4 0l7.3-7.3c.4-.4.4-1 0-1.4z"/>
-      </svg>
-    )
+    return <span title="Delivered ΓÇö reached the donor's phone"><DoubleTick color={TICK_GREY} /></span>
   }
   if (status === 'read') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="#53bdeb">
-        <path d="M18 7.5c-.4-.4-1-.4-1.4 0L10 14.2l-2.6-2.6c-.4-.4-1-.4-1.4 0s-.4 1 0 1.4l3.3 3.3c.4.4 1 .4 1.4 0l7.3-7.3c.4-.4.4-1 0-1.4z"/>
-      </svg>
-    )
+    return <span title="Read ΓÇö opened by the donor"><DoubleTick color={TICK_BLUE} /></span>
   }
   if (status === 'failed') {
     return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="#ef4444">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" data-ticks="failed" title="Not delivered">
+        <circle cx="12" cy="12" r="9" />
+        <line x1="12" y1="8" x2="12" y2="13" />
+        <line x1="12" y1="16" x2="12" y2="16.5" />
       </svg>
     )
   }
@@ -134,7 +152,7 @@ function MediaContent({ url, mimeType, messageType, name, onPreview }) {
   if (mime.startsWith('audio/')) {
     return (
       <div style={{ borderRadius: 8, maxWidth: 300, minWidth: 220, margin: '4px 0', padding: 8, background: '#e8f5e9', border: '1px solid #c8e6c9' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#2e7d32', marginBottom: 4 }}>🎵 Audio</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#2e7d32', marginBottom: 4 }}>≡ƒÄ╡ Audio</div>
         <audio src={url} controls style={{ width: '100%', height: 40 }} />
       </div>
     )
@@ -148,7 +166,7 @@ function MediaContent({ url, mimeType, messageType, name, onPreview }) {
 }
 
 function MediaPlaceholder({ messageType }) {
-  const icon = messageType === 'audio' ? '🎵' : messageType === 'video' ? '🎬' : messageType === 'image' ? '🖼️' : messageType === 'document' ? '📄' : messageType === 'sticker' ? '🏷️' : '📎'
+  const icon = messageType === 'audio' ? '≡ƒÄ╡' : messageType === 'video' ? '≡ƒÄ¼' : messageType === 'image' ? '≡ƒû╝∩╕Å' : messageType === 'document' ? '≡ƒôä' : messageType === 'sticker' ? '≡ƒÅ╖∩╕Å' : '≡ƒôÄ'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: '#f3f4f6', margin: '4px 0', fontSize: 12, color: '#6b7280' }}>
       <span style={{ fontSize: 18 }}>{icon}</span>
@@ -157,14 +175,104 @@ function MediaPlaceholder({ messageType }) {
   )
 }
 
-const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker']
+const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker', 'media']
 
-export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu }) {
+/** Renders WhatsApp's *bold* inside template text. */
+function TemplateBody({ text }) {
+  return String(text || '').split(/(\*[^*\n]+\*)/g).map((chunk, i) =>
+    chunk.startsWith('*') && chunk.endsWith('*') && chunk.length > 2
+      ? <strong key={i}>{chunk.slice(1, -1)}</strong>
+      : <span key={i}>{chunk}</span>,
+  )
+}
+
+/**
+ * A template message is stored with the content the donor actually received
+ * (header media, body with its variables filled, footer, buttons) so the thread
+ * reads the same way as the WhatsApp thread. Older rows only kept the template
+ * name, so they fall back to showing that.
+ */
+function TemplateMessage({ message }) {
+  const meta = message.template_params
+  // NOTE: isSummary is a boolean. Reading `isSummary?.footer` would always be
+  // undefined because you cannot reach a property through a boolean, which
+  // silently dropped the footer, the header text and the template name.
+  const isSummary = !!(meta && typeof meta === 'object' && meta.kind === 'whatsapp_template')
+  const headerUrl = message.media_url
+  const format = (isSummary ? meta.headerFormat : message.media_mime_type) || ''
+  const body = isSummary ? meta.body : message.body_text
+  const buttons = isSummary ? (meta.buttons || []) : []
+  const footer = isSummary ? meta.footer : null
+  const headerText = isSummary ? meta.headerText : null
+  const templateName = isSummary ? meta.name : null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {headerUrl && String(format).toUpperCase() === 'IMAGE' && (
+        <img
+          src={headerUrl}
+          alt=""
+          onError={(e) => { e.currentTarget.style.display = 'none' }}
+          style={{ width: '100%', maxWidth: 260, display: 'block', borderRadius: 8 }}
+        />
+      )}
+      {headerUrl && String(format).toUpperCase() === 'VIDEO' && (
+        <video src={headerUrl} controls playsInline style={{ width: '100%', maxWidth: 260, display: 'block', borderRadius: 8 }} />
+      )}
+      {headerUrl && String(format).toUpperCase() === 'DOCUMENT' && (
+        <a
+          href={headerUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, background: '#f5f6f6', borderRadius: 8, textDecoration: 'none', color: '#111827' }}
+        >
+          <span style={{ fontSize: 20 }}>≡ƒôä</span>
+          <span style={{ fontSize: 12 }}>Document</span>
+        </a>
+      )}
+      {headerText && (
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: '#111827', whiteSpace: 'pre-wrap' }}>
+          <TemplateBody text={headerText} />
+        </div>
+      )}
+      {body && (
+        <div style={{ fontSize: 13.5, color: '#111827', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
+          <TemplateBody text={body} />
+        </div>
+      )}
+      {footer && (
+        <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>{footer}</div>
+      )}
+      {buttons.map((button, i) => (
+        <div
+          key={`tpl-btn-${i}`}
+          style={{
+            borderTop: '1px solid #e9edef', marginTop: 4, paddingTop: 8, paddingBottom: 2,
+            textAlign: 'center', fontSize: 13, fontWeight: 500,
+            color: button.kind === 'URL' ? '#027eb5' : '#111827',
+          }}
+        >
+          {button.url
+            ? <a href={button.url} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{button.label || button.url}</a>
+            : (button.label || '')}
+        </div>
+      ))}
+      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+        Template{templateName ? ` ┬╖ ${templateName}` : ''}
+      </div>
+    </div>
+  )
+}
+
+export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu, onRetry }) {
   const [preview, setPreview] = useState(null)
   const isOutbound = message.direction === 'outbound'
+  const isTemplate = message.message_type === 'template'
   const isMediaType = MEDIA_TYPES.includes(message.message_type)
-  const text = isMediaType ? '' : (message.body_text || message.body || '')
-  const hasMedia = !!(message.media_url || message.media_id || isMediaType)
+  // Template messages carry their own layout, so the generic media/text paths
+  // below must not also run for them.
+  const text = (isMediaType || isTemplate) ? '' : (message.body_text || message.body || '')
+  const hasMedia = !isTemplate && !!(message.media_url || message.media_id || isMediaType)
   const extraMedias = message.template_params?.filter?.((p, i) => i > 0) || []
   const allMedias = message.media_url ? [{ url: message.media_url, mimeType: message.media_mime_type, messageType: message.message_type, name: message.body_text || '' }, ...extraMedias] : []
 
@@ -192,6 +300,10 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
       onContextMenu={(e) => { e.preventDefault(); onContextMenu?.(e, message) }}
     >
       <div style={bubbleStyle}>
+        {isTemplate ? (
+          <TemplateMessage message={message} />
+        ) : (
+          <>
         {hasMedia && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {allMedias.length > 0 ? allMedias.map((m, i) => (
@@ -210,7 +322,12 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
             {text}
           </div>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 2, padding: text || !hasMedia ? 0 : '0 4px' }}>
+          </>
+        )}
+        {/* Timestamp and delivery ticks apply to every outbound message kind,
+            templates included -- an agent needs the same read/delivered signal
+            for a template as for a typed reply. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 2, padding: (text || (!hasMedia && !isTemplate)) ? 0 : '0 4px' }}>
           <span style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1 }}>
             <TimeDisplay ts={message.created_at} />
           </span>
@@ -220,13 +337,37 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
             </span>
           )}
         </div>
+        {isOutbound && message.status === 'failed' && (() => {          // 131047 and friends cannot be fixed by resending identical text, so the
+          // Retry button is replaced with the reason instead of offering a dead end.
+          const failure = classifyDeliveryFailure(message.failure_reason)
+          return (
+          <div style={{ marginTop: 4, padding: '0 4px', borderTop: '1px solid #fecaca' }}>
+            <div style={{ fontSize: 10, color: '#b91c1c', marginTop: 4, lineHeight: 1.35 }}>
+              Not delivered{message.failure_reason ? `: ${message.failure_reason}` : ''}
+            </div>
+            {failure.retryable ? (
+              onRetry && (
+                <button
+                  onClick={() => onRetry(message)}
+                  style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: '#b91c1c', background: '#fff', border: '1px solid #fca5a5', borderRadius: 5, padding: '2px 8px', cursor: 'pointer' }}>
+                  Retry
+                </button>
+              )
+            ) : (
+              <div style={{ marginTop: 4, fontSize: 10, color: '#92400e', lineHeight: 1.35 }}>
+                <strong>{failure.title}</strong> {failure.hint}
+              </div>
+            )}
+          </div>
+          )
+        })()}
       </div>
       {preview && <MediaPreviewModal {...preview} onClose={() => setPreview(null)} />}
     </div>
   )
 }
 
-export function MessageList({ messages, onContextMenu, messagesContainerRef, messagesEndRef }) {
+export function MessageList({ messages, onContextMenu, messagesContainerRef, messagesEndRef, onRetry }) {
   if (!messages) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -270,6 +411,7 @@ export function MessageList({ messages, onContextMenu, messagesContainerRef, mes
         isLast={isLastInGroup}
         isGroup={groupWithPrev || groupWithNext}
         onContextMenu={onContextMenu}
+        onRetry={onRetry}
       />
     )
     lastMsg = msg

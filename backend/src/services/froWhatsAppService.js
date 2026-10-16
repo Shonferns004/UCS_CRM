@@ -82,7 +82,7 @@ export async function getConversationMessages(conversationId) {
   return data || [];
 }
 
-export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl) {
+export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null) {
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -130,6 +130,18 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
+  // WhatsApp only allows free-form (session) messages within 24 hours of the
+  // contact's last inbound message. Outside that window Meta rejects the send
+  // (error 131009) and an approved template is required, so refuse here with a
+  // clear reason instead of recording a message that can never be delivered.
+  const SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const lastInboundMs = conversation.last_inbound_at ? new Date(conversation.last_inbound_at).getTime() : null;
+  if (!lastInboundMs || Date.now() - lastInboundMs > SERVICE_WINDOW_MS) {
+    const windowErr = new Error('The 24-hour window is closed for this contact. Send an approved template first.');
+    windowErr.statusCode = 422;
+    throw windowErr;
+  }
+
   const account = await getAccountByProject(project);
   console.log('[sendFroReply] project:', project, 'account:', account ? account.name : 'null', 'phone_number_id:', account?.phone_number_id);
   const accessToken = account?.access_token || config.accessToken;
@@ -139,7 +151,14 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     throw new Error(`WhatsApp account not configured for project "${project}"`);
   }
 
-  const messageType = mediaUrl ? 'media' : 'text';
+  const mime = String(mediaMimeType || '').toLowerCase();
+  const mediaType = mediaUrl
+    ? (mime.startsWith('image/') ? 'image'
+      : mime.startsWith('video/') ? 'video'
+      : mime.startsWith('audio/') ? 'audio'
+      : 'document')
+    : null;
+  const messageType = mediaUrl ? (mediaType || 'media') : 'text';
 
   const { data: message, error: msgErr } = await db
     .from('messages')
@@ -152,6 +171,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
       message_type: messageType,
       body_text: messageText || '',
       media_url: mediaUrl || null,
+      media_mime_type: mediaUrl ? (mediaMimeType || null) : null,
       status: 'queued',
       message_category: 'fro_reply',
     })
@@ -163,14 +183,18 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   try {
     let body;
     if (mediaUrl) {
+      const type = mediaType || 'image';
       body = {
         messaging_product: 'whatsapp',
         to: recipientPhone,
-        type: 'image',
-        image: { link: mediaUrl },
+        type,
+        [type]: { link: mediaUrl },
       };
-      if (messageText?.trim()) {
-        body.image.caption = messageText.trim();
+      if (type === 'document') {
+        body.document.filename = mediaUrl.split('/').pop()?.split('?')[0] || 'file';
+      }
+      if (messageText?.trim() && type !== 'audio') {
+        body[type].caption = messageText.trim();
       }
     } else {
       body = {
@@ -649,6 +673,48 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     }
   }
 
+  const fillPlaceholders = (str) => String(str || '').replace(
+    /\{\{(\d+)\}\}/g,
+    (_, n) => paramValues?.[Number(n) - 1] || '',
+  );
+  const bodyComponent = template.components?.find(c => c.type === 'BODY');
+  const footerComponent = template.components?.find(c => c.type === 'FOOTER');
+  const headerComponent = template.components?.find(c => c.type === 'HEADER');
+  const buttonsComponent = template.components?.find(c => c.type === 'BUTTONS');
+  const headerFormat = headerComponent?.format || null;
+  const renderedBody = bodyComponent?.text ? fillPlaceholders(bodyComponent.text) : null;
+  const headerMime = headerFormat === 'IMAGE' ? 'image/jpeg'
+    : headerFormat === 'VIDEO' ? 'video/mp4'
+    : headerFormat === 'DOCUMENT' ? 'application/pdf'
+    : null;
+  // Persist what the donor actually received (header media, rendered body,
+  // footer, buttons) so the agent's thread reads like the WhatsApp thread
+  // instead of showing only the template's internal name.
+  const templateSummary = {
+    kind: 'whatsapp_template',
+    name: templateName,
+    language: template.language || 'en',
+    category: template.category || null,
+    body: renderedBody,
+    footer: footerComponent?.text || null,
+    headerText: headerComponent?.text ? fillPlaceholders(headerComponent.text) : null,
+    headerFormat,
+    buttons: (buttonsComponent?.buttons || []).map(b => ({
+      kind: b.type,
+      label: b.text,
+      url: b.url ? fillPlaceholders(b.url) : null,
+    })),
+  };
+
+  // Claim the conversation for the sending agent, otherwise the FRO inbox's
+  // assigned-agent filter hides the thread (and therefore the template) again.
+  if (!conversation.assigned_agent_id) {
+    await db
+      .from('conversations')
+      .update({ assigned_agent_id: froWorkerId })
+      .eq('id', conversationId);
+  }
+
   const { data: message, error: msgErr } = await db
     .from('messages')
     .insert({
@@ -658,7 +724,11 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       user_id: String(froWorkerId),
       direction: 'outbound',
       message_type: 'template',
-      body_text: templateName,
+      body_text: renderedBody || templateName,
+      template_id: templateName,
+      template_params: templateSummary,
+      media_url: headerMediaUrl || null,
+      media_mime_type: headerMime,
       status: 'queued',
       message_category: 'template',
     })

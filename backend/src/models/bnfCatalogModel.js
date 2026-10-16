@@ -16,6 +16,16 @@ export const listCatalog = async (kind) => {
   return data || [];
 };
 
+export const getCatalogItem = async (kind, id) => {
+  const { data, error } = await db
+    .from(TABLE[kind])
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error && error.code !== 'PGRST116') throw error;
+  return data || null;
+};
+
 export const createCatalogItem = async (kind, { name, created_by }) => {
   const { data, error } = await db
     .from(TABLE[kind])

@@ -3,6 +3,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 
 const PROJECT_OPTIONS = [
   { value: 'bsct', label: 'Being Sevak' },
+  { value: 'bsct2', label: 'Being Sevak 2' },
   { value: 'mann', label: 'Mann Care' },
   { value: 'aflf', label: 'Ashray' },
   { value: 'ucs', label: 'Ultimate Consultancy Services' },
@@ -26,6 +27,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [templateOptions, setTemplateOptions] = useState({});
   const [agents, setAgents] = useState({});
   const [showAgents, setShowAgents] = useState({});
+  const [revealToken, setRevealToken] = useState({});
+  const [showToken, setShowToken] = useState(false);
   const [agentSearch, setAgentSearch] = useState({});
   const [agentResults, setAgentResults] = useState({});
   const [assigning, setAssigning] = useState({});
@@ -58,6 +61,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     setForm(emptyForm);
     setEditing(null);
     setShowForm(false);
+    setShowToken(false);
   };
 
   const handleSave = async () => {
@@ -107,7 +111,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
       name: acc.name,
       project: acc.project,
       phone_number_id: acc.phone_number_id,
-      access_token: '',
+      access_token: acc.access_token || '',
       waba_id: acc.waba_id,
       template_name: acc.template_name || '',
       template_language: acc.template_language || 'en',
@@ -216,7 +220,14 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
             </label>
             <label className="field" style={{ flex: '1 1 140px', marginBottom: 0 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Access Token</span>
-              <input type="password" value={form.access_token} onChange={e => setForm(p => ({ ...p, access_token: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Meta token'} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                <input type={showToken ? 'text' : 'password'} value={form.access_token} onChange={e => setForm(p => ({ ...p, access_token: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Meta token'} style={{ fontSize: 12, padding: '5px 8px', flex: 1, minWidth: 0 }} />
+                <button type="button" className="btn btn-sm" onClick={() => setShowToken(s => !s)}
+                  title={showToken ? 'Hide access token' : 'Show access token'}
+                  style={{ fontSize: 10, padding: '1px 6px', flexShrink: 0 }}>
+                  {showToken ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </label>
             <label className="field" style={{ flex: '1 1 130px', marginBottom: 0 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>WABA ID</span>
@@ -305,6 +316,22 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
                     </div>
                     <div style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
                       Phone: {acc.phone_number_id} &middot; WABA: {acc.waba_id}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <span style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                        Token: {acc.access_token ? (revealToken[acc.id] ? acc.access_token : '••••••••••••••••') : '—'}
+                      </span>
+                      {acc.access_token && (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setRevealToken(prev => ({ ...prev, [acc.id]: !prev[acc.id] }))}
+                          title={revealToken[acc.id] ? 'Hide access token' : 'Show access token'}
+                          style={{ fontSize: 10, padding: '1px 6px', flexShrink: 0 }}
+                        >
+                          {revealToken[acc.id] ? 'Hide' : 'Show'}
+                        </button>
+                      )}
                     </div>
                   </div>
                   <button className="btn btn-sm" onClick={() => fetchTemplates(acc)} disabled={fetchingTemplates === acc.id}

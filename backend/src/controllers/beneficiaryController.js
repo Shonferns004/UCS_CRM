@@ -1,7 +1,7 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, exportBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries,
+  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries, listKitGivenEvents,
   setBeneficiaryCollectionOtp, setBeneficiaryOtpVerified,
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
@@ -12,13 +12,14 @@ import { getEmployment } from '../models/beneficiaryEmploymentModel.js';
 import { getAssistances } from '../models/beneficiaryAssistanceModel.js';
 import { getDocuments } from '../models/beneficiaryDocumentModel.js';
 import { getCards, getActiveCard } from '../models/beneficiaryCardModel.js';
-import { getBiometricStatus } from '../models/biometricModel.js';
+import { getBiometricStatus, getFingerprintImages } from '../models/biometricModel.js';
 import { getSourceRecords } from '../models/beneficiarySourceModel.js';
 import { getBeneficiaryDistributionHistory } from '../models/distributionModel.js';
 import { getBeneficiaryPrograms } from '../models/programBeneficiaryModel.js';
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
+import { getCatalogItem } from '../models/bnfCatalogModel.js';
 import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
 import { randomInt, timingSafeEqual } from 'crypto';
 import db from '../config/db.js';
@@ -308,6 +309,12 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     // list's event column / filter. Resolved BEFORE the update for that reason.
     let eventName = null;
     let eventId = null;
+    // Which kit the operator is handing out today. It lives on the day's
+    // assignment (not on each beneficiary), so it is resolved here and stamped
+    // onto the beneficiary row — that is what lets the admin list/PDF report
+    // show what was actually given.
+    let kitId = null;
+    let kitName = null;
     try {
       const worker = await getBnfOperatorBySession(req.user);
       if (worker?.id != null) {
@@ -317,6 +324,11 @@ export const markBeneficiaryKitGiven = async (req, res) => {
         if (ev) {
           eventName = ev?.title || ev?.name || null;
           eventId = ev?.id != null ? Number(ev.id) : null;
+        }
+        if (assignment?.kit_id != null) {
+          kitId = Number(assignment.kit_id);
+          const kit = await getCatalogItem('kits', kitId);
+          kitName = kit?.name || null;
         }
       }
       // The operator dashboard falls back to the demo event when no real
@@ -334,7 +346,7 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     const updated = await markKitGiven(beneficiary.id, givenBy, {
       id: Number.isInteger(eventId) ? eventId : null,
       name: eventName,
-    });
+    }, kitId != null ? { id: kitId, name: kitName } : null);
 
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
@@ -343,6 +355,8 @@ export const markBeneficiaryKitGiven = async (req, res) => {
         beneficiary_code: beneficiary.beneficiary_code,
         event_name: eventName,
         event_id: Number.isInteger(eventId) ? eventId : null,
+        kit_id: kitId,
+        kit_name: kitName,
       },
       performed_by: givenBy,
     });
@@ -489,7 +503,7 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, has_otp } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, has_otp } = req.query;
 
     // Beneficiaries app operators see only their own registrations. The app
     // token carries department 'operator' and no ngo_id (CRM worker tokens
@@ -509,10 +523,19 @@ export const listAllBeneficiaries = async (req, res) => {
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_given, event_id, has_otp,
+      category_id, state, city, kit_given, event_id, event_name, has_otp,
       created_by,
     });
     return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Events that appear on kit-given rows — the Kit Given page's dropdown source.
+export const listKitGivenEventsController = async (_req, res) => {
+  try {
+    return res.json(await listKitGivenEvents());
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -563,13 +586,31 @@ export const exportBeneficiariesController = async (req, res) => {
       'Total Family Members': b.total_family_members ?? '',
       'Status': b.status || '',
       'Kit Given': b.kit_given ? 'Yes' : 'No',
+      'Kit Given On': b.kit_given_at || '',
+      'Kit Given By': b.kit_given_by || '',
       'Kit Event': b.kit_event_name || '',
+      'Kit': b.kit_name || '',
       'Fingerprint Status': b.fingerprint_status || '',
       'Registration Date': b.registration_date || '',
       'Registered At': b.created_at || '',
     }));
 
     return res.json({ data, total: data.length });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Latest enrolled fingerprint IMAGE per beneficiary, for a page of the list.
+// One request covers the whole page (`?ids=1,2,3`) instead of N per-row calls.
+export const getFingerprintImagesController = async (req, res) => {
+  try {
+    const ids = String(req.query.ids || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const images = await getFingerprintImages(ids);
+    return res.json({ images });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

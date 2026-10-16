@@ -35,6 +35,7 @@ import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
+import WhatsAppChat from './pages/WhatsAppChat'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
 import teleWav from '../../assets/audio/tele.wav'
@@ -146,7 +147,7 @@ const sortTeamBroadcasts = (teams) => [...(teams || [])].sort((a, b) => {
   return String(a?.name || '').localeCompare(String(b?.name || ''));
 });
 
-const INBOX_SHORT = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' }
+const INBOX_SHORT = { bsct: 'BSCT', bsct2: 'BSCT', aflf: 'AFLF', mann: 'MANN' }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
@@ -363,15 +364,6 @@ function FroStatusPill() {
   );
 }
 
-function WhatsAppComingSoon() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--ink-soft)' }}>
-      <MessageCircle size={40} strokeWidth={1.5} style={{ opacity: 0.4 }} />
-      <div style={{ fontSize: 14, fontWeight: 700 }}>Inbox coming soon</div>
-    </div>
-  );
-}
-
 function BirthdayPopup() {
   const { user } = useUcs()
   const [celebrants, setCelebrants] = useState([])
@@ -529,18 +521,10 @@ function Sidebar({ open, onClose, waUnreadCounts, si }) {
         </div>
         <nav className="sidebar-nav" style={{ flex: 1 }}>
           {nav.map(n => {
-            const waDisabled = n.id.startsWith('whatsapp');
             return (
             <NavLink key={n.id} to={n.path} end
               className={() => `snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
-              onClick={(e) => {
-                if (waDisabled) {
-                  e.preventDefault();
-                  toast('Inbox coming soon', 'info');
-                }
-                onClose?.();
-              }}
-              style={waDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
+              onClick={() => onClose?.()}>
             <n.Icon size={18} strokeWidth={2} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>{n.label}</span>
@@ -1353,8 +1337,8 @@ useEffect(() => onFroAction((action) => {
             <Route path="tickets" element={<FroTickets />} />
             <Route path="to-super-admin" element={<SuperAdminTicketSection panel="fro" />} />
             <Route path="chat" element={<ChatWorkspace />} />
-            <Route path="whatsapp-chat" element={<WhatsAppComingSoon />} />
-            <Route path="whatsapp-chat/:project" element={<WhatsAppComingSoon />} />
+            <Route path="whatsapp-chat" element={<WhatsAppChat />} />
+            <Route path="whatsapp-chat/:project" element={<WhatsAppChat />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

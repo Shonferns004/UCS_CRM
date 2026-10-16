@@ -9,6 +9,8 @@ import {
   fetchCalendarEvents,
   createActivity,
   createEvent,
+  uploadEventBanner,
+  fetchEventImageDataUrl,
   deleteActivity,
   updateActivity,
   suggestActivityPrograms,
@@ -19,6 +21,8 @@ import {
   suggestFestivalPrograms,
   getFestivalSuggestions,
   setFestivalSuggestionSelected,
+  getPlannerEventLinks,
+  setPlannerEventLink,
   setFestivalSuggestionsBeneficiary,
   setFestivalSuggestionsLocation,
   mergeProgrammeRows,
@@ -681,7 +685,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
 
 /* Renders inline under the activity row that asked for it — no modal, so the
    activity list stays visible while ideas are read, ticked or discarded. */
-function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0, onSelectionChange }) {
+export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0, onSelectionChange }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [dismissed, setDismissed] = useState(() => new Set())
@@ -898,7 +902,7 @@ function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0
 /* ── Turn a suggestion (or a blank slate) into a real programme ──────────── */
 
 /* One programme on one date. */
-function PlanModal({ entry, ngo, month, onClose, onSaved }) {
+export function PlanModal({ entry, ngo, month, onClose, onSaved }) {
   const { activity, suggestion } = entry
   const days = useMemo(() => daysInMonth(month), [month])
 
@@ -1220,6 +1224,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
   const [venue, setVenue] = useState('')
   const [description, setDescription] = useState('')
   const [images, setImages] = useState([])
+  const [uploadingImages, setUploadingImages] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -1239,22 +1244,46 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
     if (!files.length) return
     const room = 6 - images.length
     if (room <= 0) { setError('Maximum 6 images.'); return }
-    const added = []
-    for (const f of files.slice(0, room)) {
-      if (!f.type.startsWith('image/')) continue
-      try { added.push({ name: f.name, url: await pickFileToDataUrl(f) }) } catch { /* skip */ }
-    }
-    if (!added.length) { setError('Please choose image files (JPG / PNG / WebP).'); return }
+    const picked = files.slice(0, room).filter((f) => f.type.startsWith('image/'))
+    if (!picked.length) { setError('Please choose image files (JPG / PNG / WebP).'); return }
+    setUploadingImages(true)
     setError('')
-    setImages((cur) => [...cur, ...added].slice(0, 6))
+    // Each image is uploaded to S3 (only the URL is later saved on the event);
+    // its local data URL is kept for the PDF built in this session.
+    const added = await Promise.all(picked.map(async (f) => {
+      const dataUrl = await pickFileToDataUrl(f).catch(() => '')
+      const fd = new FormData()
+      fd.append('file', f, f.name)
+      try {
+        const res = await uploadEventBanner(fd)
+        const url = res?.url || ''
+        return url ? { name: f.name, url, dataUrl } : null
+      } catch {
+        return null
+      }
+    }))
+    const ok = added.filter(Boolean)
+    setUploadingImages(false)
+    if (!ok.length) { setError('Could not upload the images. Please try again.'); return }
+    if (ok.length < picked.length) setError('Some images could not be uploaded. Please try again.')
+    setImages((cur) => [...cur, ...ok].slice(0, 6))
   }
 
   const removeImage = (i) => setImages((cur) => cur.filter((_, idx) => idx !== i))
+
+  /* The default (cover) photo is simply the first image of the array, so both
+     the Event Detail Sheet and the Monthly Report agree on which photo leads.
+     Promoting a photo to index 0 reorders the array. */
+  const setDefaultImage = (i) => setImages((cur) => {
+    if (i <= 0 || i >= cur.length) return cur
+    return [cur[i], ...cur.filter((_, idx) => idx !== i)]
+  })
 
   const submit = async () => {
     if (!name.trim()) return setError('Event name is required.')
     if (!ngoId) return setError('Choose an NGO.')
     if (!date) return setError('This programme has no planned date.')
+    if (uploadingImages) return setError('Please wait for the images to finish uploading.')
     if (images.length < 4) return setError('Please upload at least 4 images (4–6).')
     if (images.length > 6) return setError('Please upload at most 6 images.')
     setBusy(true); setError('')
@@ -1267,6 +1296,8 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
         date,
         venue: venue.trim() || null,
         description: description.trim() || null,
+        // Saved in display order: the ★ default photo is always images[0], which is
+        // what the Monthly Report (and every other report) shows as its cover photo.
         images: images.map((im) => im.url),
         status: 'Draft',
       })
@@ -1288,7 +1319,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
         beneficiary: entry?.beneficiary || '',
         venue: venue.trim(),
         description: description.trim(),
-        images: images.map((im) => im.url),
+        images: images.map((im) => im.dataUrl || im.url),
         brand: ngoBrandFor(ngo),
       }
       try {
@@ -1296,7 +1327,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       } catch (pdfErr) {
         console.error('Event detail PDF failed', pdfErr)
       }
-      onSaved({ key: entry?.key, event, pdf: pdfArgs })
+      onSaved({ key: entry?.key, event, pdf: pdfArgs, ngoId })
     } catch (e) {
       setError(e?.message || 'Could not create the event.')
     } finally {
@@ -1313,8 +1344,8 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       footer={
         <>
           <button className="eh-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="eh-btn eh-btn-primary" onClick={submit} disabled={busy}>
-            {busy ? 'Creating…' : 'Create Event & Download'}
+          <button className="eh-btn eh-btn-primary" onClick={submit} disabled={busy || uploadingImages}>
+            {busy ? 'Creating…' : uploadingImages ? 'Uploading…' : 'Create Event & Download'}
           </button>
         </>
       }
@@ -1347,31 +1378,59 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
             placeholder="What the event is about…"
           />
         </Field>
-        <Field label="Photos" hint="Upload 4 to 6 images — they are placed on the Event Detail Sheet.">
+        <Field label="Photos" hint="Upload 4 to 6 images — stored on S3, printed on the Event Detail Sheet. The ★ one is the cover shown on the Monthly Report.">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <label className="eh-btn eh-btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: images.length >= 6 ? 'not-allowed' : 'pointer', opacity: images.length >= 6 ? 0.5 : 1 }}>
-                + Add images
-                <input type="file" accept="image/*" multiple disabled={images.length >= 6} onChange={onPickImages} style={{ display: 'none' }} />
+              <label className="eh-btn eh-btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: (images.length >= 6 || uploadingImages) ? 'not-allowed' : 'pointer', opacity: (images.length >= 6 || uploadingImages) ? 0.5 : 1 }}>
+                {uploadingImages ? 'Uploading…' : '+ Add images'}
+                <input type="file" accept="image/*" multiple disabled={images.length >= 6 || uploadingImages} onChange={onPickImages} style={{ display: 'none' }} />
               </label>
               <span style={{ fontSize: 12, color: images.length >= 4 ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)' }}>
-                {images.length} / 6 selected {images.length < 4 ? '(min 4)' : ''}
+                {uploadingImages ? 'Uploading images to S3…' : `${images.length} / 6 selected ${images.length < 4 ? '(min 4)' : ''}`}
               </span>
             </div>
             {images.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>
-                {images.map((im, i) => (
-                  <div key={`${im.name}-${i}`} style={{ position: 'relative', border: '1px solid var(--eh-line-strong, #ddd9f0)', borderRadius: 8, overflow: 'hidden' }}>
-                    <img src={im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(i)}
-                      title="Remove"
-                      style={{ position: 'absolute', top: 2, right: 2, border: 'none', borderRadius: 6, background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11, lineHeight: 1, padding: '3px 6px', cursor: 'pointer' }}
-                    >✕</button>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>
+                  {images.map((im, i) => (
+                    <div
+                      key={`${im.name}-${i}`}
+                      style={{
+                        position: 'relative', borderRadius: 8, overflow: 'hidden',
+                        border: i === 0 ? '2px solid var(--eh-primary, #4f46e5)' : '1px solid var(--eh-line-strong, #ddd9f0)',
+                      }}
+                    >
+                      <img src={im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
+                      {i === 0 && (
+                        <span
+                          title="Default image — shown on the Monthly Report"
+                          style={{ position: 'absolute', left: 2, bottom: 2, background: 'var(--eh-primary, #4f46e5)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 999, pointerEvents: 'none' }}
+                        >★ Default</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setDefaultImage(i)}
+                        title="Set as default image (Monthly Report)"
+                        aria-label="Set as default image"
+                        style={{
+                          position: 'absolute', top: 2, right: 24, border: 'none', borderRadius: 6,
+                          background: i === 0 ? 'var(--eh-primary, #4f46e5)' : 'rgba(0,0,0,.55)',
+                          color: '#fff', fontSize: 11, lineHeight: 1, padding: '3px 6px', cursor: i === 0 ? 'default' : 'pointer',
+                        }}
+                      >★</button>
+                      <button
+                        type="button"
+                        onClick={() => removeImage(i)}
+                        title="Remove"
+                        style={{ position: 'absolute', top: 2, right: 2, border: 'none', borderRadius: 6, background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11, lineHeight: 1, padding: '3px 6px', cursor: 'pointer' }}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--eh-ink-soft, #6b7280)' }}>
+                  ★ Default image is shown on the Monthly Report and leads the Event Detail Sheet.
+                </div>
+              </>
             )}
           </div>
         </Field>
@@ -1583,6 +1642,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // Payload of the Event Detail Sheet for each row whose event was created THIS
   // session, so its "Download" button can re-issue the same PDF (no second event).
   const [pdfCache, setPdfCache] = useState(() => new Map())
+  // The month's durable row → event links, keyed "date::festival" and loaded from
+  // the server, so a completed row's "Download" button survives a reload and
+  // shows on every device — not just the tab that created it.
+  const [plannerLinkMap, setPlannerLinkMap] = useState({})
 
   const [year, setYear] = useState(() => new Date().getFullYear())
   const yearOptions = useMemo(() => {
@@ -1705,6 +1768,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       .finally(() => setLoadingEvents(false))
   }, [ngoId, month])
 
+  /* The month's durable row → event links. Loaded whole (no NGO filter) and keyed
+     "date::festival", because a row's key is unique across NGOs and the row — not
+     the page scope — decides which link it shows. */
+  const loadPlannerLinks = useCallback(() => {
+    const [start, end] = monthBounds(month)
+    getPlannerEventLinks({ start, end })
+      .then((list) => {
+        const map = {}
+        for (const l of (Array.isArray(list) ? list : [])) {
+          const k = `${String(l?.observance_date || '').slice(0, 10)}::${String(l?.festival ?? '')}`
+          map[k] = l
+        }
+        setPlannerLinkMap(map)
+      })
+      .catch(() => setPlannerLinkMap({}))
+  }, [month])
+
   /* Per-NGO event counts for the chosen month. The existing monthly report
      endpoint already groups the month NGO-wise, so no new API is needed — and
      calling it without ngo_id returns every NGO at once for the overview. */
@@ -1726,6 +1806,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
 
   useEffect(() => { loadActivities() }, [loadActivities])
   useEffect(() => { loadMonthEvents() }, [loadMonthEvents])
+  useEffect(() => { loadPlannerLinks() }, [loadPlannerLinks])
   useEffect(() => { loadNgoStats() }, [loadNgoStats])
 
   /* ── Festival view of the month ──────────────────────────────────────────
@@ -1771,6 +1852,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      date can carry more than one programme. Session-only; each entry is the
      unique suffix of a "date::+#suffix" key. */
   const [festExtra, setFestExtra] = useState(() => ({}))
+  /* The date the toolbar's single "+ Add another programme" button adds under,
+     chosen from a dropdown of the month's days. */
+  const [extraRowDate, setExtraRowDate] = useState(() => `${currentMonthYmd()}-01`)
 
   const loadImportantDays = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1818,6 +1902,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => { setFestLoc({}) }, [ngoId])
   useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
   useEffect(() => { setFestExtra({}) }, [ngoId, month])
+  useEffect(() => { setExtraRowDate(`${month}-01`) }, [month])
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
 
@@ -3160,15 +3245,44 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return String(sugg?.observance_date || date || (key || '').slice(0, 10)).slice(0, 10)
   }
 
-  /* The event a planner row already produced. Found ONLY through the suggestion's
-     own recorded link (suggested_event_id) so it survives a refresh. The row
-     offers the download only once its event was genuinely created through the
-     planner — never because some unrelated event happens to share a date, name
-     or NGO. */
-  const findScheduledEvent = (key) => {
-    const link = key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0) : null
-    if (!link) return null
-    return monthEvents.find((ev) => String(ev?.id) === String(link.suggested_event_id)) || null
+  /* A programme row must produce at most ONE event. Events created before the
+     durable link existed carry no planner link, so they are recognised by
+     matching the programme's name + date + NGO against the month's events.
+     The richest match (most photos) wins. This is what lets the row show
+     "Download" instead of "Create Event" and blocks a duplicate. */
+  const findExistingPlannedEvent = (key, date, label) => {
+    if (!key) return null
+    const name = String(programmeNameForKey(key, label) || '').trim().toLowerCase()
+    if (!name) return null
+    const d = programmeDateForKey(key, date)
+    const ngo = String(rowNgoId(key) || '')
+    const found = monthEvents.filter((ev) => {
+      const p = ev?.extendedProps || {}
+      const evName = String(ev?.title || '').split(' · ')[0].trim().toLowerCase()
+      const evDate = String(p.date || '').slice(0, 10)
+      const evNgo = String(p.ngoId || '')
+      if (evName !== name || evDate !== d) return false
+      if (ngo && evNgo && evNgo !== ngo) return false
+      return true
+    })
+    if (!found.length) return null
+    return found.sort((a, b) => ((b?.extendedProps?.images?.length || 0) - (a?.extendedProps?.images?.length || 0)))[0]
+  }
+
+  /* The event a planner row already produced. Found through the durable row link
+     recorded when the event was created (survives a refresh and other devices),
+     falling back to the older suggestion-level link (suggested_event_id), and
+     then to a name + date + NGO match for events that predate the link feature.
+     The row offers the download only once its event was genuinely created through
+     the planner — never because some unrelated event happens to share a date,
+     name or NGO. */
+  const findScheduledEvent = (key, date, label) => {
+    const rowLink = key ? plannerLinkMap[key] : null
+    const linkedId = rowLink
+      ? rowLink.event_id
+      : (key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null)
+    if (linkedId) return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+    return findExistingPlannedEvent(key, date, label)
   }
 
   /* Open the "Create Event" confirm modal for a programme whose five
@@ -3198,18 +3312,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
   }
-  const addAnotherProgrammeBtn = (date, key) => (
-    <button
-      className="eh-btn eh-btn-sm"
-      style={{ marginTop: 6 }}
-      disabled={festBusy}
-      title={`Add another programme row under ${shortDate(date)} — a second programme on the same day`}
-      onClick={() => addExtraRow(date, key)}
-    >
-      + Add another programme
-    </button>
-  )
-
   /* A user-added programme row: same columns as every other row, with an
      editable name in the Festival / Day column, an NGO that starts on the row it
      was added from, and a ✕ that removes it. */
@@ -3293,11 +3395,27 @@ export default function ActivityPlanner({ taskAssignment = false }) {
 
   /* After the event is created: remember the row (so Create Event never returns)
      and cache the sheet it just downloaded, refresh the month's tasks and
-     calendar so the new event shows, and say so. */
-  const afterEventCreated = ({ key, event, pdf } = {}) => {
+     calendar so the new event shows, and say so. The row → event link is also
+     saved server-side so the Download button survives a reload / other device. */
+  const afterEventCreated = ({ key, event, pdf, ngoId } = {}) => {
     if (key) {
       setCreatedKeys((cur) => { const next = new Set(cur); next.add(key); return next })
       if (pdf) setPdfCache((cur) => new Map(cur).set(key, pdf))
+      if (event?.id) {
+        const sep = key.indexOf('::')
+        const observance_date = (sep >= 0 ? key.slice(0, sep) : key).slice(0, 10)
+        const festival = sep >= 0 ? key.slice(sep + 2) : ''
+        const link = {
+          observance_date,
+          festival,
+          ngo_id: ngoId || event.ngo_id || rowNgoId(key) || null,
+          event_id: event.id,
+        }
+        setPlannerLinkMap((cur) => ({ ...cur, [key]: link }))
+        setPlannerEventLink(link).catch(() => {
+          // The event exists either way; only the cross-device link is missing.
+        })
+      }
     }
     setCreateEventFor(null)
     showToast(event?.name ? `Event “${event.name}” created.` : 'Event created.')
@@ -3310,14 +3428,39 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      images live on the event), so the download works after a refresh too. */
   const downloadEventSheet = async (key, date, label) => {
     let args = pdfCache.get(key)
+    const ev = findScheduledEvent(key, date, label)
+    // Persist the durable row link the first time a pre-existing event (created
+    // before the link feature) is recognised for this programme, so the row keeps
+    // offering "Download" on every device and can never create a duplicate.
+    if (ev?.id && key && !plannerLinkMap[key]) {
+      const link = {
+        observance_date: programmeDateForKey(key, date),
+        festival: key.includes('::') ? key.slice(key.indexOf('::') + 2) : '',
+        ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || null,
+        event_id: ev.id,
+      }
+      setPlannerLinkMap((cur) => ({ ...cur, [key]: link }))
+      setPlannerEventLink(link).catch(() => {})
+    }
     if (!args) {
-      const ev = findScheduledEvent(key)
       const p = ev?.extendedProps || {}
       const sugg = key ? rowSuggestionsFor(key) : []
       const linked = sugg.find((s) => s.is_selected) || sugg.find((s) => Number(s.suggested_event_id) > 0) || null
       const ngo = ngos.find((n) => String(n.id) === String(rowNgoId(key))) || null
       const actIds = (Array.isArray(p.activities) ? p.activities : []).map((a) => Number(a.id))
       const activity = activities.find((a) => actIds.includes(Number(a.id))) || null
+      // Images are stored on S3 as URLs; the PDF needs bytes, so each is read
+      // back through the server proxy (avoids a cross-origin browser fetch).
+      // Legacy inline data URLs are used as-is.
+      const rawImages = Array.isArray(p.images) ? p.images : []
+      const images = []
+      for (let i = 0; i < rawImages.length; i++) {
+        const u = String(rawImages[i] || '')
+        if (!u) continue
+        if (u.startsWith('data:')) { images.push(u); continue }
+        try { images.push(ev?.id ? await fetchEventImageDataUrl(ev.id, i, true) : u) }
+        catch { /* skip an image that will not load */ }
+      }
       args = {
         name: String(ev?.title || '').split(' · ')[0].trim() || programmeNameForKey(key, label),
         date: String(p.date || date || '').slice(0, 10),
@@ -3326,7 +3469,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         beneficiary: sugg.map((s) => s.beneficiary).find(Boolean) || festBenef[key] || '',
         venue: p.venue || '',
         description: p.description || '',
-        images: Array.isArray(p.images) ? p.images : [],
+        images,
         brand: ngoBrandFor(ngo),
       }
     }
@@ -3357,7 +3500,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // deliverables are still done. An unsigned row never shows a download.
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
   const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-  const alreadyScheduled = Boolean(key && createdKeys.has(key)) || Boolean(findScheduledEvent(key))
+  const alreadyScheduled = Boolean(key && createdKeys.has(key)) || Boolean(findScheduledEvent(key, date, label))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -3694,6 +3837,22 @@ export default function ActivityPlanner({ taskAssignment = false }) {
               Clear all AI suggestions
             </button>
           )}
+          {/* One common way to add an extra programme row, instead of repeating
+              the button on every row: choose the day, then add. */}
+          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>Date</span>
+            <Select value={extraRowDate} onChange={setExtraRowDate} style={{ width: 140 }} disabled={festBusy}>
+              {festivalDates.map((d) => <option key={d} value={d}>{shortDate(d)}</option>)}
+            </Select>
+            <button
+              className="eh-btn eh-btn-sm"
+              disabled={festBusy || !extraRowDate}
+              title="Add a new programme row under the date chosen"
+              onClick={() => addExtraRow(extraRowDate)}
+            >
+              + Add another programme
+            </button>
+          </span>
         </div>
 
         {festivalError && (
@@ -3754,7 +3913,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
                           style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
                         />
-                        {addAnotherProgrammeBtn(date, key)}
                       </td>
                       <td className="ng divider">
                         <FestivalNgoSelect
@@ -3834,7 +3992,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                   // Only THIS row's NGO's stored ideas — the editable NGO column
                   // decides the owner, so NGOs never mix inside a block.
                   const sugg = rowSuggestionsFor(key)
-                  const generating = festGenerating?.key === key
                   const open = festOpen.has(key)
                   const chosen = sugg.find((s) => Boolean(s.is_selected)) || null
                   const manual = scopedManual[key]
@@ -3884,22 +4041,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           <div className="fest-actions">
                             <button
                               className="eh-btn eh-btn-sm"
-                              disabled={!rowNgoId(key) || !festivalBeneficiaryFor(key) || festGenerating !== null}
-                              title={!rowNgoId(key)
-                                ? 'Pick an NGO for this row to generate festival programmes for it'
-                                : !festivalBeneficiaryFor(key)
-                                  ? 'Pick a Beneficiary category for this festival first'
-                                  : festGenerating
-                                    ? 'A festival programme set is already generating'
-                                    : sugg.length
-                                      ? `Ask the AI again for ${o.name} — new ideas, nothing chosen is lost`
-                                      : `Generate AI programme ideas for ${o.name}`}
-                              onClick={() => suggestFestival(date, o.name)}
-                            >
-                              {generating ? 'Generating…' : '✦ Suggest programmes'}
-                            </button>
-                            <button
-                              className="eh-btn eh-btn-sm"
                               disabled={festBusy || festGenerating !== null}
                               title={`Type your own programme for ${o.name} instead of asking the AI`}
                               onClick={() => {
@@ -3911,7 +4052,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             >
                               ✍ Write Manually
                             </button>
-                            {addAnotherProgrammeBtn(date, key)}
                           </div>
                         </td>
                         <td className="lc divider">
@@ -3959,27 +4099,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           title="Who the AI should aim this festival's programmes at. Change it, then run Suggest again to regenerate."
                           onChange={(v) => handleFestivalBeneficiary(key, v)}
                         />
-                        {/* Regenerate without collapsing the block: new ideas
-                            join the ones already here and whatever is chosen
-                            stays chosen. */}
-                        <button
-                          className="eh-btn eh-btn-sm"
-                          style={{ marginTop: 6 }}
-                          disabled={!rowNgoId(key) || !festivalBeneficiaryFor(key) || festGenerating !== null}
-                          title={!rowNgoId(key)
-                            ? 'Pick an NGO for this row to generate festival programmes for it'
-                            : !festivalBeneficiaryFor(key)
-                              ? 'Pick a Beneficiary category for this festival first'
-                              : festGenerating
-                                ? 'A festival programme set is already generating'
-                                : sugg.length
-                                  ? `Ask the AI again for ${o.name} — new ideas, nothing chosen is lost`
-                                  : `Generate AI programme ideas for ${o.name}`}
-                          onClick={() => suggestFestival(date, o.name)}
-                        >
-                          {generating ? 'Generating…' : sugg.length ? '✦ Suggest again' : '✦ Suggest programmes'}
-                        </button>
-                        {addAnotherProgrammeBtn(date, key)}
                       </td>,
                     )
                     return cells

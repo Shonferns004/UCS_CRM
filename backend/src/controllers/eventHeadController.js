@@ -107,7 +107,7 @@ const buildEventContextMaps = async () => {
   const ngoCodeMap = {}; for (const n of ngos) ngoCodeMap[n.id] = (n.code || n.name || '').toLowerCase();
   const sectorMap = {}; for (const s of sectors) sectorMap[s.id] = s.name;
   const activityMap = {}; for (const a of activities) activityMap[a.id] = a.name;
-  return { ngoMap, ngoCodeMap, sectorMap, activityMap, inactiveVolunteers };
+  return { ngos, ngoMap, ngoCodeMap, sectorMap, activityMap, inactiveVolunteers };
 };
 
 // NGO branding (letter-head banner + logo) used by BOTH the daily (single event)
@@ -189,6 +189,15 @@ const persistVolunteerCleanup = async (event, ctx) => {
   } catch (e) {
     console.warn('volunteer cleanup skipped for event', event && event.id, '-', e.message || e);
   }
+};
+
+/* The ★ default (cover) photo of an event is simply the first photo uploaded with
+   it (the Create Event modal keeps the chosen default at images[0]). Events with
+   no photos — and older events with none — return null. */
+const eventDefaultImage = (ev) => {
+  const imgs = Array.isArray(ev && ev.images) ? ev.images : [];
+  const hit = imgs.find(u => u && String(u).indexOf('http') === 0);
+  return hit || null;
 };
 
 const enrichEvent = (ev, ctx) => ({
@@ -1362,6 +1371,11 @@ export const viewEventBanner = async (req, res) => {
         if (hit) banner = hit.url;
       } catch { /* ignore fallback errors */ }
     }
+    // Most events never have a banner column: the ★ default photo uploaded with
+    // the event (images[0]) is what every report shows as the cover photo.
+    if (!banner || String(banner).indexOf('http') !== 0) {
+      banner = eventDefaultImage(event) || banner;
+    }
     if (!banner || String(banner).indexOf('http') !== 0) {
       return res.status(404).json({ message: 'This event has no banner image.' });
     }
@@ -1372,6 +1386,39 @@ export const viewEventBanner = async (req, res) => {
     return res.send(buffer);
   } catch (error) {
     console.error('eventHeadController viewEventBanner error:', error.message || error);
+    return res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+// Stream one image from an event's `images` array through the server, so the
+// planner's Event Detail Sheet can embed an S3-hosted image without a
+// cross-origin browser fetch. The index addresses the stored row; no
+// caller-supplied URL is ever followed.
+export const viewEventImage = async (req, res) => {
+  try {
+    const event = await EventHead.getEventHeadEventById(req.params.id);
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+    const images = Array.isArray(event.images) ? event.images : [];
+    const index = Number(req.params.index);
+    const url = Number.isInteger(index) && index >= 0 ? images[index] : null;
+    if (!url || typeof url !== 'string') return res.status(404).json({ message: 'Image not found' });
+    // Legacy rows hold the bytes inline as a data URL; return them with no fetch.
+    const dataUrl = /^data:([^;,]*)?(;base64)?,(.*)$/s.exec(url);
+    if (dataUrl) {
+      const mime = dataUrl[1] || 'image/jpeg';
+      const buf = dataUrl[2] ? Buffer.from(dataUrl[3], 'base64') : Buffer.from(decodeURIComponent(dataUrl[3]));
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Length', buf.length);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      return res.send(buf);
+    }
+    const { buffer, contentType } = await readEventObject(url);
+    res.setHeader('Content-Type', contentType || 'image/jpeg');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('eventHeadController viewEventImage error:', error.message || error);
     return res.status(error.status || 500).json({ message: error.message });
   }
 };
@@ -1480,7 +1527,7 @@ export const generateEventReport = async (req, res) => {
       ngo_banner: ngoHeaderBannerFor(ngoName, ngoCode),
       sector_name: event.sector_id != null ? sectorMap[event.sector_id] || null : null,
       activity_name: evActivity ? evActivity.name : (event.activity_id != null ? activityMap[event.activity_id] || null : null),
-      banner: event.banner || (evActivity ? evActivity.banner || null : null) || ngoIdBanner,
+      banner: event.banner || (evActivity ? evActivity.banner || null : null) || ngoIdBanner || eventDefaultImage(event),
       day,
     };
 
@@ -1519,7 +1566,7 @@ export const generateAllEventsReport = async (req, res) => {
       venue: e.venue || null,
       status: e.status || null,
       budget: e.budget != null ? Number(e.budget) : null,
-      banner: e.banner || bannerMap[e.id] || null,
+      banner: e.banner || bannerMap[e.id] || eventDefaultImage(e),
     }));
     return res.json({ events: rows, total: rows.length, generated_at: new Date() });
   } catch (error) {
@@ -1546,10 +1593,26 @@ export const generateNgoMonthlyReport = async (req, res) => {
     const ctx = await buildEventContextMaps();
     const enriched = await enrichEvents(events, ctx);
 
+    // One planner programme must show as ONE card. A row clicked more than once
+    // (or created before the durable planner link existed) leaves duplicate event
+    // rows sharing the same name + date + NGO. Collapse those here, keeping the
+    // richest row (has a banner, then the most photos, then a non-Draft status),
+    // so the report (and the NGO event counts it feeds) never triples a card.
+    const eventDedupeKey = (e) => `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.name || '').trim().toLowerCase()}|${String(e.date || '').slice(0, 10)}`;
+    const eventPhotoCount = (e) => (Array.isArray(e.images) ? e.images.length : 0);
+    const eventRichness = (e) => (e.banner ? 1000 : 0) + eventPhotoCount(e) * 10 + (e.status && e.status !== 'Draft' ? 1 : 0);
+    const uniqueByKey = new Map();
+    for (const e of enriched) {
+      const k = eventDedupeKey(e);
+      const prev = uniqueByKey.get(k);
+      if (!prev || eventRichness(e) > eventRichness(prev)) uniqueByKey.set(k, e);
+    }
+    const enrichedEvents = [...uniqueByKey.values()];
+
     // Event banners (uploaded when the event was created) from the media table,
     // with the event's own banner column as the primary source.
     const eventBannerMap = {};
-    const eventIds = enriched.map(e => e.id).filter(Boolean);
+    const eventIds = enrichedEvents.map(e => e.id).filter(Boolean);
     try {
       const bannerRows = await EventHead.getBannerMediaByEvents(eventIds);
       for (const row of bannerRows) {
@@ -1558,25 +1621,42 @@ export const generateNgoMonthlyReport = async (req, res) => {
     } catch { /* banners are optional */ }
 
     const byNgo = new Map();
-    for (const e of enriched) {
+    // Seed a card for every report NGO (BSCT / MANN / AFLF) up front, so an NGO
+    // with no planner-created events this month still shows its (blank) card
+    // instead of vanishing from the report.
+    const REPORT_NGO_KEYS = ['bsct', 'aflf', 'mann'];
+    const seedNgoCard = (ngoId, name, code) => {
+      const id = ngoId != null ? String(ngoId) : 'unknown';
+      if (byNgo.has(id)) return byNgo.get(id);
+      const c = String(code || (ctx.ngoCodeMap ? ctx.ngoCodeMap[ngoId] : '') || '').toLowerCase();
+      const ngoName = name || ctx.ngoMap[ngoId] || `NGO ${ngoId || ''}`.trim();
+      const row = {
+        ngo_id: ngoId != null ? ngoId : null,
+        ngo_name: ngoName,
+        code: c,
+        logo: ngoLogoFor(c),
+        banner: ngoHeaderBannerFor(ngoName, ngoName),
+        events_count: 0,
+        submitted: 0,
+        completed: 0,
+        pending: 0,
+        beneficiaries: 0,
+        budget: 0,
+        events: [],
+      };
+      byNgo.set(id, row);
+      return row;
+    };
+    for (const n of (ctx.ngos || [])) {
+      const key = String(n.code || n.name || '').toLowerCase();
+      if (!REPORT_NGO_KEYS.some(k => key.includes(k))) continue;
+      if (ngo_id && String(n.id) !== String(ngo_id)) continue;
+      seedNgoCard(n.id, n.name, n.code);
+    }
+    for (const e of enrichedEvents) {
       const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
-      if (!byNgo.has(id)) {
-        const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';
-        byNgo.set(id, {
-          ngo_id: e.ngo_id != null ? e.ngo_id : null,
-          ngo_name: e.ngo_name || ctx.ngoMap[e.ngo_id] || `NGO ${e.ngo_id || ''}`.trim(),
-          code,
-          logo: ngoLogoFor(code),
-          banner: ngoHeaderBannerFor(e.ngo_name, ctx.ngoMap[e.ngo_id]),
-          events_count: 0,
-          submitted: 0,
-          completed: 0,
-          pending: 0,
-          beneficiaries: 0,
-          budget: 0,
-          events: [],
-        });
-      }
+      const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';
+      seedNgoCard(e.ngo_id, e.ngo_name || ctx.ngoMap[e.ngo_id], code);
       const row = byNgo.get(id);
       row.events_count += 1;
       const st = String(e.status || '').trim();
@@ -1597,7 +1677,9 @@ export const generateNgoMonthlyReport = async (req, res) => {
         status: e.status || null,
         budget: e.budget != null ? Number(e.budget) : null,
         beneficiaries: e.expected_beneficiaries != null ? Number(e.expected_beneficiaries) : 0,
-        banner: e.banner || eventBannerMap[e.id] || null,
+        // The card shows a banner. Events never set one, so fall back to the
+        // event's ★ default photo (images[0]).
+        banner: e.banner || eventBannerMap[e.id] || eventDefaultImage(e),
       });
     }
 
@@ -3459,6 +3541,48 @@ export const setFestivalSuggestionSelected = async (req, res) => {
     return res.json({ suggestion: row });
   } catch (error) {
     console.error('setFestivalSuggestionSelected error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/* The planner's durable row → created-event links for a month. A row is
+   identified by its date and festival name; the link is what keeps a completed
+   row's Download button on every device after a reload. */
+export const getPlannerEventLinks = async (req, res) => {
+  try {
+    const { start, end, ngo_id } = req.query;
+    if (!start || !end) return res.status(400).json({ message: 'start and end are required' });
+    const links = await EventHead.getPlannerEventLinks({ start, end, ngo_id: ngo_id || undefined });
+    return res.json({ links });
+  } catch (error) {
+    console.error('getPlannerEventLinks error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/* Records that a planner row produced an event. Idempotent per row: calling it
+   again for the same (date, festival) just points the row at the event. */
+export const setPlannerEventLink = async (req, res) => {
+  try {
+    const observance_date = String(req.body?.observance_date || '').trim();
+    const festival = String(req.body?.festival ?? '');
+    const event_id = Number(req.body?.event_id);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(observance_date)) {
+      return res.status(400).json({ message: 'observance_date (YYYY-MM-DD) is required' });
+    }
+    if (!Number.isInteger(event_id) || event_id <= 0) {
+      return res.status(400).json({ message: 'event_id is required' });
+    }
+    const row = await EventHead.upsertPlannerEventLink({
+      observance_date,
+      festival,
+      ngo_id: req.body?.ngo_id ?? null,
+      event_id,
+      created_by: req.user?.id ?? req.user?.email ?? null,
+    });
+    return res.json({ link: row });
+  } catch (error) {
+    console.error('setPlannerEventLink error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };
