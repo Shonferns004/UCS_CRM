@@ -1,14 +1,17 @@
 import { useMemo } from 'react'
 
 // Monthly performance table derived from the daily heatmap payload — same
-// receipts, same targets. Shows collection, target, achievement, receipt
-// count, MoM change, plus best day / best month highlights. Read-only.
+// receipts, same targets. Shows collection, target, achievement, salary,
+// receipt count, plus best day / best month highlights. Read-only.
+// Targets and salaries fall back across sources in this order:
+//   Target:  configured live target → imported target (History Import)
+//   Salary:  imported monthly salary → salary_history record for that month
 
 const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN')
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const label = (month) => `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`
 
-export default function PerformanceTrends({ data }) {
+export default function PerformanceTrends({ data, history }) {
   const { months, bestDay, bestMonth, total, count } = useMemo(() => {
     const byMonth = new Map()
     const byDay = new Map()
@@ -20,14 +23,17 @@ export default function PerformanceTrends({ data }) {
       byDay.set(d.date, (byDay.get(d.date) || 0) + d.amount)
     }
     const targetByMonth = new Map((data?.targets_by_month || []).map(t => [t.month, t]))
-    let prev = null
+    const salaryByMonth = new Map((data?.salary_by_month || []).map(s => [s.month, s.salary]))
+    const histByMonth = new Map((history?.rows || []).map(r => [r.month, r]))
     const months = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month)).map(row => {
       const t = targetByMonth.get(row.month)
-      const target = t && t.configured ? Number(t.target) : null
+      const h = histByMonth.get(row.month)
+      // Configured live target wins; imported target fills historical months.
+      const target = t && t.configured ? Number(t.target) : (h?.target != null ? Number(h.target) : null)
+      // Imported salary first; otherwise whatever salary record covers the month.
+      const salary = h?.salary != null ? Number(h.salary) : (salaryByMonth.get(row.month) ?? null)
       const pct = target ? Math.round((row.amount / target) * 100) : null
-      const mom = prev != null && prev > 0 ? Math.round(((row.amount - prev) / prev) * 100) : null
-      prev = row.amount
-      return { ...row, target, pct, mom, source: t?.source || null }
+      return { ...row, target, salary, pct, source: t?.source || null }
     })
     let bestDay = null
     for (const [date, amount] of byDay) if (!bestDay || amount > bestDay.amount) bestDay = { date, amount }
@@ -36,7 +42,7 @@ export default function PerformanceTrends({ data }) {
     const total = months.reduce((s, m) => s + m.amount, 0)
     const count = months.reduce((s, m) => s + m.count, 0)
     return { months, bestDay, bestMonth, total, count }
-  }, [data])
+  }, [data, history])
 
   if (!data) return null
 
@@ -61,8 +67,8 @@ export default function PerformanceTrends({ data }) {
                 <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Collection</th>
                 <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Target</th>
                 <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Achievement</th>
+                <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Salary</th>
                 <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Receipts</th>
-                <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>MoM</th>
               </tr>
             </thead>
             <tbody>
@@ -76,10 +82,10 @@ export default function PerformanceTrends({ data }) {
                   <td style={{ padding: '7px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: m.pct == null ? 'var(--ink-soft, #64748b)' : m.pct >= 100 ? 'var(--sage, #5B6B4E)' : undefined }}>
                     {m.pct == null ? '—' : `${m.pct}%`}
                   </td>
-                  <td style={{ padding: '7px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.count}</td>
-                  <td style={{ padding: '7px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: m.mom == null ? 'var(--ink-soft, #64748b)' : m.mom >= 0 ? 'var(--sage, #5B6B4E)' : '#b45309' }}>
-                    {m.mom == null ? '—' : `${m.mom > 0 ? '+' : ''}${m.mom}%`}
+                  <td style={{ padding: '7px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: m.salary == null ? 'var(--ink-soft, #64748b)' : undefined }}>
+                    {m.salary == null ? '—' : inr(m.salary)}
                   </td>
+                  <td style={{ padding: '7px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.count}</td>
                 </tr>
               ))}
             </tbody>

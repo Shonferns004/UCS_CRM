@@ -104,6 +104,22 @@ never writes receipts, targets, attendance, payroll, or employee records.
 - Events are range-filtered by their source date, newest first, capped at 200
   (`truncated` flag set when exceeded).
 
+## Monthly performance tables (imported history)
+
+- **Monthly Performance** (table) is receipts-driven over a 12-month window
+  ending at the selected range end: collection/receipts come from the
+  heatmap payload only. Its **Target** column is the configured live target
+  when one exists for that month, otherwise the target imported for that
+  (worker, month) from History Import. Its **Salary** column is the imported
+  monthly salary from the same workbook row; months the import does not cover
+  fall back to the `salary_history` record effective for that month (typically
+  from the employee's joining date), resolved server-side as
+  `salary_by_month` on the heatmap payload. Salary-history months are compared
+  in IST (records are stored as IST midnights in UTC) and the latest effective
+  record wins. No salary anywhere = "—".
+- The imported months themselves (collection/target/salary + source sheet)
+  are listed read-only in the Salary tab's Salary History card.
+
 ## Chart date semantics
 
 - Daily / weekly / monthly buckets all use `receipt_date` (IST day).

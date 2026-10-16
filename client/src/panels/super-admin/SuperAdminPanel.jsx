@@ -191,6 +191,10 @@ function PageShell({ children }) {
   // the host must not also scroll it. Without this the shell's overflow-y:auto
   // and the chat's internal panes fight each other and you get two scrollbars.
   const isChatRoute = location.pathname.startsWith('/sa/chat')
+  // The Volunteers page has its own approved header spec (92px, navy title,
+  // 46px avatar). The topbar is shared by every SA page, so the taller variant
+  // is opted into per-route instead of restyling the shell everywhere.
+  const isWorkersRoute = location.pathname === '/sa/employees'
   const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Super Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -207,7 +211,7 @@ function PageShell({ children }) {
       <div className={`sa-sidebar-overlay${mobileSidebar ? ' open' : ''}`} onClick={() => setMobileSidebar(false)} />
       <Sidebar mobileOpen={mobileSidebar} />
       <div className="main">
-        <header className="topbar">
+        <header className={`topbar${isWorkersRoute ? ' topbar-workers' : ''}`}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button className="sa-hamburger sa-top-hamburger" onClick={() => setMobileSidebar(o => !o)} aria-label="Toggle menu">
               <span /><span /><span />

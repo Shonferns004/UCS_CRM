@@ -333,6 +333,28 @@ export async function getWorkerHeatmap(req, res) {
       workerId, joiningDay || from, Number(salaryRow?.salary) || 0, from, to,
     );
 
+    // Which salary record covers each month of the window (latest from_month
+    // wins). The Monthly Performance table prefers the imported salary and
+    // falls back to this for months the import does not cover (e.g. now).
+    // salary_history months are IST midnights stored in UTC (2026-05-31T18:30Z
+    // = June 2026), so normalize back to the IST day before comparing.
+    const istDay = (ts) => new Date(new Date(ts).getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const salaryHistory = (await getSalariesByWorker(workerId).catch(() => [])) || [];
+    const salaryByMonth = [];
+    {
+      let [y, m] = [+from.slice(0, 4), +from.slice(5, 7)];
+      const [ty, tm] = [+to.slice(0, 4), +to.slice(5, 7)];
+      while (y < ty || (y === ty && m <= tm)) {
+        const key = `${y}-${String(m).padStart(2, '0')}`;
+        // salary_history rows are ordered from_month desc, so the first
+        // covering record is the most recent one effective for this month.
+        const cover = salaryHistory.find(r => r.from_month && istDay(r.from_month) <= `${key}-31`
+          && (!r.to_month || istDay(r.to_month) >= `${key}-01`));
+        salaryByMonth.push({ month: key, salary: cover ? Number(cover.salary) : null });
+        m += 1; if (m > 12) { m = 1; y += 1; }
+      }
+    }
+
     return res.json({
       employee: { id: worker.id, name: worker.name },
       range: { from, to, tz: 'Asia/Kolkata' },
@@ -342,6 +364,7 @@ export async function getWorkerHeatmap(req, res) {
         .sort((a, b) => a.date.localeCompare(b.date)),
       attendance: attendanceByDay,
       targets_by_month: targets.months,
+      salary_by_month: salaryByMonth,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -69,6 +69,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const [form, setForm] = useState({});
   const [tab, setTab] = useState('overview');
   const [salaries, setSalaries] = useState([]);
+  const [perfHistory, setPerfHistory] = useState(undefined); // accounts mode: imported months
   const [salaryForm, setSalaryForm] = useState({ salary: '' });
   const [salarySubmitting, setSalarySubmitting] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
@@ -207,6 +208,25 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
       .catch(() => { if (!cancelled) setMonthStats(false) }) // false = failed → '—'
     return () => { cancelled = true }
   }, [accountsMode, worker.id])
+
+  // Imported monthly history (History Import) — worker-scoped, no range filter.
+  // undefined = loading, null = nothing imported. Feeds the Overview's Monthly
+  // Performance targets/salary AND the Salary tab's imported salary rows.
+  useEffect(() => {
+    if (!accountsMode || !worker.id) return
+    let cancelled = false
+    setPerfHistory(undefined)
+    api(`/accounts/workers/${worker.id}/performance-history`, { _prefix: 'ucs' })
+      .then(d => { if (!cancelled) setPerfHistory(d?.rows?.length ? d : null) })
+      .catch(() => { if (!cancelled) setPerfHistory(null) })
+    return () => { cancelled = true }
+  }, [accountsMode, worker.id])
+
+  // Accounts → Overview analytics is FRO-only; other departments land on
+  // Attendance once their record loads. HR keeps Overview for everyone.
+  useEffect(() => {
+    if (accountsMode && tab === 'overview' && data && data.department !== 'FRO') setTab('attendance');
+  }, [accountsMode, tab, data]);
 
   // Fetch Sunday pay + incentive data whenever the viewing month changes
   useEffect(() => {
@@ -417,13 +437,22 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
   const ngoName = ngos.find(n => n.id === data.ngo_id)?.name || 'NA';
 
-  // Accounts' section keeps a lean three-tab strip: Overview (analytics),
-  // Attendance, Salary — no Leaves or Settings. Bank Details stays pinned at
-  // the top of the page instead (below). Loans & Advances lives on its own
-  // full page in the Salary & Advances strip (/accounts/volunteers/loans).
+  // Salary History card (accounts mode only): monthly salaries imported via
+  // History Import, listed read-only under the salary_history records so both
+  // sources are visible side by side. HR mode never fetches perfHistory, so
+  // this list stays empty there and the card is unchanged.
+  const importedSalaryRows = ((accountsMode && perfHistory?.rows) || [])
+    .filter((r) => r.salary != null);
+
+  // Accounts' section keeps a lean tab strip: Overview (analytics — FRO
+  // employees only), Attendance, Salary — no Leaves or Settings. Bank Details
+  // stays pinned at the top of the page instead (below). Loans & Advances
+  // lives on its own full page in the Salary & Advances strip
+  // (/accounts/volunteers/loans).
+  const isFroDept = (data?.department || worker?.department) === 'FRO';
   const TABS = accountsMode
     ? [
-        { key: 'overview', label: 'Overview' },
+        ...(isFroDept ? [{ key: 'overview', label: 'Overview' }] : []),
         { key: 'attendance', label: 'Attendance' },
         { key: 'salary', label: 'Salary' },
       ]
@@ -864,11 +893,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
             ))}
           </div>
 
-          {tab === 'overview' && (
+          {tab === 'overview' && (!accountsMode || isFroDept) && (
             <div className="detail-cards-scroll">
               {accountsMode && (
                 <div style={{ marginBottom:16 }}>
-                  <EmployeeOverview workerId={worker.id} onOpenAttendance={() => setTab('attendance')} />
+                  <EmployeeOverview workerId={worker.id} onOpenAttendance={() => setTab('attendance')} history={perfHistory} />
                 </div>
               )}
 
@@ -1955,8 +1984,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
               </div>
 
               <div className="card">
-                <div className="card-head"><h3>Salary History ({salaries.length} records)</h3></div>
-                {salaries.length === 0 ? (
+                <div className="card-head"><h3>Salary History ({salaries.length + importedSalaryRows.length} records)</h3></div>
+                {salaries.length === 0 && importedSalaryRows.length === 0 ? (
                   <div className="card-pad"><div className="empty">No salary records found.</div></div>
                 ) : (
                   <table>
@@ -1966,7 +1995,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                         <th>Salary</th>
                         <th>From</th>
                         <th>To</th>
-                        <th>Status</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -1975,20 +2003,12 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                         const from = new Date(s.from_month);
                         const to = s.to_month ? new Date(s.to_month) : null;
                         const fmtMonth = (d) => d.toLocaleDateString('en-GB', { month:'long', year:'numeric' });
-                        const paid = s.paid_at;
                         return (
                           <tr key={s.id}>
                             <td>{i + 1}</td>
                             <td style={{ fontWeight:600 }}>{formatSalary(s.salary)}</td>
                             <td>{fmtMonth(from)}</td>
                             <td>{to ? fmtMonth(to) : '\u2014 (Current)'}</td>
-                            <td>
-                              {paid ? (
-                                <span className="pill pill-green">Paid</span>
-                              ) : (
-                                <span className="pill pill-gold">Unpaid</span>
-                              )}
-                            </td>
                             <td>
                               <div style={{ display:'flex', gap:4 }}>
                                 <button className="btn btn-icon" title="Delete"
@@ -2008,6 +2028,23 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                           </tr>
                         );
                       })}
+                      {/* Imported monthly salaries (History Import) — read-only. */}
+                      {importedSalaryRows
+                        .slice()
+                        .sort((a, b) => b.month.localeCompare(a.month))
+                        .map((r, i) => {
+                          const d = new Date(`${r.month}-01`);
+                          const fmtMonth = (x) => x.toLocaleDateString('en-GB', { month:'long', year:'numeric' });
+                          return (
+                            <tr key={`imp-${r.month}`} style={{ color: 'var(--ink-soft, #64748b)' }}>
+                              <td>{salaries.length + i + 1}</td>
+                              <td style={{ fontWeight:600, color:'inherit' }}>{formatSalary(r.salary)}</td>
+                              <td>{fmtMonth(d)}</td>
+                              <td>{fmtMonth(d)}</td>
+                              <td></td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 )}

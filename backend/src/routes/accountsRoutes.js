@@ -3,8 +3,11 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 import { getLeadList, verifyLead, quickVerifyLead, doneLead, rejectLead, goBackLead, undoLeadVerification, undoReceipt, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getAddressSuggestions, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, importReceiptNames, getReceiptByMobile, clearReceipts, getReceiptCount, getReceiptNumbers, getSuspenseByNgo, getDonorsList, quickSearchDonors, exportDonors, exportDuplicateDonorAssignments, getDonorDetail, updateDonor, deleteDonor, createDonorAssignment, importDonorAddresses, getExcludedReceipts, fixAndQueueReceipt, deleteQueueReceipt, getImportNgoOptions, getFroWorkersList, updateReceipt, getStationOptions, updateAssignmentStations, deleteAssignment, replaceAssignment, repairDonorSync, backfillReceiptAssignments, getReportTargets, putReportTargets, getReportData, getAgentTeamCollections, getAccessCodeStatus, createAccessCode, verifyAccessCode, changeAccessCode, getNgoCollections } from '../controllers/accountsController.js';
 import { restoreWrongAssignments } from '../controllers/ngoAdminController.js';
 import { getWorkerOverview, getWorkerCollectionTrend, getWorkerHeatmap, getWorkerTimeline } from '../services/workerOverviewService.js';
+import { parseHistoricalWorkbook, confirmHistoricalBatch, listHistoricalBatches, getWorkerPerformanceHistory } from '../services/historicalImportService.js';
+import multer from 'multer';
 
 const router = Router();
+const histUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const accessCodeRole = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 const donorManageRole = authenticateRole('accounts', 'admin', 'super_admin');
@@ -57,6 +60,35 @@ router.get('/workers/:id/overview', getWorkerOverview);
 router.get('/workers/:id/collection-trend', getWorkerCollectionTrend);
 router.get('/workers/:id/heatmap', getWorkerHeatmap);
 router.get('/workers/:id/timeline', getWorkerTimeline);
+
+// Historical workbook import — preview is read-only (only the batch row is
+// stored); confirm is the only path that writes monthly performance history.
+router.post('/history-import/preview', histUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const result = await parseHistoricalWorkbook(req.file.buffer, req.file.originalname);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+router.post('/history-import/:batchId/confirm', async (req, res) => {
+  try {
+    const result = await confirmHistoricalBatch(req.params.batchId, req.body?.mappings || null);
+    return res.json(result);
+  } catch (error) {
+    return res.status(error.status || 500).json({ message: error.message });
+  }
+});
+router.get('/history-import/batches', async (req, res) => {
+  try { return res.json(await listHistoricalBatches()); }
+  catch (error) { return res.status(500).json({ message: error.message }); }
+});
+router.get('/workers/:id/performance-history', async (req, res) => {
+  try { return res.json(await getWorkerPerformanceHistory(req.params.id)); }
+  catch (error) { return res.status(500).json({ message: error.message }); }
+});
+
 router.get('/receipts/pending', getPendingReceipts);
 router.get('/receipts/excluded', getExcludedReceipts);
 router.post('/receipts/:id/fix-and-queue', fixAndQueueReceipt);
