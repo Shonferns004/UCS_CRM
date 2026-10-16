@@ -258,6 +258,31 @@ export const bustTlCache = () => {
     if (k.startsWith('tl:')) _rCache.delete(k);
   }
 };
+
+// fro_assignments.assigned_by is a FK to users(id), but the persona behind a CRM
+// login can be a workers-table row (e.g. an FRO/FRO-admin whose UUID lives in
+// workers, not users). Writing that UUID straight into assigned_by trips
+// fro_assignments_assigned_by_fkey. Resolve the actor to a genuine users.id and
+// fall back to NULL when the token subject is not a users row (worker logins,
+// env admin) — the column is nullable and NULL simply means "system/unknown".
+// Mirrors resolveAssignedBy in accountsController.js.
+const resolveAssignedBy = async (user) => {
+  if (!user) return null;
+  const { id, email } = user;
+  if (!id || id === 0 || id === -1) return null;
+  if (!email) return null;
+  try {
+    const { data, error } = await db.from('users').select('id').eq('id', id).maybeSingle();
+    if (error) {
+      console.error('resolveAssignedBy: users lookup failed (falling back to null):', error.message);
+      return null;
+    }
+    return data?.id ?? null;
+  } catch (e) {
+    console.error('resolveAssignedBy: unexpected error (falling back to null):', e.message);
+    return null;
+  }
+};
 const CONNECTED_STATUSES = [
   'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
   'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
@@ -2102,7 +2127,7 @@ export const reassignStationFro = async (req, res) => {
 
     // Reassign donors in this station
     const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
-    const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, req.user.id);
+    const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, await resolveAssignedBy(req.user));
 
     // Moves every donor in the station, so both the station list and the
     // disposition roll-up are now wrong, not just the FRO label.
@@ -4359,7 +4384,7 @@ export const transferStationData = async (req, res) => {
     const autoReturnAt = new Date(Date.now() + 10 * 60 * 60 * 1000).toISOString();
     const result = await createTemporaryTransfer(
       sourceAssign.fro_worker_id, ngoIds,
-      station.trim(), target_station.trim(), donor_count, autoReturnAt, req.user.id
+      station.trim(), target_station.trim(), donor_count, autoReturnAt, await resolveAssignedBy(req.user)
     );
 
     // Moved donors between two stations, so both stations' counts and the
@@ -4488,6 +4513,10 @@ export const highTierDistribute = async (req, res) => {
     }
     const froFor = (st, ngoId) => froByStationNgo.get(`${st}::${ngoId}`) ?? froAnyByStation.get(st) ?? null;
 
+    // assigned_by is a FK to users(id); the acting admin may be a worker-persona
+    // row, so resolve it (NULL when not a users row) before the raw UPDATEs.
+    const assignedBy = await resolveAssignedBy(req.user);
+
     const nowIso = new Date().toISOString();
     // One id per distribute operation: every moved row carries it, so a later
     // restore can bring back exactly this source's data even when several
@@ -4550,7 +4579,7 @@ export const highTierDistribute = async (req, res) => {
                       high_tier_batch_id = $7,
                       high_tier_distributed_at = $3
                 WHERE id = ANY($8)`,
-              [target.station, fro, nowIso, req.user.id, sourceStation, prevBatch, batchId, chunk]
+              [target.station, fro, nowIso, assignedBy, sourceStation, prevBatch, batchId, chunk]
             );
           }
         }
@@ -4717,6 +4746,10 @@ export const highTierRestore = async (req, res) => {
     }
     const froFor = (ngoId) => froByNgo.get(String(ngoId)) ?? froAny ?? null;
 
+    // assigned_by is a FK to users(id); resolve the acting admin the same way as
+    // distribute (NULL when the subject is not a users row).
+    const assignedBy = await resolveAssignedBy(req.user);
+
     const nowIso = new Date().toISOString();
     const chunkSize = 200;
     const touchedFroIds = new Set();
@@ -4758,7 +4791,7 @@ export const highTierRestore = async (req, res) => {
                     high_tier_batch_id = NULL,
                     high_tier_distributed_at = NULL
               WHERE id = ANY($6)`,
-            [sourceStation, fro, prevBatch, nowIso, req.user.id, chunk]
+            [sourceStation, fro, prevBatch, nowIso, assignedBy, chunk]
           );
         }
         restored += ids.length;
