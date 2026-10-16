@@ -1109,16 +1109,15 @@ async function buildPosterDoc(jsPDF, { name, subtitle, date, ngoLabel, activityN
     doc.text(doc.splitTextToSize(String(sub), textMaxW)[0], B + 10, ty + titleH - 1)
   }
   const cx = W - B - 10 - 12, cy = B + 2 + 15
-  fill(P.white); doc.circle(cx, cy, 12.5, 'F')
   if (logoData) { try { doc.addImage(logoData, fmtOf(logoData), cx - 10, cy - 10, 20, 20) } catch { /* skip */ } }
 
   // ── date band ──
-  fill(P.green); doc.roundedRect(B, 41, W - 2 * B, 16, 1, 1, 'F')
+  draw(P.white); doc.setLineWidth(0.5); fill(P.blue); doc.roundedRect(B, 41, W - 2 * B, 16, 1, 1, 'FD')
   const d = date ? new Date(`${String(date).slice(0, 10)}T00:00:00`) : null
   if (d && !isNaN(d)) {
     const day = String(d.getDate()), suf = ordinal(d.getDate())
     const rest = ` ${d.toLocaleString('en-GB', { month: 'long' })}, ${d.getFullYear()}`
-    ink(P.greenText); doc.setFont('times', 'bold'); doc.setFontSize(25)
+    ink(P.lime); doc.setFont('times', 'bold'); doc.setFontSize(25)
     const w1 = doc.getTextWidth(`Date:-${day}`), w2 = doc.getTextWidth(rest)
     doc.setFontSize(14); const ws = doc.getTextWidth(suf)
     let x = W / 2 - (w1 + ws + w2) / 2
@@ -3574,8 +3573,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         )}
         {alreadyScheduled && allDone && (
           <button
-            className="eh-btn eh-btn-primary"
-            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5 }}
+            className="eh-btn"
+            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5, background: '#e5e7eb', color: '#374151', border: 'none' }}
             title="Download this event's detail sheet (photos included)"
             onClick={() => downloadEventSheet(key, date, label)}
           >

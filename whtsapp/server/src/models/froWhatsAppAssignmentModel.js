@@ -20,6 +20,15 @@ export async function assignAgentToAccount(froWorkerId, whatsappAccountId) {
     if (error.code === '23505') throw new Error('This FRO is already assigned to this account');
     throw error;
   }
+
+  // Keep the worker -> agent `users` mapping in step so the FRO WhatsApp panel
+  // resolves this grant immediately (migration 189 owns the resolution rules).
+  // Best-effort: the grant already succeeded, and get_worker_agents() heals the
+  // mapping on the next panel load regardless.
+  try {
+    await db.rpc('ensure_worker_agents', { p_worker_id: froWorkerId });
+  } catch { /* self-heals at panel load */ }
+
   return data;
 }
 

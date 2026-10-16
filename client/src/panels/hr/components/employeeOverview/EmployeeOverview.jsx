@@ -19,7 +19,7 @@ const heatmapWindow = (to) => {
 // the GET endpoints (overview, collection-trend, heatmap); every number shown
 // is defined in docs/overview-metric-dictionary.md. Attendance and Salary tabs
 // are untouched and remain the authoritative detailed views.
-export default function EmployeeOverview({ workerId, onOpenAttendance }) {
+export default function EmployeeOverview({ workerId, onOpenAttendance, history }) {
   const [range, setRange] = useState(() => presetRange('month'))
   const [interval, setInterval_] = useState('month')
   const [overview, setOverview] = useState(null)
@@ -71,6 +71,10 @@ export default function EmployeeOverview({ workerId, onOpenAttendance }) {
     return () => ctrl.abort()
   }, [workerId, heat?.from, heat?.to])
 
+  // `history` (imported months from History Import) is fetched once by
+  // EmployeeDetail and passed in — it also feeds the Salary tab, so we don't
+  // refetch it here.
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Date presets — scrolls away with the tab, not pinned. */}
@@ -104,7 +108,7 @@ export default function EmployeeOverview({ workerId, onOpenAttendance }) {
         error={!!trendError}
       />
 
-      {heatmap && <PerformanceTrends data={heatmap} />}
+      {heatmap && <PerformanceTrends data={heatmap} history={history} />}
 
       <AttendanceSummary data={overview} onOpenAttendance={onOpenAttendance} />
 

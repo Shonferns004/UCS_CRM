@@ -548,6 +548,141 @@
 .panel-sa .dp-year.today { font-weight:700; color:var(--primary); }
 .panel-sa .dp-year.selected { background:var(--primary); color:white; }
 
+/* ── SUPER ADMIN · VOLUNTEERS / WORKERS PAGE (approved redesign) ──────────
+   Everything below is scoped to this route: `.workers-page` owns the surface,
+   and the two shell hooks (`.topbar-workers`, `.content-body:has(.workers-page)`)
+   opt the route in. The shared `.sa-*` / `.btn` / `.topbar` rules are used by
+   ~15 other SA pages and are deliberately NOT edited here. Tokens come from
+   spec §9 and live on this page only so they do not leak into other pages. */
+.panel-sa .content-body:has(.workers-page) { background:#F3F7FC; padding:30px; }
+.panel-sa .sa-page.workers-page {
+  --workers-heading:#111B33;
+  --workers-text:#17233D;
+  --workers-muted:#7183A3;
+  --workers-primary:#1670E8;
+  --workers-primary-hover:#0D55B8;
+  --workers-border:#DCE6F4;
+  --workers-control-border:#D4DFEF;
+  --workers-header-bg:#F5F8FC;
+  --workers-row-hover:#F8FAFE;
+  --workers-success-bg:#DCFCE7;
+  --workers-success-text:#137A3B;
+  --workers-danger:#E53935;
+  max-width:none;
+  background:#FFFFFF;
+  border:1px solid #E0E8F3;
+  border-radius:13px;
+  padding:27px;
+  color:var(--workers-text);
+}
+
+/* 4.1 page header — route-scoped variant of the shared topbar */
+.panel-sa .topbar-workers { min-height:92px; padding:0 30px; background:#FFFFFF; border-bottom:1px solid #DCE5F0; }
+.panel-sa .topbar-workers .eyebrow { font-size:12px; font-weight:600; color:#5E779B; letter-spacing:.08em; }
+.panel-sa .topbar-workers h2 { font-size:27px; font-weight:700; color:#111B33; letter-spacing:-.4px; }
+.panel-sa .topbar-workers .avatar { width:46px; height:46px; font-size:15px; font-weight:700; background:#1670E8; }
+
+/* 4.3 heading row */
+.panel-sa .workers-page .workers-head { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+.panel-sa .workers-page .workers-head h3 { margin:0; font-size:29px; font-weight:700; letter-spacing:-.4px; color:var(--workers-heading); }
+.panel-sa .workers-page .workers-head-side { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-count { font-size:16px; font-weight:500; color:var(--workers-muted); }
+.panel-sa .workers-page .workers-actions { display:flex; gap:14px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-add { height:48px; padding:0 20px; border:1px solid var(--workers-primary); border-radius:10px; background:var(--workers-primary); color:#fff; font-size:15px; font-weight:600; }
+.panel-sa .workers-page .workers-add:hover { background:var(--workers-primary-hover); border-color:var(--workers-primary-hover); color:#fff; }
+
+/* 4.4 filters */
+.panel-sa .workers-page .workers-filters { display:flex; align-items:center; gap:15px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-search { position:relative; flex:0 1 414px; max-width:414px; min-width:200px; }
+.panel-sa .workers-page .workers-search-icon { position:absolute; left:15px; top:50%; transform:translateY(-50%); display:flex; color:#8294B2; pointer-events:none; }
+.panel-sa .workers-page .workers-search input { width:100%; height:54px; padding:0 16px 0 44px; border:1px solid var(--workers-control-border); border-radius:8px; background:#fff; color:var(--workers-heading); font-size:15.5px; font-family:inherit; outline:none; }
+.panel-sa .workers-page .workers-search input::placeholder { color:#93A2BC; }
+.panel-sa .workers-page .workers-select { flex:0 1 238px; max-width:238px; min-width:170px; height:54px; padding:0 14px; border:1px solid var(--workers-control-border); border-radius:8px; background:#fff; color:var(--workers-heading); font-size:15.5px; font-family:inherit; outline:none; cursor:pointer; }
+.panel-sa .workers-page .workers-search input:focus,
+.panel-sa .workers-page .workers-select:focus { border-color:var(--workers-primary); box-shadow:0 0 0 3px rgba(22,112,232,.15); }
+
+/* 5.1 table container */
+.panel-sa .workers-page .workers-table-wrap { margin-top:22px; background:#fff; border:1px solid var(--workers-border); border-radius:11px; overflow-x:auto; }
+.panel-sa .workers-page .workers-table { width:100%; min-width:980px; border-collapse:separate; border-spacing:0; font-size:15px; color:var(--workers-text); }
+.panel-sa .workers-page .workers-table thead th { height:62px; padding:0 20px; background:var(--workers-header-bg); font-size:12.5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:#405579; text-align:left; vertical-align:middle; white-space:nowrap; border-bottom:1px solid var(--workers-border); }
+.panel-sa .workers-page .workers-table tbody td { height:92px; padding:17px 20px; vertical-align:middle; font-size:15px; color:var(--workers-text); border-bottom:1px solid #E2EAF5; }
+.panel-sa .workers-page .workers-table tbody tr:last-child td { border-bottom:none; }
+.panel-sa .workers-page .workers-table tbody tr:hover td { background:var(--workers-row-hover); }
+
+/* 5.5 worker name — underline is explicitly killed in every state so no
+   inherited/global `a` styling can reintroduce it on this page. */
+.panel-sa .workers-page .worker-name,
+.panel-sa .workers-page .worker-name:link,
+.panel-sa .workers-page .worker-name:visited,
+.panel-sa .workers-page .worker-name:hover,
+.panel-sa .workers-page .worker-name:active { text-decoration:none; }
+.panel-sa .workers-page .worker-name { display:inline-block; color:var(--workers-primary); font-size:15px; font-weight:600; cursor:pointer; border-radius:4px; }
+.panel-sa .workers-page .worker-name:hover { color:var(--workers-primary-hover); }
+.panel-sa .workers-page .worker-name:focus-visible { outline:2px solid var(--workers-primary); outline-offset:3px; }
+
+/* 5.6 / 5.7 secondary cells + status badge */
+.panel-sa .workers-page .worker-login { font-family:inherit; font-size:14.5px; font-weight:600; background:none; padding:0; color:var(--workers-heading); }
+.panel-sa .workers-page .workers-ngo { color:#8294B2; font-size:14.5px; }
+.panel-sa .workers-page .workers-salary { font-size:14.5px; font-variant-numeric:tabular-nums; }
+.panel-sa .workers-page .workers-status { display:inline-flex; align-items:center; gap:7px; height:34px; padding:0 13px; border-radius:9px; font-size:13.5px; font-weight:600; white-space:nowrap; }
+.panel-sa .workers-page .workers-status-dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.panel-sa .workers-page .workers-status.active { background:var(--workers-success-bg); color:var(--workers-success-text); }
+.panel-sa .workers-page .workers-status.inactive { background:#FEF2F2; color:#991B1B; }
+
+/* 5.8 row actions — `nowrap` makes the column keep its content width so the
+   three buttons stay on one aligned row instead of wrapping. */
+.panel-sa .workers-page .workers-row-actions { display:flex; align-items:center; gap:10px; flex-wrap:nowrap; white-space:nowrap; }
+.panel-sa .workers-page .workers-act { height:45px; padding:0 13px; gap:6px; border:1px solid var(--workers-control-border); border-radius:9.5px; background:#fff; color:var(--workers-heading); font-size:14px; font-weight:600; }
+.panel-sa .workers-page .workers-act:hover { background:#F3F7FC; border-color:#B9C9E4; color:var(--workers-heading); }
+.panel-sa .workers-page .workers-act:focus-visible { outline:2px solid var(--workers-primary); outline-offset:2px; }
+.panel-sa .workers-page .workers-act-danger { color:var(--workers-danger); border-color:#F6C9C7; }
+.panel-sa .workers-page .workers-act-danger:hover { background:#FEF4F3; border-color:var(--workers-danger); color:#C62828; }
+
+/* loading / empty state */
+.panel-sa .workers-page .workers-empty { padding:48px 20px; text-align:center; color:var(--workers-muted); font-size:15px; }
+
+/* pagination — behaviour unchanged, only brought onto this page's palette */
+.panel-sa .workers-page .workers-pager { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:20px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-pager .btn { height:40px; padding:0 14px; font-size:14px; border-color:var(--workers-control-border); border-radius:9px; }
+.panel-sa .workers-page .workers-pager .btn:disabled { opacity:.45; cursor:not-allowed; }
+.panel-sa .workers-page .workers-pager .btn.is-current { background:var(--workers-primary); border-color:var(--workers-primary); color:#fff; }
+.panel-sa .workers-page .workers-pager .btn.is-current:hover { background:var(--workers-primary); }
+.panel-sa .workers-page .workers-pager-size { height:40px; margin-left:6px; padding:0 10px; border:1px solid var(--workers-control-border); border-radius:9px; background:#fff; color:var(--workers-heading); font-family:inherit; font-size:14px; outline:none; cursor:pointer; }
+
+/* 6.2 tablet (768–1199) */
+@media (max-width:1199px) {
+  .panel-sa .content-body:has(.workers-page) { padding:20px; }
+  .panel-sa .topbar-workers { min-height:78px; padding:0 20px; }
+  .panel-sa .topbar-workers h2 { font-size:24px; }
+  .panel-sa .topbar-workers .avatar { width:42px; height:42px; font-size:14px; }
+  .panel-sa .workers-page { padding:20px; }
+  .panel-sa .workers-page .workers-head h3 { font-size:26px; }
+  .panel-sa .workers-page .workers-table thead th { height:56px; padding:0 18px; }
+  .panel-sa .workers-page .workers-table tbody td { padding:14px 18px; }
+}
+/* 6.3 mobile (<768) */
+@media (max-width:767px) {
+  .panel-sa .content-body:has(.workers-page) { padding:12px; }
+  .panel-sa .topbar-workers { min-height:64px; padding:0 16px; }
+  .panel-sa .topbar-workers h2 { font-size:20px; }
+  .panel-sa .topbar-workers .eyebrow { font-size:11px; }
+  .panel-sa .topbar-workers .avatar { width:38px; height:38px; font-size:13px; }
+  .panel-sa .workers-page { padding:16px; border-radius:11px; }
+  .panel-sa .workers-page .workers-head { flex-direction:column; align-items:flex-start; gap:14px; }
+  .panel-sa .workers-page .workers-head-side { width:100%; justify-content:space-between; }
+  .panel-sa .workers-page .workers-head h3 { font-size:24px; }
+  .panel-sa .workers-page .workers-add { height:44px; padding:0 16px; font-size:14px; flex:1 1 auto; }
+  .panel-sa .workers-page .workers-filters { flex-direction:column; align-items:stretch; gap:12px; }
+  .panel-sa .workers-page .workers-search,
+  .panel-sa .workers-page .workers-select { flex:1 1 auto; width:100%; max-width:none; min-width:0; }
+  .panel-sa .workers-page .workers-search input,
+  .panel-sa .workers-page .workers-select { height:48px; }
+  .panel-sa .workers-page .workers-table thead th,
+  .panel-sa .workers-page .workers-table tbody td { padding:14px 16px; }
+  .panel-sa .workers-page .workers-row-actions { gap:8px; }
+  .panel-sa .workers-page .workers-act { padding:0 12px; }
+}
+
 /* ── HR PANEL (.panel-hr) ── */
 .panel-hr { --sand:#F3EFE7; --paper:#FBFAF6; --ink:#232019; --ink-soft:#6F6857; --line:#E4DECF; --sage:#5B6B4E; --sage-soft:#E8EDE1; --clay:#B5603A; --clay-soft:#F4E4DA; --gold:#C08A2E; --gold-soft:#F6EAD0; --danger:#9E3B2E; --danger-soft:#F3DDD8; --radius:12px; --radius-sm:8px; --shadow:0 1px 2px rgba(35,32,25,.04),0 8px 24px rgba(35,32,25,.05); --sidebar-w:240px; background:var(--sand); color:var(--ink); }
 /* min-height, NOT height, and no overflow:hidden. HR has no inner scroller:

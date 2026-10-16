@@ -17,6 +17,7 @@ import { useIsMobile } from '../../../hooks/useIsMobile';
 import { CONNECTED_QUICK, NOT_CONNECTED_QUICK, OTHERS_ID, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 import { istDateString, istDateTimeToIso } from '../utils/time';
 import { getWhatsAppProject } from '../utils/whatsappProject';
+import { readWaInboxAgents } from '../utils/waInboxAgents';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -275,7 +276,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     if (!digits) { toast('No WhatsApp number for this lead', 'info'); return; }
     let url = `/fro/whatsapp-chat?phone=${digits}`;
     try {
-      const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]');
+      const waAgents = readWaInboxAgents();
       const project = getWhatsAppProject(lead);
       if (project && waAgents.some((a) => a.project === project)) url += `&project=${project}`;
     } catch { /* ignore malformed wa_agents */ }
