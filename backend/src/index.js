@@ -112,6 +112,7 @@ import { ensureCertificateSchema } from './bootstrap/ensureCertificateSchema.js'
 import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js';
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
 import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema.js';
+import { ensureHighTierProvenanceSchema } from './bootstrap/ensureHighTierProvenanceSchema.js';
 import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureReminderPaymentSchema } from './bootstrap/ensureReminderPaymentSchema.js';
@@ -1196,6 +1197,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureCertificateSchema().catch(e => console.error('ensureCertificateSchema failed:', e?.message || e));
     await ensureNoticeSchema().catch(e => console.error('ensureNoticeSchema failed:', e?.message || e));
     await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));
+    await ensureHighTierProvenanceSchema().catch(e => console.error('ensureHighTierProvenanceSchema failed:', e?.message || e));
     await ensureMeetingSchema().catch(e => console.error('ensureMeetingSchema failed:', e?.message || e));
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));

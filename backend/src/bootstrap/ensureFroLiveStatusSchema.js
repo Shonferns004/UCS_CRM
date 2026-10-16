@@ -6,7 +6,9 @@ import db from '../config/db.js';
 // start (frozen_at) so the server holds the disposition countdown during a held
 // window instead of billing it as idle. It also carries the one-time settle-in
 // grace (settle_until) granted on first panel presence of the day, after which
-// the ordinary 4-minute window arms on its own. Reruns safely on every boot via
+// the ordinary 4-minute window arms on its own. It also carries the High Tier
+// cursor (high_tier_donor_id / high_tier_donor_index) for the third My Leads
+// tab, mirroring the new/old progress slots. Reruns safely on every boot via
 // ADD COLUMN IF NOT EXISTS.
 export async function ensureFroLiveStatusSchema() {
   try {
@@ -17,6 +19,8 @@ export async function ensureFroLiveStatusSchema() {
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS paused_by TEXT NULL`);
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS frozen_at TIMESTAMPTZ NULL`);
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS settle_until TIMESTAMPTZ NULL`);
+    await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS high_tier_donor_id integer NULL`);
+    await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS high_tier_donor_index integer NULL`);
   } catch (error) {
     throw error;
   }
