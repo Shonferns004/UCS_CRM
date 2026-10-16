@@ -1239,6 +1239,10 @@ function FroDetailModal({ froId, date, champions, onClose }) {
   const reachedTier = tierMode
     ? (detail.tiers || []).find(t => t.tier_key === detail.reached_tier) || null
     : null
+  const wonTier = tierMode && detail.won_tier_key
+    ? (detail.tiers || []).find(t => t.tier_key === detail.won_tier_key) || null
+    : null
+  const wonTierLabel = wonTier?.label || detail.won_tier_label || ''
 
   const stat = (label, value, color) => (
     <div style={{ borderRadius: 12, padding: '12px 14px', background: '#F8FAFD', border: '1.5px solid #E5EDF7', textAlign: 'center', minWidth: 110, flex: 1 }}>
@@ -1271,7 +1275,7 @@ function FroDetailModal({ froId, date, champions, onClose }) {
             {tierMode
               ? stat('Reached Tier', reachedTier ? `#${tierNumber(reachedTier.tier_key, reachedTier.order_index)} ${reachedTier.label}` : '—', reachedTier ? tierMeta(reachedTier.tier_key, reachedTier.order_index).color : undefined)
               : stat('Win On', `🎯 ₹${fmt(winOn)}`, '#B45309')}
-            {isChampion && stat('Won', tierMode ? `✓ Tier${detail.reached_tier ? ' ' + (reachedTier?.label || '') : ''}` : '✓ Champion', '#18A957')}
+            {isChampion && stat('Won', tierMode ? `✓ Tier${wonTierLabel ? ' ' + wonTierLabel : ''}` : '✓ Champion', '#18A957')}
           </div>
 
           {tierMode && (detail.tiers || []).length > 0 && (

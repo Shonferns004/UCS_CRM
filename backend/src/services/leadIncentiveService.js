@@ -5,6 +5,7 @@ import { getTargetsForWorkersMonth, getLatestTargetsBeforeMonthForWorkers } from
 import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from './froMonthlyTarget.js';
 import { getSlabForTarget, resolveFroSlab } from './leadIncentiveSlabBucketing.js';
+import { selectTierWinners } from './leadIncentiveTierWinners.js';
 import { istMonthBounds, istDateString } from '../utils/ist.js';
 import { getTiersForSlabs } from '../models/incentiveSlabTierModel.js';
 import {
@@ -269,8 +270,11 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
 // - Legacy mode (no active tiers): champion = the FRO (competing in that range)
 //   who FIRST gets a verified lead ≥ amount_to_win → STOP-AFTER-WIN, flat prize.
 // - Tier mode (has active tiers): the race continues through the window; at
-//   window end each tier gets exactly one winner = highest collected amount,
-//   ties broken by whoever crossed that tier's target first.
+//   window end each tier gets exactly one winner = the highest collector among
+//   EVERY FRO whose total crossed that tier's target (ties → first to cross).
+//   A FRO takes at most ONE tier — the highest one they can still win — so a
+//   FRO who loses their top tier keeps racing for the tiers below instead of
+//   dropping out of every tier (the old "highest reached tier only" bug).
 export const getDailySummary = async (date) => {
   const [slabs, settings, frosResult, assignments] = await Promise.all([
     getActiveSlabs(),
@@ -415,44 +419,40 @@ export const getDailySummary = async (date) => {
     }
     const isFinal = nowMs >= winEnd.getTime();
 
-    const pools = {}; // tier_key -> [{ r, total, crossAt }]
+    // Eligibility pools: a FRO is a candidate for EVERY tier whose target their
+    // total crossed — NOT just the highest one. (The old code kept only the
+    // highest reached tier, so a FRO who overshot into a tier they couldn't win
+    // fell out of every lower tier too and got ₹0 despite clearing them.)
+    const scored = [];
     for (const r of members) {
       const prog = computeTierProgress(r._leads, tiers);
       r.total_amount = prog.total;
       r.reached_tier = prog.reachedTier ? prog.reachedTier.tier_key : null;
-      if (prog.reachedTier) {
-        const k = prog.reachedTier.tier_key;
-        (pools[k] = pools[k] || []).push({ r, total: prog.total, crossAt: prog.crossTimes[k] || null });
-      }
+      scored.push({ r, fro_id: r.fro_id, total: prog.total, crossTimes: prog.crossTimes });
     }
+
+    // Highest tier first: every FRO takes at most ONE tier — the best one they
+    // can still win. A FRO already placed in a higher tier is skipped here, so
+    // losing a top tier keeps them alive for the tiers below.
+    const { winnerByTier } = selectTierWinners(scored, tiers);
 
     const leaders = [];
     for (const t of tiers) {
-      const poolt = pools[t.tier_key] || [];
-      let best = null;
-      for (const p of poolt) {
-        if (!best) { best = p; continue; }
-        if (p.total > best.total) { best = p; continue; }
-        if (p.total === best.total) {
-          const ct = p.crossAt ? new Date(p.crossAt).getTime() : Infinity;
-          const cb = best.crossAt ? new Date(best.crossAt).getTime() : Infinity;
-          if (ct < cb) best = p;
-        }
-      }
+      const best = winnerByTier[t.tier_key] || null;
       leaders.push({
         tier_key: t.tier_key,
         label: tierLabelOf(t),
         target_amount: Number(t.target_amount) || 0,
         prize_amount: Number(t.prize_amount) || 0,
         leader: best ? {
-          fro_id: best.r.fro_id,
-          fro_name: best.r.fro_name,
+          fro_id: best.member.r.fro_id,
+          fro_name: best.member.r.fro_name,
           amount: best.total,
           cross_time: best.crossAt,
         } : null,
       });
       if (best && isFinal) {
-        tierWinners.push({ slab, tier: t, total: best.total, crossAt: best.crossAt, fro: best.r });
+        tierWinners.push({ slab, tier: t, total: best.total, crossAt: best.crossAt, fro: best.member.r });
       }
     }
     tierLeadersBySlab[slab.id] = { is_final: isFinal, leaders };
@@ -471,7 +471,10 @@ export const getDailySummary = async (date) => {
       r.tier_bonus = 0;
       r.total_incentive = 0;
       for (const t of tiers) {
-        if (r.reached_tier === t.tier_key && winnerKey.has(`${slab.id}|${t.tier_key}|${r.fro_id}`)) {
+        // A FRO can win a tier BELOW their highest reached one (a bigger
+        // collector can take their top tier), so match on the winner set only —
+        // never on reached_tier.
+        if (winnerKey.has(`${slab.id}|${t.tier_key}|${r.fro_id}`)) {
           const prize = Number(t.prize_amount) || 0;
           r.tier_bonus = prize;
           r.slab_bonus = prize;
@@ -593,6 +596,9 @@ export const getFroDetail = async (froId, date) => {
   let totalIncentive = 0;
   let tierBonus = 0;
   let reachedTier = null;
+  let wonTierKey = null;
+  let wonTierLabel = null;
+  let wonTierTarget = null;
   let tierInfo = null;
   try {
     const summary = await getDailySummary(date);
@@ -605,6 +611,13 @@ export const getFroDetail = async (froId, date) => {
     tierBonus = Number(myRow?.tier_bonus || 0);
     reachedTier = myRow?.reached_tier || null;
     tierInfo = slab ? ((summary.tiers || {})[String(slab.id)] || null) : null;
+    // Which tier this FRO actually WON (may be lower than reached_tier when a
+    // bigger collector took their top tier).
+    if (champ && champ.tier_key) {
+      wonTierKey = champ.tier_key;
+      wonTierLabel = champ.tier_label;
+      wonTierTarget = champ.tier_target;
+    }
   } catch (e) {
     console.error('[lead fro detail] champion check:', e?.message);
   }
@@ -645,6 +658,9 @@ export const getFroDetail = async (froId, date) => {
     total_incentive: totalIncentive,
     tier_mode: !!(tierInfo && tierInfo.tiers.length),
     reached_tier: reachedTier,
+    won_tier_key: wonTierKey,
+    won_tier_label: wonTierLabel,
+    won_tier_target: wonTierTarget,
     tiers_final: tierInfo ? tierInfo.is_final : false,
     tiers: tierInfo ? tierInfo.tiers : [],
     tier_leaders: tierInfo ? tierInfo.leaders : [],

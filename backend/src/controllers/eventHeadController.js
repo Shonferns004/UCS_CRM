@@ -1589,36 +1589,61 @@ export const generateNgoMonthlyReport = async (req, res) => {
       return res.status(400).json({ message: 'month and year are required' });
     }
 
-    const events = await EventHead.getAllEventHeadEvents({ ngo_id, month, year });
     const ctx = await buildEventContextMaps();
-    const enriched = await enrichEvents(events, ctx);
 
-    // One planner programme must show as ONE card. A row clicked more than once
-    // (or created before the durable planner link existed) leaves duplicate event
-    // rows sharing the same name + date + NGO. Collapse those here, keeping the
-    // richest row (has a banner, then the most photos, then a non-Draft status),
-    // so the report (and the NGO event counts it feeds) never triples a card.
-    const eventDedupeKey = (e) => `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.name || '').trim().toLowerCase()}|${String(e.date || '').slice(0, 10)}`;
-    const eventPhotoCount = (e) => (Array.isArray(e.images) ? e.images.length : 0);
-    const eventRichness = (e) => (e.banner ? 1000 : 0) + eventPhotoCount(e) * 10 + (e.status && e.status !== 'Draft' ? 1 : 0);
-    const uniqueByKey = new Map();
-    for (const e of enriched) {
-      const k = eventDedupeKey(e);
-      const prev = uniqueByKey.get(k);
-      if (!prev || eventRichness(e) > eventRichness(prev)) uniqueByKey.set(k, e);
+    // The Monthly Report lists what the Monthly Planner actually planned for the
+    // month: its SELECTED Festival / Day rows, one row per programme. The raw
+    // event listing is deliberately NOT used — it also carries test, demo and
+    // duplicate events that were never planned in the planner, and its
+    // ngo+name+date dedupe collapses rows the planner still wants listed.
+    const festRows = await EventHead.getFestivalSuggestions({
+      month, year, ngo_id, selected_only: true,
+    }).catch(() => []);
+
+    // Photos for the planner rows. A programme shows the photo of the event it
+    // was turned into, resolved (in order) through suggested_event_id, the
+    // durable planner link (date + festival), then a name+date+NGO match — with
+    // the uploaded banner first and the event's ★ default photo (images[0])
+    // after it. Rows with no linked event simply carry no photo.
+    const events = await EventHead.getAllEventHeadEvents({ ngo_id, month, year }).catch(() => []);
+    const eventById = new Map(events.map(e => [String(e.id), e]));
+    const eventByNameDate = new Map();
+    for (const e of events) {
+      const k = `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.date || '').slice(0, 10)}|${String(e.name || '').trim().toLowerCase()}`;
+      if (!eventByNameDate.has(k)) eventByNameDate.set(k, e);
     }
-    const enrichedEvents = [...uniqueByKey.values()];
-
-    // Event banners (uploaded when the event was created) from the media table,
-    // with the event's own banner column as the primary source.
     const eventBannerMap = {};
-    const eventIds = enrichedEvents.map(e => e.id).filter(Boolean);
     try {
-      const bannerRows = await EventHead.getBannerMediaByEvents(eventIds);
+      const bannerRows = await EventHead.getBannerMediaByEvents(events.map(e => e.id).filter(Boolean));
       for (const row of bannerRows) {
         if (!eventBannerMap[row.event_id]) eventBannerMap[row.event_id] = row.url;
       }
     } catch { /* banners are optional */ }
+    const mm = String(Number(month)).padStart(2, '0');
+    const next = new Date(Number(year), Number(month), 1);
+    const links = await EventHead.getPlannerEventLinks({
+      ngo_id,
+      start: `${year}-${mm}-01`,
+      end: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`,
+    }).catch(() => []);
+    const linkMap = new Map(links.map(l => [
+      `${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
+      l.event_id,
+    ]));
+    const imageFor = (ngoId, date, festival, suggestedId) => {
+      const f = String(festival || '').trim();
+      const evId = suggestedId != null ? suggestedId : linkMap.get(`${date}|${f}`);
+      let linked = evId != null ? eventById.get(String(evId)) : null;
+      if (!linked) linked = eventByNameDate.get(`${ngoId != null ? String(ngoId) : ''}|${date}|${f.toLowerCase()}`);
+      if (!linked) return { url: null };
+      // The caller needs to know WHICH event photo this is, because the event
+      // head's bucket is private: the browser must read it back through the
+      // authenticated proxy, both to show it and to rasterise it into the PDF.
+      const banner = eventBannerMap[String(linked.id)];
+      if (banner) return { url: banner, event_id: linked.id, kind: 'banner', index: 0 };
+      const photo = eventDefaultImage(linked);
+      return photo ? { url: photo, event_id: linked.id, kind: 'photo', index: 0 } : { url: null };
+    };
 
     const byNgo = new Map();
     // Seed a card for every report NGO (BSCT / MANN / AFLF) up front, so an NGO
@@ -1653,33 +1678,33 @@ export const generateNgoMonthlyReport = async (req, res) => {
       if (ngo_id && String(n.id) !== String(ngo_id)) continue;
       seedNgoCard(n.id, n.name, n.code);
     }
-    for (const e of enrichedEvents) {
-      const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
-      const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';
-      seedNgoCard(e.ngo_id, e.ngo_name || ctx.ngoMap[e.ngo_id], code);
+    for (const f of festRows) {
+      const id = f.ngo_id != null ? String(f.ngo_id) : 'unknown';
+      const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[f.ngo_id] || '') : '';
+      seedNgoCard(f.ngo_id, ctx.ngoMap[f.ngo_id], code);
       const row = byNgo.get(id);
+      const d = f.observance_date ? String(f.observance_date).slice(0, 10) : null;
+      const img = imageFor(f.ngo_id, d, f.festival, f.suggested_event_id);
       row.events_count += 1;
-      const st = String(e.status || '').trim();
-      const norm = st.toLowerCase();
-      if (norm === 'submitted' || norm === 'submitted&' || norm === 'pending approval' || norm === 'approval pending') row.submitted += 1;
-      else if (st === 'Completed') row.completed += 1;
-      else row.pending += 1;
-      row.beneficiaries += Number(e.expected_beneficiaries) || 0;
-      row.budget += Number(e.budget) || 0;
       row.events.push({
-        id: e.id,
-        name: e.name,
-        date: e.date || null,
-        day: e.date ? new Date(String(e.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
-        sector_name: e.sector_name || null,
-        activity_name: e.activity_name || null,
-        venue: e.venue || null,
-        status: e.status || null,
-        budget: e.budget != null ? Number(e.budget) : null,
-        beneficiaries: e.expected_beneficiaries != null ? Number(e.expected_beneficiaries) : 0,
-        // The card shows a banner. Events never set one, so fall back to the
-        // event's ★ default photo (images[0]).
-        banner: e.banner || eventBannerMap[e.id] || eventDefaultImage(e),
+        id: f.id,
+        name: f.festival || null,
+        festival: f.festival || null,
+        programme: f.title || f.activity_name || null,
+        beneficiary: f.beneficiary || null,
+        date: d,
+        day: d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
+        sector_name: f.sector_name || null,
+        activity_name: f.activity_name || null,
+        venue: f.location || null,
+        status: null,
+        budget: null,
+        beneficiaries: 0,
+        image: img.url || null,
+        image_event_id: img.event_id || null,
+        image_kind: img.kind || null,
+        image_index: img.index || 0,
+        banner: null,
       });
     }
 

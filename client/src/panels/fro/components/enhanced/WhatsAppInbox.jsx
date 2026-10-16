@@ -32,17 +32,26 @@ const PROJECT_TAB_COLORS = {
 // than letting Meta reject the send.
 const SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000
 
-// An FRO must only ever see conversations that have been explicitly assigned
-// to them. Keep this check in the UI as a defence-in-depth guard in case an
-// API response accidentally includes an unassigned conversation.
-function isAssignedToCurrentAgent(conversation, agentId) {
+// What a FRO is allowed to see: threads explicitly assigned to them, plus the
+// unassigned threads sitting in one of the WhatsApp accounts they hold. The
+// Accounts panel (WhatsApp Accounts) is the source of truth for a FRO's
+// accounts, so an unassigned thread only shows when its project is one of them.
+// Kept in the UI as defence-in-depth in case an API response leaks an
+// unrelated conversation.
+function isVisibleToAgent(conversation, agentId, myProjects) {
   const assignedAgentId = conversation?.assigned_agent_id
     ?? conversation?.assignedAgentId
     ?? conversation?.assigned_to_agent_id
     ?? conversation?.agent_id
 
-  return assignedAgentId != null
-    && String(assignedAgentId) === String(agentId)
+  if (assignedAgentId != null) return String(assignedAgentId) === String(agentId)
+
+  // Unassigned thread: allowed only for the FRO's own accounts. If the account
+  // list hasn't resolved yet, trust the API (it is already scoped server-side).
+  if (myProjects.size === 0) return true
+
+  const project = conversation?.project ?? conversation?.contact?.project
+  return project != null && myProjects.has(project)
 }
 
 export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, activeProject }) {
@@ -90,9 +99,12 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     }
   }, [activeProject])
 
-  const filteredByTab = useMemo(() => conversations.filter(conversation =>
-    isAssignedToCurrentAgent(conversation, waUser?.id)
-  ), [conversations, waUser?.id])
+  const filteredByTab = useMemo(() => {
+    const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean))
+    return conversations.filter(conversation =>
+      isVisibleToAgent(conversation, waUser?.id, myProjects)
+    )
+  }, [conversations, waUser?.id, myAccounts])
 
   // A conversation can be reassigned while this screen is open. Do not leave
   // its thread accessible after it is no longer assigned to this FRO.
