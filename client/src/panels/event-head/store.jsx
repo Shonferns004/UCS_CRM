@@ -685,6 +685,25 @@ export const setFestivalSuggestionSelected = async (id, is_selected = true, sugg
   return res?.suggestion || null
 }
 
+/* The planner's durable row → created-event links for a month. A row is its
+   (date, festival); the link is what keeps a completed row's Download button on
+   every device after a reload. */
+export const getPlannerEventLinks = async (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString()
+  const res = await apiGet('/event-head/planner/event-links' + (q ? '?' + q : ''))
+  return Array.isArray(res) ? res : (res?.links || [])
+}
+
+export const setPlannerEventLink = async (payload = {}) => {
+  const res = await apiPut('/event-head/planner/event-links', {
+    observance_date: payload.observance_date,
+    festival: payload.festival,
+    ngo_id: payload.ngo_id,
+    event_id: payload.event_id,
+  })
+  return res?.link || null
+}
+
 /* Saves the row's Beneficiary dropdown choice onto that festival's stored
    suggestions, so the screen, the value shown after a reload and the Excel/PDF
    Beneficiary column all read the category the user actually picked — even
@@ -830,6 +849,22 @@ export const fetchMediaViewObjectUrl = async (eventId, id) => {
   const res = await api('/event-head/events/' + eventId + '/media/' + id + '/view', { method: 'GET', raw: true, _prefix: 'ucs' })
   if (!res.ok) throw new Error('Failed to load the media file')
   return URL.createObjectURL(await res.blob())
+}
+
+/* One stored event image as a data URL, read through the server proxy so an
+   S3-hosted image can be embedded in the Event Detail Sheet without a
+   cross-origin browser fetch. The index addresses the event's images array. */
+export const fetchEventImageDataUrl = async (eventId, index, cacheBust) => {
+  const q = cacheBust ? '?t=' + encodeURIComponent(cacheBust) : ''
+  const res = await api('/event-head/events/' + eventId + '/image/' + index + q, { method: 'GET', raw: true, _prefix: 'ucs' })
+  if (!res.ok) throw new Error('Failed to load the event image')
+  const blob = await res.blob()
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('read failed'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 /* ── Attendance ── */

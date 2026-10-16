@@ -1260,10 +1260,26 @@ export const generateNgoMonthlyReport = async (req, res) => {
     const ctx = await buildEventContextMaps();
     const enriched = await enrichEvents(events, ctx);
 
+    // One planner programme must show as ONE card. A row clicked more than once
+    // (or created before the durable planner link existed) leaves duplicate event
+    // rows sharing the same name + date + NGO. Collapse those here, keeping the
+    // richest row (has a banner, then the most photos, then a non-Draft status),
+    // so the report (and the NGO event counts it feeds) never triples a card.
+    const eventDedupeKey = (e) => `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.name || '').trim().toLowerCase()}|${String(e.date || '').slice(0, 10)}`;
+    const eventPhotoCount = (e) => (Array.isArray(e.images) ? e.images.length : 0);
+    const eventRichness = (e) => (e.banner ? 1000 : 0) + eventPhotoCount(e) * 10 + (e.status && e.status !== 'Draft' ? 1 : 0);
+    const uniqueByKey = new Map();
+    for (const e of enriched) {
+      const k = eventDedupeKey(e);
+      const prev = uniqueByKey.get(k);
+      if (!prev || eventRichness(e) > eventRichness(prev)) uniqueByKey.set(k, e);
+    }
+    const enrichedEvents = [...uniqueByKey.values()];
+
     // Event banners (uploaded when the event was created) from the media table,
     // with the event's own banner column as the primary source.
     const eventBannerMap = {};
-    const eventIds = enriched.map(e => e.id).filter(Boolean);
+    const eventIds = enrichedEvents.map(e => e.id).filter(Boolean);
     try {
       const bannerRows = await EventHead.getBannerMediaByEvents(eventIds);
       for (const row of bannerRows) {
@@ -1299,7 +1315,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
     };
 
     const byNgo = new Map();
-    for (const e of enriched) {
+    for (const e of enrichedEvents) {
       const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
       if (!byNgo.has(id)) {
         const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';

@@ -1038,6 +1038,39 @@ export const setFestivalSuggestionSelected = async (id, is_selected, suggested_e
   return data;
 };
 
+// ─── MONTHLY PLANNER: durable row → created-event link ───
+/* A planner row is identified by (observance_date, festival). This is the
+   row-level record written when the head creates the event, so the row's
+   Download button survives a reload and shows on every device — including rows
+   that carry no AI suggestion to hang the link on. */
+
+export const getPlannerEventLinks = async ({ start, end, ngo_id } = {}) => {
+  let query = db.from('event_head_planner_event_links')
+    .select('observance_date, festival, ngo_id, event_id');
+  if (start) query = query.gte('observance_date', String(start).slice(0, 10));
+  if (end) query = query.lt('observance_date', String(end).slice(0, 10));
+  if (ngo_id != null && ngo_id !== '') query = query.eq('ngo_id', String(ngo_id));
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+export const upsertPlannerEventLink = async ({ observance_date, festival, ngo_id, event_id, created_by } = {}) => {
+  const row = {
+    observance_date: String(observance_date || '').slice(0, 10),
+    festival: String(festival ?? ''),
+    ngo_id: ngo_id != null && ngo_id !== '' ? String(ngo_id) : null,
+    event_id: Number(event_id),
+    created_by: created_by != null && created_by !== '' ? String(created_by) : null,
+    updated_at: new Date(),
+  };
+  const { data, error } = await db.from('event_head_planner_event_links')
+    .upsert(row, { onConflict: 'observance_date,festival' })
+    .select().single();
+  if (error) throw error;
+  return data;
+};
+
 export const getAllActivities = async ({ ngo_id, sector_id } = {}) => {
   let query = db.from('event_head_activities').select('*').order('created_at', { ascending: false });
   if (ngo_id) query = query.eq('ngo_id', ngo_id);

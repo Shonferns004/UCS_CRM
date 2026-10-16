@@ -103,6 +103,40 @@ await db._pool.query(
     'CREATE INDEX IF NOT EXISTS idx_beneficiaries_kit_event ON beneficiaries (kit_event_id)'
   ).catch(() => {});
 
+  // Which kit was handed out (the operator's kit for the day). Stored on the
+  // row at handout time so the admin "Kit Given" list + PDF can report it.
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_id INT"
+  ).catch(() => {});
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_name TEXT"
+  ).catch(() => {});
+  // One-time best-effort backfill for rows given before the column existed:
+  // match the beneficiary's operator (by name) to their day's assignment and
+  // take that assignment's kit. Guarded so a missing bnf table never breaks boot.
+  await db._pool.query(
+    `UPDATE beneficiaries b
+        SET kit_id = x.kit_id,
+            kit_name = x.kit_name
+       FROM (
+         SELECT DISTINCT ON (b2.id)
+                b2.id AS beneficiary_id,
+                k.id AS kit_id,
+                k.name AS kit_name
+           FROM beneficiaries b2
+           JOIN bnf_operators op ON op.name = b2.kit_given_by
+           JOIN operator_assignments oa
+                  ON oa.operator_id = op.id
+                 AND (b2.kit_event_id IS NULL OR oa.event_id = b2.kit_event_id)
+           JOIN bnf_kits k ON k.id = oa.kit_id
+          WHERE b2.kit_given = TRUE
+            AND b2.kit_name IS NULL
+            AND oa.kit_id IS NOT NULL
+          ORDER BY b2.id, oa.assignment_date DESC
+       ) x
+      WHERE b.id = x.beneficiary_id`
+  ).catch(() => {});
+
   await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS aadhaar_number TEXT"
   ).catch(() => {});

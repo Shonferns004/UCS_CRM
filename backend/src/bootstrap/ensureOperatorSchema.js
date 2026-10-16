@@ -147,7 +147,7 @@ export async function ensureOperatorSchema() {
     'Floor Mill', 'Blind Stick', 'School Bag & Kit', 'Meal Distribution',
     'Cloths Distribution', 'Snacks Distribution', 'Utensils Distribution',
     'Toys Distribution', 'Festival Kit Distribution', 'Tricycle',
-    'Wheelchair', 'Rojghar Booth', 'Financial Support',
+    'Wheelchair', 'Rojghar Booth',
   ];
   for (const name of kits) {
     await db._pool.query(

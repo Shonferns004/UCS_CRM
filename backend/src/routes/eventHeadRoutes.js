@@ -27,6 +27,10 @@ router.get('/planner/festival-suggestions', eh, ctrl.getFestivalSuggestions);
 router.put('/planner/festival-suggestions/beneficiary', eh, ctrl.setFestivalSuggestionsBeneficiary);
 router.put('/planner/festival-suggestions/location', eh, ctrl.setFestivalSuggestionsLocation);
 router.put('/planner/festival-suggestions/:id/select', eh, ctrl.setFestivalSuggestionSelected);
+// Monthly Planner: the durable record that a row already produced an event, so
+// its Download button survives a reload and shows on every device.
+router.get('/planner/event-links', eh, ctrl.getPlannerEventLinks);
+router.put('/planner/event-links', eh, ctrl.setPlannerEventLink);
 // Events (static paths BEFORE :id)
 router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);
@@ -116,6 +120,7 @@ router.get('/events/:eventId/media/:id/view', eh, ctrl.viewMedia);
 router.put('/events/:eventId/media/:id', eh, mediaUpload.single('file'), ctrl.replaceMedia);
 router.delete('/events/:eventId/media/:id', eh, ctrl.removeMedia);
 router.get('/events/:id/banner', eh, ctrl.viewEventBanner);
+router.get('/events/:id/image/:index', eh, ctrl.viewEventImage);
 
 // Social media publishing tracking (Instagram / Facebook / YouTube) captured at
 // completion. Proof uploads go to the same S3 "event" folder as banners.

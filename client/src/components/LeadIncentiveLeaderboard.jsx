@@ -13,12 +13,91 @@ const todayLocal = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// 12-hour clock label for a competition window instant (null → '—').
+const fmtTime = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+};
+
+// Re-renders on an interval so live countdowns stay fresh.
+function useNow(ms = 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+  return now;
+}
+
+// Compact "5h 44m" / "12m 03s" label for a remaining millisecond span.
+const fmtLeft = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m > 0) return `${m}m ${String(sec).padStart(2, '0')}s`;
+  return `${sec}s`;
+};
+
+// Alert-style countdown to a window's close. Turns red + flashes under the
+// final 15 minutes, and reads "till Sir stops" when there is no end time.
+export function TimeLeftBadge({ endAt }) {
+  const now = useNow(1000);
+  if (!endAt) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999, background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.3)', fontSize: 10.5, fontWeight: 800, color: '#fff' }}>
+        ♾️ till Sir stops
+      </span>
+    );
+  }
+  const left = new Date(endAt).getTime() - now;
+  const ended = left <= 0;
+  const urgent = !ended && left <= 15 * 60 * 1000;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999,
+      fontSize: 10.5, fontWeight: 900, letterSpacing: .3, color: '#fff',
+      background: ended ? 'rgba(255,255,255,.16)' : urgent ? '#dc2626' : 'rgba(255,255,255,.16)',
+      border: urgent ? '1px solid #fff' : '1px solid rgba(255,255,255,.3)',
+      boxShadow: urgent ? '0 0 0 2px rgba(220,38,38,.35)' : 'none',
+      animation: urgent ? 'lil-alert .9s ease-in-out infinite' : 'none',
+    }}>
+      {ended ? '⛔ Window closed' : `${urgent ? '🚨' : '⏳'} ${fmtLeft(left)} left`}
+    </span>
+  );
+}
+
+// Start → end window pill for a range card. Ranges without an end time run
+// until Sir stops them, so that side reads "till stopped".
+function RangeWindow({ startedAt, endedAt }) {
+  if (!startedAt && !endedAt) return null;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '3px 9px', borderRadius: 999, background: '#fff',
+      border: '1px solid #fcd34d', fontSize: 10.5, fontWeight: 800, color: '#92400e',
+    }}>
+      ⏱ <span data-time="start">{fmtTime(startedAt)}</span>
+      <span style={{ color: '#c99a3a' }}>→</span>
+      <span data-time="end">{endedAt ? fmtTime(endedAt) : 'till stopped'}</span>
+    </span>
+  );
+}
+
 const LEAD_CSS = `
 @keyframes lil-pop { 0% { transform: scale(.85); opacity: 0; } 60% { transform: scale(1.03); } 100% { transform: scale(1); opacity: 1; } }
 @keyframes lil-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes lil-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes lil-bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @keyframes lil-nudge { 0%,100% { transform: translateY(-50%) translateX(0); } 50% { transform: translateY(-50%) translateX(-5px); } }
+.lil-scroll { scrollbar-width: thin; scrollbar-color: #fcd34d transparent; }
+.lil-scroll::-webkit-scrollbar { width: 6px; }
+.lil-scroll::-webkit-scrollbar-thumb { background: #fcd34d; border-radius: 6px; }
+.lil-scroll::-webkit-scrollbar-track { background: transparent; }
+@keyframes lil-alert { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.6); } 50% { box-shadow: 0 0 0 7px rgba(255,255,255,0); } }
 `;
 
 // Dynamic numbered milestone tiers (per range). Colors cycle by position so any
@@ -153,9 +232,11 @@ export function RangeLeaderboard({ data, you }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {ranges.map(r => {
-        const fros = [...(r.fros || [])]
-          .sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0))
-          .slice(0, 4);
+        // Full ranked standings for the range (every competing FRO) — the race
+        // track only rides the top 4, but the list below must show everyone.
+        const allFros = [...(r.fros || [])]
+          .sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0));
+        const fros = allFros.slice(0, 4);
         const tierMode = !!r.tier_mode && (r.tiers || []).length > 0;
         const tiers = tierMode
           ? [...r.tiers].sort((a, b) => Number(a.target_amount) - Number(b.target_amount))
@@ -191,6 +272,7 @@ export function RangeLeaderboard({ data, you }) {
             {/* Header */}
             <div style={{ padding: '12px 14px', background: 'linear-gradient(135deg, #fff7e6 0%, #fff3d6 100%)', borderBottom: '1px dashed #fcd34d', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--ink)' }}>{r.slab_label}</span>
+              <RangeWindow startedAt={r.started_at} endedAt={r.ended_at} />
               <div style={{ flex: 1 }} />
               {tierMode ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: r.tiers_final ? '#16a34a' : '#ffedd5', color: r.tiers_final ? '#fff' : '#c2410c', fontSize: 10.5, fontWeight: 800 }}>
@@ -366,11 +448,55 @@ export function RangeLeaderboard({ data, you }) {
                 </div>
               )}
 
-              {fros.length > 0 && (
+              {/* Full standings — EVERY competing FRO in the range, ranked. The
+                  race track above only rides the top 4; this list is the complete
+                  slab-wise member board. */}
+              {allFros.length > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 900, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: .5 }}>
+                      All members
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>· {allFros.length} competing</span>
+                  </div>
+                  <div className="lil-scroll" style={{ maxHeight: 230, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, paddingRight: 2 }}>
+                    {allFros.map((f, i) => {
+                      const isMe = you && String(f.fro_id) === String(you);
+                      const amt = Number(f.total_amount) || 0;
+                      const pct = trackMax > 0 ? Math.min(100, Math.round(amt / trackMax * 100)) : 0;
+                      const wonFinal = f.is_winner && (!tierMode || r.tiers_final);
+                      const rankColor = ['#f59e0b', '#94a3b8', '#b45309'][i] || '#6b7280';
+                      return (
+                        <div key={f.fro_id} title={`${f.fro_name} · ₹${fmt(amt)} · ${f.qualified_leads || 0} verified`}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 9,
+                            background: isMe ? '#fff3d6' : '#fff',
+                            border: `1.5px solid ${wonFinal ? '#86efac' : isMe ? '#d97706' : '#f3f0e6'}`,
+                          }}>
+                          <span style={{
+                            width: 20, height: 20, flexShrink: 0, borderRadius: '50%',
+                            background: i < 3 ? rankColor : '#eef2f7', color: i < 3 ? '#fff' : '#64748b',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900,
+                          }}>{i + 1}</span>
+                          <Avatar url={f.photo_url} name={f.fro_name} size={26} />
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: wonFinal || isMe || i === 0 ? 800 : 600, color: isMe ? '#b45309' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {f.fro_name}{isMe ? ' (you)' : ''}{wonFinal ? ' 🏆' : ''}
+                          </span>
+                          <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{f.qualified_leads || 0} ✓</span>
+                          <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 900, color: amt > 0 ? '#b45309' : '#94a3b8', whiteSpace: 'nowrap' }}>₹{fmt(amt)}</span>
+                          <span style={{ flexShrink: 0, width: 32, textAlign: 'right', fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {allFros.length > 0 && (
                 <div style={{ fontSize: 9.5, color: 'var(--ink-soft)', textAlign: 'center', marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--line)' }}>
                   {tierMode
-                    ? `Top ${fros.length} racing · green gate = cleared · highest collection when the window ends wins each tier`
-                    : `Top ${fros.length} racing live · first avatar past the 🎯 gate wins ₹${fmt(prize)}`}
+                    ? `Top 4 ride the track · green gate = cleared · all ${allFros.length} members listed above · highest collection when the window ends wins each tier`
+                    : `Top 4 ride the track · all ${allFros.length} members listed above · first past the 🎯 gate wins ₹${fmt(prize)}`}
                 </div>
               )}
             </div>
@@ -388,6 +514,12 @@ export function RangeLeaderboard({ data, you }) {
 
 // Big full-screen leaderboard popup: all ranges, ranked FROs, winner photos.
 function LeaderboardModal({ data, you, onClose }) {
+  // Combined competition window across today's live ranges (earliest start →
+  // latest end), set from the accounts panel. Shown in the brand header.
+  const starts = (data.ranges || []).map(r => r.started_at).filter(Boolean).map(t => new Date(t).getTime()).filter(Number.isFinite);
+  const ends = (data.ranges || []).map(r => r.ended_at).filter(Boolean).map(t => new Date(t).getTime()).filter(Number.isFinite);
+  const winStart = starts.length ? new Date(Math.min(...starts)) : null;
+  const winEnd = ends.length ? new Date(Math.max(...ends)) : null;
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99991, background: 'rgba(15,23,42,.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
       <style>{LEAD_CSS}</style>
@@ -404,6 +536,14 @@ function LeaderboardModal({ data, you, onClose }) {
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'lil-pulse 1s linear infinite' }} /> Lead Incentive · LIVE
             </span>
             <span style={{ padding: '4px 11px', borderRadius: 999, background: 'rgba(255,255,255,.16)', fontSize: 10.5, fontWeight: 800 }}>⏳ Today</span>
+            {(winStart || winEnd) && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 999, background: 'rgba(255,255,255,.16)', fontSize: 10.5, fontWeight: 800 }}>
+                ⏱ {fmtTime(winStart)}
+                <span style={{ opacity: .7 }}>→</span>
+                {winEnd ? fmtTime(winEnd) : 'till stopped'}
+              </span>
+            )}
+            <TimeLeftBadge endAt={winEnd} />
             <div style={{ flex: 1 }} />
             <div onClick={onClose} style={{ cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fff', fontSize: 14 }}>✕</div>
           </div>

@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import sharp from 'sharp';
 
 export const enrollBiometric = async (data) => {
   const { data: result, error } = await db
@@ -45,6 +46,72 @@ export const getBiometricStatus = async (beneficiaryId) => {
     enrolled_fingers: credentials || [],
   };
 };
+
+/**
+ * Latest enrolled fingerprint IMAGE per beneficiary, keyed by beneficiary_id.
+ * The raw-format template_data JSON carries the captured scan in its `image`
+ * field. That scan is a raw 8-bit grayscale frame (width*height bytes), NOT a
+ * PNG/JPEG, so it is re-encoded to a PNG data URL here — the browser cannot
+ * display the bare frame. Rows whose template holds no image are skipped.
+ */
+export const getFingerprintImages = async (beneficiaryIds) => {
+  const ids = (beneficiaryIds || [])
+    .map((v) => parseInt(v, 10))
+    .filter((v) => Number.isFinite(v));
+  if (ids.length === 0) return {};
+
+  const { data, error } = await db
+    .from('biometric_credentials')
+    .select('beneficiary_id, finger_position, template_data, enrolled_at')
+    .eq('status', 'ENROLLED')
+    .in('beneficiary_id', ids);
+  if (error) throw error;
+
+  // Keep only the newest image-bearing credential per beneficiary.
+  const latest = {};
+  for (const row of data || []) {
+    const parsed = parseTemplateData(row.template_data);
+    if (!parsed || typeof parsed.image !== 'string' || !parsed.image) continue;
+    const prev = latest[row.beneficiary_id];
+    if (prev && prev.enrolled_at && row.enrolled_at && new Date(prev.enrolled_at) > new Date(row.enrolled_at)) continue;
+    latest[row.beneficiary_id] = { parsed, enrolled_at: row.enrolled_at || null, finger_position: row.finger_position || null };
+  }
+
+  const out = {};
+  for (const [id, entry] of Object.entries(latest)) {
+    const image = await toDisplayableImage(entry.parsed);
+    if (!image) continue;
+    out[id] = {
+      image,
+      finger_position: entry.finger_position || entry.parsed.finger || null,
+      enrolled_at: entry.enrolled_at,
+    };
+  }
+  return out;
+};
+
+// A stored scan may already be a real image (older rows), or the raw grayscale
+// frame the current SecuGen capture emits. Return a browser-displayable data URL.
+async function toDisplayableImage(parsed) {
+  const img = parsed.image;
+  if (!img) return null;
+  if (img.startsWith('data:')) return img;
+  if (img.startsWith('iVBOR')) return `data:image/png;base64,${img}`;
+  if (img.startsWith('/9j/')) return `data:image/jpeg;base64,${img}`;
+  if (img.startsWith('R0lGOD')) return `data:image/gif;base64,${img}`;
+  if (parsed.width && parsed.height) {
+    try {
+      const png = await sharp(Buffer.from(img, 'base64'), {
+        raw: { width: parsed.width, height: parsed.height, channels: 1 },
+      }).png().toBuffer();
+      return `data:image/png;base64,${png.toString('base64')}`;
+    } catch (e) {
+      console.error('biometric image convert failed:', e.message);
+      return null;
+    }
+  }
+  return null;
+}
 
 export const revokeBiometric = async (credentialId) => {
   const { data: credential } = await db

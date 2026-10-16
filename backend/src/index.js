@@ -76,6 +76,10 @@ import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
 import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
 import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
+import whatsappAutomationRoutes from './routes/whatsappAutomationRoutes.js';
+import whatsappAccountsRoutes from './routes/whatsappAccountsRoutes.js';
+import whatsappCallingRoutes from './routes/whatsappCallingRoutes.js';
+import whatsappPerformanceRoutes from './routes/whatsappPerformanceRoutes.js';
 import simCardRoutes from './routes/simCardRoutes.js';
 import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import reminderRoutes from './routes/reminderRoutes.js';
@@ -126,6 +130,7 @@ import { ensureSevakRenewalSchema } from './bootstrap/ensureSevakRenewalSchema.j
 import { ensureFroDonorLogOperatorSchema } from './bootstrap/ensureFroDonorLogOperatorSchema.js';
 import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSchema.js';
 import { ensureTaskAssignmentSchema } from './bootstrap/ensureTaskAssignmentSchema.js';
+import { ensureEventHeadPlannerEventLinkSchema } from './bootstrap/ensureEventHeadPlannerEventLinkSchema.js';
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
@@ -288,6 +293,10 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappEnhancementsRoutes);
+app.use('/api/whatsapp/automation', whatsappAutomationRoutes);
+app.use('/api/whatsapp/accounts', whatsappAccountsRoutes);
+app.use('/api/whatsapp/calling', whatsappCallingRoutes);
+app.use('/api/whatsapp/performance', whatsappPerformanceRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
@@ -1209,6 +1218,7 @@ if (!process.env.VERCEL) {
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
     await ensureTaskAssignmentSchema().catch(e => console.error('ensureTaskAssignmentSchema failed:', e?.message || e));
+    await ensureEventHeadPlannerEventLinkSchema().catch(e => console.error('ensureEventHeadPlannerEventLinkSchema failed:', e?.message || e));
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');

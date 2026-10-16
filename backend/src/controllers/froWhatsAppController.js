@@ -125,16 +125,16 @@ export async function listMessages(req, res) {
 export async function sendMessage(req, res) {
   try {
     const { id } = req.params;
-    const { text, mediaUrl } = req.body;
+    const { text, mediaUrl, mediaMimeType } = req.body;
 
     if ((!text || !text.trim()) && !mediaUrl) {
       return res.status(400).json({ message: 'Message text or media URL is required' });
     }
 
-    const message = await sendFroReply(id, req.user.id, text?.trim() || '', mediaUrl);
+    const message = await sendFroReply(id, req.user.id, text?.trim() || '', mediaUrl, mediaMimeType);
     return res.json({ success: true, message });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(error.statusCode || 500).json({ message: error.message });
   }
 }
 

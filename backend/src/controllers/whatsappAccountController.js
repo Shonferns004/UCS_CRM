@@ -11,7 +11,7 @@ export async function list(req, res) {
 
 export async function getById(req, res) {
   try {
-    const account = await getAccountById(req.params.id);
+    const account = await getAccountById(req.params.accountId);
     if (!account) return res.status(404).json({ message: 'Account not found' });
     return res.json(account);
   } catch (error) {
@@ -35,10 +35,10 @@ export async function create(req, res) {
 
 export async function update(req, res) {
   try {
-    const existing = await getAccountById(req.params.id);
+    const existing = await getAccountById(req.params.accountId);
     if (!existing) return res.status(404).json({ message: 'Account not found' });
 
-    const account = await updateAccount(req.params.id, req.body);
+    const account = await updateAccount(req.params.accountId, req.body);
     return res.json(account);
   } catch (error) {
     if (error.message.includes('already exists')) return res.status(409).json({ message: error.message });
@@ -48,10 +48,10 @@ export async function update(req, res) {
 
 export async function remove(req, res) {
   try {
-    const existing = await getAccountById(req.params.id);
+    const existing = await getAccountById(req.params.accountId);
     if (!existing) return res.status(404).json({ message: 'Account not found' });
 
-    await deleteAccount(req.params.id);
+    await deleteAccount(req.params.accountId);
     return res.json({ success: true, message: 'Account deleted' });
   } catch (error) {
     return res.status(500).json({ message: error.message });

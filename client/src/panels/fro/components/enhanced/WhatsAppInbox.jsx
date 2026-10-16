@@ -26,6 +26,12 @@ const PROJECT_TAB_COLORS = {
   mann: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
 }
 
+// WhatsApp's 24-hour customer service window: a free-form (session) message may
+// only be sent within 24 hours of the contact's last inbound message. Once it
+// lapses only an approved template is allowed, so the composer is closed rather
+// than letting Meta reject the send.
+const SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000
+
 // An FRO must only ever see conversations that have been explicitly assigned
 // to them. Keep this check in the UI as a defence-in-depth guard in case an
 // API response accidentally includes an unassigned conversation.
@@ -225,9 +231,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     const fileArr = Array.isArray(files) ? files : [files]
     for (const f of fileArr) {
       const r = await uploadMedia(f, agentToken)
-      if (r?.file_url) {
-        await sendMsgApi(activeConv.id, '', agentToken, r.file_url)
-        await new Promise(r => setTimeout(r, 200))
+      const mediaUrl = r?.url || r?.file_url
+      if (mediaUrl) {
+        await sendMsgApi(activeConv.id, '', agentToken, mediaUrl, f.type)
       }
     }
     queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
@@ -251,6 +257,17 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [newConvPhone, sendingNew, waUser, agentToken, queryClient, handleSelect])
 
   const handleQuickReply = async (text) => { await handleSend(text) }
+
+  // Read the window off the live list row, not the selected snapshot, so a new
+  // inbound message that reopens the window is picked up by the 15s refetch.
+  const liveActiveConv = activeConv
+    ? (conversations.find(c => c.id === activeConv.id) || activeConv)
+    : null
+  const lastInboundMs = liveActiveConv?.last_inbound_at
+    ? new Date(liveActiveConv.last_inbound_at).getTime()
+    : null
+  const windowClosed = !!liveActiveConv
+    && (!lastInboundMs || Date.now() - lastInboundMs > SERVICE_WINDOW_MS)
 
   const contact = activeConv?.contact || {}
   const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation'
@@ -306,9 +323,14 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
                 <MediaUploadPreview file={mediaFile} onRemove={() => setMediaFile(null)} />
               </div>
             )}
-            <QuickReplyBar onSend={handleQuickReply} />
+            {!windowClosed && <QuickReplyBar onSend={handleQuickReply} />}
             <TemplateBar conversationId={activeConv?.id} contactId={activeContactId} project={convProject} userId={waUser?.id} agentToken={agentToken} onSent={() => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })} />
-            <MessageComposer onSend={handleSend} onSendMedia={handleSendMedia} />
+            {windowClosed && (
+              <div style={{ padding: '8px 12px', background: '#fff7ed', borderTop: '1px solid #fed7aa', color: '#9a3412', fontSize: 12, lineHeight: 1.4 }}>
+                The 24-hour window is closed for this contact. Send an approved template to start the conversation again.
+              </div>
+            )}
+            <MessageComposer onSend={handleSend} onSendMedia={handleSendMedia} disabled={windowClosed} />
           </>
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', gap: 12 }}>

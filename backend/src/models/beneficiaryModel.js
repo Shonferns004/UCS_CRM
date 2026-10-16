@@ -261,7 +261,7 @@ const beneficiarySearchOr = async (term) => {
   return filters.join(',');
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, created_by, has_otp }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, created_by, has_otp }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
   if (created_by) query = query.eq('created_by', created_by);
@@ -281,6 +281,9 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   if (state) query = query.eq('state', state);
   if (city) query = query.eq('city', city);
   if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
+  // Kit Given page filters by the event NAME: most handout rows only carry the
+  // typed name (kit_event_id stays null), so an id filter would miss them.
+  if (event_name) query = query.eq('kit_event_name', event_name);
   if (kit_given !== undefined && kit_given !== null) {
     query = query.eq('kit_given', kit_given === true || kit_given === 'true');
   }
@@ -308,6 +311,22 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   const { data, error, count } = await query;
   if (error) throw error;
   return { data: data || [], total: count || 0, page, pageSize };
+};
+
+// Distinct events that actually appear on kit-given rows. Powers the Kit Given
+// page's event dropdown so it offers only the events present in that list
+// (instead of every operator event). Returns [{ name, count }].
+export const listKitGivenEvents = async () => {
+  const { data, error } = await db
+    .from('beneficiaries')
+    .select('kit_event_name, count')
+    .eq('kit_given', true)
+    .not('kit_event_name', 'is', null)
+    .order('kit_event_name', { ascending: true });
+  if (error) throw error;
+  return (data || [])
+    .map((r) => ({ name: String(r.kit_event_name || '').trim(), count: Number(r.count) || 0 }))
+    .filter((r) => r.name);
 };
 
 // Export: same filters as listBeneficiaries but WITHOUT pagination so the
@@ -496,7 +515,7 @@ export const searchByMobile = async (mobile) => {
   return data || [];
 };
 
-export const markKitGiven = async (id, givenBy, event = null) => {
+export const markKitGiven = async (id, givenBy, event = null, kit = null) => {
   const now = new Date().toISOString();
   const update = {
     kit_given: true,
@@ -509,6 +528,12 @@ export const markKitGiven = async (id, givenBy, event = null) => {
   if (event && event.id != null) {
     update.kit_event_id = event.id;
     update.kit_event_name = event.name || null;
+  }
+  // Which kit was handed out (the operator's kit for the day). Same rule as the
+  // event: a handout with no kit picked keeps the beneficiary's last known kit.
+  if (kit && kit.id != null) {
+    update.kit_id = kit.id;
+    update.kit_name = kit.name || null;
   }
   const { data, error } = await db
     .from('beneficiaries')

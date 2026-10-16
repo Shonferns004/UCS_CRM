@@ -253,6 +253,14 @@ export default function AllBeneficiaries() {
                         )}>
                           {b.kit_given ? 'Yes' : 'No'}
                         </span>
+                        {b.kit_given && (b.kit_given_at || b.kit_given_by) && (
+                          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4, lineHeight: 1.4 }}>
+                            {b.kit_given_at
+                              ? new Date(b.kit_given_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : ''}
+                            {b.kit_given_by ? <div>by {b.kit_given_by}</div> : null}
+                          </div>
+                        )}
                       </td>
                       <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {b.kit_event_name || '-'}

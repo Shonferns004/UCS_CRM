@@ -4,6 +4,7 @@ import PageTabs from '../accounts/components/PageTabs'
 import Overview from './pages/Overview'
 import AllBeneficiaries from './pages/AllBeneficiaries'
 import CollectionOtps from './pages/CollectionOtps'
+import KitGiven from './pages/KitGiven'
 import ImportMembers from './pages/ImportMembers'
 import BeneficiaryProfile from './pages/BeneficiaryProfile'
 import Events from './pages/Events'
@@ -22,6 +23,7 @@ export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
   const tabs = [
     { label: 'Overview', path: base },
     { label: 'All Beneficiaries', path: `${base}/all` },
+    { label: 'Kit Given', path: `${base}/kit-given` },
     { label: 'Collection OTPs', path: `${base}/otps` },
     { label: 'Import Members', path: `${base}/import` },
     { label: 'Daily Events', path: `${base}/events` },
@@ -42,6 +44,7 @@ export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
         <Routes>
           <Route index element={<Overview />} />
           <Route path="all" element={<AllBeneficiaries />} />
+          <Route path="kit-given" element={<KitGiven />} />
           <Route path="otps" element={<CollectionOtps />} />
           <Route path="import" element={<ImportMembers />} />
           <Route path="events" element={<Events />} />

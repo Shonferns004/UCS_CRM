@@ -93,6 +93,10 @@ const codeForName = (name) => {
   return ''
 }
 
+// Shown on an event card when the event has no photo (or its photo fails to
+// load), so the card never renders an empty / "EVENT BANNER" text block.
+const EVENT_PHOTO_PLACEHOLDER = '/event-placeholder.svg'
+
 const REPORT_TYPES = [
   { id: 'summary', label: 'Event Summary' },
   { id: 'beneficiary', label: 'Beneficiary Report' },
@@ -152,9 +156,18 @@ function ReportBanner({ src, alt }) {
   )
 }
 
-function SafeImg({ src, alt, height, radius = 8 }) {
+function SafeImg({ src, alt, height, radius = 8, fallback }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => { setFailed(false) }, [src])
+  if ((!src || failed) && fallback) {
+    return (
+      <img
+        src={fallback}
+        alt={alt || ''}
+        style={{ width: '100%', height, objectFit: 'cover', display: 'block', borderRadius: radius }}
+      />
+    )
+  }
   if (!src || failed) {
     return (
       <div style={{
@@ -357,9 +370,9 @@ function ActivityCard({ ev, theme, big, wide, badge = true, onPatched }) {
     }}>
       <div style={{ position: 'relative', width: '100%', height: imgH, background: '#f1f5f9', overflow: 'hidden', flexShrink: 0, borderRadius: rounded ? 10 : 0 }}>
         {ev.banner ? (
-          <SafeImg src={bannerUrl || ev.banner} alt={ev.name} height="100%" radius={rounded ? 10 : 0} />
+          <SafeImg src={bannerUrl || ev.banner} alt={ev.name} height="100%" radius={rounded ? 10 : 0} fallback={EVENT_PHOTO_PLACEHOLDER} />
         ) : (
-          <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
+          <SafeImg src={EVENT_PHOTO_PLACEHOLDER} alt={ev.name || 'Event photo'} height="100%" radius={rounded ? 10 : 0} />
         )}
         {badge && <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>}
 
@@ -696,7 +709,7 @@ async function exportElementToPdf(el, filename) {
   pdf.save(filename)
 }
 
-export default function EventReports() {
+export default function EventReports({ initialMode = 'daily' } = {}) {
   // Deep link from an event's "Report" button: /event-head/reports?event=<id>.
   // The id is consumed once, right after the events list loads, so the event is
   // selected and its report generated without the user picking it again.
@@ -729,7 +742,7 @@ export default function EventReports() {
   // Keeping them behind a tab is the whole point: previously the daily picker,
   // the all-events summary and the monthly cards were stacked on one page, which
   // made it unclear where a single day's report came from.
-  const [mode, setMode] = useState('daily')
+  const [mode, setMode] = useState(initialMode)
 
   // ── Monthly Report state ──
   const now = new Date()
@@ -1173,7 +1186,7 @@ export default function EventReports() {
           <b> Monthly</b> = every event in a chosen month, grouped by NGO.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-          <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Event Report</button>
+          {/* <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Event Report</button> */}
           <button type="button" onClick={() => setMode('monthly')} style={tabStyle(mode === 'monthly')}>🗓 Monthly Report</button>
         </div>
       </div>
