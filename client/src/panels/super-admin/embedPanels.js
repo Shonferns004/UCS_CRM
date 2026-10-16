@@ -11,6 +11,7 @@ export const EMBED_PANELS = {
   'ngo-admin': {
     base: '/ngo-admin',
     label: 'Admin',
+    home: 'dashboard',
     items: [
       { path: 'dashboard', label: 'Dashboard' },
       { path: 'station-mgmt', label: 'Stations & FROs' },
@@ -22,6 +23,7 @@ export const EMBED_PANELS = {
   hr: {
     base: '/hr',
     label: 'HR',
+    home: 'overview',
     items: [
       { path: 'overview', label: 'Overview' },
       { path: 'employees', label: 'Volunteers' },
@@ -44,6 +46,7 @@ export const EMBED_PANELS = {
   accounts: {
     base: '/accounts',
     label: 'Accounts',
+    home: 'leads',
     items: [
       { path: 'leads', label: 'Lead and Audit' },
       { path: 'receipt-generator', label: 'Receipts' },
@@ -63,47 +66,6 @@ export const EMBED_PANELS = {
       { path: 'reports', label: 'Reports' },
       { path: 'tickets', label: 'Tickets' },
       { path: 'library', label: 'Library' },
-    ],
-  },
-  fro: {
-    base: '/fro',
-    label: 'FRO',
-    items: [
-      { path: 'dashboard', label: 'Dashboard' },
-      { path: 'my-leads', label: 'My Leads' },
-      { path: 'donors', label: 'Donors' },
-      { path: 'my-idle', label: 'My Idle' },
-      { path: 'lead-incentive', label: 'Lead Incentive' },
-      { path: 'tickets', label: 'Tickets' },
-    ],
-  },
-  'event-head': {
-    base: '/event-head',
-    label: 'Event Head',
-    items: [
-      { path: 'dashboard', label: 'Dashboard' },
-      { path: 'events', label: 'Events' },
-      { path: 'monthly-planner', label: 'Calendar' },
-      { path: 'planner', label: 'Monthly Planner' },
-      { path: 'ngos', label: 'NGOs' },
-      { path: 'sectors', label: 'Sectors' },
-      { path: 'activities', label: 'Activities' },
-      { path: 'events-list', label: 'My Events' },
-      { path: 'media-management', label: 'Media / Banners' },
-      { path: 'volunteers', label: 'Voluntary' },
-      { path: 'reports', label: 'Event Reports' },
-      { path: 'approvals', label: 'Approval Workflow' },
-      { path: 'all-tickets', label: 'All Tickets' },
-    ],
-  },
-  recruiter: {
-    base: '/recruiter',
-    label: 'Recruiter',
-    items: [
-      { path: 'dashboard', label: 'Dashboard' },
-      { path: 'leads', label: 'Leads' },
-      { path: 'candidates', label: 'Candidates' },
-      { path: 'tickets', label: 'Tickets' },
     ],
   },
 }
