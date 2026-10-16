@@ -260,7 +260,12 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       setShowNewConv(false)
       setNewConvPhone('')
       queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-      if (result.conversation) handleSelect(result.conversation)
+      if (result.conversation) {
+        handleSelect({
+          ...result.conversation,
+          contact: result.contact || result.conversation.contact,
+        })
+      }
     } catch (err) {
       alert('Failed: ' + err.message)
     } finally {
@@ -281,7 +286,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const windowClosed = !!liveActiveConv
     && (!lastInboundMs || Date.now() - lastInboundMs > SERVICE_WINDOW_MS)
 
-  const contact = activeConv?.contact || {}
+  const contact = liveActiveConv?.contact || activeConv?.contact || {}
   const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation'
   const convProject = activeConv?.project || activeConv?.contact?.project || activeTab
   const activeProjectLabel = PROJECT_TABS.find(t => t.id === convProject)?.label || convProject.toUpperCase()
