@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { MagnifyingGlass, Eye, LockKey, Trash } from '@phosphor-icons/react'
 import { api } from '../api/auth'
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext'
 import ResetPasswordModal from '../components/ResetPasswordModal'
@@ -16,6 +17,7 @@ export default function Workers({ onViewWorker }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [err, setErr] = useState('')
+  const [loading, setLoading] = useState(true)
   const [resetWorker, setResetWorker] = useState(null)
 
   const [causes, setCauses] = useState([])
@@ -25,7 +27,7 @@ export default function Workers({ onViewWorker }) {
   const [showCauseForm, setShowCauseForm] = useState(false)
 
   const load = () => {
-    api('/workers').then(setWorkers).catch(e => setErr(e.message))
+    api('/workers').then(setWorkers).catch(e => setErr(e.message)).finally(() => setLoading(false))
     api('/ngos').then(setNgos).catch((err) => { console.error('Error:', err.message); })
     api('/causes').then(setCauses).catch((err) => { console.error('Error:', err.message); })
   }
@@ -73,14 +75,23 @@ export default function Workers({ onViewWorker }) {
   const totalPages = Math.ceil(filtered.length / pageSize) || 1
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
+  // Enter/Space on the name cell, which is an <a> without an href and so is not
+  // natively focusable. tabIndex + role keeps the existing click behaviour and
+  // makes the row reachable by keyboard (spec §7).
+  const nameKeyDown = (e, id) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onViewWorker(id) }
+  }
+
   return (
-    <div className="sa-page">
-      <div className="sa-page-header">
+    <div className="sa-page workers-page">
+      <div className="workers-head">
         <h3>Workers</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="sa-muted">{workers.length} total</span>
-          <button className="btn btn-primary btn-sm" onClick={openNewNgo}>+ Add NGO</button>
-          <button className="btn btn-primary btn-sm" onClick={openNewCause}>+ Add Cause</button>
+        <div className="workers-head-side">
+          <span className="workers-count">{workers.length} total</span>
+          <div className="workers-actions">
+            <button className="btn workers-add" onClick={openNewNgo}>+ Add NGO</button>
+            <button className="btn workers-add" onClick={openNewCause}>+ Add Cause</button>
+          </div>
         </div>
       </div>
       {err && <div className="sa-err-card">{err}</div>}
@@ -162,55 +173,101 @@ export default function Workers({ onViewWorker }) {
         </div>
       )}
 
-      <div className="sa-filters">
-        <input placeholder="Search name / login_id…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
-        <select value={filterNgo} onChange={e => { setFilterNgo(e.target.value); setPage(1) }}>
+      <div className="workers-filters">
+        <div className="workers-search">
+          <span className="workers-search-icon" aria-hidden="true"><MagnifyingGlass size={18} weight="bold" /></span>
+          <input placeholder="Search name / login_id…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+        </div>
+        <select className="workers-select" value={filterNgo} onChange={e => { setFilterNgo(e.target.value); setPage(1) }}>
           <option value="">All NGOs</option>
           {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
         </select>
-        <select value={filterDept} onChange={e => { setFilterDept(e.target.value); setPage(1) }}>
+        <select className="workers-select" value={filterDept} onChange={e => { setFilterDept(e.target.value); setPage(1) }}>
           <option value="">All Departments</option>
           {depts.map(d => <option key={d} value={d}>{deptLabel(d)}</option>)}
         </select>
       </div>
 
-      <div className="sa-card" style={{overflowX:'auto'}}>
-        <table className="sa-table">
-          <thead><tr><th>Name</th><th>Login ID</th><th>Department</th><th>NGO</th><th>Salary</th><th>Status</th><th style={{width:175}}></th></tr></thead>
+      <div className="workers-table-wrap">
+        <table className="workers-table">
+          <colgroup>
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '26%' }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Login ID</th>
+              <th scope="col">Department</th>
+              <th scope="col">NGO</th>
+              <th scope="col">Salary</th>
+              <th scope="col">Status</th>
+              <th scope="col" className="workers-th-actions">Actions</th>
+            </tr>
+          </thead>
           <tbody>
-            {paginated.map(w => {
+            {loading && (
+              <tr><td colSpan={7} className="workers-empty">Loading workers…</td></tr>
+            )}
+            {!loading && paginated.map(w => {
               const ngo = ngos.find(n => n.id === w.ngo_id)
+              const active = w.is_active !== false
               return (
                 <tr key={w.id}>
-                  <td><a className="sa-link" onClick={() => onViewWorker(w.id)}>{w.name}</a></td>
-                  <td><code>{w.login_id}</code></td>
-                  <td>{deptLabel(w.department) || '—'}</td>
-                  <td className="sa-muted">{ngo?.name || '—'}</td>
-                  <td>{w.salary ? formatSalary(w.salary) : '—'}</td>
-                  <td><span className={`sa-badge ${w.is_active !== false ? 'active' : 'inactive'}`}>
-                    {w.is_active !== false ? 'Active' : 'Inactive'}
-                  </span></td>
                   <td>
-                    <button className="btn btn-sm" onClick={() => onViewWorker(w.id)}>View</button>
-                    <button className="btn btn-sm" onClick={() => setResetWorker(w)} style={{marginLeft:4}}>Reset Pwd</button>
-                    <button className="btn btn-sm btn-danger" onClick={() => remove(w.id)} style={{marginLeft:4}}>Del</button>
+                    <a
+                      className="worker-name"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onViewWorker(w.id)}
+                      onKeyDown={(e) => nameKeyDown(e, w.id)}
+                    >{w.name}</a>
+                  </td>
+                  <td><code className="worker-login">{w.login_id}</code></td>
+                  <td>{deptLabel(w.department) || '—'}</td>
+                  <td className="workers-ngo">{ngo?.name || '—'}</td>
+                  <td className="workers-salary">{w.salary ? formatSalary(w.salary) : '—'}</td>
+                  <td>
+                    <span className={`workers-status ${active ? 'active' : 'inactive'}`}>
+                      <i className="workers-status-dot" aria-hidden="true" />
+                      {active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="workers-row-actions">
+                      <button className="btn workers-act" onClick={() => onViewWorker(w.id)}>
+                        <Eye size={16} weight="bold" /> View
+                      </button>
+                      <button className="btn workers-act" onClick={() => setResetWorker(w)}>
+                        <LockKey size={16} weight="bold" /> Reset Pwd
+                      </button>
+                      <button className="btn workers-act workers-act-danger" onClick={() => remove(w.id)}>
+                        <Trash size={16} weight="bold" /> Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )
             })}
-            {filtered.length === 0 && <tr><td colSpan={7} className="sa-muted sa-center">No workers found</td></tr>}
+            {!loading && filtered.length === 0 && (
+              <tr><td colSpan={7} className="workers-empty">No workers found</td></tr>
+            )}
           </tbody>
         </table>
       </div>
 
       {filtered.length > pageSize && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        <div className="workers-pager">
           <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Previous</button>
           {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
             <button
               key={p}
-              className="btn btn-sm"
-              style={p === page ? { background: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)' } : {}}
+              className={`btn btn-sm${p === page ? ' is-current' : ''}`}
               onClick={() => setPage(p)}
             >{p}</button>
           ))}
@@ -218,7 +275,7 @@ export default function Workers({ onViewWorker }) {
           <select
             value={pageSize}
             onChange={e => setPageSize(Number(e.target.value))}
-            style={{ marginLeft: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #dde3ea', fontSize: 12, fontFamily: 'inherit' }}
+            className="workers-pager-size"
           >
             {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
           </select>

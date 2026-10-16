@@ -24,6 +24,7 @@ import DonorSection from './components/DonorSection'
 import PageTabs from './components/PageTabs'
 import TeamsManageModal from './components/TeamsManageModal'
 import AssetRegister from './pages/AssetRegister'
+import HistoryImport from './pages/HistoryImport'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
 import EmailAccountsView from './components/EmailAccountsView'
 import Receipts from './pages/Receipts'
@@ -89,6 +90,9 @@ const NAV_GROUPS = [
       DONOR_NAV,
       { id: 'asset-register', path: '/accounts/asset-register', label: 'Asset Register',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
+      { id: 'history-import', path: '/accounts/history-import', label: 'History Import',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+        match: (p) => p.startsWith('/accounts/history-import') },
     ],
   },
   {
@@ -527,6 +531,7 @@ export default function AccountsPanel() {
             <Route path="certificates" element={<Certificates />} />
             <Route path="template-settings" element={<TemplateSettings />} />
             <Route path="asset-register" element={<AssetRegister />} />
+            <Route path="history-import" element={<HistoryImport />} />
             <Route path="reports" element={<Reports />} />
             <Route path="teams/*" element={<Navigate to="/accounts/volunteers" replace />} />
             {/* FRO Targets moved into Teams as a tab; the old URL redirects. */}
