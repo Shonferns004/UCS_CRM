@@ -1,6 +1,11 @@
 import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import config from '../config/whatsappConfig.js';
+import { presignStoredUrl } from './mediaProxy.js';
+
+// Object keys under the shared media bucket. Meta fetches these URLs itself, so
+// only keys with this prefix may be turned into a signed link for it.
+const WHATSAPP_MEDIA_PREFIX = 'whatsapp-media/';
 
 function normalizePhone(phone) {
   const raw = String(phone).replace(/[^0-9]/g, '');
@@ -79,7 +84,14 @@ export async function getConversationMessages(conversationId) {
     .order('created_at', { ascending: true });
 
   if (error) throw error;
-  return data || [];
+  // The bucket is private, so a stored media_url answers 403 and the bubble shows
+  // a dead image. Sign it on the way out (only for the shared media bucket, so a
+  // foreign URL is never touched) without persisting the signed form.
+  return Promise.all((data || []).map(async (m) => (
+    m.media_url
+      ? { ...m, media_url: await presignStoredUrl(m.media_url, { prefix: WHATSAPP_MEDIA_PREFIX }) }
+      : m
+  )));
 }
 
 export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null) {
@@ -184,11 +196,14 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     let body;
     if (mediaUrl) {
       const type = mediaType || 'image';
+      // Hand Meta a signed link, not the stored bucket URL: the bucket is private,
+      // so the raw URL 403s and Meta reports 131053 "Media upload error".
+      const mediaLink = await presignStoredUrl(mediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX });
       body = {
         messaging_product: 'whatsapp',
         to: recipientPhone,
         type,
-        [type]: { link: mediaUrl },
+        [type]: { link: mediaLink },
       };
       if (type === 'document') {
         body.document.filename = mediaUrl.split('/').pop()?.split('?')[0] || 'file';
@@ -666,7 +681,10 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       if (comp.type === 'HEADER' && ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(comp.format)) {
         if (!headerMediaUrl) throw new Error(`This template requires a ${comp.format.toLowerCase()} header file`);
         const mediaType = comp.format.toLowerCase();
-        const media = { link: headerMediaUrl };
+        // Meta fetches the header itself, so the link must be publicly readable.
+        // The stored bucket URL is private (403), which Meta reports as 131053
+        // "Media upload error", so sign it before sending.
+        const media = { link: await presignStoredUrl(headerMediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX }) };
         if (mediaType === 'document' && headerMediaName) media.filename = headerMediaName;
         components.push({ type: 'header', parameters: [{ type: mediaType, [mediaType]: media }] });
       }
@@ -810,7 +828,15 @@ export async function updateConversationLabels(conversationId, labels) {
 }
 
 export async function uploadFroMedia(froWorkerId, file) {
-  const fileName = `fro_${froWorkerId}_${Date.now()}_${file.originalname || 'file'}`;
+  // The original name becomes part of the object key. Keep it to the characters
+  // the storage key rules and the presigner both accept -- a space or a comma in
+  // the key makes the object impossible to sign later, so a template header built
+  // on it would 403 and Meta would fail the send with 131053.
+  const safeName = String(file.originalname || 'file')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(-120) || 'file';
+  const fileName = `fro_${froWorkerId}_${Date.now()}_${safeName}`;
   const bucket = 'whatsapp-media';
 
   let { data: uploadData, error: uploadError } = await db.storage
