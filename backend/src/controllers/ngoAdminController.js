@@ -24,7 +24,7 @@ import { upsertTarget, getTargetsByNgo, getTargetsForWorkersMonth, getTargetByWo
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import { istMonthBounds } from '../utils/ist.js';
 import { buildTeamCollection, resolveRange } from '../services/teamCollectionService.js';
-import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
+import { getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker, getWorkerCollectionReceipts, HIGH_TIER_LOG_PREDICATE } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
@@ -1291,16 +1291,33 @@ export const getFroWiseCollection = async (req, res) => {
       }
     }
 
-    const workerAmounts = await Promise.all(froWorkers.map(w =>
-      getTotalCollectedByWorker(w.id, startDate.toISOString(), endDate.toISOString())
-    ));
+    // One receipt scan per FRO, reduced twice: the total (unchanged — exactly
+    // what getTotalCollectedByWorker returned, same rows, same fold) and the
+    // High Tier slice of that same set, so the split can never exceed the total
+    // beside it. Deliberately one scan rather than two loader calls, which would
+    // double the busiest query in this report once per FRO.
+    const workerAmounts = await Promise.all(froWorkers.map(async w => {
+      const receipts = await getWorkerCollectionReceipts(w.id, startDate.toISOString(), endDate.toISOString());
+      let total = 0;
+      let highTier = 0;
+      for (const r of receipts) {
+        const amount = Number(r.amount || 0);
+        total += amount;
+        if (r.was_high_tier) highTier += amount;
+      }
+      return { total, highTier };
+    }));
     const result = froWorkers.map((w, i) => {
-      const amount = workerAmounts[i];
+      const amount = workerAmounts[i].total;
+      const highTierAmount = workerAmounts[i].highTier;
       const achieved = achievedMap[w.id];
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
         collection_amount: achieved != null && achieved > 0 ? achieved : amount,
+        // Not part of collection_amount's target override — this is money, so it
+        // always reports what was actually collected from High Tier data.
+        high_tier_amount: Math.round(highTierAmount * 100) / 100,
         ...(achieved != null && achieved > 0 ? { is_achieved: true } : {}),
       };
     });
@@ -4762,15 +4779,63 @@ export const getHighTierBatches = async (req, res) => {
           ngo_id: r.ngo_id,
           distributed_at: r.distributed_at,
           total: 0,
+          // Rupee total this batch has produced in the window, and the same
+          // split per target station. Filled below; zeros when nothing landed.
+          collected_amount: 0,
           targets: [],
         });
       }
       const batch = grouped.get(key);
       batch.total += r.count;
-      batch.targets.push({ station: r.station, count: r.count });
+      batch.targets.push({ station: r.station, count: r.count, amount: 0 });
     }
 
-    return res.json({ batches: [...grouped.values()] });
+    // How much money each batch (and each of its target stations) actually
+    // produced in the current IST month.
+    //
+    // Counted from receipts — the same source as the Collected card and the
+    // admin Collection total — joined through the lead's log to the assignment
+    // that still carries the batch id, so the money is attributed to exactly the
+    // rows the counts above describe. A batch whose slice has been moved shows
+    // its targets re-pointed, matching the count pills beside it.
+    //
+    // Best-effort: a failure here (or an un-migrated database) leaves the counts
+    // intact and only zeroes the rupee figures.
+    const monthBounds = istMonthBounds();
+    try {
+      const collectedRows = await sql(
+        `SELECT a.high_tier_batch_id AS batch_id,
+                a.station AS station,
+                COALESCE(SUM(r.amount), 0) AS amount
+           FROM receipts r
+           JOIN fro_donor_logs l ON l.id = r.log_id
+           JOIN fro_assignments a ON a.id = l.assignment_id
+          WHERE a.high_tier_batch_id IS NOT NULL
+            AND a.status IS DISTINCT FROM 'reassigned'
+            AND a.ngo_id = ANY($1)
+            AND ${HIGH_TIER_LOG_PREDICATE('l', 'a')}
+            AND r.receipt_date >= ($2::date AT TIME ZONE 'Asia/Kolkata')
+            AND r.receipt_date < (($3::date + 1) AT TIME ZONE 'Asia/Kolkata')
+          GROUP BY 1, 2`,
+        [scopeNgoIds, monthBounds.startDay, monthBounds.endDay]
+      );
+      const byBatchStation = new Map();
+      for (const row of collectedRows || []) {
+        byBatchStation.set(`${row.batch_id}|${row.station}`, parseFloat(row.amount || 0));
+      }
+      for (const [key, batch] of grouped) {
+        let sum = 0;
+        for (const t of batch.targets) {
+          t.amount = byBatchStation.get(`${key}|${t.station}`) || 0;
+          sum += t.amount;
+        }
+        batch.collected_amount = Math.round(sum * 100) / 100;
+      }
+    } catch (collectErr) {
+      console.warn('getHighTierBatches: collection lookup failed:', collectErr.message);
+    }
+
+    return res.json({ batches: [...grouped.values()], period: monthBounds.monthKey });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4846,6 +4911,38 @@ export const highTierRestore = async (req, res) => {
       // The current owner at the TARGET station loses this row on restore, so
       // drop their cached list as well or it lingers until the TTL.
       if (row.fro_worker_id) touchedFroIds.add(row.fro_worker_id);
+    }
+
+    // Snapshot the High Tier classification onto the collection rows BEFORE the
+    // update below clears the assignment's provenance. The collection reports
+    // read fro_donor_logs, which is never rewritten, so money already earned on
+    // this batch keeps counting as High Tier money after the data is sent home.
+    //
+    // Best-effort and OUTSIDE the transaction on purpose: this is a best-effort
+    // label, and a failed statement inside the transaction would abort the whole
+    // restore. A failure here (columns not in place yet) only costs the label on
+    // rows that were still live at restore time.
+    //
+    // The created_at guard mirrors HIGH_TIER_LOG_PREDICATE: a lead that was
+    // already worked before this batch was distributed was never High Tier money,
+    // and after the restore there is no distributed_at left to compare against —
+    // so the decision has to be made now, while it still exists.
+    try {
+      await sql(
+        `UPDATE fro_donor_logs l
+            SET was_high_tier = true,
+                high_tier_batch_id = COALESCE(l.high_tier_batch_id, a.high_tier_batch_id),
+                high_tier_source_station = COALESCE(l.high_tier_source_station, a.high_tier_source_station)
+           FROM fro_assignments a
+          WHERE a.id = l.assignment_id
+            AND a.high_tier_batch_id = $1
+            AND a.ngo_id = ANY($2)
+            AND (a.high_tier_distributed_at IS NULL OR l.created_at >= a.high_tier_distributed_at)
+            AND l.was_high_tier = false`,
+        [batch_id, scopeNgoIds]
+      );
+    } catch (snapErr) {
+      console.warn('highTierRestore: High Tier collection snapshot failed:', snapErr.message);
     }
 
     // Same reasoning as highTierDistribute: one transaction so a mid-way failure
@@ -6350,7 +6447,7 @@ export const getTLDashboard = async (req, res) => {
     }
 
     if (ngoIds.length === 0) return res.json({ 
-      kpis: { total_fros: 0, calling: 0, meeting: 0, idle: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0, suspenses: 0 },
+      kpis: { total_fros: 0, calling: 0, meeting: 0, idle: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, received_amount_high_tier: 0, followups_due: 0, target_pct: 0, unclassified: 0, suspenses: 0 },
       idle_alerts: [],
       collections_per_ngo: [],
       funnel: [],
@@ -6591,8 +6688,9 @@ export const getTLDashboard = async (req, res) => {
     for (const a of access) ngoNameById[String(a.ngo_id)] = a.ngo_name;
     const perNgoCollectionMap = {};
     const recParams = [rangeFromDay, rangeToDay, ngoIds];
-    let recSql = `SELECT fa.ngo_id, COALESCE(SUM(r.amount),0) AS total
-                  FROM receipts r
+    // WHERE clause kept separate from the SELECT list so the High Tier lookup
+    // below can reuse the exact same rows with one extra condition.
+    let recWhere = `FROM receipts r
                   LEFT JOIN fro_donor_logs l ON l.id = r.log_id
                   LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
                   WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
@@ -6600,10 +6698,9 @@ export const getTLDashboard = async (req, res) => {
                     AND fa.ngo_id = ANY($3)`;
     if (fro_id) {
       recParams.push(fro_id);
-      recSql += ` AND l.fro_worker_id = $${recParams.length}`;
+      recWhere += ` AND l.fro_worker_id = $${recParams.length}`;
     }
-    recSql += ` GROUP BY fa.ngo_id`;
-    const receiptRows = await sql(recSql, recParams);
+    const receiptRows = await sql(`SELECT fa.ngo_id, COALESCE(SUM(r.amount),0) AS total ${recWhere} GROUP BY fa.ngo_id`, recParams);
     for (const row of receiptRows) {
       const nid = row.ngo_id;
       if (nid == null) continue;
@@ -6616,6 +6713,24 @@ export const getTLDashboard = async (req, res) => {
     }));
     // Collection card headline: sum of the per-NGO receipt-date totals across the active range.
     const receivedAmount = Object.values(perNgoCollectionMap).reduce((s, a) => s + (a || 0), 0);
+
+    // How much of that headline came out of High Tier data: the same scan,
+    // narrowed by the High Tier predicate and summed instead of grouped. A
+    // subset of receivedAmount by construction, so the card's "High Tier se"
+    // line can never exceed the total above it. Zeros on failure — an
+    // un-migrated database must not take the Collection card down with it.
+    let receivedHighTier = 0;
+    if (receivedAmount > 0) {
+      try {
+        const htRows = await sql(
+          `SELECT COALESCE(SUM(r.amount),0) AS total ${recWhere} AND ${HIGH_TIER_LOG_PREDICATE('l', 'fa')}`,
+          recParams
+        );
+        receivedHighTier = parseFloat(htRows?.[0]?.total || 0);
+      } catch (htErr) {
+        console.warn('getTLDashboard: High Tier collection lookup failed:', htErr.message);
+      }
+    }
 
     // Connected / non-connected reason breakdowns
     const connectedBreakdownMap = {};
@@ -7152,6 +7267,8 @@ export const getTLDashboard = async (req, res) => {
         interested,
         donations,
         received_amount: receivedAmount,
+        // The High Tier slice of received_amount (never an addition to it).
+        received_amount_high_tier: Math.round(receivedHighTier * 100) / 100,
         followups_due: followupsDue,
         target_pct: targetPct,
         suspenses: suspenseCount || 0,
