@@ -1,11 +1,26 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle } from 'lucide-react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle, Clock } from 'lucide-react';
+import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
 import { istMonthKey } from '../../../utils/istDate';
 import { dispositionGroupOf, dispositionLabelOf } from '../../../lib/dispositions';
+import TemporaryAccessModal from './TemporaryAccessModal';
+
+// IST (Asia/Kolkata) helpers for temporary-access badges: the grant stores
+// UTC timestamptz; admins read IST, so every display goes through the zone
+// explicitly rather than the browser's local time.
+const fmtIstShort = (v) => {
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '--';
+  return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+};
+const fmtIstDateTime = (v) => {
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '--';
+  return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
 
 const NGO_NAME_COLORS = {
   bsct: '#2563eb',
@@ -1041,7 +1056,7 @@ function SourcePill({ source, monthsEmployed, sourceMonth }) {
 }
 
 // Per-row ⋮ kebab menu (absolute overlay; does not affect column widths).
-function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onDownload, onTarget, onDelete }) {
+function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onDownload, onTarget, onGrantTempAccess, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1077,6 +1092,11 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewL
             </button>
           )}
           {onDownload && <button onClick={run(onDownload)} style={itemStyle}>⤓ Download Excel</button>}
+          {onGrantTempAccess && (
+            <button onClick={run(onGrantTempAccess)} style={{ ...itemStyle, fontWeight: 600, color: '#1d4ed8' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Clock size={14} /> Grant temporary access</span>
+            </button>
+          )}
           <div style={{ borderTop: '1px solid var(--line, #e5e7eb)', margin: '4px 0' }} />
           <button onClick={run(onDelete)} style={{ ...itemStyle, color: 'var(--danger)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Trash2 size={14} /> Delete station</span></button>
         </div>
@@ -2567,6 +2587,50 @@ export default function StationManagement() {
   // admin clicked - without it the list unions them all and the count disagrees
   // with the per-NGO pill on the row.
   const [donorListTarget, setDonorListTarget] = useState(null);
+  // Temporary Data Access: which station's "Grant temporary access" modal is
+  // open ({ station, ngoId, permanentFroId, permanentFroName, donorCount }).
+  // Separate from editNgoStation/permanent-assignment state on purpose — the
+  // grant flow must never route through the permanent FRO dropdown.
+  const [tempAccessTarget, setTempAccessTarget] = useState(null);
+  // Live grants for the whole table: rendered as a per-station badge so the
+  // admin SEES who currently has temporary access without leaving this page,
+  // and can revoke it inline. Refetched after every grant/revoke.
+  const [tempGrants, setTempGrants] = useState([]);
+  const [revokeGrantTarget, setRevokeGrantTarget] = useState(null); // { grant, station }
+  const [revokingGrant, setRevokingGrant] = useState(false);
+
+  const loadTempGrants = () => {
+    listTemporaryAccess()
+      .then(rows => setTempGrants(Array.isArray(rows) ? rows : []))
+      .catch(() => setTempGrants([])); // feature off (503) → simply no badges
+  };
+
+  // Live (ACTIVE or SCHEDULED) grants covering this station row's (station,
+  // NGO) pair — what the badge shows and what revoke acts on. A row can
+  // theoretically hold grants from multiple NGOs' scopes, so it returns a list.
+  const liveGrantsFor = (s) => {
+    const ngoId = ngoScopeForRow(s);
+    return tempGrants.filter(g =>
+      g.station === s.station
+      && (g.computed_status === 'ACTIVE' || g.computed_status === 'SCHEDULED')
+      && (!ngoId || !g.ngo_id || g.ngo_id === ngoId)
+    );
+  };
+
+  const handleRevokeGrant = async () => {
+    if (!revokeGrantTarget) return;
+    setRevokingGrant(true);
+    try {
+      await revokeTemporaryAccess(revokeGrantTarget.grant.id, { reason: 'Revoked from station management' });
+      setMsg(`Temporary access to ${revokeGrantTarget.station} revoked. ${revokeGrantTarget.grant.working_fro_name || 'The FRO'} no longer sees this station — completed work is untouched.`);
+      setRevokeGrantTarget(null);
+      loadTempGrants();
+    } catch (e) {
+      setMsg(`Revoke failed: ${e?.message || 'unknown error'}`);
+    } finally {
+      setRevokingGrant(false);
+    }
+  };
 
   // Resolve which NGO a station row means: the tab currently being viewed when
   // that NGO owns this station, else the row's first NGO. Falls back to null when
@@ -2648,6 +2712,7 @@ export default function StationManagement() {
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('fetchData transfers error:', err));
+    loadTempGrants();
     const ngoParam = selectedNgoId !== 'all' ? '&ngo_id=' + selectedNgoId : '';
     apiGet('/ngo-admin/targets?month=' + m + ngoParam).then(t => {
       if (Array.isArray(t)) setTargets(t);
@@ -3083,6 +3148,23 @@ export default function StationManagement() {
                               → {at.target_station}
                             </div>
                           )}
+                          {liveGrantsFor(s).map(g => (
+                            <div key={g.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                              <span
+                                title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST. Ownership unchanged: ${(froWorkers.find(fw => fw.id === s.fro_worker_id) || {}).name || 'the permanent FRO'} remains the permanent FRO.`}
+                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              >
+                                <Clock size={10} />
+                                TEMP: {g.working_fro_name || 'FRO'} till {fmtIstShort(g.expires_at)}
+                              </span>
+                              <button
+                                onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                                title="Revoke this temporary access now"
+                                aria-label="Revoke temporary access"
+                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                              >✕ Revoke</button>
+                            </div>
+                          ))}
                         </td>
                         <td className="ng-nh">
                           <span onClick={() => setEditNgoStation(s.station)}
@@ -3114,6 +3196,14 @@ export default function StationManagement() {
                               })}
                               onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
                               onTarget={() => openTarget(s)}
+                              onGrantTempAccess={() => setTempAccessTarget({
+                                station: s.station,
+                                ngoId: ngoScopeForRow(s),
+                                permanentFroId: s.fro_worker_id || null,
+                                permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null,
+                                // donor_count is a per-NGO map: { ngo_id: count }
+                                donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0,
+                              })}
                               onDelete={() => handleDeleteStation(s.station)}
                             />
                           </div>
@@ -3238,6 +3328,50 @@ export default function StationManagement() {
           onChanged={() => fetchData()}
           onDownloadExcel={(ngoId) => downloadStationExcel(donorListTarget.station, ngoId)}
         />
+      )}
+
+      {tempAccessTarget && (
+        <TemporaryAccessModal
+          target={tempAccessTarget}
+          froWorkers={froWorkers}
+          existingGrants={liveGrantsFor({ station: tempAccessTarget.station, ngo_id: tempAccessTarget.ngoId })}
+          onClose={() => setTempAccessTarget(null)}
+          // Granting changes no station field on this page (ownership untouched),
+          // but the temp-access badges must reflect the new/changed grant.
+          onGranted={() => loadTempGrants()}
+        />
+      )}
+
+      {/* ── Revoke temporary access confirmation ── */}
+      {revokeGrantTarget && (
+        <div className="modal-overlay" onClick={() => !revokingGrant && setRevokeGrantTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 430 }}>
+            <div className="modal-head">
+              <h3>Revoke temporary access — {revokeGrantTarget.station}</h3>
+              <button className="icon-btn" onClick={() => setRevokeGrantTarget(null)} aria-label="Close" disabled={revokingGrant}><X size={16} /></button>
+            </div>
+            <div style={{ padding: 16, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 10px' }}>
+                <b>{revokeGrantTarget.grant.working_fro_name || 'The FRO'}</b> immediately loses access to <b>{revokeGrantTarget.station}</b> on
+                their next request — the station disappears from their list and open pages will show a notice.
+              </div>
+              <div style={{ color: 'var(--ink-soft)' }}>
+                Completed calls, dispositions, donations and receipts stay exactly where they are, and{' '}
+                <b>{revokeGrantTarget.grant.permanent_fro_name || 'the permanent FRO'}</b> remains the permanent owner.
+                You can grant access again at any time.
+              </div>
+            </div>
+            <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => setRevokeGrantTarget(null)} disabled={revokingGrant}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                disabled={revokingGrant}
+                onClick={handleRevokeGrant}
+              >{revokingGrant ? 'Revoking…' : 'Revoke now'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

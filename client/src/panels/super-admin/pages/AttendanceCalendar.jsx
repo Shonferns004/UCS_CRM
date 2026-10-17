@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
+import { CalendarBlank } from '@phosphor-icons/react'
 
 // Status -> colour mapping (same as screenshot)
 const STATUS_STYLES = {
-  present:  { bg: '#B9EFCE', text: '#1B7A3D' },
-  absent:   { bg: '#FBDBD6', text: '#B3392B' },
-  leave:    { bg: '#D6E4FB', text: '#2B5FB3' },
-  late:     { bg: '#FDE0BC', text: '#B37122' },
-  'half-day': { bg: '#EBDDF7', text: '#7B3FB3' },
-  holiday:  { bg: '#EBDDF7', text: '#7B3FB3' },
+  present:  { bg: '#DDF8E7', text: '#13783D', label: 'Present' },
+  absent:   { bg: '#FFE0E3', text: '#C6283D', label: 'Absent' },
+  leave:    { bg: '#E0ECFF', text: '#245AC6', label: 'Leave' },
+  late:     { bg: '#FFE4BE', text: '#A85B0A', label: 'Late' },
+  'half-day': { bg: '#EDE4FF', text: '#6D3FC4', label: 'Half-day' },
+  holiday:  { bg: '#F0EDFB', text: '#5B4FA8', label: 'Holiday' },
 }
+
+// Single source for the legend, so the swatches can never drift from the
+// colours actually painted on the day cells.
+const LEGEND = Object.keys(STATUS_STYLES).map(k => ({ key: k, ...STATUS_STYLES[k] }))
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
@@ -122,8 +127,7 @@ export default function AttendanceCalendar({ workerId, worker }) {
   const today = new Date()
   const [month, setMonth] = useState(today.getMonth())
   const [year, setYear] = useState(today.getFullYear())
-  const [records, setRecords] = useState({}) // { 'YYYY-MM-DD': { status, event } }
-  const [calendarDates, setCalendarDates] = useState({}) // { 'YYYY-MM-DD': ['event', 'birthday'] }
+  const [records, setRecords] = useState({}) // { 'YYYY-MM-DD': { status } }
   const [selectedDate, setSelectedDate] = useState(null)
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -167,7 +171,9 @@ export default function AttendanceCalendar({ workerId, worker }) {
     const monthKey = `${year}-${mm}`
     Promise.all([
       api(`/attendance/worker/${workerId}?month=${monthKey}`).catch(() => []),
-      api(`/calendar?year=${year}&month=${mm}`).catch(() => ({ events: [], holidays: [], birthdays: [] })),
+      // Only holidays are still consumed here (they paint a day cell); the
+      // events/birthdays payloads are no longer surfaced in this view.
+      api(`/calendar?year=${year}&month=${mm}`).catch(() => ({ holidays: [] })),
     ]).then(([attList, calData]) => {
       const map = {}
       ;(attList || []).forEach(r => { map[r.date] = r })
@@ -175,23 +181,12 @@ export default function AttendanceCalendar({ workerId, worker }) {
         if (!map[h.date]) map[h.date] = { date: h.date, status: 'holiday' }
       })
       setRecords(map)
-
-      const calMap = {}
-      ;(calData.events || []).forEach(e => {
-        if (e.date) calMap[e.date] = [...(calMap[e.date] || []), 'event']
-      })
-      ;(calData.birthdays || []).forEach(b => {
-        if (b.date) calMap[b.date] = [...(calMap[b.date] || []), 'birthday']
-      })
-      setCalendarDates(calMap)
-    }).catch(() => { setRecords({}); setCalendarDates({}) })
+    }).catch(() => { setRecords({}) })
   }
   useEffect(load, [workerId, month, year])
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDay = new Date(year, month, 1).getDay() // 0 = Sunday
-
-  const calForDate = (d) => calendarDates[dateKey(d)] || []
 
   // Monthly consistency = present (+ late + half-day counted) / marked working days
   let presentCount = 0, markedCount = 0
@@ -229,6 +224,17 @@ export default function AttendanceCalendar({ workerId, worker }) {
     setDraft(null)
     setPanelErr('')
   }
+
+  // The editor opens as a modal, so Escape dismisses it like the app's other
+  // dialogs. Blocked while a save is in flight so a stray keypress can't drop
+  // the user's edits mid-request.
+  useEffect(() => {
+    if (!selectedDate) return
+    const onKey = (e) => { if (e.key === 'Escape' && !saving) closePanel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closePanel only uses stable setters
+  }, [selectedDate, saving])
 
   const handleSave = async () => {
     if (!selectedDate || !draft) return
@@ -282,10 +288,25 @@ export default function AttendanceCalendar({ workerId, worker }) {
   for (let i = 0; i < firstDay; i++) cells.push(null)
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
 
+  // Real per-status counts for the selected month, from the same `records`
+  // map the grid paints from. Hidden entirely when the month has no records,
+  // since an all-zero block would be noise.
+  const statusCounts = {}
+  for (let d = 1; d <= daysInMonth; d++) {
+    const status = records[dateKey(d)]?.status
+    if (!status) continue
+    statusCounts[status] = (statusCounts[status] || 0) + 1
+  }
+  const countRows = Object.keys(STATUS_STYLES)
+    .map(k => ({ key: k, ...STATUS_STYLES[k], n: statusCounts[k] || 0 }))
+    .filter(r => r.n > 0)
+
   return (
     <div className="sa-card att-cal-card">
       <div className="att-cal-header">
-        <h3 className="sa-card-title" style={{ margin: 0 }}>Attendance Calendar</h3>
+        <h3 className="sa-card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CalendarBlank size={16} />Attendance Calendar
+        </h3>
         <div className="att-cal-nav">
           <button className="att-nav-btn" onClick={prevMonth} aria-label="Previous month">&#8249;</button>
           <span className="att-cal-month">{MONTHS[month]} {year}</span>
@@ -293,16 +314,32 @@ export default function AttendanceCalendar({ workerId, worker }) {
         </div>
       </div>
 
-      <div className="att-consistency">
-        <div className="att-consistency-row">
-          <span className="att-consistency-label">Monthly Consistency</span>
-          <span className="att-consistency-value">{consistency}%</span>
-        </div>
-        <div className="att-progress">
-          <div className="att-progress-fill" style={{ width: `${consistency}%` }} />
-        </div>
-      </div>
+      <div className="att-body">
+        <aside className="att-summary">
+          <div className="att-consistency">
+            <div className="att-consistency-row">
+              <span className="att-consistency-label">Monthly Consistency</span>
+              <span className="att-consistency-value">{consistency}%</span>
+            </div>
+            <div className="att-progress" role="progressbar" aria-valuenow={consistency} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly consistency">
+              <div className="att-progress-fill" style={{ width: `${consistency}%` }} />
+            </div>
+          </div>
 
+          {countRows.length > 0 && (
+            <ul className="att-counts">
+              {countRows.map(r => (
+                <li className="att-count" key={r.key}>
+                  <span className="att-count-swatch" style={{ background: r.bg }} />
+                  <span className="att-count-label">{r.label}</span>
+                  <span className="att-count-n">{r.n}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+
+        <div className="att-gridwrap">
       <div className="att-grid">
         {['S','M','T','W','T','F','S'].map((d, i) => (
           <div key={i} className="att-weekday">{d}</div>
@@ -313,13 +350,18 @@ export default function AttendanceCalendar({ workerId, worker }) {
           const rec = records[dateStr]
           const style = rec ? STATUS_STYLES[rec.status] : null
           const selected = selectedDate === dateStr
+          const a11yLabel = `${d} ${MONTHS[month]} ${year}, ${style ? style.label : 'no record'}`
           return (
             <div
               key={d}
               className={`att-day${selected ? ' selected' : ''}`}
-              title={rec ? rec.status : ''}
+              title={a11yLabel}
+              aria-label={a11yLabel}
+              role="button"
+              tabIndex={0}
               style={style ? { background: style.bg, color: style.text, fontWeight: 600 } : {}}
               onClick={() => openDay(dateStr)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDay(dateStr) } }}
             >
               <span className="att-day-num">{d}</span>
               {(rec?.punch_in_time || rec?.punch_out_time) && (
@@ -329,18 +371,30 @@ export default function AttendanceCalendar({ workerId, worker }) {
                   {rec.punch_out_time && <span>{toTimeInput(rec.punch_out_time)}</span>}
                 </span>
               )}
-              {(rec?.event || calForDate(d).includes('event')) && <span className="att-dot" />}
-              {calForDate(d).includes('birthday') && <span className="att-cake">&#127874;</span>}
             </div>
           )
         })}
       </div>
+        </div>
+      </div>
 
+      {/* ── Day editor modal ──
+         Fixed overlay centred in the viewport rather than an inline block
+         below the grid. Backdrop click mirrors the app's other dialogs; the
+         panel stops propagation so clicks in the form never dismiss it, and
+         closes are blocked while a save is in flight. */}
       {selectedDate && draft && (
-        <div className="att-detail-panel">
+        <div className="att-modal-overlay" onClick={() => { if (!saving) closePanel() }}>
+        <div
+          className="att-detail-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Edit attendance for ${formatDateLabel(selectedDate)}`}
+          onClick={e => e.stopPropagation()}
+        >
           <div className="att-detail-head">
             <span className="att-detail-date">{formatDateLabel(selectedDate)}</span>
-            <button className="att-detail-close" onClick={closePanel} aria-label="Close">&times;</button>
+            <button className="att-detail-close" onClick={closePanel} disabled={saving} aria-label="Close">&times;</button>
           </div>
           {panelErr && <div className="att-detail-err">{panelErr}</div>}
           <div className="att-detail-fields">
@@ -376,17 +430,16 @@ export default function AttendanceCalendar({ workerId, worker }) {
             <button className="att-btn att-btn-save" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
           </div>
         </div>
+        </div>
       )}
 
       <div className="att-legend">
-        <span className="att-legend-item"><span className="att-swatch" style={{background:'#B9EFCE'}} /> Present</span>
-        <span className="att-legend-item"><span className="att-swatch" style={{background:'#FBDBD6'}} /> Absent</span>
-        <span className="att-legend-item"><span className="att-swatch" style={{background:'#D6E4FB'}} /> Leave</span>
-        <span className="att-legend-item"><span className="att-swatch" style={{background:'#FDE0BC'}} /> Late</span>
-        <span className="att-legend-item"><span className="att-swatch" style={{background:'#EBDDF7'}} /> Half-day</span>
-        <span className="att-legend-item"><span className="att-swatch" style={{background:'#EBDDF7'}} /> Holiday</span>
-        <span className="att-legend-item"><span className="att-dot" style={{position:'static'}} /> Event</span>
-        <span className="att-legend-item">&#127874; Birthday</span>
+        {LEGEND.map(item => (
+          <span className="att-legend-item" key={item.key}>
+            <span className="att-swatch" style={{ background: item.bg }} />
+            {item.label}
+          </span>
+        ))}
       </div>
 
       <style>{`
@@ -395,6 +448,8 @@ export default function AttendanceCalendar({ workerId, worker }) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 .att-cal-nav {
@@ -420,7 +475,45 @@ export default function AttendanceCalendar({ workerId, worker }) {
   border-radius: 6px;
 }
 .att-nav-btn:hover { background: #eef4fb; }
-.att-consistency { margin-bottom: 18px; }
+.att-body {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.att-summary { min-width: 0; }
+.att-gridwrap { min-width: 0; }
+.att-counts {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.att-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+.att-count:nth-child(odd) { background: #F8FBFF; }
+.att-count-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(16,27,58,.08);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #2B5FB3;
+}
+.att-count-label { color: #425A86; flex: 1; min-width: 0; }
+.att-count-n { font-weight: 700; color: #101B3A; font-variant-numeric: tabular-nums; }
+.att-consistency { margin-bottom: 0; }
 .att-consistency-row {
   display: flex;
   justify-content: space-between;
@@ -486,29 +579,15 @@ export default function AttendanceCalendar({ workerId, worker }) {
   margin: 0 1px;
   opacity: .6;
 }
-.att-day:hover {
+.att-day:hover,
+.att-day:focus-visible {
   box-shadow: 0 0 0 2px #2B5FB3;
   transform: translateY(-1px);
 }
+.att-day:focus { outline: none; }
 .att-day.selected {
   box-shadow: 0 0 0 2px #2B5FB3;
   transform: scale(1.06);
-}
-.att-dot {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #2B5FB3;
-  display: inline-block;
-}
-.att-cake {
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  font-size: 10px;
 }
 .att-legend {
   display: flex;
@@ -524,79 +603,123 @@ export default function AttendanceCalendar({ workerId, worker }) {
   color: #444;
 }
 .att-swatch {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border-radius: 5px;
-  display: inline-block;
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid rgba(16,27,58,.08);
+}
+/* Below this width the summary column would squeeze the seven calendar
+   columns under a usable cell width, so it moves above the grid. */
+@media (max-width: 900px) {
+  .att-body { grid-template-columns: minmax(0, 1fr); }
+  .att-counts { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .att-count { flex: 0 1 auto; background: #F8FBFF; }
+}
+/* ── Day editor modal ──
+   Fixed backdrop centred in the viewport, matching the app's other dialogs
+   (Reset Password uses the same overlay + z-index). Scrolling lives on the
+   overlay and centring on the panel's auto margins, so a short viewport
+   scrolls instead of clipping the panel's top — and the clock picker's
+   dropdown is never cut off by a panel-level overflow. */
+.att-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 27, 58, .45);
+  display: flex;
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 2000;
 }
 .att-detail-panel {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid #d0e4f5;
-  border-left: 4px solid #3485d4;
-  border-radius: 10px;
-  background: #f8fbff;
+  margin: auto;
+  width: min(100%, 440px);
+  padding: 18px;
+  border: 1px solid #DCE7F8;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(16, 27, 58, .25);
+}
+/* Tighter gutters on small screens so the centred editor keeps width.
+   Declared after the base rule so it wins at this breakpoint. */
+@media (max-width: 900px) {
+  .att-modal-overlay { padding: 12px; }
 }
 .att-detail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 12px;
 }
 .att-detail-date {
   font-size: 14px;
   font-weight: 700;
-  color: #333;
+  color: #101B3A;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .att-detail-close {
-  border: none;
-  background: transparent;
-  font-size: 20px;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #C9D9F4;
+  background: #fff;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
-  color: #9aa3ad;
-  padding: 0 4px;
-  border-radius: 6px;
+  color: #425A86;
+  border-radius: 7px;
 }
-.att-detail-close:hover { background: #eef4fb; color: #333; }
+.att-detail-close:hover { background: #EEF4FF; border-color: #A9C6F7; color: #1268F3; }
+.att-detail-close:focus-visible { outline: 2px solid #1268F3; outline-offset: 2px; }
 .att-detail-err {
   margin-bottom: 10px;
   padding: 8px 10px;
-  border-radius: 6px;
-  background: #FBDBD6;
-  color: #B3392B;
+  border-radius: 8px;
+  background: #FFE0E3;
+  color: #C6283D;
   font-size: 13px;
 }
 .att-detail-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
 .att-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   font-size: 12px;
   font-weight: 600;
-  color: #555;
+  color: #425A86;
+  min-width: 0;
 }
 .att-field input,
 .att-field select {
-  padding: 7px 9px;
-  border: 1px solid #d0e4f5;
-  border-radius: 7px;
-  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid #C9D9F4;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-family: inherit;
   background: #fff;
-  color: #333;
+  color: #101B3A;
   outline: none;
+  width: 100%;
 }
 .att-field input:focus,
-.att-field select:focus { border-color: #3485d4; }
+.att-field select:focus { border-color: #1268F3; box-shadow: 0 0 0 3px rgba(18,104,243,.14); }
 .att-detail-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .att-status-actions {
   display: flex;
@@ -606,31 +729,35 @@ export default function AttendanceCalendar({ workerId, worker }) {
 }
 .att-quick-btn {
   border: 1px solid;
-  padding: 6px 10px;
-  border-radius: 7px;
-  font-size: 12px;
-  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   background: #fff;
 }
-.att-quick-half { border-color: #b995d5; color: #7B3FB3; }
-.att-quick-half:hover { background: #EBDDF7; }
-.att-quick-present { border-color: #8ac7a2; color: #1B7A3D; }
-.att-quick-present:hover { background: #B9EFCE; }
+.att-quick-btn:focus-visible { outline: 2px solid #1268F3; outline-offset: 2px; }
+.att-quick-half { border-color: #D5BEF0; color: #6D3FC4; }
+.att-quick-half:hover { background: #F3ECFD; }
+.att-quick-present { border-color: #A8DEC0; color: #13783D; }
+.att-quick-present:hover { background: #DDF8E7; }
 .att-btn {
-  border: none;
+  border: 1px solid transparent;
   padding: 8px 18px;
-  border-radius: 8px;
+  border-radius: 9px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   color: #fff;
 }
+.att-btn:focus-visible { outline: 2px solid #1268F3; outline-offset: 2px; }
 .att-btn:disabled { opacity: .6; cursor: default; }
-.att-btn-save { background: #2A6B45; }
-.att-btn-save:hover:not(:disabled) { background: #1f5235; }
-.att-btn-null { background: #d9534f; }
-.att-btn-null:hover:not(:disabled) { background: #b93d39; }
+.att-btn-save { background: #1268F3; }
+.att-btn-save:hover:not(:disabled) { background: #0756D6; }
+.att-btn-null { background: #fff; border-color: #F3C2C4; color: #C6283D; }
+.att-btn-null:hover:not(:disabled) { background: #FFE0E3; }
       `}</style>
     </div>
   )

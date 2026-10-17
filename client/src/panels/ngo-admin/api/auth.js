@@ -52,4 +52,34 @@ export function listAllImpersonationCodes() {
   return apiGet('/impersonation-codes/all')
 }
 
+// ─── Temporary Data Access (admin permission layer) ──────────────────────────
+// Wraps /ngo-admin/temporary-access*. All calls are admin-guarded server-side;
+// a 503 with code TEMP_ACCESS_DISABLED means the feature flag is off.
+
+export function listTemporaryAccess(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/temporary-access${qs ? '?' + qs : ''}`)
+}
+
+export function getTemporaryAccess(id) {
+  return apiGet(`/ngo-admin/temporary-access/${id}`)
+}
+
+export function validateTemporaryAccess(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/temporary-access/validate${qs ? '?' + qs : ''}`)
+}
+
+export function createTemporaryAccess(body) {
+  return apiPost('/ngo-admin/temporary-access', body)
+}
+
+export function extendTemporaryAccess(id, body) {
+  return apiPost(`/ngo-admin/temporary-access/${id}/extend`, body)
+}
+
+export function revokeTemporaryAccess(id, body) {
+  return apiPost(`/ngo-admin/temporary-access/${id}/revoke`, body)
+}
+
 export { setSession, clearSession, getToken, getUser } from '../../../api/auth'

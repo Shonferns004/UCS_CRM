@@ -64,6 +64,7 @@ import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js'
 import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '../services/froCounterDay.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
+import { getActiveGrantPairs, canWorkAssignment, getActiveGrants } from '../services/temporaryAccessService.js';
 import redis from '../config/redis.cjs';
 
 // FRO read payloads are recomputed on every poll and on every page visit, and
@@ -226,6 +227,57 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   }
   if (!ngoId) return null;
 
+  // 2.5) TEMPORARY DATA ACCESS — work on someone else's assignment WITHOUT
+  //      taking it over. When a live admin grant covers the donor's current
+  //      (station, ngo), return that row AS-IS: fro_worker_id stays with the
+  //      original owner (Mahima), so ownership, portfolio reports and receipt
+  //      history are untouched, while the caller (Archana) can log calls,
+  //  dispositions and donations against the row. Those writes attribute to
+  //      her via fro_donor_logs.fro_worker_id = req.user.id (there is no
+  //      identity swap under this feature), which is what gives the collector
+  //      her credit.
+  //
+  //      This branch deliberately sits BEFORE the claim/create steps below:
+  //      those mutate fro_worker_id (claim unassigned, claim orphans, create)
+  //      and would leak permanent ownership out of the station the admin
+  //      granted access TO. A temp worker must never run them for a donor
+  //      outside her permanent scope. Unassigned rows are also returned
+  //      as-is (not claimed) for the same reason — temporary access never
+  //      changes who owns a donor, including from "nobody" to herself.
+  const tempGrants = await getActiveGrants(workerId);
+  if (tempGrants.length > 0) {
+    const grantKeys = new Set(tempGrants.map(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}`));
+    const { data: liveRows } = await db
+      .from('fro_assignments')
+      .select('id, station, ngo_id, fro_worker_id')
+      .eq('donor_id', donorId)
+      .eq('ngo_id', ngoId)
+      .or('status.neq.reassigned,status.is.null')
+      .limit(20);
+    const covered = (liveRows || []).find(r => grantKeys.has(`${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`));
+    if (covered) return { id: covered.id, station: covered.station, via_temporary_access: true };
+    // Grant exists but none of this donor's live rows are covered: deny ONLY
+    // when the rows also sit outside the worker's permanent station scope —
+    // rows inside her own stations must still reach the normal claim/create
+    // path below (their fro_worker_id may be null or a departed colleague's,
+    // and claiming those is pre-existing behavior this feature must not
+    // change). Rows elsewhere → 404, same as the ghost-row guard (Scenario F).
+    if ((liveRows || []).length > 0) {
+      const { data: myPermRows } = await db
+        .from('fro_station_assignments')
+        .select('station, ngo_id')
+        .eq('fro_worker_id', workerId);
+      const permKeys = new Set((myPermRows || [])
+        .filter(s => s.ngo_id && s.station)
+        .map(s => `${s.ngo_id}|${String(s.station).trim()}`));
+      const inPermanent = liveRows.some(r => permKeys.has(`${r.ngo_id}|${String(r.station ?? '').trim()}`));
+      if (!inPermanent) return null;
+    }
+    // No live row at all, or rows in her own stations: fall through to normal
+    // NGO-level resolution (a donor with no assignment anywhere is not
+    // temp-protected data; her own-station rows follow existing rules).
+  }
+
   // 3) Claim an unassigned lead (fro_worker_id is null) for this ngo.
   const { data: unassigned } = await db
     .from('fro_assignments')
@@ -348,14 +400,72 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
 async function getFroAssignment(donorId, workerId, ngoId) {
   let query = db
     .from('fro_assignments')
-    .select('id, ngo_id')
+    .select('id, ngo_id, station, fro_worker_id')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
     .not('status', 'eq', 'reassigned')
     .limit(1);
   if (ngoId) query = query.eq('ngo_id', ngoId);
-  const { data } = await query.maybeSingle();
-  return data || null;
+  const { data: owned } = await query.maybeSingle();
+  if (owned) return owned;
+
+  // Temporary fallback: no owned row, so check whether a LIVE admin grant
+  // covers one of this donor's current rows. Returns the row WITHOUT any
+  // ownership implication (handlers here only read or update donor_profiles
+  // fields), so the owner's assignment stays untouched. Deny-by-default: no
+  // grant, expired/revoked grant, or a row in another station → null → 403.
+  const tempGrants = await getActiveGrants(workerId);
+  if (tempGrants.length === 0) return null;
+  const grantKeys = new Set(tempGrants.map(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}`));
+  let rowsQuery = db
+    .from('fro_assignments')
+    .select('id, ngo_id, station, fro_worker_id')
+    .eq('donor_id', donorId)
+    .or('status.neq.reassigned,status.is.null')
+    .limit(20);
+  if (ngoId) rowsQuery = rowsQuery.eq('ngo_id', ngoId);
+  const { data: rows } = await rowsQuery;
+  const covered = (rows || []).find(r => grantKeys.has(`${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`));
+  return covered || null;
+}
+
+// Turns a plain deny into an EXPLAINABLE one. When this worker once held a
+// temporary grant on the donor's station, the client deserves to know access
+// ENDED (revoked / expired) rather than a generic "access denied" — the panel
+// shows it as a banner so a stale open tab explains itself. Runs only on
+// denial paths, never on success. Falls back to the original status/message
+// when the station was never granted to this worker, so ordinary IDOR
+// denials keep their exact existing shape.
+async function denyWithTempAccessCode(res, workerId, donorId, fallbackStatus, fallbackMessage) {
+  try {
+    const { rows: donorRows } = await db._pool.query(
+      `SELECT station, ngo_id FROM fro_assignments
+        WHERE donor_id = $1 AND (status IS NULL OR status <> 'reassigned')
+        LIMIT 20`,
+      [donorId],
+    );
+    for (const r of donorRows || []) {
+      const { rows: grants } = await db._pool.query(
+        `SELECT status FROM temporary_data_assignments
+          WHERE working_fro_worker_id = $1 AND station = $2 AND ngo_id = $3
+          ORDER BY updated_at DESC LIMIT 1`,
+        [workerId, r.station, r.ngo_id],
+      );
+      const g = grants?.[0];
+      if (!g) continue;
+      if (g.status === 'REVOKED') {
+        return res.status(403).json({
+          message: `Your temporary access to station ${r.station} was revoked by an admin.`,
+          code: 'TEMP_ACCESS_REVOKED',
+        });
+      }
+      return res.status(403).json({
+        message: `Your temporary access to station ${r.station} has expired or is not active right now.`,
+        code: 'TEMP_ACCESS_DENIED',
+      });
+    }
+  } catch { /* fall through to the plain denial */ }
+  return res.status(fallbackStatus).json({ message: fallbackMessage });
 }
 
 async function getMyStationNames(workerId) {
@@ -383,6 +493,32 @@ async function getMyStationScope(workerId, restrictPairs = null) {
     .eq('fro_worker_id', workerId);
   if (error) throw error;
   let scope = (stationAssigns || []).map(s => ({ station: s.station, ngo_id: s.ngo_id }));
+
+  // Temporary Data Access: union in the worker's LIVE admin-granted station
+  // pairs. Granting access adds a row to temporary_data_assignments and never
+  // touches fro_station_assignments, so permanent ownership stays exactly
+  // where it was — this union is the ONLY place temporary visibility enters
+  // the read paths. getActiveGrantPairs re-validates the start/expiry window
+  // on every call (a cached row can never outlive expires_at) and fails closed
+  // when the feature flag is off or the lookup errors.
+  try {
+    const tempPairs = await getActiveGrantPairs(workerId);
+    if (tempPairs.length > 0) {
+      const seen = new Set(scope.map(s => `${s.ngo_id ?? ''}|${String(s.station).trim()}`));
+      for (const p of tempPairs) {
+        const key = `${p.ngo_id ?? ''}|${String(p.station).trim()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          scope.push({ station: p.station, ngo_id: p.ngo_id, via_temporary_access: true });
+        }
+      }
+    }
+  } catch (e) {
+    // The helper already fails closed; this catch is belt-and-braces so a
+    // temp-layer failure can never break an FRO's permanent donor list.
+    console.warn('[temp access] scope union skipped:', e?.message || String(e));
+  }
+
   if (restrictPairs && restrictPairs.length > 0) {
     const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
     scope = scope.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station).trim()}`));
@@ -3641,7 +3777,7 @@ export const updateDonorStatus = async (req, res) => {
     if (!status) return res.status(400).json({ message: 'status is required' });
 
     let assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
-    if (!assignment) return res.status(404).json({ message: 'Assignment not found' });
+    if (!assignment) return denyWithTempAccessCode(res, workerId, donorId, 404, 'Assignment not found');
 
     // Fill in station if missing (old rows created before station tracking)
     if (!assignment.station && ngo_id) {
@@ -3707,7 +3843,7 @@ export const updateDonorType = async (req, res) => {
     }
 
     const assignment = await getFroAssignment(donorId, req.user.id, ngo_id);
-    if (!assignment) return res.status(403).json({ message: 'Access denied' });
+    if (!assignment) return denyWithTempAccessCode(res, req.user.id, donorId, 403, 'Access denied');
 
     const { data, error } = await db
       .from('donor_profiles')
@@ -3756,6 +3892,27 @@ export const getDonorLogs = async (req, res) => {
         .not('status', 'eq', 'reassigned')
         .maybeSingle();
       assignment = data;
+    }
+
+    // Temporary fallback: the donor belongs to another FRO (owner) but a LIVE
+    // admin grant may cover its current station — then this worker is allowed
+    // to READ the same timeline she is allowed to write logs to. Row returned
+    // read-only; ownership untouched. No grant → assignment stays null →
+    // empty result, same as today's out-of-scope response shape.
+    if (!assignment) {
+      const tempGrants = await getActiveGrants(workerId);
+      if (tempGrants.length > 0) {
+        const grantKeys = new Set(tempGrants.map(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}`));
+        let tq = db
+          .from('fro_assignments')
+          .select(ASSIGN_COLS + ', station, fro_worker_id')
+          .eq('donor_id', donorId)
+          .or('status.neq.reassigned,status.is.null')
+          .limit(20);
+        if (ngo_id) tq = tq.eq('ngo_id', ngo_id);
+        const { data: rows } = await tq;
+        assignment = (rows || []).find(r => grantKeys.has(`${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`)) || null;
+      }
     }
 
     let logs = [];
@@ -3894,7 +4051,7 @@ export const createDonorLogHandler = async (req, res) => {
     if (!allowedActions.includes(action)) return res.status(400).json({ message: `Invalid action. Must be one of: ${allowedActions.join(', ')}` });
 
     const assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
-    if (!assignment) return res.status(404).json({ message: 'Donor not found or no NGO assigned' });
+    if (!assignment) return denyWithTempAccessCode(res, workerId, donorId, 404, 'Donor not found or no NGO assigned');
 
     const logData = {
       assignment_id: assignment.id,
@@ -4289,7 +4446,7 @@ export const scheduleContact = async (req, res) => {
     if (isNaN(new Date(scheduled_at).getTime())) return res.status(400).json({ message: 'scheduled_at must be a valid date' });
 
     const assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
-    if (!assignment) return res.status(404).json({ message: 'Donor not found' });
+    if (!assignment) return denyWithTempAccessCode(res, workerId, donorId, 404, 'Donor not found');
 
     // Clear any existing pending schedules
     await completeAllScheduledByAssignment(assignment.id);
@@ -4467,7 +4624,43 @@ export const getMyStations = async (req, res) => {
       station: s.station,
       ngo_id: s.ngo_id,
       ngo_name: s.ngos?.name || null,
+      via_temporary_access: false,
     }));
+
+    // Temporary Data Access: append the stations this worker may work under a
+    // LIVE admin grant, flagged so the client can label them (read-only
+    // "Temporary access" chip with the expiry time) and never confuse them
+    // with permanent seats. Same act_stations narrowing as permanent rows for
+    // work-as sessions.
+    try {
+      const tempGrants = await getActiveGrants(workerId);
+      if (tempGrants.length > 0) {
+        const seen = new Set(mapped.map(s => `${s.ngo_id ?? ''}|${String(s.station).trim()}`));
+        const missing = tempGrants.filter(p => !seen.has(`${p.ngo_id ?? ''}|${String(p.station).trim()}`));
+        if (missing.length > 0) {
+          const { data: ngos } = await db
+            .from('ngos')
+            .select('id, name')
+            .in('id', missing.map(p => p.ngo_id).filter(Boolean));
+          const nameById = {};
+          for (const n of ngos || []) nameById[n.id] = n.name;
+          for (const p of missing) {
+            mapped.push({
+              station: p.station,
+              ngo_id: p.ngo_id,
+              ngo_name: nameById[p.ngo_id] || null,
+              via_temporary_access: true,
+              temp_grant_id: p.id,
+              temp_expires_at: p.expires_at,
+            });
+          }
+          mapped.sort((a, b) => String(a.station).localeCompare(String(b.station)));
+        }
+      }
+    } catch (e) {
+      console.warn('[temp access] my-stations union skipped:', e?.message || String(e));
+    }
+
     // Acting session: narrow dropdown to claimed stations only (e.g. DH-1 not FD-1)
     if (actPairs && actPairs.length > 0) {
       const allowed = new Set(actPairs.map(p => `${p.ngo_id ?? ''}|${String(p.station ?? '').trim()}`));
@@ -5383,7 +5576,7 @@ export const getDonorHistory = async (req, res) => {
       myScope
     );
     if (!checkAccess || checkAccess.length === 0) {
-      return res.status(403).json({ message: 'Access denied' });
+      return denyWithTempAccessCode(res, workerId, donorId, 403, 'Access denied');
     }
 
     const assignmentIds = checkAccess.map(a => a.id);
@@ -7167,7 +7360,7 @@ export const updateDonorFrequency = async (req, res) => {
       return res.status(400).json({ message: `Frequency must be one of: ${allowed.join(', ')}` });
     }
     const assignment = await getFroAssignment(donorId, req.user.id, ngo_id);
-    if (!assignment) return res.status(403).json({ message: 'Access denied' });
+    if (!assignment) return denyWithTempAccessCode(res, req.user.id, donorId, 403, 'Access denied');
     const { data, error } = await db
       .from('donor_profiles')
       .update({ donation_frequency: frequency })
@@ -7188,34 +7381,12 @@ export const getDonorDonations = async (req, res) => {
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { ngo_id, period = 'this_year' } = req.query;
 
-    let assignment = null;
-    if (ngo_id) {
-      // A donor can hold duplicate assignment rows (same worker + NGO); picking
-      // any one here is safe because NGO scope (and the donor's whole history in
-      // it) is what matters for the donations read, not the specific row.
-      const { data } = await db
-        .from('fro_assignments')
-        .select('id, ngo_id')
-        .eq('donor_id', donorId)
-        .eq('fro_worker_id', workerId)
-        .eq('ngo_id', ngo_id)
-        .not('status', 'eq', 'reassigned')
-        .limit(1)
-        .maybeSingle();
-      assignment = data;
-    } else {
-      const { data } = await db
-        .from('fro_assignments')
-        .select('id, ngo_id')
-        .eq('donor_id', donorId)
-        .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned')
-        .limit(1)
-        .maybeSingle();
-      assignment = data;
-    }
+    // Owned-row lookup with the temporary-access fallback (getFroAssignment)
+    // — a live admin grant covering the donor's current station authorizes
+    // this read without touching ownership. Same 403 shape as before otherwise.
+    const assignment = await getFroAssignment(donorId, workerId, ngo_id);
     if (!assignment) {
-      return res.status(403).json({ message: 'Access denied' });
+      return denyWithTempAccessCode(res, workerId, donorId, 403, 'Access denied');
     }
 
     let project = null;
@@ -7371,7 +7542,7 @@ export const getDonorReceipts = async (req, res) => {
     if (!ngoId) return res.status(400).json({ message: 'ngo_id is required' });
 
     const assignment = await getFroAssignment(donorId, req.user.id, ngoId);
-    if (!assignment) return res.status(403).json({ message: 'Access denied' });
+    if (!assignment) return denyWithTempAccessCode(res, req.user.id, donorId, 403, 'Access denied');
 
     const { data: ngo } = await db
       .from('ngos')

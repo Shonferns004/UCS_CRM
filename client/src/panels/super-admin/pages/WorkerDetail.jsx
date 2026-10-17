@@ -3,6 +3,11 @@ import { api } from '../api/auth'
 import AttendanceCalendar from './AttendanceCalendar'
 import ResetPasswordModal from '../components/ResetPasswordModal'
 import { deptLabel } from '../../../lib/labels'
+import {
+  ArrowLeft, Briefcase, Buildings, CalendarBlank, CurrencyCircleDollar,
+  Database, HandCoins, IdentificationCard,
+  Key, Phone, TrendUp, User, Wallet,
+} from '@phosphor-icons/react'
 
 export default function WorkerDetail({ workerId, onBack }) {
   const [worker, setWorker] = useState(null)
@@ -17,267 +22,179 @@ export default function WorkerDetail({ workerId, onBack }) {
     Promise.all([
       api(`/workers/${workerId}`),
       api(`/workers/${workerId}/allocations`),
+      // NGOs resolve the allocation ids to names for the hero details.
+      api(`/ngos`).catch((err) => { console.error('Error:', err.message); return [] }),
       api(`/salary/worker/${workerId}/allocations`).catch((err) => { console.error('Error:', err.message); }),
-    ]).then(([w, a, s]) => {
-      setWorker(w); setAllocations(a || []); setSalary(s)
+    ]).then(([w, a, n, s]) => {
+      setWorker(w); setAllocations(a || []); setNgos(n || []); setSalary(s)
     }).catch(e => setErr(e.message))
   }, [workerId])
 
   useEffect(() => {
     if (worker?.department?.toLowerCase() === 'fro') {
       api(`/dashboard/fro-worker/${workerId}`).then(setFroStats).catch((err) => { console.error('Error:', err.message); })
-      api('/ngos').then(setNgos).catch((err) => { console.error('Error:', err.message); })
     }
   }, [workerId, worker?.department])
 
-  const allocatedNgoIds = new Set(allocations.map(a => a.ngo_id))
-
   if (err) return <div className="sa-err-card">{err}</div>
+
   if (!worker) return (
-    <div className="sa-page">
-      <div className="sa-page-header" style={{marginBottom:16}}>
-        <div className="sk" style={{width:100,height:18}} />
-        <div className="sk" style={{width:60,height:32,borderRadius:6}} />
-      </div>
-      <div className="sa-card">
-        <div style={{display:'flex',gap:16,alignItems:'center',marginBottom:20}}>
-          <div className="sk" style={{width:64,height:64,borderRadius:12}} />
-          <div><div className="sk" style={{width:180,height:16,marginBottom:6}} /><div className="sk" style={{width:120,height:12}} /></div>
+    <div className="sa-page volunteer-profile-page">
+      <div className="vp-hero vp-skeleton">
+        <div className="sk" style={{ width: 84, height: 84, borderRadius: '50%' }} />
+        <div style={{ flex: 1 }}>
+          <div className="sk" style={{ width: 200, height: 22, marginBottom: 8 }} />
+          <div className="sk" style={{ width: 260, height: 13 }} />
         </div>
-        <div className="detail-grid">
-          {[1,2,3,4,5,6].map(i => <div key={i} className="detail-field"><div className="sk" style={{width:'50%',height:10,marginBottom:4}} /><div className="sk" style={{width:'80%',height:14}} /></div>)}
+      </div>
+      <div className="vp-grid">
+        <div className="vp-col">
+          <div className="vp-card vp-skeleton">
+            <div className="sk" style={{ width: 150, height: 14, marginBottom: 14 }} />
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 0' }}>
+                <div className="sk" style={{ width: 28, height: 28, borderRadius: 8 }} />
+                <div className="sk" style={{ width: '35%', height: 10 }} />
+                <div className="sk" style={{ flex: 1, height: 12 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="vp-col">
+          <div className="vp-card vp-skeleton">
+            <div className="sk" style={{ width: 180, height: 14, marginBottom: 14 }} />
+            <div className="sk" style={{ width: '100%', height: 220 }} />
+          </div>
         </div>
       </div>
     </div>
   )
 
+  const isActive = worker.is_active !== false
   const formatMoney = (v) => v ? `₹${Number(v).toLocaleString()}` : '₹0'
+  const initials = (worker.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+
+  const allocatedNgoIds = new Set(allocations.map(a => a.ngo_id))
+  const ngoText = ngos.filter(n => allocatedNgoIds.has(n.id)).map(n => n.name).join(', ')
+
+  // Personal Information rows: icon, label, value. Long values wrap rather than
+  // widen the card, and unavailable fields fall back to the existing '—'.
+  const infoRows = [
+    { icon: <IdentificationCard size={14} />, label: 'Login ID', value: worker.login_id, code: true },
+    { icon: <Phone size={14} />, label: 'Phone', value: worker.phone },
+    { icon: <CalendarBlank size={14} />, label: 'Date of Birth', value: worker.dob },
+    { icon: <Wallet size={14} />, label: 'Salary', value: formatMoney(worker.salary) },
+    {
+      icon: <CalendarBlank size={14} />, label: 'Joined On',
+      value: worker.created_at ? new Date(worker.created_at).toLocaleDateString() : null,
+    },
+  ]
+
+  const salaryTiles = [
+    { icon: <Wallet size={17} />, label: 'Total Salary', value: formatMoney(salary?.totalSalary), tone: 'indigo' },
+    { icon: <CurrencyCircleDollar size={17} />, label: 'Per Day', value: formatMoney(salary?.perDay), tone: 'teal' },
+    { icon: <CalendarBlank size={17} />, label: 'Days in Month', value: salary?.daysInMonth || '—', tone: 'amber' },
+  ]
+
+  const froTiles = [
+    { icon: <HandCoins size={17} />, label: 'Total Donation', value: `₹${Number(froStats?.total_donations || 0).toLocaleString()}`, tone: 'green' },
+    { icon: <TrendUp size={17} />, label: 'Daily Donation', value: `₹${Number(froStats?.daily_donations || 0).toLocaleString()}`, tone: 'blue' },
+    { icon: <Database size={17} />, label: 'Assigned Data', value: froStats?.assigned_data || 0, tone: 'purple' },
+  ]
 
   return (
-    <div className="sa-page">
-      <div className="sa-page-header">
-        <button className="btn" onClick={onBack}>← Back</button>
-        <h3 style={{margin:'8px 0 0'}}>{worker.name}</h3>
-        <button className="btn" onClick={() => setShowReset(true)}>Reset Password</button>
+    <div className="sa-page volunteer-profile-page">
+
+      {/* ── Profile hero ─────────────────────────────────────────────── */}
+      <section className="vp-hero">
+        <div className="vp-avatar">
+          {initials}
+          {isActive && <span className="vp-avatar-dot" aria-hidden="true" />}
+        </div>
+        <div className="vp-hero-main">
+          <div className="vp-hero-name-row">
+            <h1 className="vp-name">{worker.name}</h1>
+            <span className={`vp-status ${isActive ? 'active' : 'inactive'}`}>
+              {isActive ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+          <div className="vp-hero-meta">
+            <span className="vp-meta-item"><Briefcase size={13} />{deptLabel(worker.department) || '—'}</span>
+            <span className="vp-meta-dot" aria-hidden="true">·</span>
+            <span className="vp-meta-item"><Buildings size={13} />{ngoText}</span>
+            {worker.gender && <>
+              <span className="vp-meta-dot" aria-hidden="true">·</span>
+              <span className="vp-meta-item"><User size={13} />{worker.gender}</span>
+            </>}
+          </div>
+        </div>
+        <div className="vp-hero-actions">
+          <button className="vp-btn" onClick={onBack}>
+            <ArrowLeft size={15} />Back
+          </button>
+          <button className="vp-btn vp-btn-primary" onClick={() => setShowReset(true)}>
+            <Key size={15} />Reset Password
+          </button>
+        </div>
+      </section>
+
+      {/* ── Two-column content ───────────────────────────────────────── */}
+      <div className="vp-grid">
+
+        {/* Left column */}
+        <div className="vp-col">
+          <section className="vp-card">
+            <h2 className="vp-card-title"><IdentificationCard size={15} />Personal Information</h2>
+            <div className="vp-fields">
+              {infoRows.map(row => (
+                <div className="vp-field" key={row.label}>
+                  <span className="vp-field-icon" aria-hidden="true">{row.icon}</span>
+                  <span className="vp-field-label">{row.label}</span>
+                  <span className={`vp-field-value${row.code ? ' is-code' : ''}`}>{row.value || '—'}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Narrow column can't hold three tiles side by side, so the salary
+              summary stacks one row per tile here instead. */}
+          {salary && (
+            <section className="vp-card">
+              <h2 className="vp-card-title"><Wallet size={15} />Salary Breakdown</h2>
+              <div className="vp-metrics vp-metrics-stack">
+                {salaryTiles.map(t => (
+                  <div className={`vp-metric tone-${t.tone}`} key={t.label}>
+                    <span className="vp-metric-icon">{t.icon}</span>
+                    <div className="vp-metric-label">{t.label}</div>
+                    <div className="vp-metric-value">{t.value}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* Right column */}
+        <div className="vp-col">
+          <AttendanceCalendar workerId={workerId} worker={worker} />
+
+          {froStats && (
+            <section className="vp-card">
+              <h2 className="vp-card-title"><HandCoins size={15} />FRO Performance</h2>
+              <div className="vp-metrics">
+                {froTiles.map(t => (
+                  <div className={`vp-metric tone-${t.tone}`} key={t.label}>
+                    <span className="vp-metric-icon">{t.icon}</span>
+                    <div className="vp-metric-label">{t.label}</div>
+                    <div className="vp-metric-value">{t.value}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       </div>
 
-      <div className="sa-card">
-        <h3 className="sa-card-title">Personal Info</h3>
-        <table className="sa-info-table">
-          <tbody>
-            <tr><td>Login ID</td><td><code>{worker.login_id}</code></td></tr>
-            <tr><td>Department</td><td>{deptLabel(worker.department) || '—'}</td></tr>
-            <tr><td>Email</td><td>{worker.email || '—'}</td></tr>
-            <tr><td>Phone</td><td>{worker.phone || '—'}</td></tr>
-            <tr><td>Gender</td><td>{worker.gender || '—'}</td></tr>
-            <tr><td>DOB</td><td>{worker.dob || '—'}</td></tr>
-            <tr><td>Salary</td><td>{formatMoney(worker.salary)}</td></tr>
-            <tr><td>Status</td><td><span className={`sa-badge ${worker.is_active !== false ? 'active' : 'inactive'}`}>
-              {worker.is_active !== false ? 'Active' : 'Inactive'}
-            </span></td></tr>
-            <tr><td>Joined</td><td>{worker.created_at ? new Date(worker.created_at).toLocaleDateString() : '—'}</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <AttendanceCalendar workerId={workerId} worker={worker} />
-
-      {salary && (
-        <div className="sa-card">
-          <h3 className="sa-card-title">Salary Breakdown</h3>
-          <div className="sa-stat-grid salary-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))'}}>
-            <div className="salary-stat-card">
-              <span className="material-symbols-outlined sal-icon" style={{color:'#5C6BC0'}}>account_balance_wallet</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Total Salary</div>
-                <div className="sa-stat-value" style={{color:'#5C6BC0'}}>{formatMoney(salary.totalSalary)}</div>
-              </div>
-            </div>
-            <div className="salary-stat-card">
-              <span className="material-symbols-outlined sal-icon" style={{color:'#26A69A'}}>payments</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Per Day</div>
-                <div className="sa-stat-value" style={{color:'#26A69A'}}>{formatMoney(salary.perDay)}</div>
-              </div>
-            </div>
-            <div className="salary-stat-card">
-              <span className="material-symbols-outlined sal-icon" style={{color:'#FF7043'}}>calendar_month</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Days in Month</div>
-                <div className="sa-stat-value" style={{color:'#FF7043'}}>{salary.daysInMonth || '—'}</div>
-              </div>
-            </div>
-            {salary.sundayBonus?.incentiveAKI ? <div className="salary-stat-card">
-              <span className="material-symbols-outlined sal-icon" style={{color:'#AB47BC'}}>military_tech</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Incentive AKI</div>
-                <div className="sa-stat-value" style={{color:'#AB47BC'}}>{formatMoney(salary.sundayBonus.incentiveAKI)}</div>
-              </div>
-            </div> : null}
-            {salary.sundayBonus?.incentiveMonthly ? <div className="salary-stat-card">
-              <span className="material-symbols-outlined sal-icon" style={{color:'#42A5F5'}}>trending_up</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Monthly Incentive</div>
-                <div className="sa-stat-value" style={{color:'#42A5F5'}}>{formatMoney(salary.sundayBonus.incentiveMonthly)}</div>
-              </div>
-            </div> : null}
-            {salary.sundayBonus?.paidSundays ? <div className="salary-stat-card">
-              <span className="material-symbols-outlined sal-icon" style={{color:'#FFA726'}}>wb_sunny</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Sundays Paid</div>
-                <div className="sa-stat-value" style={{color:'#FFA726'}}>{salary.sundayBonus.paidSundays}/{salary.sundayBonus.totalSundays}</div>
-              </div>
-            </div> : null}
-          </div>
-        </div>
-      )}
-
-      {worker?.department?.toLowerCase() === 'fro' && ngos.length > 0 && (
-        <div className="sa-card">
-          <h3 className="sa-card-title">NGO-FRO</h3>
-          <div className="ngo-fro-list">
-            {ngos.filter(ngo => allocatedNgoIds.has(ngo.id)).map(ngo => (
-              <div key={ngo.id} className="ngo-fro-row">
-                <span className="ngo-fro-name">{ngo.name}</span>
-                <span className="ngo-fro-status working">Working</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {froStats && (
-        <div className="sa-card">
-          <h3 className="sa-card-title">FRO Performance</h3>
-          <div className="sa-stat-grid fro-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))'}}>
-            <div className="fro-stat-card">
-              <span className="material-symbols-outlined fro-icon" style={{color:'#2e7d32'}}>payments</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Total Donation</div>
-                <div className="sa-stat-value" style={{color:'#2e7d32'}}>₹{Number(froStats.total_donations || 0).toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="fro-stat-card">
-              <span className="material-symbols-outlined fro-icon" style={{color:'#1565c0'}}>trending_up</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Daily Donation</div>
-                <div className="sa-stat-value" style={{color:'#1565c0'}}>₹{Number(froStats.daily_donations || 0).toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="fro-stat-card">
-              <span className="material-symbols-outlined fro-icon" style={{color:'#e65100'}}>person_add</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">New Donors Today</div>
-                <div className="sa-stat-value" style={{color:'#e65100'}}>{froStats.new_donors_today || 0}</div>
-              </div>
-            </div>
-            <div className="fro-stat-card">
-              <span className="material-symbols-outlined fro-icon" style={{color:'#6a1b9a'}}>database</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Assigned Data</div>
-                <div className="sa-stat-value" style={{color:'#6a1b9a'}}>{froStats.assigned_data || 0}</div>
-              </div>
-            </div>
-            <div className="fro-stat-card">
-              <span className="material-symbols-outlined fro-icon" style={{color:'#00838f'}}>check_circle</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Data Used</div>
-                <div className="sa-stat-value" style={{color:'#00838f'}}>{froStats.data_used || 0}</div>
-              </div>
-            </div>
-            <div className="fro-stat-card">
-              <span className="material-symbols-outlined fro-icon" style={{color:'#c62828'}}>hourglass_empty</span>
-              <div className="fro-card-body">
-                <div className="sa-stat-label">Data Unused</div>
-                <div className="sa-stat-value" style={{color:'#c62828'}}>{froStats.data_unused || 0}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      <style>{`
-.fro-stat-card {
-  background: #f8fbff;
-  border-radius: 10px;
-  padding: 12px;
-  transition: all 0.25s ease;
-  border: 1px solid #d0e4f5;
-  border-left: 4px solid #3485d4;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.fro-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(52,133,212,0.2);
-}
-.fro-icon {
-  font-size: 28px !important;
-  flex-shrink: 0;
-}
-.fro-card-body {
-  flex: 1;
-  min-width: 0;
-}
-.fro-card-body .sa-stat-label {
-  white-space: nowrap;
-}
-.fro-card-body .sa-stat-value {
-  font-weight: 700;
-  font-size: 16px;
-}
-.salary-stat-card {
-  background: #fff;
-  border-radius: 10px;
-  padding: 12px;
-  transition: all 0.25s ease;
-  border: 1px solid #d0e4f5;
-  border-left: 4px solid #3485d4;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.salary-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-}
-.sal-icon {
-  font-size: 28px !important;
-  flex-shrink: 0;
-}
-.ngo-fro-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.ngo-fro-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: #f8fbff;
-  border: 1px solid #d0e4f5;
-  border-left: 4px solid #3485d4;
-  border-radius: 8px;
-}
-.ngo-fro-name {
-  font-weight: 600;
-  color: #333;
-}
-.ngo-fro-status {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 12px;
-  border-radius: 20px;
-  text-transform: uppercase;
-  letter-spacing: .3px;
-}
-.ngo-fro-status.working {
-  background: #d4edda;
-  color: #155724;
-}
-
-`}</style>
       {showReset && <ResetPasswordModal worker={worker} onClose={() => setShowReset(false)} />}
     </div>
   )

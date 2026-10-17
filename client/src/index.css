@@ -554,7 +554,7 @@
    opt the route in. The shared `.sa-*` / `.btn` / `.topbar` rules are used by
    ~15 other SA pages and are deliberately NOT edited here. Tokens come from
    spec §9 and live on this page only so they do not leak into other pages. */
-.panel-sa .content-body:has(.workers-page) { background:#F3F7FC; padding:30px; }
+.panel-sa .content-body:has(.workers-page) { background:#F3F7FC; padding:0; }
 .panel-sa .sa-page.workers-page {
   --workers-heading:#111B33;
   --workers-text:#17233D;
@@ -568,46 +568,50 @@
   --workers-success-bg:#DCFCE7;
   --workers-success-text:#137A3B;
   --workers-danger:#E53935;
+  box-sizing:border-box;
   max-width:none;
+  min-height:100%;
   background:#FFFFFF;
   border:1px solid #E0E8F3;
-  border-radius:13px;
-  padding:27px;
+  border-radius:0;
+  padding:18px;
   color:var(--workers-text);
 }
 
 /* 4.1 page header — route-scoped variant of the shared topbar */
-.panel-sa .topbar-workers { min-height:92px; padding:0 30px; background:#FFFFFF; border-bottom:1px solid #DCE5F0; }
-.panel-sa .topbar-workers .eyebrow { font-size:12px; font-weight:600; color:#5E779B; letter-spacing:.08em; }
-.panel-sa .topbar-workers h2 { font-size:27px; font-weight:700; color:#111B33; letter-spacing:-.4px; }
-.panel-sa .topbar-workers .avatar { width:46px; height:46px; font-size:15px; font-weight:700; background:#1670E8; }
+.panel-sa .topbar-workers { min-height:64px; padding:0 20px; background:#FFFFFF; border-bottom:1px solid #DCE5F0; }
+.panel-sa .topbar-workers .eyebrow { font-size:11px; font-weight:600; color:#5E779B; letter-spacing:.08em; }
+.panel-sa .topbar-workers h2 { font-size:20px; font-weight:700; color:#111B33; letter-spacing:-.2px; }
+.panel-sa .topbar-workers .avatar { width:34px; height:34px; font-size:12px; font-weight:700; background:#1670E8; }
 
-/* 4.3 heading row */
-.panel-sa .workers-page .workers-head { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
-.panel-sa .workers-page .workers-head h3 { margin:0; font-size:29px; font-weight:700; letter-spacing:-.4px; color:var(--workers-heading); }
-.panel-sa .workers-page .workers-head-side { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
-.panel-sa .workers-page .workers-count { font-size:16px; font-weight:500; color:var(--workers-muted); }
-.panel-sa .workers-page .workers-actions { display:flex; gap:14px; flex-wrap:wrap; }
-.panel-sa .workers-page .workers-add { height:48px; padding:0 20px; border:1px solid var(--workers-primary); border-radius:10px; background:var(--workers-primary); color:#fff; font-size:15px; font-weight:600; }
+/* 4.3 heading row — the `Workers` title was removed, so this row now only
+   carries the count and the two add buttons. */
+.panel-sa .workers-page .workers-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+.panel-sa .workers-page .workers-head-side { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-count { font-size:13px; font-weight:500; color:var(--workers-muted); }
+.panel-sa .workers-page .workers-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-add { height:34px; padding:0 13px; border:1px solid var(--workers-primary); border-radius:7px; background:var(--workers-primary); color:#fff; font-size:13px; font-weight:600; }
 .panel-sa .workers-page .workers-add:hover { background:var(--workers-primary-hover); border-color:var(--workers-primary-hover); color:#fff; }
 
 /* 4.4 filters */
-.panel-sa .workers-page .workers-filters { display:flex; align-items:center; gap:15px; flex-wrap:wrap; }
-.panel-sa .workers-page .workers-search { position:relative; flex:0 1 414px; max-width:414px; min-width:200px; }
-.panel-sa .workers-page .workers-search-icon { position:absolute; left:15px; top:50%; transform:translateY(-50%); display:flex; color:#8294B2; pointer-events:none; }
-.panel-sa .workers-page .workers-search input { width:100%; height:54px; padding:0 16px 0 44px; border:1px solid var(--workers-control-border); border-radius:8px; background:#fff; color:var(--workers-heading); font-size:15.5px; font-family:inherit; outline:none; }
+.panel-sa .workers-page .workers-filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-search { position:relative; flex:0 1 320px; max-width:320px; min-width:160px; }
+.panel-sa .workers-page .workers-search-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); display:flex; color:#8294B2; pointer-events:none; }
+.panel-sa .workers-page .workers-search input { width:100%; height:36px; padding:0 12px 0 36px; border:1px solid var(--workers-control-border); border-radius:7px; background:#fff; color:var(--workers-heading); font-size:13.5px; font-family:inherit; outline:none; }
 .panel-sa .workers-page .workers-search input::placeholder { color:#93A2BC; }
-.panel-sa .workers-page .workers-select { flex:0 1 238px; max-width:238px; min-width:170px; height:54px; padding:0 14px; border:1px solid var(--workers-control-border); border-radius:8px; background:#fff; color:var(--workers-heading); font-size:15.5px; font-family:inherit; outline:none; cursor:pointer; }
+.panel-sa .workers-page .workers-select { flex:0 1 190px; max-width:190px; min-width:140px; height:36px; padding:0 11px; border:1px solid var(--workers-control-border); border-radius:7px; background:#fff; color:var(--workers-heading); font-size:13.5px; font-family:inherit; outline:none; cursor:pointer; }
 .panel-sa .workers-page .workers-search input:focus,
 .panel-sa .workers-page .workers-select:focus { border-color:var(--workers-primary); box-shadow:0 0 0 3px rgba(22,112,232,.15); }
 
-/* 5.1 table container */
-.panel-sa .workers-page .workers-table-wrap { margin-top:22px; background:#fff; border:1px solid var(--workers-border); border-radius:11px; overflow-x:auto; }
-.panel-sa .workers-page .workers-table { width:100%; min-width:980px; border-collapse:separate; border-spacing:0; font-size:15px; color:var(--workers-text); }
-.panel-sa .workers-page .workers-table thead th { height:62px; padding:0 20px; background:var(--workers-header-bg); font-size:12.5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:#405579; text-align:left; vertical-align:middle; white-space:nowrap; border-bottom:1px solid var(--workers-border); }
-.panel-sa .workers-page .workers-table tbody td { height:92px; padding:17px 20px; vertical-align:middle; font-size:15px; color:var(--workers-text); border-bottom:1px solid #E2EAF5; }
+/* 5.1 table container — the whole body row is a click target */
+.panel-sa .workers-page .workers-table-wrap { margin-top:16px; background:#fff; border:1px solid var(--workers-border); border-radius:9px; overflow-x:auto; }
+.panel-sa .workers-page .workers-table { width:100%; min-width:840px; border-collapse:separate; border-spacing:0; font-size:13.5px; color:var(--workers-text); }
+.panel-sa .workers-page .workers-table thead th { height:42px; padding:0 14px; background:var(--workers-header-bg); font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:#405579; text-align:left; vertical-align:middle; white-space:nowrap; border-bottom:1px solid var(--workers-border); }
+.panel-sa .workers-page .workers-table tbody td { height:54px; padding:11px 14px; vertical-align:middle; font-size:13.5px; color:var(--workers-text); border-bottom:1px solid #E2EAF5; }
 .panel-sa .workers-page .workers-table tbody tr:last-child td { border-bottom:none; }
-.panel-sa .workers-page .workers-table tbody tr:hover td { background:var(--workers-row-hover); }
+.panel-sa .workers-page .workers-table tbody tr.workers-row { cursor:pointer; }
+.panel-sa .workers-page .workers-table tbody tr.workers-row:hover td,
+.panel-sa .workers-page .workers-table tbody tr.workers-row:focus-within td { background:var(--workers-row-hover); }
 
 /* 5.5 worker name — underline is explicitly killed in every state so no
    inherited/global `a` styling can reintroduce it on this page. */
@@ -616,71 +620,437 @@
 .panel-sa .workers-page .worker-name:visited,
 .panel-sa .workers-page .worker-name:hover,
 .panel-sa .workers-page .worker-name:active { text-decoration:none; }
-.panel-sa .workers-page .worker-name { display:inline-block; color:var(--workers-primary); font-size:15px; font-weight:600; cursor:pointer; border-radius:4px; }
+.panel-sa .workers-page .worker-name { display:inline-block; color:var(--workers-primary); font-size:13.5px; font-weight:600; cursor:pointer; border-radius:3px; }
 .panel-sa .workers-page .worker-name:hover { color:var(--workers-primary-hover); }
 .panel-sa .workers-page .worker-name:focus-visible { outline:2px solid var(--workers-primary); outline-offset:3px; }
 
 /* 5.6 / 5.7 secondary cells + status badge */
-.panel-sa .workers-page .worker-login { font-family:inherit; font-size:14.5px; font-weight:600; background:none; padding:0; color:var(--workers-heading); }
-.panel-sa .workers-page .workers-ngo { color:#8294B2; font-size:14.5px; }
-.panel-sa .workers-page .workers-salary { font-size:14.5px; font-variant-numeric:tabular-nums; }
-.panel-sa .workers-page .workers-status { display:inline-flex; align-items:center; gap:7px; height:34px; padding:0 13px; border-radius:9px; font-size:13.5px; font-weight:600; white-space:nowrap; }
-.panel-sa .workers-page .workers-status-dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.panel-sa .workers-page .worker-login { font-family:inherit; font-size:13px; font-weight:600; background:none; padding:0; color:var(--workers-heading); }
+.panel-sa .workers-page .workers-ngo { color:#8294B2; font-size:13px; }
+.panel-sa .workers-page .workers-salary { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+.panel-sa .workers-page .workers-status { display:inline-flex; align-items:center; gap:5px; height:25px; padding:0 9px; border-radius:6px; font-size:12px; font-weight:600; white-space:nowrap; }
+.panel-sa .workers-page .workers-status-dot { width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
 .panel-sa .workers-page .workers-status.active { background:var(--workers-success-bg); color:var(--workers-success-text); }
 .panel-sa .workers-page .workers-status.inactive { background:#FEF2F2; color:#991B1B; }
 
-/* 5.8 row actions — `nowrap` makes the column keep its content width so the
-   three buttons stay on one aligned row instead of wrapping. */
-.panel-sa .workers-page .workers-row-actions { display:flex; align-items:center; gap:10px; flex-wrap:nowrap; white-space:nowrap; }
-.panel-sa .workers-page .workers-act { height:45px; padding:0 13px; gap:6px; border:1px solid var(--workers-control-border); border-radius:9.5px; background:#fff; color:var(--workers-heading); font-size:14px; font-weight:600; }
+/* 5.8 row actions — Delete is the only action left; `nowrap` lets the column
+   size to its content instead of wrapping. */
+.panel-sa .workers-page .workers-row-actions { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; white-space:nowrap; }
+.panel-sa .workers-page .workers-act { height:30px; padding:0 10px; gap:4px; border:1px solid var(--workers-control-border); border-radius:7px; background:#fff; color:var(--workers-heading); font-size:12.5px; font-weight:600; }
 .panel-sa .workers-page .workers-act:hover { background:#F3F7FC; border-color:#B9C9E4; color:var(--workers-heading); }
 .panel-sa .workers-page .workers-act:focus-visible { outline:2px solid var(--workers-primary); outline-offset:2px; }
 .panel-sa .workers-page .workers-act-danger { color:var(--workers-danger); border-color:#F6C9C7; }
 .panel-sa .workers-page .workers-act-danger:hover { background:#FEF4F3; border-color:var(--workers-danger); color:#C62828; }
 
 /* loading / empty state */
-.panel-sa .workers-page .workers-empty { padding:48px 20px; text-align:center; color:var(--workers-muted); font-size:15px; }
+.panel-sa .workers-page .workers-empty { padding:32px 14px; text-align:center; color:var(--workers-muted); font-size:13.5px; }
 
 /* pagination — behaviour unchanged, only brought onto this page's palette */
-.panel-sa .workers-page .workers-pager { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:20px; flex-wrap:wrap; }
-.panel-sa .workers-page .workers-pager .btn { height:40px; padding:0 14px; font-size:14px; border-color:var(--workers-control-border); border-radius:9px; }
+.panel-sa .workers-page .workers-pager { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:14px; flex-wrap:wrap; }
+.panel-sa .workers-page .workers-pager .btn { height:30px; padding:0 10px; font-size:12.5px; border-color:var(--workers-control-border); border-radius:7px; }
 .panel-sa .workers-page .workers-pager .btn:disabled { opacity:.45; cursor:not-allowed; }
 .panel-sa .workers-page .workers-pager .btn.is-current { background:var(--workers-primary); border-color:var(--workers-primary); color:#fff; }
 .panel-sa .workers-page .workers-pager .btn.is-current:hover { background:var(--workers-primary); }
-.panel-sa .workers-page .workers-pager-size { height:40px; margin-left:6px; padding:0 10px; border:1px solid var(--workers-control-border); border-radius:9px; background:#fff; color:var(--workers-heading); font-family:inherit; font-size:14px; outline:none; cursor:pointer; }
+.panel-sa .workers-page .workers-pager-size { height:30px; margin-left:6px; padding:0 8px; border:1px solid var(--workers-control-border); border-radius:7px; background:#fff; color:var(--workers-heading); font-family:inherit; font-size:12.5px; outline:none; cursor:pointer; }
 
 /* 6.2 tablet (768–1199) */
 @media (max-width:1199px) {
-  .panel-sa .content-body:has(.workers-page) { padding:20px; }
-  .panel-sa .topbar-workers { min-height:78px; padding:0 20px; }
-  .panel-sa .topbar-workers h2 { font-size:24px; }
-  .panel-sa .topbar-workers .avatar { width:42px; height:42px; font-size:14px; }
-  .panel-sa .workers-page { padding:20px; }
-  .panel-sa .workers-page .workers-head h3 { font-size:26px; }
-  .panel-sa .workers-page .workers-table thead th { height:56px; padding:0 18px; }
-  .panel-sa .workers-page .workers-table tbody td { padding:14px 18px; }
+  .panel-sa .topbar-workers { min-height:58px; padding:0 16px; }
+  .panel-sa .topbar-workers h2 { font-size:18px; }
+  .panel-sa .topbar-workers .avatar { width:32px; height:32px; font-size:12px; }
+  .panel-sa .workers-page { padding:15px; }
+  .panel-sa .workers-page .workers-table thead th { height:40px; padding:0 12px; }
+  .panel-sa .workers-page .workers-table tbody td { padding:10px 12px; }
 }
 /* 6.3 mobile (<768) */
 @media (max-width:767px) {
-  .panel-sa .content-body:has(.workers-page) { padding:12px; }
-  .panel-sa .topbar-workers { min-height:64px; padding:0 16px; }
-  .panel-sa .topbar-workers h2 { font-size:20px; }
-  .panel-sa .topbar-workers .eyebrow { font-size:11px; }
-  .panel-sa .topbar-workers .avatar { width:38px; height:38px; font-size:13px; }
-  .panel-sa .workers-page { padding:16px; border-radius:11px; }
-  .panel-sa .workers-page .workers-head { flex-direction:column; align-items:flex-start; gap:14px; }
+  .panel-sa .topbar-workers { min-height:54px; padding:0 12px; }
+  .panel-sa .topbar-workers h2 { font-size:17px; }
+  .panel-sa .topbar-workers .eyebrow { font-size:10px; }
+  .panel-sa .topbar-workers .avatar { width:30px; height:30px; font-size:11px; }
+  .panel-sa .workers-page { padding:13px; }
+  .panel-sa .workers-page .workers-head { flex-direction:column; align-items:flex-start; gap:10px; }
   .panel-sa .workers-page .workers-head-side { width:100%; justify-content:space-between; }
-  .panel-sa .workers-page .workers-head h3 { font-size:24px; }
-  .panel-sa .workers-page .workers-add { height:44px; padding:0 16px; font-size:14px; flex:1 1 auto; }
-  .panel-sa .workers-page .workers-filters { flex-direction:column; align-items:stretch; gap:12px; }
+  .panel-sa .workers-page .workers-add { height:32px; padding:0 12px; font-size:13px; flex:1 1 auto; }
+  .panel-sa .workers-page .workers-filters { flex-direction:column; align-items:stretch; gap:8px; }
   .panel-sa .workers-page .workers-search,
   .panel-sa .workers-page .workers-select { flex:1 1 auto; width:100%; max-width:none; min-width:0; }
   .panel-sa .workers-page .workers-search input,
-  .panel-sa .workers-page .workers-select { height:48px; }
+  .panel-sa .workers-page .workers-select { height:36px; }
   .panel-sa .workers-page .workers-table thead th,
-  .panel-sa .workers-page .workers-table tbody td { padding:14px 16px; }
-  .panel-sa .workers-page .workers-row-actions { gap:8px; }
-  .panel-sa .workers-page .workers-act { padding:0 12px; }
+  .panel-sa .workers-page .workers-table tbody td { padding:9px 10px; }
+  .panel-sa .workers-page .workers-row-actions { gap:6px; }
+  .panel-sa .workers-page .workers-act { padding:0 9px; }
+}
+
+/* ── SUPER ADMIN · VOLUNTEER PROFILE (/sa/employees/:id) ──
+   Redesign of the volunteer profile page. Everything here is scoped to
+   `.volunteer-profile-page`, so no other Super Admin page moves — including
+   the shared topbar, which this route now uses in its default form. Tokens
+   are page-scoped custom properties rather than overrides of the shared
+   `--bg` / `--border` set, because those feed ~15 other SA pages. */
+
+.panel-sa .sa-page.volunteer-profile-page {
+  --vp-page-bg: #F2F6FD;
+  --vp-surface: #FFFFFF;
+  --vp-surface-soft: #F8FBFF;
+  --vp-text: #101B3A;
+  --vp-text-secondary: #425A86;
+  --vp-muted: #7B8EAF;
+  --vp-primary: #1268F3;
+  --vp-primary-hover: #0756D6;
+  --vp-border: #DCE7F8;
+  --vp-border-strong: #C9D9F4;
+  --vp-success-bg: #DDF8E7;
+  --vp-success-text: #13783D;
+  --vp-warning-bg: #FFE4BE;
+  --vp-warning-text: #A85B0A;
+  --vp-danger-bg: #FFE0E3;
+  --vp-danger-text: #C6283D;
+  --vp-info-bg: #E0ECFF;
+  --vp-info-text: #245AC6;
+  --vp-radius-card: 12px;
+  --vp-radius-control: 9px;
+  --vp-shadow-card: 0 2px 8px rgba(24, 55, 105, 0.04);
+  max-width: none;
+  padding: 20px 24px 28px;
+  background: #F2F6FD;
+  color: var(--vp-text);
+  font-size: 14px;
+}
+.panel-sa .volunteer-profile-page *,
+.panel-sa .volunteer-profile-page *::before,
+.panel-sa .volunteer-profile-page *::after { box-sizing: border-box; }
+
+/* ── Hero ── */
+.panel-sa .volunteer-profile-page .vp-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 124px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  border: 1px solid var(--vp-border);
+  background: linear-gradient(120deg, #E4EEFF 0%, #EAF0FE 48%, #F0EAFB 100%);
+  margin-bottom: 16px;
+}
+/* Decorative wave. Behind the content, never intercepting a click. */
+.panel-sa .volunteer-profile-page .vp-hero::after {
+  content: '';
+  position: absolute;
+  right: -60px;
+  top: -90px;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.75), rgba(255,255,255,0) 68%);
+  pointer-events: none;
+}
+.panel-sa .volunteer-profile-page .vp-hero > * { position: relative; z-index: 1; min-width: 0; }
+/* Loading skeletons reuse .vp-hero / .vp-card surfaces, so only the shimmer
+   blocks inside them need styling. */
+.panel-sa .volunteer-profile-page .vp-avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #1268F3, #6D5DE0);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  border: 3px solid rgba(255,255,255,.9);
+  box-shadow: 0 4px 14px rgba(18,104,243,.22);
+}
+.panel-sa .volunteer-profile-page .vp-avatar-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #17A34A;
+  border: 3px solid #fff;
+}
+.panel-sa .volunteer-profile-page .vp-hero-main { flex: 1; min-width: 0; }
+.panel-sa .volunteer-profile-page .vp-hero-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.panel-sa .volunteer-profile-page .vp-name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--vp-text);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.panel-sa .volunteer-profile-page .vp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 25px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.panel-sa .volunteer-profile-page .vp-status.active { background: var(--vp-success-bg); color: var(--vp-success-text); }
+.panel-sa .volunteer-profile-page .vp-status.inactive { background: var(--vp-danger-bg); color: var(--vp-danger-text); }
+.panel-sa .volunteer-profile-page .vp-hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  color: var(--vp-text-secondary);
+}
+.panel-sa .volunteer-profile-page .vp-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.panel-sa .volunteer-profile-page .vp-meta-dot { color: #A9B8D4; }
+.panel-sa .volunteer-profile-page .vp-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.panel-sa .volunteer-profile-page .vp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px;
+  border-radius: var(--vp-radius-control);
+  border: 1px solid var(--vp-border-strong);
+  background: var(--vp-surface);
+  color: var(--vp-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+.panel-sa .volunteer-profile-page .vp-btn:hover { background: #EEF4FF; border-color: #A9C6F7; }
+.panel-sa .volunteer-profile-page .vp-btn:focus-visible { outline: 2px solid var(--vp-primary); outline-offset: 2px; }
+.panel-sa .volunteer-profile-page .vp-btn-primary {
+  background: var(--vp-primary);
+  border-color: var(--vp-primary);
+  color: #fff;
+}
+.panel-sa .volunteer-profile-page .vp-btn-primary:hover { background: var(--vp-primary-hover); border-color: var(--vp-primary-hover); }
+
+/* ── Main two-column grid ── */
+.panel-sa .volunteer-profile-page .vp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 31%) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.panel-sa .volunteer-profile-page .vp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ── Card shell ── */
+.panel-sa .volunteer-profile-page .vp-card,
+.panel-sa .volunteer-profile-page .att-cal-card {
+  background: var(--vp-surface);
+  border: 1px solid var(--vp-border);
+  border-radius: var(--vp-radius-card);
+  box-shadow: var(--vp-shadow-card);
+  padding: 16px;
+  margin-bottom: 0;
+  color: var(--vp-text);
+  min-width: 0;
+}
+.panel-sa .volunteer-profile-page .vp-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--vp-text);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.panel-sa .volunteer-profile-page .vp-card-title svg { color: var(--vp-primary); flex-shrink: 0; }
+/* The calendar heading reuses the shared .sa-card-title class, which is
+   uppercased and muted by the SA theme; match the rest of this page. */
+.panel-sa .volunteer-profile-page .att-cal-card .sa-card-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--vp-text);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-bottom: 0;
+}
+.panel-sa .volunteer-profile-page .att-cal-card .sa-card-title svg { color: var(--vp-primary); }
+.panel-sa .volunteer-profile-page .att-cal-month { color: var(--vp-text); }
+.panel-sa .volunteer-profile-page .att-nav-btn {
+  border: 1px solid var(--vp-border-strong);
+  border-radius: 7px;
+  color: var(--vp-text-secondary);
+  background: var(--vp-surface);
+  font-size: 18px;
+}
+.panel-sa .volunteer-profile-page .att-nav-btn:hover { background: #EEF4FF; border-color: #A9C6F7; color: var(--vp-primary); }
+.panel-sa .volunteer-profile-page .att-nav-btn:focus-visible { outline: 2px solid var(--vp-primary); outline-offset: 2px; }
+.panel-sa .volunteer-profile-page .att-consistency-label { color: var(--vp-text-secondary); font-size: 13px; }
+.panel-sa .volunteer-profile-page .att-consistency-value { color: var(--vp-success-text); font-size: 13px; }
+.panel-sa .volunteer-profile-page .att-progress { background: var(--vp-warning-bg); }
+.panel-sa .volunteer-profile-page .att-progress-fill { background: var(--vp-success-text); }
+.panel-sa .volunteer-profile-page .att-weekday { color: var(--vp-muted); }
+.panel-sa .volunteer-profile-page .att-legend-item { color: var(--vp-text-secondary); font-size: 12.5px; }
+.panel-sa .volunteer-profile-page .att-day { color: #A9B8D4; }
+
+/* ── Field list (Personal Information / NGO & Role) ── */
+.panel-sa .volunteer-profile-page .vp-fields { display: flex; flex-direction: column; }
+.panel-sa .volunteer-profile-page .vp-field {
+  display: grid;
+  grid-template-columns: 24px minmax(78px, 34%) minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 6px 0;
+  border-bottom: 1px solid #EEF3FB;
+  font-size: 13.5px;
+}
+.panel-sa .volunteer-profile-page .vp-field:last-child { border-bottom: none; }
+.panel-sa .volunteer-profile-page .vp-field-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #93A6C6;
+}
+.panel-sa .volunteer-profile-page .vp-field-label { color: var(--vp-muted); font-weight: 500; }
+.panel-sa .volunteer-profile-page .vp-field-value {
+  color: var(--vp-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.panel-sa .volunteer-profile-page .vp-field-value.is-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: var(--vp-surface-soft);
+  border: 1px solid var(--vp-border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  justify-self: start;
+}
+
+/* ── Metric tiles (Salary Breakdown / FRO Performance) ── */
+.panel-sa .volunteer-profile-page .vp-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+/* Salary tiles live in the narrow left column, where three across would
+   squeeze each tile. They stack one per row and switch to a compact
+   icon-left layout so every row stays a single line. */
+.panel-sa .volunteer-profile-page .vp-metrics-stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+.panel-sa .volunteer-profile-page .vp-metrics-stack .vp-metric {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px 11px;
+}
+.panel-sa .volunteer-profile-page .vp-metrics-stack .vp-metric-icon {
+  grid-row: 1 / span 2;
+  margin-bottom: 0;
+}
+.panel-sa .volunteer-profile-page .vp-metrics-stack .vp-metric-label { margin-bottom: 0; }
+.panel-sa .volunteer-profile-page .vp-metric {
+  padding: 12px;
+  border: 1px solid var(--vp-border);
+  border-radius: 11px;
+  background: var(--vp-surface-soft);
+  min-width: 0;
+}
+.panel-sa .volunteer-profile-page .vp-metric-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--vp-surface);
+  border: 1px solid var(--vp-border);
+  margin-bottom: 9px;
+}
+.panel-sa .volunteer-profile-page .vp-metric-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--vp-text-secondary);
+  margin-bottom: 4px;
+}
+.panel-sa .volunteer-profile-page .vp-metric-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--vp-text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.panel-sa .volunteer-profile-page .tone-indigo  { background: #EEF1FE; } .panel-sa .volunteer-profile-page .tone-indigo .vp-metric-icon  { color: #4F46E5; }
+.panel-sa .volunteer-profile-page .tone-teal    { background: #E4F7F4; } .panel-sa .volunteer-profile-page .tone-teal .vp-metric-icon    { color: #0D9488; }
+.panel-sa .volunteer-profile-page .tone-amber   { background: #FFF3E0; } .panel-sa .volunteer-profile-page .tone-amber .vp-metric-icon   { color: #C77700; }
+.panel-sa .volunteer-profile-page .tone-green   { background: #E6F6EA; } .panel-sa .volunteer-profile-page .tone-green .vp-metric-icon   { color: #17803D; }
+.panel-sa .volunteer-profile-page .tone-blue    { background: var(--vp-info-bg); }   .panel-sa .volunteer-profile-page .tone-blue .vp-metric-icon    { color: var(--vp-info-text); }
+.panel-sa .volunteer-profile-page .tone-purple  { background: #F2E9FC; } .panel-sa .volunteer-profile-page .tone-purple .vp-metric-icon  { color: #7C3AED; }
+
+/* ── Loading skeleton ── */
+
+/* ── Responsive ── */
+@media (max-width: 1200px) {
+  /* 1:1 split, per spec §8 tablet guidance. */
+  .panel-sa .volunteer-profile-page .vp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+  .panel-sa .volunteer-profile-page .vp-hero { flex-wrap: wrap; }
+  .panel-sa .volunteer-profile-page .vp-hero-main { flex-basis: calc(100% - 102px); }
+  .panel-sa .volunteer-profile-page .vp-hero-actions { flex-basis: 100%; justify-content: flex-start; }
+}
+@media (max-width: 900px) {
+  .panel-sa .sa-page.volunteer-profile-page { padding: 16px 16px 24px; }
+  .panel-sa .volunteer-profile-page .vp-grid { grid-template-columns: minmax(0, 1fr); }
+  .panel-sa .volunteer-profile-page .vp-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel-sa .volunteer-profile-page .vp-field { grid-template-columns: 24px minmax(70px, 38%) minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .panel-sa .sa-page.volunteer-profile-page { padding: 12px 12px 20px; }
+  .panel-sa .volunteer-profile-page .vp-hero { padding: 16px; gap: 14px; }
+  .panel-sa .volunteer-profile-page .vp-avatar { width: 64px; height: 64px; font-size: 22px; }
+  .panel-sa .volunteer-profile-page .vp-hero-main { flex-basis: calc(100% - 78px); }
+  .panel-sa .volunteer-profile-page .vp-name { font-size: 20px; }
+  .panel-sa .volunteer-profile-page .vp-btn { flex: 1 1 auto; justify-content: center; }
+  .panel-sa .volunteer-profile-page .vp-field { grid-template-columns: 22px minmax(0, 1fr); row-gap: 2px; align-items: start; padding: 8px 0; }
+  .panel-sa .volunteer-profile-page .vp-field-label { grid-column: 2; }
+  .panel-sa .volunteer-profile-page .vp-field-value { grid-column: 2; }
+  .panel-sa .volunteer-profile-page .vp-field-icon { grid-row: 1 / span 2; align-items: start; padding-top: 2px; }
 }
 
 /* ── HR PANEL (.panel-hr) ── */
