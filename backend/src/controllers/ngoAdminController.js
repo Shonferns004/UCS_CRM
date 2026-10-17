@@ -3710,6 +3710,155 @@ export const deleteStationDonors = async (req, res) => {
   }
 };
 
+// Normalize a hand-entered mobile number to the 10-digit form donor_profiles
+// keys on. Accepts spaces, dashes and an optional +91/91/0 prefix so an admin
+// pasting a number from a phone contact list does not create a second profile
+// for a donor already on the station. Returns null when the result is not a
+// valid 10-digit Indian mobile.
+const normalizeAddedMobile = (raw) => {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  let local = digits;
+  if (local.length === 12 && local.startsWith('91')) local = local.slice(2);
+  else if (local.length === 11 && local.startsWith('0')) local = local.slice(1);
+  return local.length === 10 ? local : null;
+};
+
+// Manually add ONE donor to an existing station from the station row's kebab
+// ("Add donor"). Sibling of deleteStationDonors and of the old-data upload: it
+// writes the same shape the upload writes (profile by mobile + one ACTIVE
+// fro_assignment on the station, owned by the station's FRO) but for a single
+// hand-entered name/number instead of a spreadsheet.
+//
+// The one-number-per-NGO rule (partial unique index uq_fro_assignments_active_donor_ngo)
+// means a donor already active anywhere in this NGO is refused rather than
+// silently duplicated. A profile that already exists under the same mobile is
+// reused (name only filled when it was empty) so a shared number does not
+// overwrite a donor's real name.
+export const addStationDonor = async (req, res) => {
+  try {
+    const station = String(req.params.station || '').trim();
+    if (!station) {
+      return res.status(400).json({ message: 'Station is required' });
+    }
+
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ message: 'Donor name is required' });
+    }
+
+    const mobile = normalizeAddedMobile(req.body?.mobile);
+    if (!mobile) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit mobile number' });
+    }
+
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('id, name').eq('id', req.user.ngo_id).maybeSingle();
+      if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
+    }
+    if (ngoEntries.length === 0) {
+      return res.status(403).json({ message: 'No NGO access' });
+    }
+
+    // A station name is shared across NGOs, so the write must land in exactly
+    // one NGO. The caller passes the scope it opened the row under; without it
+    // fall back to the single owned NGO, and refuse when that is ambiguous.
+    const requestedNgoId = req.body?.ngo_id;
+    let target = null;
+    if (requestedNgoId) {
+      target = ngoEntries.find(e => String(e.ngoId) === String(requestedNgoId)) || null;
+      if (!target) return res.status(403).json({ message: 'Access denied for this NGO' });
+    } else if (ngoEntries.length === 1) {
+      target = ngoEntries[0];
+    }
+    if (!target) {
+      return res.status(400).json({ message: 'Pick the NGO this donor belongs to' });
+    }
+
+    // The station must actually exist for this NGO; otherwise a typo silently
+    // creates a phantom station bucket that no read path lists.
+    const stationAssign = await getStationAssignmentByNgoAndStation(target.ngoId, station);
+    if (!stationAssign) {
+      return res.status(404).json({ message: `Station ${station} is not registered for ${target.ngoName || 'this NGO'}` });
+    }
+
+    // Reuse the profile if the number is already known anywhere.
+    const existingProfile = await getDonorByMobile(mobile);
+    let donorId = existingProfile?.id || null;
+    if (!donorId) {
+      const { data: created, error: pErr } = await db
+        .from('donor_profiles')
+        .insert([{ mobile_number: mobile, name, amount: 0, total_amount: 0, donation_count: 1 }])
+        .select('id')
+        .single();
+      if (pErr) throw pErr;
+      donorId = created.id;
+    } else if (!existingProfile.name && name) {
+      // Fill a missing name only; never overwrite a donor's existing name.
+      await db.from('donor_profiles').update({ name }).eq('id', donorId);
+    }
+
+    // One ACTIVE assignment per (donor, ngo). An existing one — on this station
+    // or any other in the NGO — is a conflict, reported with where it sits.
+    const already = await getActiveAssignmentDonorIds(target.ngoId, [donorId]);
+    if (already.has(donorId)) {
+      const { data: current } = await db
+        .from('fro_assignments')
+        .select('station, status')
+        .eq('donor_id', donorId)
+        .eq('ngo_id', target.ngoId)
+        .not('status', 'eq', 'reassigned')
+        .maybeSingle();
+      return res.status(409).json({
+        message: `${name || mobile} is already assigned in ${target.ngoName}`
+          + (current?.station ? ` on station ${current.station}` : '')
+          + ' (one active assignment per donor per NGO).',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const batchId = crypto.randomUUID();
+    const { data: assignment, error: aErr } = await db
+      .from('fro_assignments')
+      .insert([{
+        donor_id: donorId,
+        fro_worker_id: stationAssign.fro_worker_id || null,
+        ngo_id: target.ngoId,
+        station,
+        status: 'pending',
+        assigned_at: now,
+        batch_id: batchId,
+        batch_type: 'old_data',
+      }])
+      .select('id, fro_worker_id')
+      .single();
+    if (aErr) throw aErr;
+
+    // The station's cached donor_count and disposition roll-up are stale now.
+    bustStationCache();
+
+    const { data: fro } = assignment.fro_worker_id
+      ? await db.from('workers').select('name').eq('id', assignment.fro_worker_id).maybeSingle()
+      : { data: null };
+
+    return res.status(201).json({
+      donor_id: donorId,
+      assignment_id: assignment.id,
+      station,
+      ngo_id: target.ngoId,
+      ngo_name: target.ngoName || '',
+      donor_name: name,
+      donor_mobile: mobile,
+      fro_name: fro?.name || 'Unassigned',
+      message: `${name} added to ${station}` + (fro?.name ? ` — assigned to ${fro.name}` : ' — no FRO on this station'),
+    });
+  } catch (error) {
+    console.error('addStationDonor ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getAlerts = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
