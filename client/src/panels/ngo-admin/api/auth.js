@@ -53,8 +53,7 @@ export function listAllImpersonationCodes() {
 }
 
 // ─── Temporary Data Access (admin permission layer) ──────────────────────────
-// Wraps /ngo-admin/temporary-access*. All calls are admin-guarded server-side;
-// a 503 with code TEMP_ACCESS_DISABLED means the feature flag is off.
+// Wraps /ngo-admin/temporary-access*. All calls are admin-guarded server-side.
 
 export function listTemporaryAccess(params = {}) {
   const qs = new URLSearchParams(params).toString()
@@ -68,6 +67,11 @@ export function getTemporaryAccess(id) {
 export function validateTemporaryAccess(params = {}) {
   const qs = new URLSearchParams(params).toString()
   return apiGet(`/ngo-admin/temporary-access/validate${qs ? '?' + qs : ''}`)
+}
+
+// Candidate FROs for the grant modal, fetched fresh each time the modal opens.
+export function listTemporaryAccessFroCandidates() {
+  return apiGet('/ngo-admin/temporary-access/fro-candidates')
 }
 
 export function createTemporaryAccess(body) {

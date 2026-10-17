@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Clock } from 'lucide-react';
-import { validateTemporaryAccess, createTemporaryAccess, extendTemporaryAccess, revokeTemporaryAccess } from '../api/auth';
+import { validateTemporaryAccess, createTemporaryAccess, extendTemporaryAccess, revokeTemporaryAccess, listTemporaryAccessFroCandidates } from '../api/auth';
 
 // ─── Grant Temporary Access modal ────────────────────────────────────────────
 // Separate file from StationManagement.jsx (~3,200 lines) on purpose: this is a
@@ -61,9 +61,14 @@ function toIso(localValue) {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export default function TemporaryAccessModal({ target, froWorkers, existingGrants = [], onClose, onGranted }) {
+export default function TemporaryAccessModal({ target, existingGrants = [], onClose, onGranted }) {
   const [froId, setFroId] = useState('');
   const [froSearch, setFroSearch] = useState('');
+  // Candidate FROs, fetched fresh on every open from the dedicated endpoint —
+  // so an FRO created after the Stations page loaded still appears. Grants are
+  // keyed on workers.id; no CRM-agent setup is required. null = still loading.
+  const [candidates, setCandidates] = useState(null);
+  const [candidatesError, setCandidatesError] = useState(false);
   const [startsLocal, setStartsLocal] = useState(defaultStart);
   const [expiresLocal, setExpiresLocal] = useState(defaultExpiry);
   const [reasonCode, setReasonCode] = useState('STAFF_ABSENCE');
@@ -83,15 +88,30 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
   const otherLiveGrants = liveExisting.filter(g => g.working_fro_worker_id !== froId);
   const isExtendMode = !!selectedLiveGrant;
 
+  // Fresh on every open: an FRO created after the Stations page loaded still
+  // appears, and revoked/terminated workers drop out without a page reload.
+  useEffect(() => {
+    let alive = true;
+    setCandidates(null);
+    setCandidatesError(false);
+    listTemporaryAccessFroCandidates()
+      .then(rows => { if (alive) setCandidates(Array.isArray(rows) ? rows : []); })
+      .catch(e => {
+        console.error('FRO candidates load failed:', e?.message || e);
+        if (alive) { setCandidates([]); setCandidatesError(true); }
+      });
+    return () => { alive = false; };
+  }, []);
+
   const eligibleFros = useMemo(
-    () => (froWorkers || []).filter(w => {
+    () => (candidates || []).filter(w => {
       const dept = String(w.department || '').toLowerCase().trim();
       const deptOk = dept === 'fro' || dept === 'telecaller' || dept === ''; // dept '' when the list endpoint omits it
       const activeOk = w.is_active !== false && w.employment_status !== 'terminated';
       const notPermanent = w.id !== target.permanentFroId; // already owns it — no grant needed
       return deptOk && activeOk && notPermanent;
     }),
-    [froWorkers, target.permanentFroId],
+    [candidates, target.permanentFroId],
   );
 
   const filteredFros = eligibleFros.filter(w =>
@@ -179,8 +199,6 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
       const body = e?.data || {};
       if (body.code === 'DUPLICATE_GRANT') {
         setError('An active grant already exists for this FRO and station. Re-select the FRO to extend their existing grant instead.');
-      } else if (body.code === 'TEMP_ACCESS_DISABLED') {
-        setError('Temporary Data Access is disabled on this server (TEMP_DATA_ACCESS_ENABLED is off).');
       } else {
         setError(e?.message || body.message || 'Failed to create grant');
       }
@@ -275,7 +293,17 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
               />
               {froPickerOpen && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 320, marginTop: 2, maxHeight: 190, overflowY: 'auto' }}>
-                  {filteredFros.map(w => (
+                  {candidates === null && (
+                    <div style={{ padding: 10, fontSize: 11.5, color: 'var(--ink-soft)', textAlign: 'center' }}>
+                      Loading FROs…
+                    </div>
+                  )}
+                  {candidates !== null && candidatesError && (
+                    <div style={{ padding: 10, fontSize: 11.5, color: '#991b1b', textAlign: 'center' }}>
+                      Couldn&apos;t load the FRO list — close and reopen to retry.
+                    </div>
+                  )}
+                  {candidates !== null && !candidatesError && filteredFros.map(w => (
                     <div
                       key={w.id}
                       onMouseDown={() => {
@@ -290,9 +318,9 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
                       <span style={{ color: 'var(--ink-soft)', fontSize: 11 }}>{w.login_id || ''}</span>
                     </div>
                   ))}
-                  {filteredFros.length === 0 && (
+                  {candidates !== null && !candidatesError && filteredFros.length === 0 && (
                     <div style={{ padding: 10, fontSize: 11.5, color: 'var(--ink-soft)', textAlign: 'center' }}>
-                      No eligible FROs match (inactive / terminated workers and the permanent FRO are excluded)
+                      No eligible FROs match — workers must be active, non-test FROs of your NGO(s); terminated workers and the permanent FRO are excluded
                     </div>
                   )}
                 </div>

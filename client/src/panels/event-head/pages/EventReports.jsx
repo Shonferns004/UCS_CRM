@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl } from '../store'
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl } from '../store'
+import EventPosterReport from '../components/EventPosterReport'
+import { exportPosterToPdf } from '../components/eventPosterPdf.jsx'
 
 // Per-NGO brand theme (colors + logo) keyed by NGO code. Colors match the
 // uploaded AFLF/BSCT/MANN report images.
@@ -1092,6 +1094,45 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     } finally { setPdfBusy('') }
   }
 
+  // ── Event poster (Being Sevak style one-page sheet) ──
+  const posterRef = useRef(null)
+  const [posterPhotos, setPosterPhotos] = useState([])
+  const posterMedia = (reportData?.media || []).filter(m => isImage(m.url) || /^image/i.test(String(m.type || m.mime_type || ''))).slice(0, 6)
+  const posterMediaKey = posterMedia.map(m => m.id || m.url).join('|')
+  useEffect(() => {
+    let live = true
+    const made = []
+    ;(async () => {
+      const out = []
+      for (const m of posterMedia) {
+        let src = m.url || ''
+        if (m.id && ev.id) {
+          try { src = await fetchMediaViewObjectUrl(ev.id, m.id); made.push(src) } catch { /* fall back to the raw url */ }
+        }
+        out.push(src)
+      }
+      if (live) setPosterPhotos(out)
+    })()
+    return () => { live = false; made.forEach(u => { try { URL.revokeObjectURL(u) } catch { /* gone */ } }) }
+  }, [posterMediaKey, ev.id]) /* eslint-disable-line react-hooks/exhaustive-deps */
+
+  const posterTeam = (Array.isArray(reportData?.volunteers) ? reportData.volunteers : Array.isArray(ev.volunteers) ? ev.volunteers : [])
+    .map(v => (typeof v === 'string' ? v : v?.name)).filter(Boolean)
+  const isBsct = String(dailyTheme.name || '').toUpperCase() === 'BSCT'
+
+  const downloadPosterPdf = async () => {
+    if (pdfBusy) return
+    setPdfBusy('poster')
+    try {
+      await exportPosterToPdf(posterRef.current, `${safeFile(ev.name)}-poster.pdf`, [
+        ...posterPhotos, '/logo/sevak-logo.png', isBsct ? '/logo/bsct-logo.png' : '',
+      ])
+    } catch (err) {
+      console.error('poster PDF:', err)
+      alert('Failed to generate poster PDF: ' + (err?.message || 'Unknown error'))
+    } finally { setPdfBusy('') }
+  }
+
   // Auto-download the daily report once after completion. The data is already
   // saved server-side, so if the PDF export fails the report stays on screen and
   // the normal "Download PDF" button acts as the retry.
@@ -1105,7 +1146,8 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       url.searchParams.delete('autodownload')
       window.history.replaceState({}, '', url.pathname + url.search + url.hash)
     } catch { /* non-browser */ }
-    const t = setTimeout(() => { downloadSinglePdf() }, 500)
+    // Photos resolve asynchronously; give the poster a moment to paint them.
+    const t = setTimeout(() => { downloadPosterPdf() }, 1800)
     return () => clearTimeout(t)
   }, [reportData]) /* eslint-disable-line react-hooks/exhaustive-deps */
 
@@ -1403,13 +1445,35 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
             <h3>{REPORT_TYPES.find(r => r.id === reportType)?.label}</h3>
             <div className="eh-reports-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" onClick={() => downloadSinglePdf()} disabled={pdfBusy}>{pdfBusy ? 'Preparing…' : 'Download PDF'}</button>
+              <button className="btn btn-primary btn-sm" onClick={() => downloadPosterPdf()} disabled={pdfBusy}>{pdfBusy ? 'Preparing…' : 'Download Poster PDF'}</button>
+              <button className="btn btn-sm" onClick={() => downloadSinglePdf()} disabled={pdfBusy}>Download Full Report</button>
               <button className="btn btn-sm" onClick={exportJSON}>Export JSON</button>
               {reportType === 'expense' && <button className="btn btn-sm" onClick={() => exportCSV(expenseCols, reportData.expenses || [], `expenses-${ev.id}.csv`)}>Export CSV</button>}
             </div>
           </div>
 
           <div className="card-pad" style={{ paddingTop: 4 }}>
+            {/* Off-screen poster used for the one-page poster PDF */}
+            <div aria-hidden="true" style={{ position: 'fixed', left: -10000, top: 0, pointerEvents: 'none' }}>
+              <EventPosterReport
+                ref={posterRef}
+                title={ev.name || ''}
+                headline={ev.poster_headline || ev.name || ''}
+                date={ev.date}
+                description={ev.description || ''}
+                venue={ev.venue || ''}
+                tagline={ev.tagline || ev.slogan || ''}
+                footerQuote={ev.footer_quote || ''}
+                reportNo={ev.report_no || ''}
+                brandName={isBsct ? 'Being Sevak' : (dailyTheme.fullName || dailyNgoName)}
+                brandSub={isBsct ? 'Charitable Trust' : ''}
+                teamMembers={posterTeam}
+                photos={posterPhotos}
+                logoUrl={dailyLogo || ''}
+                sevakBanoImage="/logo/sevak-logo.png"
+                brandImage={isBsct ? '/logo/bsct-logo.png' : ''}
+              />
+            </div>
             <div className="eh-print-root" ref={singleReportRef}>
               {/* ── NGO-BRANDED REPORT CARD (letterhead + banner + facts) ── */}
               <div
