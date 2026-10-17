@@ -5,12 +5,15 @@ import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Co
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
-import { getMyDashboard } from './api/donors'
+import { getMyDashboard, getMyStations } from './api/donors'
 import { getMyTarget } from './api/target'
 import DataUsageModal from './components/DataUsageModal'
 import { useRealtime } from '../../hooks/useRealtime'
 import { onFroAction, onFroBroadcast, onFroTeamBroadcast, onFroForceLogout } from '../../lib/socket'
-import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
+// Acting FRO (work-as) retired: the FRO-side entry helpers above were removed
+// with it. releaseWorkAs/exitImpersonation stay so a session started before the
+// retirement can still exit cleanly via the banner below.
+import { api, releaseWorkAs, isImpersonating, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
@@ -572,124 +575,47 @@ export default function FROPanel() {
   const [waAgents, setWaAgents] = useState([])
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
-  const workAsRef = useRef(null)
 
-  const [showWorkAs, setShowWorkAs] = useState(false)
-  const [froList, setFroList] = useState([])
-  const [workAsLoading, setWorkAsLoading] = useState(false)
-  const [workAsSearch, setWorkAsSearch] = useState('')
-  const [pendingTarget, setPendingTarget] = useState(null)
-  const [codeInput, setCodeInput] = useState('')
-  const [codeSubmitting, setCodeSubmitting] = useState(false)
-  const [generatingCode, setGeneratingCode] = useState(false)
-  const [codeGenerated, setCodeGenerated] = useState(false)
-  // Station-scoped work-as: modal phase ('stations' → 'code') and the picker.
-  const [waPhase, setWaPhase] = useState('stations')
-  const [waStations, setWaStations] = useState([])
-  const [waStationsLoading, setWaStationsLoading] = useState(false)
-  const [pickedStations, setPickedStations] = useState(() => new Set())
+  // True only for sessions started BEFORE the Acting FRO feature was retired:
+  // the entry button/dropdown are gone, but this flag stays so anyone still
+  // mid-acting can leave cleanly via the Exit banner instead of being stranded.
   const impersonating = isImpersonating()
 
-  const openWorkAs = async () => {
-    const opening = !showWorkAs
-    setShowWorkAs(!showWorkAs)
-    if (!opening) return
-    setWorkAsSearch('')
-    // Refetch on every open so newly added FROs show up without a reload;
-    // the previous list stays visible while loading.
-    setWorkAsLoading(true)
-    try {
-      const res = await getFroWorkersForImpersonation()
-      setFroList(res?.workers || [])
-    } catch (e) { console.error('Error:', e.message); }
-    finally { setWorkAsLoading(false) }
-  }
-
-  const stationKeyOf = (s) => `${s?.ngo_id ?? ''}|${String(s?.station ?? '').trim()}`
-
-  const loadWorkAsStations = async (worker) => {
-    setWaStations([])
-    setWaStationsLoading(true)
-    try {
-      const res = await getFroWorkAsStations(worker.id)
-      const list = res?.stations || []
-      setWaStations(list)
-      // Pre-tick our own still-active claims so Continue keeps them.
-      setPickedStations(new Set(list.filter(s => s.mine).map(stationKeyOf)))
-    } catch (e) {
-      console.error('Error:', e.message)
-      toast(e.message || 'Could not load stations')
-      setPendingTarget(null)
-    } finally { setWaStationsLoading(false) }
-  }
-
-  const pickImpersonateTarget = (worker) => {
-    setShowWorkAs(false)
-    setPendingTarget(worker)
-    setCodeInput('')
-    setCodeGenerated(false)
-    setWaPhase('stations')
-    setPickedStations(new Set())
-    loadWorkAsStations(worker)
-  }
-
-  const togglePickStation = (s) => {
-    setPickedStations(prev => {
-      const next = new Set(prev)
-      const k = stationKeyOf(s)
-      if (next.has(k)) next.delete(k)
-      else next.add(k)
-      return next
-    })
-  }
-
-  const selectAllPickableStations = () =>
-    setPickedStations(new Set(waStations.filter(s => s.available || s.mine).map(stationKeyOf)))
-
-  const pickedPairs = () =>
-    waStations.filter(s => pickedStations.has(stationKeyOf(s))).map(s => ({ ngo_id: s.ngo_id, station: s.station }))
-
-  const generateCodeForSwitch = async () => {
-    setGeneratingCode(true)
-    try {
-      await generateImpersonationCode()
-      setCodeGenerated(true)
-      setCodeInput('')
-    } catch (e) {
-      console.error('Error:', e.message)
-      alert(e.message || 'Could not generate code')
-    } finally {
-      setGeneratingCode(false)
+  // Temporary Data Access: stations an admin granted this FRO, shown as
+  // read-only chips. Display-only — authorization is re-checked server-side
+  // on every request, so a stale chip can never grant access. Refreshed
+  // periodically so a mid-session expiry disappears without a reload.
+  const [tempStations, setTempStations] = useState([])
+  const [tempDeniedMsg, setTempDeniedMsg] = useState(null)
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const list = await getMyStations()
+        if (alive) setTempStations((list || []).filter(s => s.via_temporary_access))
+      } catch { /* display-only; ignore */ }
     }
-  }
-
-  const labelOf = w => w?.name || ''
-
-  const filteredFroList = froList.filter(w => !workAsSearch || (labelOf(w) || '').toLowerCase().includes(workAsSearch.toLowerCase()))
-
-  const doImpersonate = async () => {
-    if (!pendingTarget) return
-    setCodeSubmitting(true)
-    try {
-      const res = await impersonateFRO(pendingTarget.id, codeInput.trim(), undefined, pickedPairs())
-      startImpersonation(res.token, res.user)
-      setPendingTarget(null)
-      setCodeInput('')
-      setCodeGenerated(false)
-      window.location.reload()
-    } catch (e) {
-      console.error('Error:', e.message)
-      toast(e.message || 'Could not switch FRO')
-      // Someone else grabbed a station between pick and switch — back to the
-      // picker with fresh availability so they can choose free stations.
-      if (/already being worked/.test(e.message || '') && pendingTarget) {
-        setWaPhase('stations')
-        loadWorkAsStations(pendingTarget)
-      }
-    } finally {
-      setCodeSubmitting(false)
+    load()
+    const t = setInterval(load, 10 * 60 * 1000)
+    // The API wrapper emits this when a request is denied with a TEMP_ACCESS_*
+    // code — the grant was revoked or expired mid-session. Refresh the chips
+    // immediately and explain it in a banner instead of a bare 403.
+    const onDenied = (e) => {
+      load()
+      setTempDeniedMsg(e?.detail?.message || 'Your temporary access has ended. Contact your admin if you need it again.')
+      setTimeout(() => alive && setTempDeniedMsg(null), 12000)
     }
-  }
+    window.addEventListener('temp-access-denied', onDenied)
+    return () => { alive = false; clearInterval(t); window.removeEventListener('temp-access-denied', onDenied) }
+  }, [])
+
+  // ── Acting FRO (work-as) removed ──────────────────────────────────────────
+  // The FRO-initiated identity switch is retired. Admins now grant time-boxed
+  // Temporary Data Access from the admin panel instead (chips from tempStations
+  // below). No donor ownership, receipt or credit data ever changed under the
+  // old feature, so removal required no data cleanup — and per-station claim
+  // history in work_as_sessions is preserved server-side for reporting.
+  // The backend /auth/impersonate endpoint remains for admin/super-admin use.
 
   const doExitImpersonation = async () => {
     // Free our claimed stations server-side before restoring the own session.
@@ -939,11 +865,10 @@ useEffect(() => onFroAction((action) => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
       if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifList(false)
-      if (workAsRef.current && !workAsRef.current.contains(e.target)) setShowWorkAs(false)
     }
-    if (showMenu || showNotifList || showWorkAs) document.addEventListener('mousedown', handler)
+    if (showMenu || showNotifList) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showMenu, showNotifList, showWorkAs])
+  }, [showMenu, showNotifList])
 
   const loadReminders = () => {
     Promise.all([getScheduled(), getCallbacks()]).then(([scheduled, callbacks]) => {
@@ -1052,43 +977,9 @@ useEffect(() => onFroAction((action) => {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
             </div>
-            <div ref={workAsRef} style={{ position: 'relative' }}>
-              <div onClick={openWorkAs} title={impersonating ? `Acting FRO: ${user?.imposter_name || userName}` : 'Acting FRO'} style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', background: impersonating ? 'var(--sage-soft, rgba(22,163,74,.15))' : undefined }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={impersonating ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M16 8h.01"/><path d="M8 12h8"/><path d="M8 8h.01"/><path d="M16 12h.01"/></svg>
-              </div>
-              {showWorkAs && (
-                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 240, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, zIndex: 60 }}>
-                  <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Acting FRO</div>
-                  <input
-                    value={workAsSearch}
-                    onChange={e => setWorkAsSearch(e.target.value)}
-                    placeholder="Search FRO…"
-                    style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', marginBottom: 4, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-soft, #f1f5f9)', color: 'var(--ink)', fontSize: 12, outline: 'none', fontFamily: 'inherit' }}
-                  />
-                  {workAsLoading && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>}
-                  {!workAsLoading && (
-                    <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                      {filteredFroList.map(w => {
-                        const isAbsconded = String(w.employment_status || '').toLowerCase().trim() === 'absconded'
-                        const isInactive = w.is_active === false || w.employment_status === 'terminated'
-                        return (
-                        <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
-                          <span style={{ fontWeight: 600 }}>{labelOf(w)}</span>
-                          {isAbsconded
-                            ? <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#991b1b', background: '#fee2e2', borderRadius: 6, padding: '1px 7px' }}>ABS</span>
-                            : isInactive && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '1px 7px' }}>INACTIVE</span>}
-                          {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
-                        </div>
-                        )
-                      })}
-                      {filteredFroList.length === 0 && (
-                        <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{froList.length === 0 ? 'No other FROs available' : 'No matching FROs'}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            {/* The Acting FRO (work-as) button that used to sit here was
+                retired with the feature — Temporary Data Access is granted
+                from the admin panel now. */}
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
               <div className="avatar">{initials}</div>
               {showMenu && (
@@ -1126,111 +1017,29 @@ useEffect(() => onFroAction((action) => {
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit Acting FRO</button>
           </div>
         )}
-        {pendingTarget && (
-          <div className="modal-overlay" onClick={() => setPendingTarget(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, padding: 22, borderRadius: 'var(--radius)' }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
-                Acting FRO: {labelOf(pendingTarget)}
-              </div>
-              {waPhase === 'stations' ? (
-                <>
-                  {String(pendingTarget?.employment_status || '').toLowerCase().trim() === 'absconded' && (
-                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11, lineHeight: 1.4 }}>
-                      ⚠ Absconded FRO — covering their stations. Donor ownership stays with {pendingTarget.name}; collection credit goes to you.
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
-                    Select which stations you want to work on. Taken stations stay with their current operator.
-                  </div>
-                  {waStationsLoading && <div style={{ padding: '14px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading stations…</div>}
-                  {!waStationsLoading && waStations.length === 0 && (
-                    <div style={{ padding: '10px 0', fontSize: 12, color: '#b91c1c' }}>No stations assigned to this FRO.</div>
-                  )}
-                  {!waStationsLoading && waStations.length > 0 && (
-                    <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <button onClick={selectAllPickableStations} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', cursor: 'pointer' }}>Select all</button>
-                        <button onClick={() => setPickedStations(new Set())} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-soft)', cursor: 'pointer' }}>Clear</button>
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)' }}>{pickedStations.size}/{waStations.length}</span>
-                      </div>
-                      <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {waStations.map(s => {
-                          const k = stationKeyOf(s)
-                          const locked = !s.available && !s.mine
-                          const checked = pickedStations.has(k)
-                          return (
-                            <div key={k} onClick={() => { if (!locked) togglePickStation(s) }}
-                              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 8, border: checked ? '1px solid var(--sage)' : '1px solid var(--line)', background: locked ? 'rgba(148,163,184,.08)' : checked ? 'rgba(22,163,74,.07)' : 'transparent', cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? .75 : 1 }}>
-                              <span style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', background: checked ? 'var(--sage)' : 'transparent', border: checked ? 'none' : '1.5px solid var(--line)' }}>{checked ? '✓' : ''}</span>
-                              <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{s.station}</span>
-                              {s.ngo_name && <span style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{s.ngo_name}</span>}
-                              <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                {locked
-                                  ? <span style={{ color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '2px 7px' }}>with {s.taken_by}</span>
-                                  : s.mine && <span style={{ color: 'var(--sage)' }}>yours</span>}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                        <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
-                        <button className="btn" onClick={() => setWaPhase('code')} disabled={pickedStations.size === 0}
-                          style={{ flex: 1, justifyContent: 'center', background: pickedStations.size === 0 ? '#d1d5db' : 'var(--sage)', color: pickedStations.size === 0 ? '#9ca3af' : '#fff', cursor: pickedStations.size === 0 ? 'not-allowed' : 'pointer' }}>
-                          Continue
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  {String(pendingTarget?.employment_status || '').toLowerCase().trim() === 'absconded' && (
-                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11, lineHeight: 1.4 }}>
-                      ⚠ Absconded FRO — covering their stations. Donor ownership stays with {pendingTarget.name}; collection credit goes to you.
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
-                    Stations: <b style={{ color: 'var(--ink)' }}>{[...new Set(pickedPairs().map(p => p.station))].join(', ') || '—'}</b>{' '}
-                    <span onClick={() => setWaPhase('stations')} style={{ color: 'var(--sage)', cursor: 'pointer', textDecoration: 'underline' }}>(change)</span>
-                    {codeGenerated
-                      ? ' · Code generated! Ask your admin for the code and enter it below to switch.'
-                      : ' · Generate a code to authorize switching. Your admin will share the code with you.'}
-                  </div>
-                  {!codeGenerated && (
-                    <button
-                      className="btn"
-                      onClick={generateCodeForSwitch}
-                      disabled={generatingCode}
-                      style={{ width: '100%', justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
-                    >
-                      {generatingCode ? 'Generating…' : '+ Generate code'}
-                    </button>
-                  )}
-                  <input
-                    value={codeInput}
-                    onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
-                    placeholder="••••"
-                    inputMode="numeric"
-                    style={{ width: '100%', textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', marginTop: 14 }}
-                  />
-                  <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-                    <button className="btn" onClick={() => setWaPhase('stations')} style={{ flex: 1, justifyContent: 'center' }}>Back</button>
-                    <button
-                      className="btn"
-                      onClick={doImpersonate}
-                      disabled={codeInput.length !== 4 || codeSubmitting}
-                      style={{ flex: 1, justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
-                    >
-                      {codeSubmitting ? 'Switching…' : 'Switch'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+        {!impersonating && tempStations.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: 'rgba(29,78,216,.08)', borderBottom: '1px solid var(--line)', fontSize: 12, color: 'var(--ink)', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>Temporary access:</span>
+            {tempStations.map(s => (
+              <span
+                key={`${s.ngo_id}|${s.station}`}
+                title={s.ngo_name ? `${s.station} · ${s.ngo_name}` : s.station}
+                style={{ padding: '2px 9px', borderRadius: 999, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', fontSize: 11.5, fontWeight: 600 }}
+              >
+                {s.station}{s.temp_expires_at ? ` · until ${new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : ''}
+              </span>
+            ))}
+            <span style={{ color: 'var(--ink-soft)', fontSize: 11 }}>Donor ownership stays with the permanent FRO.</span>
           </div>
         )}
+        {!impersonating && tempDeniedMsg && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(220,38,38,.10)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: '#991b1b' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>{tempDeniedMsg}</span>
+            <button className="btn btn-sm" onClick={() => { setTempDeniedMsg(null); window.location.reload() }} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>Refresh</button>
+          </div>
+        )}
+        {/* Acting FRO station-picker / code-entry modal removed with the feature. */}
         {showStats && !showTarget && (
           <DataUsageModal onClose={() => setShowStats(false)} onShowTarget={() => setShowTarget(true)} />
         )}

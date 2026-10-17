@@ -76,6 +76,15 @@ export async function api(path, options = {}) {
       // hr_outside_window vs hr_send_failed) return a `code`, and callers that
       // need to branch on it can only do so if it survives the throw.
       if (err.code) e.code = err.code
+      // Temporary Data Access denials are not generic permission errors: the
+      // FRO's admin grant was revoked or expired while a page was open. Fire a
+      // window event so the panel can show a banner and refresh its lists —
+      // the wrapper itself must not log them out (their own station still works).
+      if (res.status === 403 && typeof err.code === 'string' && err.code.startsWith('TEMP_ACCESS')) {
+        try {
+          window.dispatchEvent(new CustomEvent('temp-access-denied', { detail: { code: err.code, message: msg } }))
+        } catch { /* non-browser env */ }
+      }
       // Same reasoning for a structured error body: a 409 that explains *which*
       // rows failed and why is only actionable if those rows survive the throw.
       // The message alone ("3 of 8 donors cannot be deleted") leaves the caller

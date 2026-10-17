@@ -225,6 +225,17 @@ export default function AttendanceCalendar({ workerId, worker }) {
     setPanelErr('')
   }
 
+  // The editor opens as a modal, so Escape dismisses it like the app's other
+  // dialogs. Blocked while a save is in flight so a stray keypress can't drop
+  // the user's edits mid-request.
+  useEffect(() => {
+    if (!selectedDate) return
+    const onKey = (e) => { if (e.key === 'Escape' && !saving) closePanel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closePanel only uses stable setters
+  }, [selectedDate, saving])
+
   const handleSave = async () => {
     if (!selectedDate || !draft) return
     setSaving(true)
@@ -367,11 +378,23 @@ export default function AttendanceCalendar({ workerId, worker }) {
         </div>
       </div>
 
+      {/* ── Day editor modal ──
+         Fixed overlay centred in the viewport rather than an inline block
+         below the grid. Backdrop click mirrors the app's other dialogs; the
+         panel stops propagation so clicks in the form never dismiss it, and
+         closes are blocked while a save is in flight. */}
       {selectedDate && draft && (
-        <div className="att-detail-panel">
+        <div className="att-modal-overlay" onClick={() => { if (!saving) closePanel() }}>
+        <div
+          className="att-detail-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Edit attendance for ${formatDateLabel(selectedDate)}`}
+          onClick={e => e.stopPropagation()}
+        >
           <div className="att-detail-head">
             <span className="att-detail-date">{formatDateLabel(selectedDate)}</span>
-            <button className="att-detail-close" onClick={closePanel} aria-label="Close">&times;</button>
+            <button className="att-detail-close" onClick={closePanel} disabled={saving} aria-label="Close">&times;</button>
           </div>
           {panelErr && <div className="att-detail-err">{panelErr}</div>}
           <div className="att-detail-fields">
@@ -406,6 +429,7 @@ export default function AttendanceCalendar({ workerId, worker }) {
             <button className="att-btn att-btn-null" onClick={handleNullify} disabled={saving}>Null</button>
             <button className="att-btn att-btn-save" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
           </div>
+        </div>
         </div>
       )}
 
@@ -593,15 +617,35 @@ export default function AttendanceCalendar({ workerId, worker }) {
   .att-counts { flex-direction: row; flex-wrap: wrap; gap: 4px; }
   .att-count { flex: 0 1 auto; background: #F8FBFF; }
 }
-/* ── Day detail panel ──
-   Matches the page's card language: thin cool-blue border, no heavy accent
-   bar, compact outlined controls. */
+/* ── Day editor modal ──
+   Fixed backdrop centred in the viewport, matching the app's other dialogs
+   (Reset Password uses the same overlay + z-index). Scrolling lives on the
+   overlay and centring on the panel's auto margins, so a short viewport
+   scrolls instead of clipping the panel's top — and the clock picker's
+   dropdown is never cut off by a panel-level overflow. */
+.att-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 27, 58, .45);
+  display: flex;
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 2000;
+}
 .att-detail-panel {
-  margin-top: 16px;
-  padding: 14px;
+  margin: auto;
+  width: min(100%, 440px);
+  padding: 18px;
   border: 1px solid #DCE7F8;
-  border-radius: 12px;
-  background: #F8FBFF;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(16, 27, 58, .25);
+}
+/* Tighter gutters on small screens so the centred editor keeps width.
+   Declared after the base rule so it wins at this breakpoint. */
+@media (max-width: 900px) {
+  .att-modal-overlay { padding: 12px; }
 }
 .att-detail-head {
   display: flex;

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { useHR } from './store'
-import { Grid, Users, Clock, FileTxt, Bell, Star, ChartBar } from './icons'
+import { Grid, Users, Plane, Clock, FileTxt, Bell, Star, ChartBar } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -14,6 +14,7 @@ import Workers from './components/Workers'
 import EmployeeDetail from './components/EmployeeDetail'
 import Offboarding from './components/Offboarding'
 import Attendance from './components/Attendance'
+import Leaves from './components/Leaves'
 import LettersForms from './components/LettersForms'
 import Recruiters from './components/Recruiters'
 import Reports from './components/Reports'
@@ -36,6 +37,7 @@ const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
   { id:'employees',  path:'/hr/employees',   label:'Volunteers',  icon:Users,   eyebrow:'People',      sub:'Add and manage volunteers' },
   { id:'attendance', path:'/hr/attendance',  label:'Attendance',  icon:Clock,   eyebrow:'Daily',       sub:'Mark who is in today' },
+  { id:'leaves',     path:'/hr/leaves',      label:'Leaves',      icon:Plane,   eyebrow:'Time off',    sub:'Requests and approvals' },
   { id:'letters',    path:'/hr/letters',     label:'Letters & Forms', icon:FileTxt, eyebrow:'Documents',   sub:'Letters and volunteer onboarding forms' },
   { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
@@ -254,6 +256,7 @@ export default function HRPanel() {
         <Route path="employees/:id" element={<EmployeeDetailPage />} />
         <Route path="employees/:id/offboard" element={<OffboardPage />} />
         <Route path="attendance" element={<Attendance />} />
+        <Route path="leaves" element={<Leaves />} />
         <Route path="letters" element={<LettersForms />} />
         <Route path="hr-forms" element={<Navigate to="/hr/letters" replace />} />
         <Route path="recruiters" element={<Recruiters />} />
