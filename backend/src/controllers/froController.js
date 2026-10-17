@@ -979,6 +979,11 @@ export const getDashboard = async (req, res) => {
     const collectedRows = await cached(froReceiptsCacheKey(creditWorkerId, startDay, endDay), FRO_RECEIPTS_TTL_MS,
       () => getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd, { startDay, endDay }));
     const collected = (collectedRows || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    // High Tier is a LABEL on rows already inside `collected` (the loader tags
+    // them), so this is a split of the same money, never an addition to it:
+    // collected === collected_high_tier + collected_normal, always.
+    const collectedHighTier = (collectedRows || []).reduce(
+      (sum, r) => sum + (r.was_high_tier ? Number(r.amount || 0) : 0), 0);
 
     const [manualTarget, priorTarget] = await Promise.all([
       getTargetByWorker(workerId, monthStr),
@@ -1179,6 +1184,10 @@ export const getDashboard = async (req, res) => {
         source: targetSource,
         source_month: targetSourceMonth,
         collected,
+        // The High Tier slice of `collected` (and its complement), so the card
+        // can show the split without re-deriving or second-guessing the total.
+        collected_high_tier: collectedHighTier,
+        collected_normal: Math.max(0, collected - collectedHighTier),
         achieved: achieved_target,
         salary: currentSalary,
         months_employed: monthsEmployed,
@@ -1767,6 +1776,10 @@ export const getMyCollections = async (req, res) => {
         ngo_id: tabNgoId,
         ngo_name: tabNgoName,
         receipt_no: r.receipt_no != null ? String(r.receipt_no) : null,
+        // Provenance, not attribution: this row's money came out of High Tier
+        // data. Carried straight from the loader's tag so the list can badge it
+        // without another query.
+        is_high_tier: r.was_high_tier === true,
         owner_worker_id: workerId,
         owner_name: workerName,
         is_work_as: false,
@@ -1787,6 +1800,9 @@ export const getMyCollections = async (req, res) => {
       // one it is the whole-month total, so the modal can label the filtered
       // subtotal without re-deriving it.
       total: (receipts || []).reduce((sum, r) => sum + parseFloat(r.amount || 0), 0),
+      // The High Tier slice of that same total (already inside it, not extra).
+      total_high_tier: (receipts || []).reduce(
+        (sum, r) => sum + (r.was_high_tier ? parseFloat(r.amount || 0) : 0), 0),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -4509,6 +4525,10 @@ export const getMyTarget = async (req, res) => {
     const collectedRows = await cached(froReceiptsCacheKey(creditWorkerId, startDay, endDay), FRO_RECEIPTS_TTL_MS,
       () => getWorkerCollectionReceipts(creditWorkerId, monthStart, monthEnd, { startDay, endDay }));
     const collected = (collectedRows || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    // Same split as the dashboard payload, from the same cached rows: the
+    // loader tagged them, so High Tier is a subset of `collected`.
+    const collectedHighTier = (collectedRows || []).reduce(
+      (sum, r) => sum + (r.was_high_tier ? Number(r.amount || 0) : 0), 0);
     const collectedByNgo = await getCollectedByNgo(creditWorkerId, monthStart, monthEnd, allowedNgoIds, { startDay, endDay });
 
     // Resolve NGO names for the breakdown
@@ -4570,6 +4590,11 @@ export const getMyTarget = async (req, res) => {
       target_source: targetSource,
       target_source_month: targetSourceMonth,
       collected,
+      // Total = High Tier + Normal. Normal is derived (total - high tier) rather
+      // than summed separately, so the two halves can never drift from the total
+      // the Collected card shows.
+      collected_high_tier: collectedHighTier,
+      collected_normal: Math.max(0, collected - collectedHighTier),
       collected_by_ngo: collected_by_ngo,
       achieved_target,
       remaining: Math.max(0, target - collected),

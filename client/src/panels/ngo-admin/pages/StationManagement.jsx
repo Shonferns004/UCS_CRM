@@ -2455,6 +2455,12 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                     <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 8 }}>
                       {Number(b.total || 0).toLocaleString('en-IN')} leads from this source
                     </span>
+                    {/* This batch's own yield for the current month, split per
+                        target station in the pills below. Independent of the
+                        Collected card — it is scoped to the batch, not the FRO. */}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: Number(b.collected_amount || 0) > 0 ? '#7c3aed' : 'var(--ink-soft)', marginLeft: 8 }}>
+                      ₹{Number(b.collected_amount || 0).toLocaleString('en-IN')} collected (this month)
+                    </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
                     {b.distributed_at ? new Date(b.distributed_at).toLocaleString('en-IN') : ''}
@@ -2462,7 +2468,12 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                 </div>
                 <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {(b.targets || []).map(t => (
-                    <span key={t.station} className="pill pill-blue">{t.station}: {Number(t.count || 0).toLocaleString('en-IN')}</span>
+                    <span key={t.station} className="pill pill-blue" title="This month's collection from these leads">
+                      {t.station}: {Number(t.count || 0).toLocaleString('en-IN')}
+                      {Number(t.amount || 0) > 0 && (
+                        <strong style={{ marginLeft: 5, color: '#7c3aed' }}>₹{Number(t.amount).toLocaleString('en-IN')}</strong>
+                      )}
+                    </span>
                   ))}
                 </div>
 

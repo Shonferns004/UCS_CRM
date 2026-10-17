@@ -497,6 +497,9 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
     ? (period === 'month' ? (monthAmount || 0) : (todayAmount || 0))
     : rows.reduce((s, r) => s + (r.collection_amount || 0), 0);
   const totalLeads = rows.reduce((s, r) => s + (r.count || 0), 0);
+  // Summed over the SAME `rows` the Collection total sums (not the search
+  // filter), so the two footer figures describe one set of FROs.
+  const rowsHighTierTotal = rows.reduce((s, r) => s + (Number(r.high_tier_amount) || 0), 0);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -567,6 +570,11 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
                       <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
                         {isVerification ? 'Amount (₹)' : 'Collection (₹)'}
                       </th>
+                      {!isVerification && (
+                        <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
+                          High Tier (₹)
+                        </th>
+                      )}
                       {isVerification && (
                         <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
                           Leads
@@ -589,6 +597,11 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
                               <span style={{ fontSize: 9, color: '#8b5cf6', fontWeight: 500, marginLeft: 4, verticalAlign: 'middle' }}>(set)</span>
                             )}
                           </td>
+                          {!isVerification && (
+                            <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: (Number(r.high_tier_amount) || 0) > 0 ? '#7c3aed' : '#9ca3af' }}>
+                              ₹{Number(r.high_tier_amount || 0).toLocaleString('en-IN')}
+                            </td>
+                          )}
                           {isVerification && (
                             <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 500, color: 'var(--ink-soft)' }}>
                               {r.count || 0}
@@ -599,7 +612,7 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
                     })}
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={isVerification ? 3 : 2} style={{ padding: 16, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                        <td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
                           No FROs match your search.
                         </td>
                       </tr>
@@ -611,6 +624,11 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
                       <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--sage)', fontSize: 13 }}>
                         ₹{displayAmount.toLocaleString('en-IN')}
                       </td>
+                      {!isVerification && (
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: '#7c3aed', fontSize: 13 }}>
+                          ₹{rowsHighTierTotal.toLocaleString('en-IN')}
+                        </td>
+                      )}
                       {isVerification && (
                         <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--ink-soft)', fontSize: 13 }}>
                           {totalLeads}
@@ -2003,6 +2021,13 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
+            </div>
+            {/* A SLICE of the headline above (same range, same receipts), never an
+                extra figure — so the card's split always adds up to its total.
+                Always rendered so the line is a stable part of the card. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, fontWeight: 700, color: Number(tlData?.kpis?.received_amount_high_tier || 0) > 0 ? '#8b5cf6' : 'var(--ink-soft)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: Number(tlData?.kpis?.received_amount_high_tier || 0) > 0 ? '#8b5cf6' : 'var(--line)', flexShrink: 0 }} />
+              High Tier se: ₹{Number(tlData?.kpis?.received_amount_high_tier || 0).toLocaleString('en-IN')}
             </div>
           </div>
 

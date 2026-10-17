@@ -228,6 +228,76 @@ const getAllWorkerNameResolvers = async () => {
   return resolvers;
 };
 
+// ─── High Tier collection split ─────────────────────────────────────────────
+//
+// "How much of this collection came out of High Tier data?" is answered from
+// the LOG, never from the assignment alone.
+//
+// Why both halves of the predicate. fro_assignments carries the live High Tier
+// markers, but highTierRestore ERASES them (batch_type returns to
+// high_tier_prev_batch_type, the high_tier_* columns are NULLed). A collection
+// made on a batch that has since been sent back would therefore stop counting
+// as High Tier money. So highTierRestore copies the classification onto
+// fro_donor_logs first (was_high_tier / high_tier_batch_id /
+// high_tier_source_station — see ensureHighTierCollectionSnapshot).
+//
+//   was_high_tier = true            durable: the money was earned on a batch
+//                                   that has since been restored
+//   a.batch_type = 'high_tier'      live: the batch is still distributed, and
+//                                   the lead was worked after it was moved
+//
+// Either one makes the log a High Tier collection, which is why a lead worked on
+// a live batch is classified without waiting for a restore (the live half) and
+// keeps the label forever once one happens (the snapshot half). The two are an
+// OR rather than an if/else on purpose: no single point in time sees both
+// truths.
+//
+// The predicate is only ever a NARROWING condition added to an existing
+// collection query, so a High Tier subtotal can never exceed the total it is
+// part of — Normal is defined as Total minus High Tier, never as its own sum.
+//
+// The `created_at >= distributed_at` guard exists because highTierDistribute
+// moves a source station's ENTIRE live allotment — already-worked leads with
+// their pending dispositions included — and re-points their existing logs at the
+// moved assignment. Without the guard, last week's normal collection on a lead
+// that happens to be redistributed today would be relabelled High Tier money.
+// A lead worked BEFORE the move stays Normal; only work done after it counts.
+// (NULL distributed_at = a legacy 'high_tier' row from before provenance
+// existed: no timestamp to compare, so it is treated inclusively.)
+export const HIGH_TIER_LOG_PREDICATE = (logAlias = 'l', asgAlias = 'a') =>
+  `(${logAlias}.was_high_tier = true
+    OR (${asgAlias}.batch_type = 'high_tier'
+        AND (${asgAlias}.high_tier_distributed_at IS NULL
+             OR ${logAlias}.created_at >= ${asgAlias}.high_tier_distributed_at)))`;
+
+// The subset of the given fro_donor_logs ids that classify as High Tier.
+//
+// Used to label already-loaded receipt rows: attribution (whose money it is)
+// and provenance (which data it came from) are independent questions, so the
+// split is computed on the receipt set the loader already owns rather than
+// re-deriving the whole collection a second time.
+//
+// Degrades to "nothing is High Tier" on failure (the snapshot columns may not
+// exist yet on a database where the schema bootstrap has not run) — a collection
+// total must never disappear because its optional label could not be resolved.
+export const getHighTierLogIds = async (logIds) => {
+  const ids = [...new Set((logIds || []).filter((id) => id != null))];
+  if (ids.length === 0) return new Set();
+  try {
+    const rows = await sql(
+      `SELECT l.id
+         FROM fro_donor_logs l
+         LEFT JOIN fro_assignments a ON a.id = l.assignment_id
+        WHERE l.id = ANY($1)
+          AND ${HIGH_TIER_LOG_PREDICATE('l', 'a')}`,
+      [ids]
+    );
+    return new Set((rows || []).map((r) => String(r.id)));
+  } catch (e) {
+    return new Set();
+  }
+};
+
 /**
  * Every receipt that counts as this worker's collection in the window, already
  * deduplicated. This is the ONE loader behind both the dashboard's "Collected"
@@ -326,7 +396,17 @@ export const getWorkerCollectionReceipts = async (workerId, monthStart, monthEnd
     }
   }
 
-  return mergeAttributedReceipts(byName, byLogId, await getAllWorkerNameResolvers(), queryWorkerId);
+  const merged = mergeAttributedReceipts(byName, byLogId, await getAllWorkerNameResolvers(), queryWorkerId);
+
+  // Label each row with its provenance so the callers can split the SAME row
+  // set into High Tier and Normal without a second, differently-filtered scan.
+  // Because this only tags rows that are already counted, High Tier is a subset
+  // of the total by construction and the card's headline cannot move.
+  const highTierLogIds = await getHighTierLogIds(merged.map((r) => r.log_id));
+  for (const r of merged) {
+    r.was_high_tier = r.log_id != null && highTierLogIds.has(String(r.log_id));
+  }
+  return merged;
 };
 
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd, opts = {}) => {

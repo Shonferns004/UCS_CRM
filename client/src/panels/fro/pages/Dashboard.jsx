@@ -344,6 +344,7 @@ export default function Dashboard() {
       is_punched_in: d.worker?.is_punched_in,
       target: d.target?.amount,
       collected: d.target?.collected,
+      collected_high_tier: d.target?.collected_high_tier,
       achieved_target: d.target?.achieved,
       monthly_connected: d.connected?.monthly,
       daily_connected: d.connected?.daily,
@@ -363,6 +364,10 @@ export default function Dashboard() {
   const { stats = {} } = ds
   const target = ts.target || ds.target || 0
   const collected = ts.collected ?? ds.collected ?? 0
+  // How much of `collected` came out of High Tier data. The server sends it as
+  // a slice of the same total (never an addition), so Collected = High Tier +
+  // Normal by construction and this line can never disagree with the headline.
+  const collectedHighTier = ts.collected_high_tier ?? ds.collected_high_tier ?? 0
   const akiPerDay = ts.incentive?.akiPerDay || []
   const displayCollected = collected
   const collectedByNgo = ts.collected_by_ngo || []
@@ -459,6 +464,13 @@ return (
               ))}
             </div>
           )}
+          {/* A SLICE of the headline above, never an extra figure: these rupees are
+              already inside Collected. Always rendered (even ₹0) so the line is a
+              stable part of the card rather than appearing only on High Tier days. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, fontWeight: 700, color: collectedHighTier > 0 ? '#8b5cf6' : 'var(--ink-soft)' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: collectedHighTier > 0 ? '#8b5cf6' : 'var(--md-outline-variant)', flexShrink: 0 }} />
+            High Tier se: {currency(collectedHighTier)}
+          </div>
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '12px 16px', border: `1.5px solid ${remaining > 0 ? '#e53e3e' : 'var(--sage)'}`, background: remaining > 0 ? 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
@@ -729,6 +741,11 @@ return (
                   {!collectionsLoading && selectedCollectionNgo === 'all' && collectionsMonth === 'current' && collectionsData?.total != null && (
                     <span> · {currency(Number(collectionsData.total))} total</span>
                   )}
+                  {/* The High Tier slice of that same subtotal (already inside it,
+                      never extra), for the same reason the card shows the line. */}
+                  {!collectionsLoading && selectedCollectionNgo === 'all' && collectionsMonth === 'current' && Number(collectionsData?.total_high_tier || 0) > 0 && (
+                    <span style={{ color: '#7c3aed', fontWeight: 700 }}> · High Tier se {currency(Number(collectionsData.total_high_tier))}</span>
+                  )}
                 </div>
                 <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all'); setCollectionSearch('') }}
                   style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
@@ -817,6 +834,9 @@ return (
                         <span style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</span>
                         {c.ngo_name && (
                           <span style={{ fontSize: 8, fontWeight: 700, color: '#6d28d9', background: '#ede9fe', border: '1px solid #ddd6fe', padding: '1px 5px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>{c.ngo_name}</span>
+                        )}
+                        {c.is_high_tier && (
+                          <span title="Collected from High Tier data" style={{ fontSize: 8, fontWeight: 700, color: '#fff', background: '#8b5cf6', padding: '1px 5px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>HIGH TIER</span>
                         )}
                       </div>
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{c.donor_mobile || '—'}</div>
