@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle, Clock } from 'lucide-react';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle, Clock, UserPlus } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
@@ -1056,7 +1056,7 @@ function SourcePill({ source, monthsEmployed, sourceMonth }) {
 }
 
 // Per-row ⋮ kebab menu (absolute overlay; does not affect column widths).
-function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onDownload, onTarget, onGrantTempAccess, onDelete }) {
+function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onAddDonor, onDownload, onTarget, onGrantTempAccess, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1089,6 +1089,11 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewL
           {onViewList && (
             <button onClick={run(onViewList)} style={{ ...itemStyle, fontWeight: 600 }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={14} /> View donor list</span>
+            </button>
+          )}
+          {onAddDonor && (
+            <button onClick={run(onAddDonor)} style={{ ...itemStyle, fontWeight: 600 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><UserPlus size={14} /> Add donor</span>
             </button>
           )}
           {onDownload && <button onClick={run(onDownload)} style={itemStyle}>⤓ Download Excel</button>}
@@ -1513,6 +1518,114 @@ function donorTimeSince(iso) {
   if (days <= 0) return 'today';
   if (days === 1) return '1d ago';
   return `${days}d ago`;
+}
+
+// Manually add ONE donor to a station (station row kebab → "Add donor").
+// Hand-entered name + mobile instead of a spreadsheet; the backend reuses the
+// profile if the number is known and creates the same single ACTIVE assignment
+// the old-data upload would, on the station's FRO.
+function AddDonorModal({ station, ngoList, defaultNgoId, onClose, onAdded }) {
+  const ngoOptions = useMemo(
+    () => (ngoList || []).filter(n => n && n.ngo_id).map(n => ({ id: String(n.ngo_id), name: n.ngo_name || '' })),
+    [ngoList],
+  );
+  const defaultNgo = String(defaultNgoId || (ngoOptions[0]?.id ?? ''));
+  const [activeNgo, setActiveNgo] = useState(defaultNgo);
+  const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const digits = mobile.replace(/\D/g, '');
+  const mobileOk = digits.length === 10 || (digits.length === 12 && digits.startsWith('91')) || (digits.length === 11 && digits.startsWith('0'));
+  const noNgo = ngoOptions.length === 0;
+  const canSubmit = !noNgo && !!activeNgo && name.trim().length > 0 && mobileOk && !saving;
+  const activeNgoName = ngoOptions.find(n => n.id === activeNgo)?.name || '';
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await apiPost(`/ngo-admin/stations/${encodeURIComponent(station)}/add-donor`, {
+        name: name.trim(),
+        mobile,
+        ngo_id: activeNgo,
+      });
+      if (res?.message) toast(res.message, 'success');
+      if (onAdded) onAdded(res);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Could not add donor');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fieldStyle = { fontSize: 13, padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
+
+  return (
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <div className="modal-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>Add Donor — {station}</h3>
+            {activeNgoName && <span className="pill pill-green">{activeNgoName}</span>}
+          </div>
+          <button className="btn btn-sm btn-outline" onClick={onClose} disabled={saving} aria-label="Close"><X size={14} /></button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
+          {noNgo && (
+            <div style={{ padding: '9px 12px', borderRadius: 6, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 12.5, color: '#92400e' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 6 }}><TriangleAlert size={14} /> {station} is not linked to any NGO yet. Set its NGO first, then add donors.</span>
+            </div>
+          )}
+          {ngoOptions.length > 1 && (
+            <label className="field">
+              NGO
+              <select value={activeNgo} onChange={e => setActiveNgo(e.target.value)} style={fieldStyle} disabled={saving}>
+                {ngoOptions.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+              </select>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>The station name is shared across NGOs — pick which one this donor belongs to.</span>
+            </label>
+          )}
+          <label className="field">
+            Donor Name
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ramesh Kumar"
+              style={fieldStyle} autoFocus disabled={saving}
+              onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
+          </label>
+          <label className="field">
+            Mobile Number
+            <input value={mobile} onChange={e => setMobile(e.target.value)} placeholder="10-digit mobile"
+              style={fieldStyle} inputMode="numeric" disabled={saving}
+              onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
+            {mobile.trim() && !mobileOk && (
+              <span style={{ fontSize: 11, color: '#b91c1c' }}>Enter a valid 10-digit mobile number.</span>
+            )}
+          </label>
+
+          {error && (
+            <div style={{ padding: '9px 12px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', fontSize: 12.5, color: '#991b1b' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 6 }}><TriangleAlert size={14} /> {error}</span>
+            </div>
+          )}
+
+          <p style={{ fontSize: 11, color: 'var(--ink-soft)', margin: 0, lineHeight: 1.5 }}>
+            The donor is added to <strong>{station}</strong> and assigned to the station's FRO. A number already active in
+            {' '}{activeNgoName || 'this NGO'} is refused — one active assignment per donor per NGO.
+          </p>
+
+          <div className="modal-actions">
+            <button className="btn btn-outline" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="btn btn-primary" onClick={submit} disabled={!canSubmit}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><UserPlus size={14} /> {saving ? 'Adding…' : 'Add Donor'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // On-screen counterpart to the station row's "Download Excel" action: shows the
@@ -2587,6 +2700,7 @@ export default function StationManagement() {
   // admin clicked - without it the list unions them all and the count disagrees
   // with the per-NGO pill on the row.
   const [donorListTarget, setDonorListTarget] = useState(null);
+  const [addDonorTarget, setAddDonorTarget] = useState(null);
   // Temporary Data Access: which station's "Grant temporary access" modal is
   // open ({ station, ngoId, permanentFroId, permanentFroName, donorCount }).
   // Separate from editNgoStation/permanent-assignment state on purpose — the
@@ -3194,6 +3308,11 @@ export default function StationManagement() {
                                 ngoList: s.ngos || [],
                                 defaultNgoId: ngoScopeForRow(s),
                               })}
+                              onAddDonor={() => setAddDonorTarget({
+                                station: s.station,
+                                ngoList: s.ngos || [],
+                                defaultNgoId: ngoScopeForRow(s),
+                              })}
                               onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
                               onTarget={() => openTarget(s)}
                               onGrantTempAccess={() => setTempAccessTarget({
@@ -3327,6 +3446,17 @@ export default function StationManagement() {
           // refetch the row underneath while the modal is still open.
           onChanged={() => fetchData()}
           onDownloadExcel={(ngoId) => downloadStationExcel(donorListTarget.station, ngoId)}
+        />
+      )}
+
+      {addDonorTarget && (
+        <AddDonorModal
+          station={addDonorTarget.station}
+          ngoList={addDonorTarget.ngoList}
+          defaultNgoId={addDonorTarget.defaultNgoId}
+          onClose={() => setAddDonorTarget(null)}
+          // A new donor bumps the station's donor pill/count, so refresh the row.
+          onAdded={() => fetchData()}
         />
       )}
 
