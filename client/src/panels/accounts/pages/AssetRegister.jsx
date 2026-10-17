@@ -1180,12 +1180,11 @@ export default function AssetRegister() {
   }
 
   function saveNew(form) {
-    const asset = { ...form, id: `local-${Date.now()}`, code: nextCode(), status: form.status || 'available',
+    const asset = { ...form, code: nextCode(), status: form.status || 'available',
       history: [{ date: new Date().toISOString().slice(0, 10), text: 'Asset registered' }] }
     api('/assets', { method: 'POST', body: JSON.stringify(asset) })
-      .then(saved => { setAssets(p => [...p, saved?.id ? saved : asset]); pushToast(`Asset ${asset.code} added`, 'ok') })
-      .catch(() => { setAssets(p => [...p, asset]); pushToast('Saved locally — backend unreachable', 'info') })
-    setShowAdd(false)
+      .then(saved => { setAssets(p => [...p, saved?.id ? saved : asset]); pushToast(`Asset ${asset.code} added`, 'ok'); setShowAdd(false) })
+      .catch(err => { pushToast(`Could not save asset: ${err?.message || 'unknown error'}`, 'error') })
   }
 
   function saveEdit(form) {
