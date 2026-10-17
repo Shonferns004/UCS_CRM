@@ -255,7 +255,8 @@ router.post('/restore-wrong-assignments', restoreWrongAssignments);
 // inherits the admin-only guard — grants are NEVER self-service for FROs.
 // Reads/writes temporary_data_assignments only; permanent station ownership
 // (fro_station_assignments) is read but never modified from here.
-// All handlers no-op with 503 unless TEMP_DATA_ACCESS_ENABLED=true.
+// Always on (the TEMP_DATA_ACCESS_ENABLED flag was removed); authorization
+// still fails closed on grant-lookup errors inside temporaryAccessService.
 router.get('/temporary-access', listTemporaryAccess);
 router.get('/temporary-access/validate', validateTemporaryAccess);
 router.get('/temporary-access/:id', getTemporaryAccess);

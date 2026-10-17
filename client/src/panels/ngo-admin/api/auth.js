@@ -53,8 +53,7 @@ export function listAllImpersonationCodes() {
 }
 
 // ─── Temporary Data Access (admin permission layer) ──────────────────────────
-// Wraps /ngo-admin/temporary-access*. All calls are admin-guarded server-side;
-// a 503 with code TEMP_ACCESS_DISABLED means the feature flag is off.
+// Wraps /ngo-admin/temporary-access*. All calls are admin-guarded server-side.
 
 export function listTemporaryAccess(params = {}) {
   const qs = new URLSearchParams(params).toString()

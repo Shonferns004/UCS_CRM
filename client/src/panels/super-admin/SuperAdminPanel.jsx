@@ -195,6 +195,11 @@ function PageShell({ children }) {
   // 46px avatar). The topbar is shared by every SA page, so the taller variant
   // is opted into per-route instead of restyling the shell everywhere.
   const isWorkersRoute = location.pathname === '/sa/employees'
+  // Volunteer profile renders a full-bleed surface: the content body drops its
+  // padding for this route only (via an opt-in class) so the page's container
+  // sits flush against the sidebar, topbar, right and bottom edges. The page
+  // carries its own inner inset, so no other SA page's layout moves.
+  const isProfileRoute = /^\/sa\/employees\/[^/]+$/.test(location.pathname)
   const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Super Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -272,7 +277,7 @@ function PageShell({ children }) {
           />
         </header>
         <div
-          className={`content-body${isChatRoute ? ' content-body-chat' : ''}`}
+          className={`content-body${isChatRoute ? ' content-body-chat' : ''}${isProfileRoute ? ' content-body-profile' : ''}`}
           style={{
             maxWidth: 'none',
             padding: isIframeRoute || isChatRoute ? 0 : undefined,

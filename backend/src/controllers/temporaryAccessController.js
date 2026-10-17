@@ -1,6 +1,5 @@
 import db from '../config/db.js';
 import {
-  isTempAccessEnabled,
   getActiveGrants,
   invalidateGrantCache,
   recordAssignmentEvent,
@@ -10,10 +9,7 @@ import {
 //
 // Every handler is mounted behind authenticateRole('admin','super_admin') in
 // ngoAdminRoutes.js (after its router.use), so admin-only is enforced by the
-// router, not trusted from the client. All handlers also refuse to operate
-// unless TEMP_DATA_ACCESS_ENABLED — the feature flag is the rollback switch:
-// flipping it off freezes grants (authorization fails closed) and hides the
-// management routes.
+// router, not trusted from the client.
 //
 // Invariants enforced here (see plan §3/§6):
 //  • Permanent ownership (fro_station_assignments.fro_worker_id) is READ but
@@ -25,13 +21,6 @@ import {
 //  • Every mutation writes an append-only audit event.
 
 const REASON_CODES = new Set(['STAFF_ABSENCE', 'WORKLOAD_SUPPORT', 'SPECIAL_ASSIGNMENT', 'OTHER']);
-
-function serviceUnavailable(res) {
-  return res.status(503).json({
-    message: 'Temporary Data Access is disabled (TEMP_DATA_ACCESS_ENABLED is off)',
-    code: 'TEMP_ACCESS_DISABLED',
-  });
-}
 
 function badRequest(res, message, code = 'VALIDATION') {
   return res.status(400).json({ message, code });
@@ -76,7 +65,6 @@ async function attachWorkerNames(rows) {
 // the admin sees "permanent vs temporary" workers separately (plan §8).
 export async function listTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { status, station, fro_worker_id, ngo_id, q } = req.query;
 
     let query = db
@@ -150,7 +138,6 @@ export async function listTemporaryAccess(req, res) {
 // ─── GET /temporary-access/:id ───────────────────────────────────────────────
 export async function getTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { data, error } = await db
       .from('temporary_data_assignments')
       .select(ASSIGN_COLS)
@@ -180,7 +167,6 @@ export async function getTemporaryAccess(req, res) {
 // ─── POST /temporary-access ──────────────────────────────────────────────────
 export async function createTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const {
       ngo_id, station, working_fro_worker_id, starts_at, expires_at,
       reason_code, reason_note, scope_type = 'STATION_ALL',
@@ -334,7 +320,6 @@ export async function createTemporaryAccess(req, res) {
 // changing them retroactively would rewrite what was authorized in the past.
 export async function extendTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { expires_at, reason } = req.body || {};
     const expiry = new Date(expires_at);
     if (isNaN(expiry.getTime())) return badRequest(res, 'expires_at must be a valid date');
@@ -398,7 +383,6 @@ export async function extendTemporaryAccess(req, res) {
 // work — logs, receipts, ownership — is never touched.
 export async function revokeTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { reason } = req.body || {};
 
     const { data: before, error: bErr } = await db
@@ -464,7 +448,6 @@ export async function revokeTemporaryAccess(req, res) {
 // the admin confirms (the same checks create runs, minus the insert).
 export async function validateTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { station, working_fro_worker_id } = req.query;
     if (!station || !working_fro_worker_id) {
       return badRequest(res, 'station and working_fro_worker_id are required');

@@ -13,10 +13,6 @@ import {
 // ownership (permanent FRO column) to show the contrast, but every mutation
 // here touches temporary_data_assignments only — revoking or extending a
 // grant never reassigns a station or a donor.
-//
-// If the backend answers 503 TEMP_ACCESS_DISABLED the feature flag is off:
-// we show an explanatory empty state rather than an error, so a rollout that
-// has not started yet does not look broken.
 
 const STATUS_PILL = {
   ACTIVE:      { bg: '#ecfdf5', fg: '#065f46', bd: '#a7f3d0' },
@@ -50,7 +46,6 @@ function StatusPill({ status }) {
 export default function TemporaryAccess() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [disabled, setDisabled] = useState(false);
   const [filter, setFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [error, setError] = useState(null);
@@ -66,10 +61,8 @@ export default function TemporaryAccess() {
     try {
       const data = await listTemporaryAccess();
       setRows(Array.isArray(data) ? data : []);
-      setDisabled(false);
     } catch (e) {
-      if (e?.data?.code === 'TEMP_ACCESS_DISABLED') setDisabled(true);
-      else setError(e?.message || 'Failed to load temporary access');
+      setError(e?.message || 'Failed to load temporary access');
     } finally {
       setLoading(false);
     }
@@ -139,15 +132,7 @@ export default function TemporaryAccess() {
         starts, extends, expires or is revoked.
       </p>
 
-      {disabled && (
-        <div style={{ padding: 14, borderRadius: 8, background: '#f9fafb', border: '1px solid var(--line, #e5e7eb)', fontSize: 13, color: 'var(--ink-soft)' }}>
-          Temporary Data Access is switched off on this server (<code>TEMP_DATA_ACCESS_ENABLED</code> is not <code>true</code>).
-          Grants cannot be created or managed until it is enabled.
-        </div>
-      )}
-
-      {!disabled && (
-        <>
+      <>
           {/* controls */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
             {FILTERS.map(f => (
@@ -259,7 +244,6 @@ export default function TemporaryAccess() {
             </div>
           )}
         </>
-      )}
 
       {/* ── extend dialog ── */}
       {extendRow && (

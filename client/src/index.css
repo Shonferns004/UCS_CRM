@@ -689,6 +689,18 @@
    the shared topbar, which this route now uses in its default form. Tokens
    are page-scoped custom properties rather than overrides of the shared
    `--bg` / `--border` set, because those feed ~15 other SA pages. */
+/* Full-bleed route opt-in: the shared .content-body carries 24px padding for
+   every SA page; this class drops it for the profile route only so the page
+   surface runs flush to the sidebar, topbar, right and bottom edges. The page
+   keeps its own inner padding for spacing. Background sits here too, so the
+   surface still reaches the bottom edge when content is shorter than the
+   viewport. Higher specificity than the shared padding rules, so the
+   responsive .content-body overrides can't reintroduce the frame. */
+.panel-sa .content-body.content-body-profile {
+  padding: 0;
+  background: #F2F6FD;
+  max-width: none;
+}
 
 .panel-sa .sa-page.volunteer-profile-page {
   --vp-page-bg: #F2F6FD;
