@@ -965,6 +965,23 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+/* Salary tiles live in the narrow left column, where three across would
+   squeeze each tile. They stack one per row and switch to a compact
+   icon-left layout so every row stays a single line. */
+.panel-sa .volunteer-profile-page .vp-metrics-stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+.panel-sa .volunteer-profile-page .vp-metrics-stack .vp-metric {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px 11px;
+}
+.panel-sa .volunteer-profile-page .vp-metrics-stack .vp-metric-icon {
+  grid-row: 1 / span 2;
+  margin-bottom: 0;
+}
+.panel-sa .volunteer-profile-page .vp-metrics-stack .vp-metric-label { margin-bottom: 0; }
 .panel-sa .volunteer-profile-page .vp-metric {
   padding: 12px;
   border: 1px solid var(--vp-border);
@@ -997,27 +1014,20 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-.panel-sa .volunteer-profile-page .vp-metrics-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 
 .panel-sa .volunteer-profile-page .tone-indigo  { background: #EEF1FE; } .panel-sa .volunteer-profile-page .tone-indigo .vp-metric-icon  { color: #4F46E5; }
 .panel-sa .volunteer-profile-page .tone-teal    { background: #E4F7F4; } .panel-sa .volunteer-profile-page .tone-teal .vp-metric-icon    { color: #0D9488; }
 .panel-sa .volunteer-profile-page .tone-amber   { background: #FFF3E0; } .panel-sa .volunteer-profile-page .tone-amber .vp-metric-icon   { color: #C77700; }
 .panel-sa .volunteer-profile-page .tone-green   { background: #E6F6EA; } .panel-sa .volunteer-profile-page .tone-green .vp-metric-icon   { color: #17803D; }
 .panel-sa .volunteer-profile-page .tone-blue    { background: var(--vp-info-bg); }   .panel-sa .volunteer-profile-page .tone-blue .vp-metric-icon    { color: var(--vp-info-text); }
-.panel-sa .volunteer-profile-page .tone-orange  { background: #FFF0E4; } .panel-sa .volunteer-profile-page .tone-orange .vp-metric-icon  { color: #C2410C; }
 .panel-sa .volunteer-profile-page .tone-purple  { background: #F2E9FC; } .panel-sa .volunteer-profile-page .tone-purple .vp-metric-icon  { color: #7C3AED; }
-.panel-sa .volunteer-profile-page .tone-red     { background: var(--vp-danger-bg); }  .panel-sa .volunteer-profile-page .tone-red .vp-metric-icon     { color: var(--vp-danger-text); }
 
 /* ── Loading skeleton ── */
 
 /* ── Responsive ── */
-@media (max-width: 1400px) {
-  .panel-sa .volunteer-profile-page .vp-metrics-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
 @media (max-width: 1200px) {
   /* 1:1 split, per spec §8 tablet guidance. */
   .panel-sa .volunteer-profile-page .vp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .panel-sa .volunteer-profile-page .vp-metrics-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 1000px) {
   .panel-sa .volunteer-profile-page .vp-hero { flex-wrap: wrap; }
@@ -1027,8 +1037,7 @@
 @media (max-width: 900px) {
   .panel-sa .sa-page.volunteer-profile-page { padding: 16px 16px 24px; }
   .panel-sa .volunteer-profile-page .vp-grid { grid-template-columns: minmax(0, 1fr); }
-  .panel-sa .volunteer-profile-page .vp-metrics,
-  .panel-sa .volunteer-profile-page .vp-metrics-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel-sa .volunteer-profile-page .vp-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panel-sa .volunteer-profile-page .vp-field { grid-template-columns: 24px minmax(70px, 38%) minmax(0, 1fr); }
 }
 @media (max-width: 560px) {

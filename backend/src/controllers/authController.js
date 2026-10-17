@@ -647,6 +647,18 @@ export const impersonateFRO = async (req, res) => {
     if (!['fro', 'super_admin', 'master', 'admin', 'accounts', 'hr'].includes(operatorRole)) {
       return res.status(403).json({ message: 'Not allowed to impersonate an FRO' });
     }
+    // Acting FRO (FRO→FRO work-as) retired at the Temporary Data Access
+    // cutover: an FRO can no longer switch identity from the CRM. Admin /
+    // super_admin / master / accounts / hr keep the endpoint for their own
+    // tooling (it is multi-role and was retained deliberately — no CRM UI
+    // outside the removed FRO panel called it). FROs get time-boxed Temporary
+    // Data Access from an admin instead: /ngo-admin/temporary-access.
+    if (operatorRole === 'fro') {
+      return res.status(403).json({
+        message: 'Acting FRO has been retired. Ask your admin to grant you Temporary Data Access for the station instead.',
+        code: 'ACTING_FRO_RETIRED',
+      });
+    }
 
     // "Who are you?" step: the operator optionally identifies which FRO worker
     // they are so credit goes to the correct person. When imposter_worker_id is

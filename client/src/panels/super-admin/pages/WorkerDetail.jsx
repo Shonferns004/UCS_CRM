@@ -4,9 +4,9 @@ import AttendanceCalendar from './AttendanceCalendar'
 import ResetPasswordModal from '../components/ResetPasswordModal'
 import { deptLabel } from '../../../lib/labels'
 import {
-  ArrowLeft, Briefcase, Buildings, CalendarBlank, CheckCircle, CurrencyCircleDollar,
+  ArrowLeft, Briefcase, Buildings, CalendarBlank, CurrencyCircleDollar,
   Database, HandCoins, IdentificationCard,
-  Key, Phone, TrendUp, User, UserPlus, Wallet, XCircle,
+  Key, Phone, TrendUp, User, Wallet,
 } from '@phosphor-icons/react'
 
 export default function WorkerDetail({ workerId, onBack }) {
@@ -99,10 +99,7 @@ export default function WorkerDetail({ workerId, onBack }) {
   const froTiles = [
     { icon: <HandCoins size={17} />, label: 'Total Donation', value: `₹${Number(froStats?.total_donations || 0).toLocaleString()}`, tone: 'green' },
     { icon: <TrendUp size={17} />, label: 'Daily Donation', value: `₹${Number(froStats?.daily_donations || 0).toLocaleString()}`, tone: 'blue' },
-    { icon: <UserPlus size={17} />, label: 'New Donors Today', value: froStats?.new_donors_today || 0, tone: 'orange' },
     { icon: <Database size={17} />, label: 'Assigned Data', value: froStats?.assigned_data || 0, tone: 'purple' },
-    { icon: <CheckCircle size={17} />, label: 'Data Used', value: froStats?.data_used || 0, tone: 'teal' },
-    { icon: <XCircle size={17} />, label: 'Data Unused', value: froStats?.data_unused || 0, tone: 'red' },
   ]
 
   return (
@@ -158,16 +155,13 @@ export default function WorkerDetail({ workerId, onBack }) {
               ))}
             </div>
           </section>
-        </div>
 
-        {/* Right column */}
-        <div className="vp-col">
-          <AttendanceCalendar workerId={workerId} worker={worker} />
-
+          {/* Narrow column can't hold three tiles side by side, so the salary
+              summary stacks one row per tile here instead. */}
           {salary && (
             <section className="vp-card">
               <h2 className="vp-card-title"><Wallet size={15} />Salary Breakdown</h2>
-              <div className="vp-metrics">
+              <div className="vp-metrics vp-metrics-stack">
                 {salaryTiles.map(t => (
                   <div className={`vp-metric tone-${t.tone}`} key={t.label}>
                     <span className="vp-metric-icon">{t.icon}</span>
@@ -178,11 +172,16 @@ export default function WorkerDetail({ workerId, onBack }) {
               </div>
             </section>
           )}
+        </div>
+
+        {/* Right column */}
+        <div className="vp-col">
+          <AttendanceCalendar workerId={workerId} worker={worker} />
 
           {froStats && (
             <section className="vp-card">
               <h2 className="vp-card-title"><HandCoins size={15} />FRO Performance</h2>
-              <div className="vp-metrics vp-metrics-6">
+              <div className="vp-metrics">
                 {froTiles.map(t => (
                   <div className={`vp-metric tone-${t.tone}`} key={t.label}>
                     <span className="vp-metric-icon">{t.icon}</span>

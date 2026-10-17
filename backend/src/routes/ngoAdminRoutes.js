@@ -89,6 +89,14 @@ import {
   deleteNonConnectedFresh,
   deleteStationDonors,
 } from '../controllers/ngoAdminController.js';
+import {
+  listTemporaryAccess,
+  getTemporaryAccess,
+  createTemporaryAccess,
+  extendTemporaryAccess,
+  revokeTemporaryAccess,
+  validateTemporaryAccess,
+} from '../controllers/temporaryAccessController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -241,5 +249,18 @@ router.post('/stations/:station/upload-old-data', upload.single('file'), uploadO
 router.post('/old-data/upload', upload.single('file'), uploadOldData);
 
 router.post('/restore-wrong-assignments', restoreWrongAssignments);
+
+// ─── Temporary Data Access (admin-only permission layer) ─────────────────────
+// Sits after router.use(authenticateRole('admin','super_admin')) above, so it
+// inherits the admin-only guard — grants are NEVER self-service for FROs.
+// Reads/writes temporary_data_assignments only; permanent station ownership
+// (fro_station_assignments) is read but never modified from here.
+// All handlers no-op with 503 unless TEMP_DATA_ACCESS_ENABLED=true.
+router.get('/temporary-access', listTemporaryAccess);
+router.get('/temporary-access/validate', validateTemporaryAccess);
+router.get('/temporary-access/:id', getTemporaryAccess);
+router.post('/temporary-access', createTemporaryAccess);
+router.post('/temporary-access/:id/extend', extendTemporaryAccess);
+router.post('/temporary-access/:id/revoke', revokeTemporaryAccess);
 
 export default router;
