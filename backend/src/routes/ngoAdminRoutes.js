@@ -91,6 +91,7 @@ import {
 } from '../controllers/ngoAdminController.js';
 import {
   listTemporaryAccess,
+  listFroCandidates,
   getTemporaryAccess,
   createTemporaryAccess,
   extendTemporaryAccess,
@@ -259,6 +260,9 @@ router.post('/restore-wrong-assignments', restoreWrongAssignments);
 // still fails closed on grant-lookup errors inside temporaryAccessService.
 router.get('/temporary-access', listTemporaryAccess);
 router.get('/temporary-access/validate', validateTemporaryAccess);
+// Grant-modal candidate list. MUST precede /temporary-access/:id or the path
+// would be captured as an id (see listFroCandidates).
+router.get('/temporary-access/fro-candidates', listFroCandidates);
 router.get('/temporary-access/:id', getTemporaryAccess);
 router.post('/temporary-access', createTemporaryAccess);
 router.post('/temporary-access/:id/extend', extendTemporaryAccess);

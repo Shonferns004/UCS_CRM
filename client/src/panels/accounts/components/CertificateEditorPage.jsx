@@ -34,7 +34,7 @@ const TYPE_LABEL = {
 
 const DATE_FORMATS = [
   ['', 'As typed (YYYY-MM-DD)'],
-  ['DD/MM/YYYY', 'DD/MM/YYYY'],
+  ['DD-MM-YYYY', 'DD-MM-YYYY'],
   ['DD MMM YYYY', 'DD MMM YYYY'],
   ['MMMM D, YYYY', 'MMMM D, YYYY'],
 ]
@@ -75,7 +75,7 @@ export function formatDateValue(raw, pattern) {
   const day = Number(d)
   const month = Number(mo)
   let out
-  if (pattern === 'DD/MM/YYYY') out = `${d}/${mo}/${y}`
+  if (pattern === 'DD-MM-YYYY' || pattern === 'DD/MM/YYYY') out = `${d}-${mo}-${y}`
   else if (pattern === 'DD MMM YYYY') out = `${d} ${MONTHS_SHORT[month - 1] || mo} ${y}`
   else if (pattern === 'MMMM D, YYYY') out = `${MONTHS_LONG[month - 1] || mo} ${day}, ${y}`
   else out = `${y}-${mo}-${d}`
