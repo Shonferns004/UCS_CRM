@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { getFroWorkersByNgo, getUserNgoIds } from './ngoAdminController.js';
 import {
   getActiveGrants,
   invalidateGrantCache,
@@ -24,6 +25,43 @@ const REASON_CODES = new Set(['STAFF_ABSENCE', 'WORKLOAD_SUPPORT', 'SPECIAL_ASSI
 
 function badRequest(res, message, code = 'VALIDATION') {
   return res.status(400).json({ message, code });
+}
+
+// ─── FRO candidates for the grant modal ──────────────────────────────────────
+//
+// GET /temporary-access/fro-candidates — the picker source for "Working FRO
+// (temporary)". It reuses getFroWorkersByNgo (department = FRO, same NGO
+// scoping as the admin's own NGOs, test accounts excluded) and carries no
+// crm_agents requirement at all — the legacy agent gate that used to live on
+// /ngo-admin/fro-workers is gone with the CRM login Agents feature (migration
+// 185_drop_crm_agents.sql). The modal keeps its own endpoint anyway so the
+// list is fetched fresh on every open: an FRO created after the Stations page
+// loaded still appears. employment_status/is_active are returned raw; the
+// modal applies its own active/terminated/owner exclusions.
+export async function listFroCandidates(req, res) {
+  try {
+    const ngoIds = await getUserNgoIds(req.user);
+    const byId = new Map();
+    for (const ngoId of ngoIds) {
+      const rows = await getFroWorkersByNgo(ngoId);
+      for (const w of rows) byId.set(w.id, w);
+    }
+    const list = [...byId.values()]
+      .map(w => ({
+        id: w.id,
+        name: w.name,
+        login_id: w.login_id,
+        email: w.email,
+        department: w.department,
+        is_active: w.is_active,
+        employment_status: w.employment_status || null,
+      }))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    return res.json(list);
+  } catch (e) {
+    console.error('listFroCandidates failed:', e?.message || e);
+    return res.status(500).json({ message: 'Failed to load FRO candidates' });
+  }
 }
 
 // Status derivation without a sweeper: live window + explicit revocation.

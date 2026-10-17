@@ -164,7 +164,9 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   return result;
 }
 
-async function getUserNgoIds(user) {
+// Exported for the Temporary Access candidate picker, which reuses this NGO
+// scoping without the crm_agents gate (see temporaryAccessController).
+export async function getUserNgoIds(user) {
   const access = await getUserNgoAccess(user.id, user.role);
   const ids = access.map(a => a.ngo_id).filter(Boolean);
   if (ids.length > 0) return ids;
@@ -658,31 +660,14 @@ export const getFroWorkers = async (req, res) => {
       }
     }
 
-let agentLabelMap = {};
-    let agentIdMap = {};
-    if (workerIds.length > 0) {
-      const { data: agentRows, error: agentErr } = await db
-        .from('crm_agents')
-        .select('id, worker_id, label')
-        .in('worker_id', workerIds)
-        .eq('is_active', true);
-      if (agentErr) throw agentErr;
-      for (const a of agentRows || []) {
-        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
-        if (a.worker_id && !agentIdMap[a.worker_id]) agentIdMap[a.worker_id] = a.id;
-      }
-    }
-
-    // Only FROs that actually have an agent show here. `name` stays the volunteer's
-    // real name -- it used to be overwritten with the agent label, which made every
-    // row read "Agent 1" and left the station picker unable to say whose account it
-    // was. The label is reported as agent_label, and the agent as agent_id, so a
-    // caller can show "Agent 1 -- Maya Jadhao" and assign by agent.
-    const coveredFroWorkers = froWorkers.filter(w => agentLabelMap[w.id]);
-
-    const result = await Promise.all(coveredFroWorkers.map(async (w) => {
+    // No crm_agents gate. The "CRM login Agents" feature is being retired
+    // (migration 185_drop_crm_agents.sql), so no agent rows are provisioned
+    // for newly created FROs — filtering this list by agent made every recent
+    // hire invisible here (station picker, Attendance, Temporary Access grant
+    // modal). Neither a station assignment nor a temporary grant needs an
+    // agent; both are keyed on workers.id.
+    const result = await Promise.all(froWorkers.map(async (w) => {
       const salary = await getActiveSalaryByWorker(w.id);
-      const agentName = agentLabelMap[w.id];
       return {
         id: w.id,
         name: w.name,
@@ -692,13 +677,12 @@ let agentLabelMap = {};
         gender: w.gender,
         department: w.department,
         is_active: w.is_active,
+        employment_status: w.employment_status || null,
         created_at: w.created_at,
         salary: salary ? parseFloat(salary.salary) : 0,
         salary_from_month: salary ? salary.from_month : null,
         allocated_ngo_ids: allocMap[w.id] || [],
         fro_name: w.name,
-        agent_label: agentName || null,
-        agent_id: agentIdMap[w.id] || null,
       };
     }));
 

@@ -3333,7 +3333,6 @@ export default function StationManagement() {
       {tempAccessTarget && (
         <TemporaryAccessModal
           target={tempAccessTarget}
-          froWorkers={froWorkers}
           existingGrants={liveGrantsFor({ station: tempAccessTarget.station, ngo_id: tempAccessTarget.ngoId })}
           onClose={() => setTempAccessTarget(null)}
           // Granting changes no station field on this page (ownership untouched),

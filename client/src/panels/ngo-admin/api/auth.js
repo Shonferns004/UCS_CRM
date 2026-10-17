@@ -69,6 +69,11 @@ export function validateTemporaryAccess(params = {}) {
   return apiGet(`/ngo-admin/temporary-access/validate${qs ? '?' + qs : ''}`)
 }
 
+// Candidate FROs for the grant modal, fetched fresh each time the modal opens.
+export function listTemporaryAccessFroCandidates() {
+  return apiGet('/ngo-admin/temporary-access/fro-candidates')
+}
+
 export function createTemporaryAccess(body) {
   return apiPost('/ngo-admin/temporary-access', body)
 }
