@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react'
-import { MagnifyingGlass, Eye, LockKey, Trash } from '@phosphor-icons/react'
+import { MagnifyingGlass, Trash } from '@phosphor-icons/react'
 import { api } from '../api/auth'
-import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext'
-import ResetPasswordModal from '../components/ResetPasswordModal'
 import { deptLabel } from '../../../lib/labels'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
+// Salaries on this page are always shown in full. The 4-digit access-code lock
+// that masks them elsewhere in the app is deliberately not applied here.
+const fmtSalary = (amount) => `₹${parseFloat(amount).toLocaleString('en-IN')}`
+
 export default function Workers({ onViewWorker }) {
-  const { formatSalary } = useSalaryPrivacy()
   const [workers, setWorkers] = useState([])
   const [ngos, setNgos] = useState([])
   const [filterNgo, setFilterNgo] = useState('')
@@ -18,7 +19,6 @@ export default function Workers({ onViewWorker }) {
   const [pageSize, setPageSize] = useState(10)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
-  const [resetWorker, setResetWorker] = useState(null)
 
   const [causes, setCauses] = useState([])
   const [ngoForm, setNgoForm] = useState({ name: '', code: '', address: '', registration_no: '' })
@@ -85,7 +85,6 @@ export default function Workers({ onViewWorker }) {
   return (
     <div className="sa-page workers-page">
       <div className="workers-head">
-        <h3>Workers</h3>
         <div className="workers-head-side">
           <span className="workers-count">{workers.length} total</span>
           <div className="workers-actions">
@@ -191,13 +190,13 @@ export default function Workers({ onViewWorker }) {
       <div className="workers-table-wrap">
         <table className="workers-table">
           <colgroup>
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '19%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '13%' }} />
             <col style={{ width: '14%' }} />
-            <col style={{ width: '15%' }} />
-            <col style={{ width: '14%' }} />
-            <col style={{ width: '9%' }} />
+            <col style={{ width: '10%' }} />
             <col style={{ width: '11%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '26%' }} />
           </colgroup>
           <thead>
             <tr>
@@ -218,20 +217,21 @@ export default function Workers({ onViewWorker }) {
               const ngo = ngos.find(n => n.id === w.ngo_id)
               const active = w.is_active !== false
               return (
-                <tr key={w.id}>
+                <tr key={w.id} className="workers-row" onClick={() => onViewWorker(w.id)}>
                   <td>
+                    {/* The row carries the click; the name stays focusable so the
+                        row is still reachable and activatable from the keyboard. */}
                     <a
                       className="worker-name"
                       role="button"
                       tabIndex={0}
-                      onClick={() => onViewWorker(w.id)}
                       onKeyDown={(e) => nameKeyDown(e, w.id)}
                     >{w.name}</a>
                   </td>
                   <td><code className="worker-login">{w.login_id}</code></td>
                   <td>{deptLabel(w.department) || '—'}</td>
                   <td className="workers-ngo">{ngo?.name || '—'}</td>
-                  <td className="workers-salary">{w.salary ? formatSalary(w.salary) : '—'}</td>
+                  <td className="workers-salary">{w.salary ? fmtSalary(w.salary) : '—'}</td>
                   <td>
                     <span className={`workers-status ${active ? 'active' : 'inactive'}`}>
                       <i className="workers-status-dot" aria-hidden="true" />
@@ -240,14 +240,11 @@ export default function Workers({ onViewWorker }) {
                   </td>
                   <td>
                     <div className="workers-row-actions">
-                      <button className="btn workers-act" onClick={() => onViewWorker(w.id)}>
-                        <Eye size={16} weight="bold" /> View
-                      </button>
-                      <button className="btn workers-act" onClick={() => setResetWorker(w)}>
-                        <LockKey size={16} weight="bold" /> Reset Pwd
-                      </button>
-                      <button className="btn workers-act workers-act-danger" onClick={() => remove(w.id)}>
-                        <Trash size={16} weight="bold" /> Delete
+                      <button
+                        className="btn workers-act workers-act-danger"
+                        onClick={(e) => { e.stopPropagation(); remove(w.id) }}
+                      >
+                        <Trash size={15} weight="bold" /> Delete
                       </button>
                     </div>
                   </td>
@@ -281,8 +278,6 @@ export default function Workers({ onViewWorker }) {
           </select>
         </div>
       )}
-
-      {resetWorker && <ResetPasswordModal worker={resetWorker} onClose={() => setResetWorker(null)} />}
     </div>
   )
 }
