@@ -18,6 +18,10 @@ import { isTaskHead } from '../utils/taskAssignmentAccess.js';
 // wired, so `panel` is fixed here rather than trusted from the client.
 const PANEL = 'social';
 
+const ASSIGNEE_EXCLUDE_NAMES = ['Shital Parmar', 'Muhibb Vahora'];
+const normaliseName = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+const ASSIGNEE_EXCLUDE = new Set(ASSIGNEE_EXCLUDE_NAMES.map(normaliseName));
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isIsoDate = (value) => {
   const text = String(value ?? '');
@@ -40,7 +44,7 @@ export async function getAccess(req, res) {
 export async function getAssignees(req, res) {
   try {
     const employees = await rosterForPanel(PANEL);
-    return res.json({ panel: PANEL, employees });
+    return res.json({ panel: PANEL, employees: employees.filter((e) => !ASSIGNEE_EXCLUDE.has(normaliseName(e.name))) });
   } catch (error) {
     console.error('[task-assignments] assignees failed:', error.message);
     return res.status(500).json({ message: error.message });

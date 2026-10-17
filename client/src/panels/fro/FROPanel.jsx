@@ -38,6 +38,7 @@ import FroSuspense from './pages/Suspense'
 import WhatsAppChat from './pages/WhatsAppChat'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
+import { readWaInboxAgents, writeWaInboxAgents } from './utils/waInboxAgents'
 import teleWav from '../../assets/audio/tele.wav'
 import followDueMp3 from '../../assets/audio/follow_due.mp3'
 import callLessMp3 from '../../assets/audio/call_less.mp3'
@@ -147,7 +148,7 @@ const sortTeamBroadcasts = (teams) => [...(teams || [])].sort((a, b) => {
   return String(a?.name || '').localeCompare(String(b?.name || ''));
 });
 
-const INBOX_SHORT = { bsct: 'BSCT', bsct2: 'BSCT', aflf: 'AFLF', mann: 'MANN' }
+const INBOX_SHORT = { bsct: 'BSCT', bsct2: 'BSCT2', aflf: 'AFLF', mann: 'MANN' }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
@@ -495,10 +496,12 @@ function WorkAnniversaryPopup() {
   )
 }
 
-function Sidebar({ open, onClose, waUnreadCounts, si }) {
+function Sidebar({ open, onClose, waUnreadCounts, si, waAgents = [] }) {
   const location = useLocation()
   const nav = [...NAV_BASE]
-  const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+  // waAgents is scoped to the logged-in user by the parent (see waInboxAgents),
+  // so an impersonation switch or shared terminal can't leak another FRO's inbox
+  // links into this sidebar.
   if (waAgents.length === 1) {
     nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: `Inbox ${INBOX_SHORT[waAgents[0].project] || waAgents[0].project}`, Icon: MessageCircle })
   } else if (waAgents.length > 1) {
@@ -564,6 +567,9 @@ export default function FROPanel() {
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [waUnreadCounts, setWaUnreadCounts] = useState({ total: 0 })
+  // Inbox links for the sidebar, scoped to the current user so a previous
+  // identity's agents don't linger after an impersonation switch.
+  const [waAgents, setWaAgents] = useState([])
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
   const workAsRef = useRef(null)
@@ -877,8 +883,11 @@ useEffect(() => onFroAction((action) => {
       const token = localStorage.getItem('ucs_token')
       if (!token) return
 
-      // Try auto-login first if no agents stored
-      const storedAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+      // Resolve this user's inbox agents. Prefer the cache scoped to them; when
+      // it is empty (fresh login, or an impersonation switch) re-fetch from the
+      // server so the sidebar reflects the identity that is actually signed in.
+      const storedAgents = readWaInboxAgents(user?.id)
+      setWaAgents(storedAgents)
       if (storedAgents.length === 0 && user?.id) {
         try {
           const loginRes = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
@@ -895,7 +904,8 @@ useEffect(() => onFroAction((action) => {
                 whatsappUserId: s.account?.id,
                 token: s.token,
               }))
-              localStorage.setItem('wa_agents', JSON.stringify(agents))
+              writeWaInboxAgents(agents, user?.id)
+              setWaAgents(agents)
             }
           }
         } catch { /* silent */ }
@@ -1007,7 +1017,7 @@ useEffect(() => onFroAction((action) => {
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} waAgents={waAgents} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>

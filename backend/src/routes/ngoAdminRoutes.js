@@ -49,6 +49,7 @@ import {
   highTierDistribute,
   getHighTierBatches,
   highTierRestore,
+  highTierMove,
   returnTransferEarly,
   getTransferHistory,
   getTransferDonors,
@@ -190,6 +191,9 @@ router.post('/stations/:station/high-tier-distribute', authenticateRole('admin',
 // its source station. Read is admin-visible; restore mutates allotments.
 router.get('/high-tier-batches', authenticateRole('admin', 'super_admin'), getHighTierBatches);
 router.post('/high-tier-restore', authenticateRole('admin', 'super_admin'), highTierRestore);
+// Re-point ONE target station's slice of a live batch to another station
+// (wrong-station fix-up) without restoring the whole batch.
+router.post('/high-tier-move', authenticateRole('admin', 'super_admin'), highTierMove);
 router.get('/transfers', getTransferHistory);
 router.get('/transfers/:id/donors', getTransferDonors);
 router.post('/transfers/:id/return-early', returnTransferEarly);

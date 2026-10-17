@@ -3,6 +3,7 @@ import { useSearchParams, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import WhatsAppInbox from '../components/enhanced/WhatsAppInbox'
 import { API_BASE as apiBase } from '../../../lib/apiBase'
+import { clearWaInboxAgents, writeWaInboxAgents } from '../utils/waInboxAgents'
 
 const waQueryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 30, retry: 1 } },
@@ -60,8 +61,8 @@ function AutoLoginLoader({ project, onReady, onError }) {
         return
       }
 
-      // Always clear stale agents and re-fetch on page load
-      localStorage.removeItem('wa_agents')
+      // Always clear this user's cached agents and re-fetch on page load.
+      clearWaInboxAgents()
       let agent = null
 
       // Auto-login
@@ -80,7 +81,7 @@ function AutoLoginLoader({ project, onReady, onError }) {
               whatsappUserId: s.account?.id,
               token: s.token,
             }))
-            localStorage.setItem('wa_agents', JSON.stringify(agents))
+            writeWaInboxAgents(agents)
             agent = project ? agents.find(a => a.project === project) : agents[0]
           }
         }

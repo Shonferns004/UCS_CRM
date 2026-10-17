@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl } from '../store'
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl } from '../store'
 
 // Per-NGO brand theme (colors + logo) keyed by NGO code. Colors match the
 // uploaded AFLF/BSCT/MANN report images.
@@ -187,6 +187,36 @@ function SafeImg({ src, alt, height, radius = 8, fallback }) {
       style={{ width: '100%', height, objectFit: 'cover', display: 'block', borderRadius: radius }}
     />
   )
+}
+
+/* A programme photo on a monthly-report card. The report PDF is rasterised with
+   html2canvas, and the event head's S3 bucket is PRIVATE (its URLs 403 in a
+   plain <img>, and a cross-origin <img> cannot be painted onto a canvas), so
+   the photo is read back through the same-origin server proxy and rendered as
+   a blob / data URL. That both SHOWS it and lets the PDF CAPTURE it. Falls back
+   to the raw URL for public / legacy images. */
+function ReportCardImage({ ev, height, radius = 0 }) {
+  const raw = ev.image || ''
+  const [src, setSrc] = useState(raw)
+  useEffect(() => {
+    let live = true
+    let temp = ''
+    if (!ev.image_event_id) { setSrc(raw); return }
+    ;(async () => {
+      try {
+        const resolved = ev.image_kind === 'banner'
+          ? await fetchEventBannerObjectUrl(ev.image_event_id)
+          : await fetchEventImageDataUrl(ev.image_event_id, ev.image_index || 0, true)
+        if (!live) { if (String(resolved).startsWith('blob:')) URL.revokeObjectURL(resolved); return }
+        temp = resolved
+        setSrc(resolved)
+      } catch {
+        if (live) setSrc(raw)
+      }
+    })()
+    return () => { live = false; if (temp) { try { URL.revokeObjectURL(temp) } catch { /* already gone */ } } }
+  }, [ev.image_event_id, ev.image_kind, ev.image_index, raw])
+  return <SafeImg src={src || EVENT_PHOTO_PLACEHOLDER} alt="" height={height} radius={radius} fallback={EVENT_PHOTO_PLACEHOLDER} />
 }
 
 function Section({ title, children, right }) {
@@ -605,6 +635,65 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
   )
 }
 
+/* Monthly NGO card: the planner's SELECTED Festival / Day rows for the month,
+   one line per programme (Date | Festival / Day | Programme | Beneficiary |
+   Location). The report is driven by the planner, not by the events listing, so
+   a programme is never dropped by event de-duplication and test / duplicate
+   events never appear here. */
+function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef }) {
+  const rows = n.events || []
+  const headerBg = theme.color
+  const bannerSrc = n.banner || theme.banner
+  const rounded = theme.name === 'AFLF'
+  return (
+    <div ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
+      <ReportCardHeader logo={n.logo || theme.logo} theme={theme} ngoName={n.ngo_name} monthLabel={monthLabel} yearLabel={yearLabel} eventCount={n.events_count} />
+
+      {/* Optional letterhead band */}
+      {bannerSrc && (
+        <div style={{ height: 84, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `3px solid ${headerBg}` }}>
+          <SafeImg src={bannerSrc} alt="" height={84} radius={0} />
+        </div>
+      )}
+
+      <div style={{ padding: '14px 16px' }}>
+        {rows.length === 0 ? (
+          <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No programmes planned this month.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
+            {rows.map((ev, i) => (
+              <div key={ev.id ?? i} className="eh-activity-card" style={{ border: `1.5px solid ${theme.accent || theme.colorLight}`, borderRadius: rounded ? 12 : 10, background: '#fff', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                <div style={{ position: 'relative', height: 130, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
+                  <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} />
+                  <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: ev.image ? STATUS_COLOR.Completed : STATUS_COLOR.Draft, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{ev.image ? 'Completed' : 'Pending'}</span>
+                </div>
+                <div style={{ padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ background: headerBg, color: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                      {ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>{ev.day || ''}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: theme.headingColor, marginBottom: 4 }}>{ev.festival || '—'}</div>
+                  {ev.programme && <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>{ev.programme}</div>}
+                  {ev.beneficiary && (
+                    <div style={{ marginTop: 6 }}>
+                      <span style={{ background: theme.colorLight, color: theme.colorDark, borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>{ev.beneficiary}</span>
+                    </div>
+                  )}
+                  {ev.venue && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>📍 {ev.venue}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ReportCardFooter theme={theme} n={n} monthLabel={monthLabel} yearLabel={yearLabel} />
+    </div>
+  )
+}
+
 /* Page-break planner for the monthly PDF. Given the raster y-ranges that must
    stay intact (event cards, header, footer) it returns the offsets at which a
    tall NGO card is cut into pages WITHOUT splitting any of those blocks. Every
@@ -853,19 +942,15 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
 
   const exportMonthlyCSV = () => {
     const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
-      ngo: n.ngo_name, event: e.name, sector: e.sector_name, activity: e.activity_name,
-      date: e.date, day: e.day, venue: e.venue, status: e.status, budget: e.budget,
+      ngo: n.ngo_name, date: e.date, festival: e.festival, programme: e.programme, beneficiary: e.beneficiary, location: e.venue,
     })))
     const cols = [
       { key: 'ngo', label: 'NGO' },
-      { key: 'event', label: 'Event' },
-      { key: 'sector', label: 'Sector' },
-      { key: 'activity', label: 'Activity' },
       { key: 'date', label: 'Date' },
-      { key: 'day', label: 'Day' },
-      { key: 'venue', label: 'Venue' },
-      { key: 'status', label: 'Status' },
-      { key: 'budget', label: 'Budget', render: r => money(r.budget) },
+      { key: 'festival', label: 'Festival / Day' },
+      { key: 'programme', label: 'Programme' },
+      { key: 'beneficiary', label: 'Beneficiary' },
+      { key: 'location', label: 'Location' },
     ]
     exportCSV(cols, rows, `monthly-report-${monthlyYear}-${monthlyMonth}.csv`)
   }
@@ -878,16 +963,15 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const exportMonthlyExcel = async () => {
     const XLSX = await import('xlsx-js-style')
     const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
-      ngo: n.ngo_name, event: e.name, sector: e.sector_name, activity: e.activity_name,
-      date: e.date || '', day: e.day || '', venue: e.venue || '', status: e.status || '',
-      beneficiaries: Number(e.beneficiaries) || 0, budget: Number(e.budget) || 0,
+      ngo: n.ngo_name, date: e.date || '', festival: e.festival || '', programme: e.programme || '',
+      beneficiary: e.beneficiary || '', location: e.venue || '',
     })))
-    const headers = ['NGO', 'Event', 'Sector', 'Activity', 'Date', 'Day', 'Venue', 'Status', 'Beneficiaries', 'Budget (₹)']
+    const headers = ['NGO', 'Date', 'Festival / Day', 'Programme', 'Beneficiary', 'Location']
     const aoa = [headers, ...rows.map(r => [
-      r.ngo, r.event, r.sector, r.activity, r.date, r.day, r.venue, r.status, r.beneficiaries, r.budget,
+      r.ngo, r.date, r.festival, r.programme, r.beneficiary, r.location,
     ])]
     const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = [{ wch: 18 }, { wch: 26 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 13 }, { wch: 12 }]
+    ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 20 }, { wch: 28 }]
     if (!ws['!rows']) ws['!rows'] = []
     ws['!rows'][0] = { hpt: 22 }
     const wb = XLSX.utils.book_new()
@@ -1289,13 +1373,13 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                 <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
                   {monthlyMonthLabel} {monthlyYearLabel}
                 </span>
-                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} events</span>
+                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} programmes</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.ngos.length} NGO{monthlyData.ngos.length === 1 ? '' : 's'}</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Beneficiaries: {monthlyData.summary.totalBeneficiaries.toLocaleString('en-IN')}</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Budget: {money(monthlyData.summary.totalBudget)}</span>
               </div>
 
-              {monthlyData.ngos.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 12 }}>No events found for this month.</div>}
+              {monthlyData.ngos.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 12 }}>No programmes planned for this month.</div>}
 
               <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
                 {monthlyData.ngos.map(n => {
@@ -1303,34 +1387,8 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                   const rawCode = String(n.code || '').toLowerCase()
                   const code = nameCode || (['aflf', 'bsct', 'mann'].includes(rawCode) ? rawCode : '')
                   const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: nameCode || rawCode })
-                  const headerBg = theme.color
-                  const logo = n.logo || theme.logo
-                  const bannerSrc = n.banner || theme.banner
                   const cardRef = el => { ngoCardRefs.current[String(n.ngo_id)] = el }
-                  if (code === 'mann') return <MonthInActionLayout key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} onPatched={patchMonthlyEvent} />
-                  if (code === 'aflf') return <GlimpsesLayout key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} onPatched={patchMonthlyEvent} />
-                  return (
-                    <div key={String(n.ngo_id)} ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
-                      <ReportCardHeader logo={logo} theme={theme} ngoName={n.ngo_name} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} eventCount={n.events_count} />
-
-                      {/* Optional letterhead band */}
-                      {bannerSrc && (
-                        <div style={{ height: 84, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `3px solid ${headerBg}` }}>
-                          <SafeImg src={bannerSrc} alt="" height={84} radius={0} />
-                        </div>
-                      )}
-
-                      {/* Event photo cards — date, title, description, impact */}
-                      <div style={{ padding: '14px 16px' }}>
-                        {n.events.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No events for this month.</div>}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
-                          {n.events.map((ev, i) => <ActivityCard key={ev.id ?? i} ev={ev} theme={theme} onPatched={patchMonthlyEvent} />)}
-                        </div>
-                      </div>
-
-                      <ReportCardFooter theme={theme} n={n} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
-                    </div>
-                  )
+                  return <FestivalProgrammeCard key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} code={code} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
                 })}
               </div>
             </div>

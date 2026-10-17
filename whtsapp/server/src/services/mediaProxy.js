@@ -1,4 +1,5 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import db from '../config/db.js';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +34,26 @@ const typeFor = (key) => {
   const m = /\.([a-z0-9]+)$/i.exec(String(key).split('?')[0]);
   return (m && TYPES[m[1].toLowerCase()]) || 'application/octet-stream';
 };
+
+// Meta downloads a WhatsApp template header itself, from outside this
+// deployment, so it can only be handed an ordinary public HTTPS GET -- not a
+// link served by this app (which sits behind Azure Front Door + Caddy) and not
+// the raw bucket URL (private since the 2026-09-30 lockdown, so it answers 403
+// and Meta reports 131053 "Media upload error"). A presigned URL keeps the
+// bucket private while still being fetchable. Meta fetches asynchronously, so
+// an hour is far longer than the observed gap while still making a leaked link
+// short-lived.
+const DEFAULT_PRESIGN_SECONDS = 60 * 60;
+const MAX_PRESIGN_SECONDS = 6 * 60 * 60;
+
+// The raw S3 handle for the account that can read a bucket. The registry holds
+// one bucket per account, so an exact match wins; otherwise fall back to the
+// first configured account, whose credentials may still reach a sibling bucket.
+function accountHandleFor(bucket) {
+  const accounts = db.storage.accounts().filter((a) => a.configured);
+  const chosen = accounts.find((a) => a.bucket === bucket) || accounts[0];
+  return chosen ? db.storage.raw(chosen.name) : null;
+}
 
 // The bucket and key a stored URL points at, or null when it is not S3 (a
 // Supabase public URL, say) and therefore needs no proxy.
@@ -82,4 +103,36 @@ export async function openStoredObject(url) {
     }
   }
   return null;
+}
+
+// A time-limited public URL for one stored object, for handing a link to
+// something outside this deployment that fetches it itself (Meta, for a WhatsApp
+// template header or an outbound media message). Returns the input unchanged when
+// it is not an S3 object we can sign, so a caller can pass a Supabase URL or an
+// already-signed URL straight through without a special case.
+//
+// `prefix` scopes what may be signed. It is not decoration: the URL often comes
+// from a request body, and without it an agent could ask this to mint a link to
+// any object in a bucket they share with other data (a donor receipt, say).
+export async function presignStoredUrl(url, { expiresIn, prefix } = {}) {
+  const original = String(url ?? '');
+  const ref = parseS3Url(original);
+  if (!ref) return original;
+  if (prefix && !ref.key.startsWith(prefix)) return original;
+
+  const handle = accountHandleFor(ref.bucket);
+  if (!handle) return original;
+
+  const wanted = Number(expiresIn);
+  const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : DEFAULT_PRESIGN_SECONDS, 60), MAX_PRESIGN_SECONDS);
+  try {
+    return await getSignedUrl(
+      handle.client,
+      new GetObjectCommand({ Bucket: ref.bucket, Key: ref.key }),
+      { expiresIn: secs },
+    );
+  } catch (e) {
+    console.warn(`[media-proxy] could not presign ${ref.bucket}/${ref.key}: ${e?.message || e}`);
+    return original;
+  }
 }

@@ -134,6 +134,7 @@ import { ensureSevakRenewalSchema } from './bootstrap/ensureSevakRenewalSchema.j
 import { ensureFroDonorLogOperatorSchema } from './bootstrap/ensureFroDonorLogOperatorSchema.js';
 import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSchema.js';
 import { ensureTaskAssignmentSchema } from './bootstrap/ensureTaskAssignmentSchema.js';
+import { ensureAssetSchema } from './bootstrap/ensureAssetSchema.js';
 import { ensureEventHeadPlannerEventLinkSchema } from './bootstrap/ensureEventHeadPlannerEventLinkSchema.js';
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
@@ -1226,6 +1227,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureSevakSignatureSchema().catch(e => console.error('ensureSevakSignatureSchema failed:', e?.message || e));
     await ensureFroDonorLogOperatorSchema().catch(e => console.error('ensureFroDonorLogOperatorSchema failed:', e?.message || e));
     await ensureTaskAssignmentSchema().catch(e => console.error('ensureTaskAssignmentSchema failed:', e?.message || e));
+    await ensureAssetSchema().catch(e => console.error('ensureAssetSchema failed:', e?.message || e));
     await ensureEventHeadPlannerEventLinkSchema().catch(e => console.error('ensureEventHeadPlannerEventLinkSchema failed:', e?.message || e));
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     import('./services/notificationScheduler.js');

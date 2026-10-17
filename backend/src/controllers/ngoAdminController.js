@@ -1888,7 +1888,13 @@ export const getStations = async (req, res) => {
 
     for (const a of assignments) {
       const s = a.station.trim();
-      const agentLabel = agentLabelFor(a);
+      // NOTE: the agent-of-record label used to be resolved here via
+      // `agentLabelFor(a)` + `stationAgentLabelMap`. That helper and its map were
+      // removed with the CRM-agent feature, but a later merge reintroduced this
+      // call without the definition, which threw `agentLabelFor is not defined`
+      // and 500'd the whole stations screen. The station row reports the FRO of
+      // record (`fro_worker_id` / `fro_worker_name`) only; no client reads an
+      // agent label from this endpoint.
       if (!stationMap[s]) {
         stationMap[s] = {
           station: s,
@@ -1907,12 +1913,6 @@ export const getStations = async (req, res) => {
         stationMap[s].fro_worker_id = displayFroId(a);
         stationMap[s].fro_worker_name = displayFroName(a);
       }
-      if (!stationMap[s].crm_agent_id && a.crm_agent_id) {
-        stationMap[s].crm_agent_id = a.crm_agent_id;
-      }
-      if (!stationMap[s].agent_label && agentLabel) {
-        stationMap[s].agent_label = agentLabel;
-      }
     }
 
     // Also add stations from donor_profiles not in fro_station_assignments
@@ -1923,8 +1923,6 @@ export const getStations = async (req, res) => {
           ngos: [],
           fro_worker_id: null,
           fro_worker_name: null,
-          crm_agent_id: null,
-          agent_label: null,
         };
       }
     }
@@ -4898,6 +4896,145 @@ export const highTierRestore = async (req, res) => {
       restored,
       source_station: sourceStation,
       source_fro_assigned: froAny != null,
+      batch_id,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Move ONE target station's whole slice of a live High Tier batch to a
+// different station, without touching the rest of the batch.
+//
+// This is the "I gave it to the wrong station" fix-up: a batch of 200 split
+// A-50 / B-50 / C-50 / D-50, and later it turns out D should have been E.
+// Restoring the whole batch and re-splitting would drag A/B/C back to the source
+// and force a fresh selection; instead this moves just D's 50 to E and leaves
+// A/B/C exactly where they are.
+//
+// Only rows carrying this batch id AND sitting on `from_station` move, so other
+// sources sharing the same stations are untouched. The batch's provenance
+// (source station, batch id, original New/Old bucket, distributed_at) is kept,
+// so the moved slice is still part of the batch and restores with it later.
+export const highTierMove = async (req, res) => {
+  try {
+    const { batch_id, ngo_id, from_station, to_station } = req.body || {};
+    const from = String(from_station || '').trim();
+    const to = String(to_station || '').trim();
+    if (!batch_id) return res.status(400).json({ message: 'batch_id is required' });
+    if (!from || !to) return res.status(400).json({ message: 'Both the source and destination station are required' });
+    if (from === to) return res.status(400).json({ message: 'Pick a different destination station' });
+
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO assigned' });
+
+    const scope = resolveStationNgoScope(ngoIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    const scopeNgoIds = scope.ids;
+
+    const { data: sliceRows, error } = await db
+      .from('fro_assignments')
+      .select('id, ngo_id, fro_worker_id, high_tier_source_station, status')
+      .eq('high_tier_batch_id', batch_id)
+      .eq('station', from)
+      .in('ngo_id', scopeNgoIds);
+    if (error) throw error;
+
+    // Same "not a tombstone" rule getHighTierBatches counts with, applied in JS:
+    // status IS DISTINCT FROM 'reassigned'. A NULL status is a real row and must
+    // move too — PostgREST's not.eq would quietly drop it and the moved count
+    // would disagree with the slice count shown on the batch card.
+    const rows = (sliceRows || []).filter(r => r.status !== 'reassigned');
+    if (rows.length === 0) {
+      return res.status(404).json({ message: `No High Tier leads from this batch are on ${from}. Nothing to move.` });
+    }
+    const sourceStation = rows.find(r => r.high_tier_source_station)?.high_tier_source_station;
+    // Sending the slice back to the source is a (partial) restore, not a move —
+    // it also has to reinstate the original New/Old bucket. Point the admin at
+    // the Restore button instead of silently keeping batch_type='high_tier'.
+    if (sourceStation && to === sourceStation) {
+      return res.status(400).json({ message: `Use Restore to send data back to the source station ${sourceStation}.` });
+    }
+
+    // Destination FRO per (station, ngo) with a station-wide fallback — the same
+    // rule distribute and restore use. No FRO there means the rows land
+    // unassigned and surface through station scope once one is set.
+    const { data: stationAssigns } = await db
+      .from('fro_station_assignments')
+      .select('station, fro_worker_id, ngo_id')
+      .eq('station', to)
+      .in('ngo_id', scopeNgoIds);
+    const froByNgo = new Map();
+    let froAny = null;
+    for (const sa of stationAssigns || []) {
+      if (!sa.fro_worker_id) continue;
+      froByNgo.set(String(sa.ngo_id), sa.fro_worker_id);
+      if (!froAny) froAny = sa.fro_worker_id;
+    }
+    const froFor = (ngoId) => froByNgo.get(String(ngoId)) ?? froAny ?? null;
+
+    const nowIso = new Date().toISOString();
+    const chunkSize = 200;
+    const touchedFroIds = new Set();
+
+    // Group by resolved destination owner so each UPDATE shares one fro value.
+    const groups = new Map();
+    for (const row of rows) {
+      const fro = froFor(row.ngo_id);
+      const key = fro == null ? 'null' : String(fro);
+      if (!groups.has(key)) groups.set(key, { fro: fro ?? null, ids: [] });
+      groups.get(key).ids.push(row.id);
+      if (fro != null) touchedFroIds.add(fro);
+      // The station we move OFF loses these rows, so drop its cached list too.
+      if (row.fro_worker_id) touchedFroIds.add(row.fro_worker_id);
+    }
+
+    // Same reasoning as distribute/restore: one transaction so a mid-way failure
+    // rolls back, and raw SQL on a dedicated client so the realtime wrapper does
+    // not broadcast one db:change per moved row.
+    const client = await db._pool.connect();
+    let moved = 0;
+    try {
+      await client.query('BEGIN');
+      for (const { fro, ids } of groups.values()) {
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunk = ids.slice(i, i + chunkSize);
+          // station + owner only: batch_type and the whole high_tier_* provenance
+          // stay put, so this slice is still part of the batch (and its target
+          // pill simply re-points to the new station).
+          await client.query(
+            `UPDATE fro_assignments
+                SET station = $1,
+                    fro_worker_id = $2,
+                    updated_at = $3
+              WHERE id = ANY($4)`,
+            [to, fro, nowIso, chunk]
+          );
+        }
+        moved += ids.length;
+      }
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    bustStationCache();
+    try {
+      const { invalidateFroCaches } = await import('./froController.js');
+      for (const froId of touchedFroIds) invalidateFroCaches(froId);
+    } catch (cacheErr) {
+      console.warn('highTierMove: FRO cache invalidation failed:', cacheErr.message);
+    }
+
+    return res.json({
+      message: `Moved ${moved} lead${moved === 1 ? '' : 's'} from ${from} to ${to}.`,
+      moved,
+      from_station: from,
+      to_station: to,
+      to_fro_assigned: froAny != null,
       batch_id,
     });
   } catch (error) {

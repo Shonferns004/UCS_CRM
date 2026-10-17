@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { Plus, Search } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
+import StatCard from './StatCard.jsx';
+import AccountCard from './AccountCard.jsx';
+import './whatsappAccounts.css';
 
 const PROJECT_OPTIONS = [
   { value: 'bsct', label: 'Being Sevak' },
@@ -32,6 +36,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [agentSearch, setAgentSearch] = useState({});
   const [agentResults, setAgentResults] = useState({});
   const [assigning, setAssigning] = useState({});
+  const [search, setSearch] = useState('');
+  const [loadError, setLoadError] = useState(null);
   const searchTimer = useRef({});
 
   async function loadAccounts() {
@@ -39,7 +45,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     try {
       const data = await apiGet('/whatsapp/accounts');
       setAccounts(data || []);
-    } catch (err) { console.error(err); }
+      setLoadError(null);
+    } catch (err) { console.error(err); setLoadError('Could not load WhatsApp accounts. Please try again.'); }
     finally { setLoading(false); }
   }
 
@@ -49,8 +56,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
       setLoading(true);
       try {
         const data = await apiGet('/whatsapp/accounts');
-        if (!cancelled) setAccounts(data || []);
-      } catch (err) { console.error(err); }
+        if (!cancelled) { setAccounts(data || []); setLoadError(null); }
+      } catch (err) { console.error(err); if (!cancelled) setLoadError('Could not load WhatsApp accounts. Please try again.'); }
       finally { if (!cancelled) setLoading(false); }
     }
     fetchData();
@@ -190,76 +197,131 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     } catch (err) { alert(err.message); }
   };
 
+  const query = search.trim().toLowerCase();
+  const visibleAccounts = query
+    ? accounts.filter(acc =>
+        String(acc.name || '').toLowerCase().includes(query) ||
+        String(acc.project || '').toLowerCase().includes(query))
+    : accounts;
+
+  const totalAccounts = accounts.length;
+  const connectedAccounts = accounts.filter(acc => acc.is_active).length;
+  const defaultAccounts = accounts.filter(acc => acc.is_default).length;
+
   return (
-    <div>
-      <div className="filter-bar" style={{ marginBottom: showForm || accounts.length > 0 ? 12 : 0 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>WhatsApp Accounts</span>
-        <button className="btn btn-sm" onClick={() => { resetForm(); setShowForm(!showForm); }}
-          style={{ marginLeft: 'auto', background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          {showForm ? 'Cancel' : 'Add Account'}
-        </button>
+    <div className="wa-page">
+      <header className="wa-header">
+        <div>
+          <h1 className="wa-h1">WhatsApp Accounts</h1>
+          <p className="wa-sub">Manage connected WhatsApp Business numbers, templates and agents.</p>
+        </div>
+        <div className="wa-header-actions">
+          <label className="wa-search-wrap">
+            <span className="wa-sr-only">Search accounts</span>
+            <Search className="wa-search-ico" size={18} strokeWidth={1.8} aria-hidden="true" />
+            <input
+              type="search"
+              className="wa-search"
+              placeholder="Search accounts"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="wa-btn wa-btn-primary"
+            onClick={() => { resetForm(); setShowForm(!showForm); }}
+          >
+            <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
+            {showForm ? 'Cancel' : 'Add Account'}
+          </button>
+        </div>
+      </header>
+
+      <div className="wa-stats">
+        <StatCard label="Total accounts" value={totalAccounts} />
+        <StatCard label="Connected" value={connectedAccounts} />
+        <StatCard label="Default accounts" value={defaultAccounts} />
       </div>
 
+      {loadError && (
+        <div className="wa-error" role="alert">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            className="wa-btn-outline"
+            onClick={() => { setLoadError(null); loadAccounts(); }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {showForm && (
-        <div style={{ padding: '10px 0', borderBottom: accounts.length > 0 ? '1px solid var(--line)' : 'none', marginBottom: accounts.length > 0 ? 10 : 0 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <label className="field" style={{ flex: '1 1 130px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Name</span>
-              <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Being Sevak" style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+        <section className="wa-form" aria-label={editing ? 'Edit account' : 'Add account'}>
+          <div className="wa-form-grid">
+            <label className="wa-f">
+              <span className="wa-f-label">Name</span>
+              <input className="wa-input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Being Sevak" />
             </label>
-            <label className="field" style={{ flex: '1 1 100px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Project</span>
-              <select value={form.project} onChange={e => setForm(p => ({ ...p, project: e.target.value }))} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }}>
+            <label className="wa-f">
+              <span className="wa-f-label">Project</span>
+              <select className="wa-select" value={form.project} onChange={e => setForm(p => ({ ...p, project: e.target.value }))}>
                 {PROJECT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
-            <label className="field" style={{ flex: '1 1 140px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Phone Number ID</span>
-              <input value={form.phone_number_id} onChange={e => setForm(p => ({ ...p, phone_number_id: e.target.value }))} placeholder="Meta phone ID" style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+            <label className="wa-f">
+              <span className="wa-f-label">Phone Number ID</span>
+              <input className="wa-input" value={form.phone_number_id} onChange={e => setForm(p => ({ ...p, phone_number_id: e.target.value }))} placeholder="Meta phone ID" />
             </label>
-            <label className="field" style={{ flex: '1 1 140px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Access Token</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                <input type={showToken ? 'text' : 'password'} value={form.access_token} onChange={e => setForm(p => ({ ...p, access_token: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Meta token'} style={{ fontSize: 12, padding: '5px 8px', flex: 1, minWidth: 0 }} />
-                <button type="button" className="btn btn-sm" onClick={() => setShowToken(s => !s)}
+            <label className="wa-f">
+              <span className="wa-f-label">Access Token</span>
+              <span className="wa-input-group">
+                <input className="wa-input" type={showToken ? 'text' : 'password'} value={form.access_token} onChange={e => setForm(p => ({ ...p, access_token: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Meta token'} />
+                <button
+                  type="button"
+                  className="wa-ghost-btn"
+                  onClick={() => setShowToken(s => !s)}
                   title={showToken ? 'Hide access token' : 'Show access token'}
-                  style={{ fontSize: 10, padding: '1px 6px', flexShrink: 0 }}>
+                  aria-label={showToken ? 'Hide access token' : 'Show access token'}
+                >
                   {showToken ? 'Hide' : 'Show'}
                 </button>
-              </div>
+              </span>
             </label>
-            <label className="field" style={{ flex: '1 1 130px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>WABA ID</span>
-              <input value={form.waba_id} onChange={e => setForm(p => ({ ...p, waba_id: e.target.value }))} placeholder="WABA ID" style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+            <label className="wa-f">
+              <span className="wa-f-label">WABA ID</span>
+              <input className="wa-input" value={form.waba_id} onChange={e => setForm(p => ({ ...p, waba_id: e.target.value }))} placeholder="WABA ID" />
             </label>
-            <label className="field" style={{ flex: '1 1 100px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Template Language</span>
-              <input value={form.template_language} onChange={e => setForm(p => ({ ...p, template_language: e.target.value }))} placeholder="en" style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+            <label className="wa-f">
+              <span className="wa-f-label">Template Language</span>
+              <input className="wa-input" value={form.template_language} onChange={e => setForm(p => ({ ...p, template_language: e.target.value }))} placeholder="en" />
             </label>
-            <label className="field" style={{ flex: '1 1 160px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>HR Letter Template</span>
+            <label className="wa-f">
+              <span className="wa-f-label">HR Letter Template</span>
               <input
+                className="wa-input"
                 list={editing ? `tpl-${editing.id}` : undefined}
                 value={form.hr_letter_template}
                 onChange={e => setForm(p => ({ ...p, hr_letter_template: e.target.value }))}
                 placeholder="e.g. ucs_hr_letter (optional)"
                 title="Approved template used by HR > Letters when the volunteer is outside the 24-hour window. Must declare a DOCUMENT header plus a {{1}} body."
-                style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+              />
             </label>
-            <label className="field" style={{ flex: '1 1 160px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>HR Warning Template</span>
+            <label className="wa-f">
+              <span className="wa-f-label">HR Warning Template</span>
               <input
+                className="wa-input"
                 list={editing ? `tpl-${editing.id}` : undefined}
                 value={form.hr_warning_template}
                 onChange={e => setForm(p => ({ ...p, hr_warning_template: e.target.value }))}
                 placeholder="e.g. ucs_hr_warning (optional)"
                 title="Approved template used by HR > Letters for the warning-message templates when the volunteer is outside the 24-hour window. Must declare a single {{1}} body."
-                style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+              />
             </label>
             {/* Suggestions from this WABA's approved templates, so the HR template
                 names can be picked rather than typed from memory. Populated by
-                "Fetch templates" below. */}
+                the Templates button on the card. */}
             {editing && (
               <datalist id={`tpl-${editing.id}`}>
                 {(templateOptions[editing.id] || []).map(t => (
@@ -267,152 +329,96 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
                 ))}
               </datalist>
             )}
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+          </div>
+          <div className="wa-form-foot">
+            <div className="wa-form-checks">
+              <label className="wa-check">
                 <input type="checkbox" checked={form.is_active} onChange={() => toggleField('is_active')} /> Active
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+              <label className="wa-check">
                 <input type="checkbox" checked={form.is_default} onChange={() => toggleField('is_default')} /> Default
               </label>
             </div>
-            <button className="btn btn-sm btn-primary" onClick={handleSave} disabled={saving} style={{ padding: '6px 14px', marginBottom: 0 }}>
+            <button type="button" className="wa-btn wa-btn-primary wa-btn-save" onClick={handleSave} disabled={saving}>
               {saving ? 'Saving...' : editing ? 'Update' : 'Add'}
             </button>
           </div>
           {editing && (
-            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+            <p className="wa-form-hint">
               Leave Access Token blank to keep the existing value.
-            </div>
+            </p>
           )}
-        </div>
+        </section>
       )}
 
       {loading ? (
-        <div style={{ padding: 12, fontSize: 13, color: '#6b7280' }}>Loading...</div>
+        <>
+          <p className="wa-sr-only" role="status">Loading accounts…</p>
+          <div className="wa-grid" aria-hidden="true">
+            {[0, 1].map(i => (
+              <div key={i} className="wa-card wa-skeleton-card">
+                <div className="wa-skel-top">
+                  <span className="wa-skel-avatar" />
+                  <span className="wa-skel-lines">
+                    <span className="wa-skel-line" style={{ width: '55%' }} />
+                    <span className="wa-skel-line" style={{ width: '35%' }} />
+                  </span>
+                </div>
+                <span className="wa-skel-line" style={{ width: '100%' }} />
+                <span className="wa-skel-line" style={{ width: '80%' }} />
+                <span className="wa-skel-foot" />
+              </div>
+            ))}
+          </div>
+        </>
       ) : accounts.length === 0 ? (
-        <div style={{ padding: 12, fontSize: 13, color: '#6b7280' }}>
-          No WhatsApp accounts yet. Add one above, or the system will auto-create one from the environment variables if configured.
+        <div className="wa-empty">
+          <p className="wa-empty-title">No accounts yet</p>
+          <p className="wa-empty-text">
+            Add one above, or the system will auto-create one from the environment variables if configured.
+          </p>
+          <button
+            type="button"
+            className="wa-btn wa-btn-primary"
+            onClick={() => { resetForm(); setShowForm(true); }}
+          >
+            <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
+            Add Account
+          </button>
+        </div>
+      ) : visibleAccounts.length === 0 ? (
+        <div className="wa-empty">
+          <p className="wa-empty-title">No accounts match “{search.trim()}”</p>
+          <p className="wa-empty-text">Try a different name or project code.</p>
+          <button type="button" className="wa-btn wa-btn-ghost" onClick={() => setSearch('')}>
+            Clear search
+          </button>
         </div>
       ) : (
-        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-          {accounts.map(acc => {
-            const templates = templateOptions[acc.id];
-            return (
-              <div key={acc.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: acc.is_active ? '#059669' : '#d1d5db', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{acc.name}</span>
-                      <span className="pill" style={{ background: '#5B6B4E20', color: '#5B6B4E', fontSize: 10, padding: '1px 6px' }}>{acc.project}</span>
-                      {acc.is_default && (
-                        <span className="pill" style={{ background: '#0d948818', color: '#0d9488', fontSize: 10, padding: '1px 6px' }}>Default</span>
-                      )}
-                      {acc.template_name ? (
-                        <span className="pill" style={{ background: '#25D36620', color: '#1d6f42', fontSize: 10, padding: '1px 6px' }}>{acc.template_name}</span>
-                      ) : (
-                        <span className="pill pill-red" style={{ fontSize: 10, padding: '1px 6px' }}>N/A</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
-                      Phone: {acc.phone_number_id} &middot; WABA: {acc.waba_id}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                      <span style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                        Token: {acc.access_token ? (revealToken[acc.id] ? acc.access_token : '••••••••••••••••') : '—'}
-                      </span>
-                      {acc.access_token && (
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => setRevealToken(prev => ({ ...prev, [acc.id]: !prev[acc.id] }))}
-                          title={revealToken[acc.id] ? 'Hide access token' : 'Show access token'}
-                          style={{ fontSize: 10, padding: '1px 6px', flexShrink: 0 }}
-                        >
-                          {revealToken[acc.id] ? 'Hide' : 'Show'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <button className="btn btn-sm" onClick={() => fetchTemplates(acc)} disabled={fetchingTemplates === acc.id}
-                    style={{ fontSize: 11, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-                    {fetchingTemplates === acc.id ? 'Loading...' : 'Templates'}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => openEdit(acc)} style={{ fontSize: 11, padding: '2px 7px' }}>Edit</button>
-                  <button className="btn btn-sm" onClick={() => handleDelete(acc.id, acc.name)} style={{ fontSize: 11, padding: '2px 7px', color: '#dc2626' }}>Del</button>
-                </div>
-                {templates && templates.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, paddingLeft: 16 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Template:</span>
-                    <select
-                      value={acc.template_name || ''}
-                      onChange={e => setAccountTemplate(acc, e.target.value)}
-                      style={{ fontSize: 11, padding: '2px 6px', maxWidth: 200 }}
-                    >
-                      <option value="">N/A</option>
-                      {templates.map(t => (
-                        <option key={t.name} value={t.name}>{t.name} ({t.language})</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div style={{ marginTop: 6, paddingLeft: 16 }}>
-                  <button className="btn btn-sm" onClick={() => toggleAgents(acc.id)}
-                    style={{ fontSize: 10, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    Agents {agents[acc.id] ? `(${agents[acc.id].length})` : ''}
-                  </button>
-                  {showAgents[acc.id] && (
-                    <div style={{ marginTop: 6, padding: '8px 10px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-                      {agents[acc.id] && agents[acc.id].length > 0 && (
-                        <div style={{ marginBottom: 8 }}>
-                          {agents[acc.id].map(agent => {
-                            const w = agent.workers || {};
-                            const agentName = w.name || w.email || 'Unknown';
-                            return (
-                              <div key={agent.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid #f3f4f6' }}>
-                                <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{agentName}</span>
-                                <span style={{ fontSize: 10, color: '#6b7280' }}>{w.phone || w.email || ''}</span>
-                                <button className="btn btn-sm" onClick={() => removeAgent(acc.id, agent.fro_worker_id, agentName)}
-                                  style={{ fontSize: 10, padding: '1px 6px', color: '#dc2626' }}>Remove</button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input
-                          type="text"
-                          value={agentSearch[acc.id] || ''}
-                          onChange={e => handleAgentSearch(acc.id, e.target.value)}
-                          placeholder="Search worker by name, email, or phone..."
-                          style={{ flex: 1, fontSize: 11, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4 }}
-                        />
-                      </div>
-                      {agentResults[acc.id] && agentResults[acc.id].length > 0 && (
-                        <div style={{ marginTop: 4, border: '1px solid #e5e7eb', borderRadius: 4, maxHeight: 150, overflowY: 'auto', background: '#fff' }}>
-                          {agentResults[acc.id].map(w => {
-                            const workerName = w.name || w.email || 'Unknown';
-                            return (
-                              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6' }}
-                                onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
-                                onMouseOut={e => e.currentTarget.style.background = '#fff'}
-                                onClick={() => assignAgent(acc.id, w.id)}>
-                                <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{workerName}</span>
-                                <span style={{ fontSize: 10, color: '#6b7280' }}>{w.phone || w.email || ''}</span>
-                                <span style={{ fontSize: 10, color: '#25D366' }}>+ Assign</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        <div className="wa-grid">
+          {visibleAccounts.map(acc => (
+            <AccountCard
+              key={acc.id}
+              account={acc}
+              revealed={Boolean(revealToken[acc.id])}
+              onToggleReveal={() => setRevealToken(prev => ({ ...prev, [acc.id]: !prev[acc.id] }))}
+              fetchingTemplates={fetchingTemplates === acc.id}
+              onFetchTemplates={() => fetchTemplates(acc)}
+              templates={templateOptions[acc.id]}
+              onSelectTemplate={(value) => setAccountTemplate(acc, value)}
+              agentsOpen={Boolean(showAgents[acc.id])}
+              onToggleAgents={() => toggleAgents(acc.id)}
+              agents={agents[acc.id]}
+              agentSearch={agentSearch[acc.id] || ''}
+              onAgentSearchChange={(value) => handleAgentSearch(acc.id, value)}
+              agentResults={agentResults[acc.id]}
+              assigning={Boolean(assigning[acc.id])}
+              onAssignAgent={(workerId) => assignAgent(acc.id, workerId)}
+              onRemoveAgent={(froId, name) => removeAgent(acc.id, froId, name)}
+              onEdit={() => openEdit(acc)}
+              onDelete={() => handleDelete(acc.id, acc.name)}
+            />
+          ))}
         </div>
       )}
     </div>
