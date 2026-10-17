@@ -500,7 +500,7 @@ async function getMyStationScope(workerId, restrictPairs = null) {
   // where it was — this union is the ONLY place temporary visibility enters
   // the read paths. getActiveGrantPairs re-validates the start/expiry window
   // on every call (a cached row can never outlive expires_at) and fails closed
-  // when the feature flag is off or the lookup errors.
+  // when the lookup errors.
   try {
     const tempPairs = await getActiveGrantPairs(workerId);
     if (tempPairs.length > 0) {

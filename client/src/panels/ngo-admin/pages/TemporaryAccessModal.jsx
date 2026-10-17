@@ -179,8 +179,6 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
       const body = e?.data || {};
       if (body.code === 'DUPLICATE_GRANT') {
         setError('An active grant already exists for this FRO and station. Re-select the FRO to extend their existing grant instead.');
-      } else if (body.code === 'TEMP_ACCESS_DISABLED') {
-        setError('Temporary Data Access is disabled on this server (TEMP_DATA_ACCESS_ENABLED is off).');
       } else {
         setError(e?.message || body.message || 'Failed to create grant');
       }
