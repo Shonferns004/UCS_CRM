@@ -25,6 +25,7 @@ import PageTabs from './components/PageTabs'
 import TeamsManageModal from './components/TeamsManageModal'
 import AssetRegister from './pages/AssetRegister'
 import HistoryImport from './pages/HistoryImport'
+import AttendancePage from './pages/Attendance'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
 import EmailAccountsView from './components/EmailAccountsView'
 import Receipts from './pages/Receipts'
@@ -76,13 +77,14 @@ const NAV_GROUPS = [
     title: 'Workforce',
     icon: <Users size={18} />,
     items: [
-      // Attendance and Teams and Target were folded into Operations —
-      // attendance lives on the volunteer detail's Attendance tab (plus the
-      // Export Excel modal) and teams/targets on this page's own strip. Old
-      // URLs redirect there.
+      // Teams and Target were folded into Operations — teams/targets live on
+      // the Operations page's own strip. Attendance is back as its own page
+      // (monthly calendar with punch in/out, day detail, selfie verification).
       { id: 'payroll', path: '/accounts/volunteers', label: 'Operations',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
         match: (p) => p.startsWith('/accounts/volunteers') || p === '/accounts/loans' },
+      { id: 'attendance', path: '/accounts/attendance', label: 'Attendance',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14l2 2 4-4"/></svg> },
       // The Incentive setup page is now a tab inside Incentives below
       // ("Incentive Daily Chart"); /accounts/incentive redirects there.
       { id: 'incentives', path: '/accounts/incentives', label: 'Incentives',
@@ -531,7 +533,7 @@ export default function AccountsPanel() {
             <Route path="receipt-history" element={<Navigate to="/accounts/receipt-generator" replace />} />
             <Route path="receipt-generator" element={<Receipts />} />
             <Route path="volunteers/*" element={<PayrollSection theme={themes[themeName]} />} />
-            <Route path="attendance" element={<Navigate to="/accounts/volunteers" replace />} />
+            <Route path="attendance" element={<AttendancePage />} />
             <Route path="tickets" element={<AccountsTickets />} />
             <Route path="to-super-admin" element={<SuperAdminTicketSection panel="accounts" />} />
             <Route path="chat" element={<ChatWorkspace />} />

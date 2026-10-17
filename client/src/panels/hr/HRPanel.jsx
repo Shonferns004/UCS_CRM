@@ -37,11 +37,11 @@ const NAV = [
   { id:'employees',  path:'/hr/employees',   label:'Volunteers',  icon:Users,   eyebrow:'People',      sub:'Add and manage volunteers' },
   { id:'attendance', path:'/hr/attendance',  label:'Attendance',  icon:Clock,   eyebrow:'Daily',       sub:'Mark who is in today' },
   { id:'letters',    path:'/hr/letters',     label:'Letters & Forms', icon:FileTxt, eyebrow:'Documents',   sub:'Letters and volunteer onboarding forms' },
+  { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
   { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:Star,    eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',     icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
   { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
-  { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
   { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:ChartBar,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
 ]
 
