@@ -1524,9 +1524,27 @@ export default function Letters() {
             <input type="number" min="0" step="100" value={bsd2Amount} onChange={e=>setBsd2Amount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0))} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           )}
-          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
-            <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
-          </label>
+          <div className="field" style={{ flex: '1 1 100%', minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Volunteer Message</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <button type="button" onClick={() => setSopSel('')}
+                style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  border: sopSel === '' ? '1.5px solid var(--hr-primary, #1677ff)' : '1.5px solid var(--line)',
+                  background: sopSel === '' ? 'var(--hr-primary-soft, #e8f2ff)' : '#fff',
+                  color: sopSel === '' ? 'var(--hr-primary, #1677ff)' : 'var(--ink-soft)' }}>
+                None
+              </button>
+              {HR_MESSAGES.map(m => (
+                <button key={m.key} type="button" onClick={() => setSopSel(m.key)}
+                  style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    border: sopSel === m.key ? '1.5px solid var(--hr-primary, #1677ff)' : '1.5px solid var(--line)',
+                    background: sopSel === m.key ? 'var(--hr-primary-soft, #e8f2ff)' : '#fff',
+                    color: sopSel === m.key ? 'var(--hr-primary, #1677ff)' : 'var(--ink-soft)' }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>
             {type === 'Offer letter' ? 'Joining / Letter Date' : type === 'Joining letter' ? 'Joining Date' : 'Last Working Date'}
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
@@ -1591,7 +1609,7 @@ export default function Letters() {
             <button className="btn btn-sm" onClick={() => setZoom(z => Math.min(200, z + 10))} title="Zoom in" style={{ padding: '4px 10px' }}>+</button>
           </div>
         </div>
-        <div className="card-pad" style={{ overflow: 'auto', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 16 }}>
+        <div className="card-pad" style={{ overflow: 'auto', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: '16px 24px 16px 16px' }}>
           <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%' }}>
             {out && !sopSel && (
           <div className="letter">
