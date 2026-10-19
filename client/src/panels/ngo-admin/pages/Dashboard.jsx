@@ -1186,6 +1186,9 @@ export default function Dashboard() {
   // pair instead of rejecting the click, so the range can never be empty or
   // backwards and the server never has to correct us.
   const stationRange = useMemo(() => {
+    if (stationPeriodMode === 'lifetime') {
+      return { from: null, to: null, years: null, months: null, periodLabel: 'all time', lifetime: true };
+    }
     if (stationPeriodMode === 'yearly') {
       const toY = Number(stationYear);
       // Total mode is a single year; only Avg spans a range of years.

@@ -67,6 +67,8 @@ async function calculateLateMinutes(punchInTime, workerId) {
   const m = ist.getUTCMinutes();
   // A voluntary Sunday has no office start time — arriving late is impossible.
   if (isVoluntarySunday(istDateStr(new Date(punchInTime)))) return 0;
+  // A punch-in late enough to be a half-day must not also carry late minutes.
+  if (await isHalfDayByLatePunch(punchInTime, workerId)) return 0;
   let effectiveStart = await getOfficeStart(workerId);
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) {
