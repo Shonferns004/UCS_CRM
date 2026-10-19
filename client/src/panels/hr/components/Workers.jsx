@@ -1381,7 +1381,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             maxHeight: 'calc(100vh - 40px)',
             display: 'flex',
             flexDirection: 'column',
-            background: 'var(--paper, #fff)',
+            background: '#ffffff',
             borderRadius: 14,
             boxShadow: '0 12px 48px rgba(0,0,0,.15)',
             border: '1px solid var(--line)',
@@ -1414,7 +1414,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
        <div className="modal-overlay" onClick={() => setShowAttExportModal(false)}>
          <div onClick={e => e.stopPropagation()} style={{
            width: 360,
-           background: 'var(--paper, #fff)',
+           background: '#ffffff',
            borderRadius: 14,
            boxShadow: '0 12px 48px rgba(0,0,0,.15)',
            border: '1px solid var(--line)',
@@ -1452,7 +1452,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
         <div onClick={e => e.stopPropagation()} style={{ 
           width: 360, 
-          background: 'var(--paper, #fff)', 
+          background: '#ffffff', 
           borderRadius: 14, 
           boxShadow: '0 12px 48px rgba(0,0,0,.15)',
           border: '1px solid var(--line)',
@@ -1489,7 +1489,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
          <div onClick={e => e.stopPropagation()} style={{
            width: 540,
            maxWidth: 'calc(100vw - 32px)',
-           background: 'var(--paper, #fff)',
+           background: '#ffffff',
            borderRadius: 14,
            boxShadow: '0 12px 48px rgba(0,0,0,.15)',
            border: '1px solid var(--line)',
