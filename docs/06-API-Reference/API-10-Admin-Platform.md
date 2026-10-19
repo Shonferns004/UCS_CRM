@@ -83,7 +83,7 @@
 | GET | `/api/ngo-admin/master-search` | `masterSearch` |
 | GET | `/api/ngo-admin/call-analytics` | `getCallAnalytics` |
 | GET | `/api/ngo-admin/fro-hourly-performance` | `getFroHourlyPerformance` |
-| GET | `/api/ngo-admin/station-collection` | `getStationWiseCollection` |
+| GET | `/api/ngo-admin/station-collection?month=&month_from=&month_to=` | `getStationWiseCollection` (sums the range; `months` in the response lets the client derive the average) |
 | GET | `/api/ngo-admin/team-collection` | `getTeamWiseCollection` |
 | POST | `/api/ngo-admin/stations/seed` | `seedStations` |
 | POST | `/api/ngo-admin/stations/cleanup` | `cleanupOrphanedStations` |

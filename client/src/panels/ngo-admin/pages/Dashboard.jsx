@@ -58,6 +58,28 @@ const formatRupees = (n) => {
   return `₹${v.toLocaleString('en-IN')}`;
 };
 
+// Current IST month as 'YYYY-MM'. The dashboard's month pickers are IST-based
+// (a receipt written at 23:30 IST is still that day's money), so the default is
+// resolved in that zone rather than the machine's.
+const currentIstMonth = () => {
+  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
+};
+
+// Current IST year as a 4-digit string, used as the default for the yearly view.
+const currentIstYear = () => {
+  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  return String(ist.getFullYear());
+};
+
+// How many calendar months sit between two 'YYYY-MM' strings (inclusive of both
+// ends). Used both for the monthly Avg divisor and for the yearly range, which
+// is just 12 months per year.
+const monthsBetween = (fromYm, toYm) => {
+  return (Number(toYm.slice(0, 4)) - Number(fromYm.slice(0, 4))) * 12
+    + (Number(toYm.slice(5, 7)) - Number(fromYm.slice(5, 7))) + 1;
+};
+
 // Stations are listed in code order, not by amount: BOD-1, BOD-2, BOD-3. The
 // number after the dash decides, and it is compared numerically so BOD-10
 // sorts after BOD-9 instead of before it as a plain string would. Falls back to
@@ -1024,12 +1046,54 @@ export default function Dashboard() {
   // "Last 7 days" header filter would silently narrow it to a partial month and
   // make the station ranking contradict the Collection card above.
   const [stationCollection, setStationCollection] = useState(null);
-  const [stationMonth, setStationMonth] = useState(() => {
-    const now = new Date();
-    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
-  });
+  // `stationMonth` is the LAST month of the range (the picker on the right).
+  // `stationMonthFrom` is the first month and only comes into play in Avg mode,
+  // so the Total view stays exactly the single-month card it always was.
+  const [stationMonth, setStationMonth] = useState(currentIstMonth);
+  const [stationMonthFrom, setStationMonthFrom] = useState(currentIstMonth);
+  // 'monthly' uses the month pickers; 'yearly' uses the year pickers and treats
+  // each selected year as a whole Jan-Dec block. The Avg divisor follows the
+  // active period (months vs years), so the same Total/Avg switch works in both.
+  const [stationPeriodMode, setStationPeriodMode] = useState('monthly');
+  const [stationYear, setStationYear] = useState(currentIstYear);
+  const [stationYearFrom, setStationYearFrom] = useState(currentIstYear);
+  // Most recent year/month that actually has receipts for the scoped NGOs, returned
+  // by the endpoint. Used to land the Yearly view on a year with data and the
+  // Monthly view on a month with data, instead of an empty current period.
+  const [stationLatestYear, setStationLatestYear] = useState(null);
+  const [stationLatestMonth, setStationLatestMonth] = useState(null);
+  // Tracks whether the user has manually chosen a year, so an empty result
+  // never silently overrides their explicit selection.
+  const stationYearUserPicked = useRef(false);
+  // 'total' shows the summed money of the range; 'avg' shows that same sum
+  // divided by the number of months (monthly) or years (yearly) in it.
+  const [stationMode, setStationMode] = useState('total');
   const [stationLoading, setStationLoading] = useState(false);
+  // Entering Avg starts the range at the month/year already on screen, so the
+  // figures do not jump on the click.
+  const changeStationMode = (next) => {
+    if (next === 'avg' && stationMode !== 'avg') {
+      if (stationPeriodMode === 'yearly') setStationYearFrom(stationYear);
+      else setStationMonthFrom(stationMonth);
+    }
+    setStationMode(next);
+  };
+  const changePeriodMode = (next) => {
+    // Carry the current end of the range into the new mode so nothing jumps:
+    // a month's year becomes the year, and a year becomes that year's month.
+    if (next === 'yearly' && stationPeriodMode !== 'yearly') {
+      // Land on the most recent year that actually has receipts, so the Yearly
+      // view is not empty by default when the current year has no data yet.
+      const y = stationLatestYear || currentIstYear();
+      setStationYear(y);
+      setStationYearFrom(y);
+    } else if (next === 'monthly' && stationPeriodMode !== 'monthly') {
+      const m = stationLatestMonth || currentIstMonth();
+      setStationMonth(m);
+      setStationMonthFrom(m);
+    }
+    setStationPeriodMode(next);
+  };
 
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
@@ -1115,26 +1179,110 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
 
-  // Station-wise Collection: refetched on month or NGO change only. There is no
-  // client-side filtering, so these are the only two inputs that trigger a fetch.
+  // Station-wise Collection: refetched on month range, view mode or NGO change
+  // only. There is no client-side filtering, so these are the only inputs that
+  // trigger a fetch. The two month ends are normalised into an ordered range
+  // here rather than in the pickers: setting a From later than the To swaps the
+  // pair instead of rejecting the click, so the range can never be empty or
+  // backwards and the server never has to correct us.
+  const stationRange = useMemo(() => {
+    if (stationPeriodMode === 'yearly') {
+      const toY = Number(stationYear);
+      // Total mode is a single year; only Avg spans a range of years.
+      const fromY = stationMode === 'avg' ? Math.min(Number(stationYearFrom), toY) : toY;
+      const years = toY - fromY + 1;
+      return {
+        from: `${fromY}-01`,
+        to: `${toY}-12`,
+        years,
+        months: years * 12,
+        periodLabel: years === 1 ? 'year' : 'years',
+      };
+    }
+    const a = stationMonthFrom;
+    const b = stationMonth;
+    // Total mode is a single month; only Avg spans a range.
+    if (stationMode !== 'avg') {
+      const months = 1;
+      return { from: stationMonth, to: stationMonth, years: null, months, periodLabel: 'month' };
+    }
+    const ordered = a <= b ? { from: a, to: b } : { from: b, to: a };
+    const months = monthsBetween(ordered.from, ordered.to);
+    return { ...ordered, years: null, months, periodLabel: months === 1 ? 'month' : 'months' };
+  }, [stationPeriodMode, stationYear, stationYearFrom, stationMonth, stationMonthFrom, stationMode]);
+
   useEffect(() => {
     let cancelled = false;
     setStationLoading(true);
-    getStationWiseCollection({ month: stationMonth, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
-      .then(data => { if (!cancelled) setStationCollection(data); })
+    const params = {
+      month: stationRange.to,
+      // A range is sent whenever the view spans more than one month: every
+      // yearly view (even a single year is Jan-Dec) and every Avg view.
+      // Monthly Total stays a single month, so its payload is untouched.
+      ...((stationPeriodMode === 'yearly' || stationMode === 'avg') ? { month_from: stationRange.from } : {}),
+      ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}),
+    };
+    getStationWiseCollection(params)
+      .then(data => { if (!cancelled) { setStationCollection(data); if (data?.latest_year) setStationLatestYear(String(data.latest_year)); if (data?.latest_month) setStationLatestMonth(data.latest_month); if (stationPeriodMode === 'yearly' && (data?.total || 0) <= 0 && data?.latest_year && !stationYearUserPicked.current && String(data.latest_year) !== stationYear) { setStationYear(String(data.latest_year)); setStationYearFrom(String(data.latest_year)); } } })
+      .catch(() => { if (!cancelled) setStationCollection(null); })
       .catch(() => { if (!cancelled) setStationCollection(null); })
       .finally(() => { if (!cancelled) setStationLoading(false); });
     return () => { cancelled = true; };
-  }, [stationMonth, selectedNgoId]);
+  }, [stationRange, stationMode, selectedNgoId]);
+
+  // What the card actually displays. In Total mode it is the payload unchanged;
+  // in Avg mode every RUPEE figure is divided by the number of calendar months
+  // in the range, so ₹12.02 L over 3 months reads ₹4.01 L/month.
+  //
+  // The division happens here, once, instead of inside each table: the header
+  // badge, the three section subtotals, the per-row totals and both footer
+  // buckets all read from this object, so they cannot disagree about whether
+  // they are showing a sum or an average. The total is re-added from the divided
+  // parts (rather than divided itself) so the card still foots to its own cells
+  // after rounding. Receipt counts stay whole: they are counts, not money.
+  const stationFigures = useMemo(() => {
+    const raw = stationCollection;
+    if (!raw) return null;
+    if (stationMode !== 'avg') return raw;
+    // Years in yearly mode, months in monthly mode — same number of calendar
+    // units the range actually spans, so the average is per period.
+    const units = stationPeriodMode === 'yearly'
+      ? Math.max(1, Number(stationRange.years) || 1)
+      : Math.max(1, Number(stationRange.months) || 1);
+    const per = (v) => Math.round((Number(v) || 0) / units);
+    const stations = (raw.stations || []).map(s => ({ ...s, amount: per(s.amount) }));
+    const other = { ...raw.other, amount: per(raw.other?.amount) };
+    const unattributed = { ...raw.unattributed, amount: per(raw.unattributed?.amount) };
+    const total = stations.reduce((s, r) => s + r.amount, 0) + other.amount + unattributed.amount;
+    return { ...raw, stations, other, unattributed, total };
+  }, [stationCollection, stationMode, stationPeriodMode, stationRange]);
+
+  // How the period is worded in titles and tooltips, so nothing still claims
+  // "this month" while a multi-month average is on screen.
+  const stationPeriodNote = stationMode === 'avg'
+    ? `avg/${stationPeriodMode === 'yearly' ? 'yr' : 'mo'} over ${stationPeriodMode === 'yearly' ? stationRange.years : stationRange.months} ${stationRange.periodLabel}`
+    : (stationPeriodMode === 'yearly' ? 'this year' : 'this month');
 
   // Bucket the month's stations by family, each ranked highest-collecting first.
   // Every family gets an entry, even one with nothing this month, so its column
   // still renders with its heading instead of vanishing from the layout.
   const stationsByFamily = useMemo(() => {
     const map = new Map(STATION_FAMILY_LIST.map(f => [f, []]));
-    for (const r of (stationCollection?.stations || [])) {
+    // Receipts first (real money).
+    for (const r of (stationFigures?.stations || [])) {
       const f = r.family || stationFamilyOf(r.station);
       if (map.has(f)) map.get(f).push(r);
+    }
+    // Then every registered station code that had no receipt this period, so it
+    // still appears as a row (with ₹0) instead of silently vanishing. Keyed on
+    // the station code so a code already present from receipts is not duplicated.
+    const present = new Set((stationFigures?.stations || []).map(r => String(r.station)));
+    for (const code of (stationCollection?.registered || [])) {
+      if (present.has(code)) continue;
+      const f = stationFamilyOf(code);
+      if (!f || !map.has(f)) continue;
+      map.get(f).push({ station: code, family: f, amount: 0, receipts: 0 });
+      present.add(code);
     }
     for (const list of map.values()) {
       // Station-code order, so a family reads BOD-1, BOD-2, BOD-3. Amount is no
@@ -1143,7 +1291,16 @@ export default function Dashboard() {
       list.sort((a, b) => stationOrderCompare(a.station, b.station));
     }
     return map;
-  }, [stationCollection]);
+  }, [stationFigures, stationCollection]);
+  // On first load, if the current month has no receipts, land on the most recent
+  // month that does, so the card shows data instead of an empty state. Only
+  // applies before the user picks a month themselves.
+  useEffect(() => {
+    if (stationLatestMonth && stationMonth === currentIstMonth()) {
+      setStationMonth(stationLatestMonth);
+      setStationMonthFrom(stationLatestMonth);
+    }
+  }, [stationLatestMonth]);
 
   // Editable "connected calls per day" target — loaded once from server settings
   // (shared by the whole team), falls back to the built-in default (200).
@@ -3226,17 +3383,103 @@ idle: {
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-flex', flexShrink: 0 }} />
                   Station-wise Collection
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                    {formatRupees(stationCollection?.total || 0)}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }} title={stationMode === 'avg' ? `Average per ${stationPeriodMode === 'yearly' ? 'year' : 'month'} over the selected range (${stationPeriodNote})` : `Total collected in ${stationRange.to}`}>
+                    {formatRupees(stationFigures?.total || 0)}{stationMode === 'avg' ? (stationPeriodMode === 'yearly' ? ' /yr' : ' /mo') : ''}
                   </span>
                 </h3>
-                <input
-                  type="month"
-                  aria-label="Station-wise Collection month"
-                  value={stationMonth}
-                  onChange={e => e.target.value && setStationMonth(e.target.value)}
-                  style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {/* Period switch: Monthly (month pickers) vs Yearly (year pickers,
+                      each year = a whole Jan-Dec block). Both feed the same
+                      Total/Avg switch below. */}
+                  <div style={{ display: 'inline-flex', border: '1px solid #dbe5f1', borderRadius: 8, overflow: 'hidden', background: '#ffffff' }} role="group" aria-label="Station-wise Collection period">
+                    {[{ key: 'monthly', label: 'Monthly' }, { key: 'yearly', label: 'Yearly' }].map(p => (
+                      <button
+                        key={p.key}
+                        type="button"
+                        onClick={() => changePeriodMode(p.key)}
+                        aria-pressed={stationPeriodMode === p.key}
+                        style={{
+                          height: 34, padding: '0 12px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                          border: 'none', cursor: 'pointer', transition: 'background .15s',
+                          background: stationPeriodMode === p.key ? '#64748b' : 'transparent',
+                          color: stationPeriodMode === p.key ? '#ffffff' : '#64748B',
+                        }}
+                      >{p.label}</button>
+                    ))}
+                  </div>
+                  {/* Total / Avg switch. Same money either way: Avg is the Total
+                      of the range divided by the months (monthly) or years
+                      (yearly) in it, computed once in stationFigures. */}
+                  <div style={{ display: 'inline-flex', border: '1px solid #dbe5f1', borderRadius: 8, overflow: 'hidden', background: '#ffffff' }} role="group" aria-label="Station-wise Collection view">
+                    {[{ key: 'total', label: 'Total' }, { key: 'avg', label: 'Avg' }].map(m => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => changeStationMode(m.key)}
+                        aria-pressed={stationMode === m.key}
+                        style={{
+                          height: 34, padding: '0 14px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                          border: 'none', cursor: 'pointer', transition: 'background .15s',
+                          background: stationMode === m.key ? '#2F80D9' : 'transparent',
+                          color: stationMode === m.key ? '#ffffff' : '#64748B',
+                        }}
+                      >{m.label}</button>
+                    ))}
+                  </div>
+                  {/* Pickers follow the active period. The From picker belongs to
+                      Avg alone, so the Total view stays a single month/year. */}
+                  {stationPeriodMode === 'monthly' ? (
+                    <>
+                      {stationMode === 'avg' && (
+                        <>
+                          <input
+                            type="month"
+                            aria-label="Station-wise Collection from month"
+                            value={stationRange.from}
+                            onChange={e => e.target.value && setStationMonthFrom(e.target.value)}
+                            style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                          />
+                          <span style={{ fontSize: 12, color: '#94a3b8' }} aria-hidden="true">→</span>
+                        </>
+                      )}
+                      <input
+                        type="month"
+                        aria-label="Station-wise Collection month"
+                        value={stationRange.to}
+                        onChange={e => e.target.value && setStationMonth(e.target.value)}
+                        style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      {stationMode === 'avg' && (
+                        <>
+                          <select
+                            aria-label="Station-wise Collection from year"
+                            value={stationRange.from.slice(0, 4)}
+                            onChange={e => setStationYearFrom(e.target.value)}
+                            style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                          >
+                            {Array.from({ length: 12 }, (_, i) => Number(currentIstYear()) - 10 + i).map(y => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                          <span style={{ fontSize: 12, color: '#94a3b8' }} aria-hidden="true">→</span>
+                        </>
+                      )}
+                      <select
+                        aria-label="Station-wise Collection year"
+                        value={stationRange.to.slice(0, 4)}
+                        onChange={e => { stationYearUserPicked.current = true; setStationYear(e.target.value); }}
+                        style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => Number(currentIstYear()) - 10 + i).map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </div>
               </div>
 
               {(() => {
@@ -3278,17 +3521,43 @@ idle: {
                 // A month with no receipts at all gets the empty state rather than
                 // a grid of empty columns. Verified against production: 2026-07 and
                 // 2026-06 both have a zero total and land here.
-                if ((stationCollection.total || 0) <= 0) {
+                const hasRegistered = (stationCollection?.registered || []).length > 0;
+                const hasReceiptStations = (stationCollection?.stations || []).length > 0;
+                if ((stationCollection.total || 0) <= 0 && !hasRegistered && !hasReceiptStations) {
                   return (
                     <div className="performance-card" style={{ height: 460, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '0 24px' }}>
                       <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>No station collected in this month.</div>
-                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different month above.</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>No station collected in this period.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different {stationPeriodMode === 'yearly' ? `year (currently ${stationRange.to.slice(0, 4)})` : 'month'} above.</div>
+                      {stationPeriodMode === 'yearly' && (
+                        <>
+                          {stationLatestYear && stationLatestYear !== stationRange.to.slice(0, 4) && (
+                            <button
+                              type="button"
+                              onClick={() => { stationYearUserPicked.current = false; setStationYear(stationLatestYear); setStationYearFrom(stationLatestYear); }}
+                              style={{ marginTop: 8, height: 32, padding: '0 14px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', color: '#2F80D9', cursor: 'pointer' }}
+                            >
+                              Show latest year with data ({stationLatestYear})
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => changePeriodMode('monthly')}
+                            style={{ marginTop: 8, marginLeft: 8, height: 32, padding: '0 14px', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', color: '#64748B', cursor: 'pointer' }}
+                          >
+                            Switch to Monthly view
+                          </button>
+                        </>
+                      )}
                     </div>
                   );
                 }
-                const other = stationCollection.other || { amount: 0, count: 0 };
-                const unattributed = stationCollection.unattributed || { amount: 0, count: 0 };
+                // Money comes from stationFigures (the range, divided when Avg is
+                // on); stationCollection is only the raw payload, used above for
+                // the load/empty checks.
+                const figures = stationFigures || stationCollection;
+                const other = figures.other || { amount: 0, count: 0 };
+                const unattributed = figures.unattributed || { amount: 0, count: 0 };
                 // Header band heights are fixed so the three sticky rows can be
                 // pinned at exact offsets and never overlap each other.
                 const thBase = { fontSize: 11, fontWeight: 700, color: '#64748B', background: '#ffffff', boxSizing: 'border-box' };
@@ -3351,7 +3620,7 @@ idle: {
                                 <div style={{ fontSize: 11, color: '#64748B', lineHeight: 1.3 }}>{panel.sub}</div>
                               </div>
                             </div>
-                            <span className="station-card-total" style={{ color: panel.key === 'old' ? '#475569' : '#1d4ed8', background: panel.key === 'old' ? '#f1f5f9' : '#eff6ff', borderColor: panel.key === 'old' ? '#e2e8f0' : '#dbeafe' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                            <span className="station-card-total" style={{ color: panel.key === 'old' ? '#475569' : '#1d4ed8', background: panel.key === 'old' ? '#f1f5f9' : '#eff6ff', borderColor: panel.key === 'old' ? '#e2e8f0' : '#dbeafe' }} title={`${stationMode === 'avg' ? 'Average monthly collection' : 'Total collected'} by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes ${stationPeriodNote}`}>
                               {formatRupees(panelTotal)}
                             </span>
                           </div>
@@ -3398,13 +3667,13 @@ idle: {
                                         </tr>
                                         <tr>
                                           <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
-                                          <th className="station-rule-right" style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
+                                          <th className="station-rule-right" style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`${stationMode === 'avg' ? 'Average monthly collection' : 'Total collected'} by ${family} ${stationPeriodNote}`}>{formatRupees(sum)}</th>
                                         </tr>
                                       </thead>
                                       <tbody>
                                         {depth === 0 && (
                                           <tr>
-                                            <td colSpan={2} style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>No {family} collection this month</td>
+                                            <td colSpan={2} style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>No {family} collection in this period</td>
                                           </tr>
                                         )}
                                         {/* One row per station NUMBER across all three
@@ -3485,7 +3754,7 @@ idle: {
                                   </tbody>
                                   <tfoot>
                                     <tr>
-                                      <td style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', color: '#0f172a', background: '#f1f5f9', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                                      <td style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', color: '#0f172a', background: '#f1f5f9', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }} title={`${stationMode === 'avg' ? 'Average monthly collection' : 'Total collected'} by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes ${stationPeriodNote}`}>
                                         {formatRupees(panelTotal)}
                                       </td>
                                     </tr>

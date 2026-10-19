@@ -22,8 +22,7 @@ import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
 import IncentivesPage from './pages/IncentivesPage'
 import IncentiveSetup from '../accounts/pages/IncentiveSetup'
-import Notices from './pages/Notices'
-import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Megaphone, Bug } from '@phosphor-icons/react'
+import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Bug } from '@phosphor-icons/react'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
@@ -39,7 +38,6 @@ const NAV = [
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
   { id: 'hr', path: '/sa/hr', label: 'HR', eyebrow: 'People', icon: Users },
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
-  { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
   { id: 'chat', path: '/sa/chat', label: 'UCS Chat', eyebrow: 'Team', icon: ChatIcon },
   { id: 'daily-reports', path: '/sa/daily-reports', label: 'Reports', eyebrow: 'Reports', icon: Clipboard },
   { id: 'developers', path: '/sa/developers', label: 'Developers', eyebrow: 'Team', icon: Bug },
@@ -52,7 +50,6 @@ NAV.forEach(n => { navMap[n.id] = n })
 // Any NAV id can be placed here; ids omitted are not shown.
 const SIDEBAR_ORDER = [
   'employees',
-  'notices',
   'data-management',
   'incentives',
   'chat',
@@ -363,7 +360,6 @@ export default function SuperAdminPanel() {
         </Route>
         <Route path="special-incentive" element={<Navigate to="../incentives/sir" replace />} />
         <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
-        <Route path="notices" element={<Notices />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>

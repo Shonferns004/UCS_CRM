@@ -338,6 +338,13 @@ export async function createGroup({ title, creator, members, postPolicy, writeMo
     ));
   }
 
+  // The Super Admin is in every group by default with full access, whether or
+  // not the roster listed them (they are not in `workers`, so the picker cannot
+  // show them). can_post is forced true - they moderate every room. Skipped only
+  // when they already seated themselves as the creator.
+  const sa = superAdminParticipant();
+  if (sa && !seated.has(sa.uid)) seated.set(sa.uid, sa);
+
   for (const p of seated.values()) {
     await addParticipant(convo.id, p);
   }
@@ -414,6 +421,76 @@ export async function setParticipantsCanPost(conversationId, entries) {
 // ---------------------------------------------------------------------------
 // Participants
 // ---------------------------------------------------------------------------
+
+/**
+ * The Super Admin's participant row.
+ *
+ * They are not in `workers` - they log in straight from ADMIN_EMAIL with id 0
+ * (authController adminLogin/salaryLogin) - so neither the directory picker nor
+ * the department roster sync can ever seat them into a user-created group.
+ * Every group contains them by default with full access, and this is the one
+ * builder that produces their row. Reads process.env at call time (dotenv
+ * config() runs in index.js before any of this is called).
+ *
+ * Returns null when ADMIN_EMAIL is unset (no Super Admin configured).
+ */
+export function superAdminParticipant() {
+  const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (!email) return null;
+  return {
+    uid: `email:${email}`,
+    subjectId: '0',
+    role: 'super_admin',
+    canPost: true,
+    name: 'Super Admin',
+    email,
+    department: null,
+    ngoId: null,
+  };
+}
+
+/**
+ * Ensures the Super Admin is a participant of every group, with full access.
+ *
+ * Groups are created from the staff directory, which never lists the Super
+ * Admin (they are not in `workers`), so without this pass they would be absent
+ * from every user-made room. Runs at boot and on the roster interval so both
+ * existing and future groups contain them; idempotent, and it also repairs a
+ * row that somehow dropped to can_post = false. Returns counts of newly seated
+ * and repaired rows so callers can log only real changes.
+ */
+export async function ensureSuperAdminInGroups(conversationId = null) {
+  const sa = superAdminParticipant();
+  if (!sa) return { seated: 0, repaired: 0 };
+  // Seat any group that does not contain them yet.
+  const ins = await db._pool.query(
+    `INSERT INTO chat_participants
+       (conversation_id, uid, subject_id, role, can_post, display_name, email, ngo_id, department)
+     SELECT c.id, $1, $2, $3, true, $4, $5, $6, $7
+       FROM chat_conversations c
+      WHERE c.kind = 'group'
+        AND ($8::int IS NULL OR c.id = $8)
+        AND NOT EXISTS (
+          SELECT 1 FROM chat_participants p
+           WHERE p.conversation_id = c.id AND p.uid = $1
+        )
+     ON CONFLICT (conversation_id, uid) DO NOTHING`,
+    [sa.uid, sa.subjectId, sa.role, sa.name, sa.email, sa.ngoId ?? null, sa.department ?? null, conversationId]
+  );
+  // Full access is not negotiable: repair any existing Super Admin row sitting
+  // at can_post = false (a settings save or sync must never mute them).
+  const fix = await db._pool.query(
+    `UPDATE chat_participants
+        SET can_post = true
+      WHERE uid = $1
+        AND conversation_id IN (
+              SELECT id FROM chat_conversations
+               WHERE kind = 'group' AND ($2::int IS NULL OR id = $2))
+        AND COALESCE(can_post, false) = false`,
+    [sa.uid, conversationId]
+  );
+  return { seated: ins.rowCount || 0, repaired: fix.rowCount || 0 };
+}
 
 export async function addParticipant(conversationId, p) {
   const { rows } = await db._pool.query(

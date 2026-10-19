@@ -142,7 +142,7 @@ import { ensureTemporaryDataAccessSchema } from './bootstrap/ensureTemporaryData
 import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const _log = console.log;
 
@@ -173,6 +173,20 @@ app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => { req.rawBody = buf.toString(); },
 }));
+
+// Lightweight HTTP cache for read (GET) endpoints: the browser caches the
+// response and serves it instantly on repeat navigation, revalidating in the
+// background. Cuts perceived "loading" across every panel without touching
+// individual controllers. Mutations (POST/PUT/DELETE) are never cached.
+// Real-time-ish paths are excluded so live data stays fresh.
+const NO_CACHE_PATHS = ['/api/chat', '/api/notifications', '/api/whatsapp', '/api/tickets', '/api/fro'];
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
+  if (NO_CACHE_PATHS.some(p => req.path.startsWith(p))) return next();
+  res.set('Cache-Control', 'private, max-age=10, stale-while-revalidate=30');
+  res.set('Vary', 'Authorization');
+  next();
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const froDist = path.resolve(__dirname, '../../fro-panel/dist');
