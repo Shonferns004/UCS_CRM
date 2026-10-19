@@ -1099,7 +1099,7 @@ export default function Letters() {
   const [out, setOut] = useState(null);
   const [zoom, setZoom] = useState(50);
   const [fitZoom, setFitZoom] = useState(50);
-  const [autoFit, setAutoFit] = useState(false);
+  const [autoFit, setAutoFit] = useState(true);
   const [previewMargin, setPreviewMargin] = useState(0);
   const previewRef = useRef(null);
   useEffect(() => {
@@ -1519,7 +1519,7 @@ export default function Letters() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 40fr) minmax(0, 60fr)', gap: 12, alignItems: 'start' }}>
       <div className="card" style={{ minHeight: 0 }}>
-        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '8px 4px' }}>
           <div>
             <h3>Generate a letter</h3>
             <div className="tabs" style={{ marginTop: 8 }}>
@@ -1625,7 +1625,7 @@ export default function Letters() {
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
         </div>
         <div ref={previewRef} style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 0, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 0 }}>
-          <div style={{ transform: 'scale(0.73)', transformOrigin: 'center top', width: 900, maxWidth: '100%', marginLeft: -32 }}>
+          <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%', marginLeft: previewMargin }}>
             {out && !sopSel && (
           <div className="letter" style={{ margin: 0 }}>
             {(type === 'ODAR' || type === 'Doc Submitted') && out.odar ? (
