@@ -1495,14 +1495,18 @@ export default function Letters() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div className="tabs" style={{ marginBottom: 4 }}>
-        <button className={'tab' + (viewTab === 'letter' ? ' active' : '')} onClick={() => setViewTab('letter')}>Letter</button>
-        <button className={'tab' + (viewTab === 'messages' ? ' active' : '')} onClick={() => setViewTab('messages')}>Messages</button>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 340px) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 340px) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
       <div className="card" style={{ minHeight: 0 }}>
-        <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
+        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h3>Generate a letter</h3>
+            <span className="sub">auto-fills name &amp; role</span>
+            <div className="tabs" style={{ marginTop: 8 }}>
+              <button className={'tab' + (viewTab === 'letter' ? ' active' : '')} onClick={() => setViewTab('letter')}>Letter</button>
+              <button className={'tab' + (viewTab === 'messages' ? ' active' : '')} onClick={() => setViewTab('messages')}>Messages</button>
+            </div>
+          </div>
+        </div>
         <div className="card-pad">
         {loading ? (
           <div className="form-row" aria-hidden="true" style={{ flexDirection:'row', flexWrap:'wrap' }}>
@@ -1530,27 +1534,9 @@ export default function Letters() {
             <input type="number" min="0" step="100" value={bsd2Amount} onChange={e=>setBsd2Amount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0))} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           )}
-          {viewTab === 'messages' && (<div className="field" style={{ flex: '1 1 100%', minWidth: 0 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Volunteer Message</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button type="button" onClick={() => setSopSel('')}
-                style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                  border: sopSel === '' ? '1.5px solid var(--hr-primary, #1677ff)' : '1.5px solid var(--line)',
-                  background: sopSel === '' ? 'var(--hr-primary-soft, #e8f2ff)' : '#fff',
-                  color: sopSel === '' ? 'var(--hr-primary, #1677ff)' : 'var(--ink-soft)' }}>
-                None
-              </button>
-              {HR_MESSAGES.map(m => (
-                <button key={m.key} type="button" onClick={() => setSopSel(m.key)}
-                  style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                    border: sopSel === m.key ? '1.5px solid var(--hr-primary, #1677ff)' : '1.5px solid var(--line)',
-                    background: sopSel === m.key ? 'var(--hr-primary-soft, #e8f2ff)' : '#fff',
-                    color: sopSel === m.key ? 'var(--hr-primary, #1677ff)' : 'var(--ink-soft)' }}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </div>)}
+          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
+            <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
+          </label>
           {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>
             {type === 'Offer letter' ? 'Joining / Letter Date' : type === 'Joining letter' ? 'Joining Date' : 'Last Working Date'}
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
@@ -1674,7 +1660,6 @@ export default function Letters() {
         padding:40, color:'#000', background:'#fff',
         width:'800px', display:'none'
       }} />
-    </div>
     </div>
   );
 }
