@@ -85,13 +85,20 @@ const http = {
 
   getDirectory: () => api('/chat/directory', { _prefix: 'ucs' }),
 
-  createGroup: (_me, { title, postPolicy, members }) =>
+  createGroup: (_me, { title, postPolicy, writeMode, members, notices_enabled, roster_departments, post_departments }) =>
     api('/chat/conversations/group', {
       method: 'POST',
       body: JSON.stringify({
         title,
         // The server expects snake_case; the picker holds it camelCase.
         post_policy: postPolicy === 'admins_only' ? 'admins_only' : 'everyone',
+        write_mode:
+          writeMode === 'selected' || writeMode === 'selected_depts' ? writeMode : 'everyone',
+        notices_enabled: notices_enabled !== false,
+        // Department names (not uids): the server keeps seating future hires
+        // of these departments automatically, no manual roster edits needed.
+        roster_departments: Array.isArray(roster_departments) ? roster_departments : [],
+        post_departments: Array.isArray(post_departments) ? post_departments : [],
         members,
       }),
       _prefix: 'ucs',
@@ -183,7 +190,7 @@ const http = {
   getGroupParticipants: (_me, convoId) =>
     api(`/chat/conversations/${encodeURIComponent(convoId)}/participants`, { _prefix: 'ucs' }),
 
-  updateGroupSettings: (_me, convoId, { title, postPolicy, writeMode, members } = {}) =>
+  updateGroupSettings: (_me, convoId, { title, postPolicy, writeMode, members, notices_enabled, noticesEnabled, post_departments } = {}) =>
     api(`/chat/conversations/${encodeURIComponent(convoId)}/settings`, {
       method: 'PATCH',
       body: JSON.stringify({
@@ -192,6 +199,14 @@ const http = {
         ...(title !== undefined ? { title } : {}),
         ...(postPolicy !== undefined ? { post_policy: postPolicy } : {}),
         ...(writeMode !== undefined ? { write_mode: writeMode } : {}),
+        // Department names: only sent when the dialog is in selected-depts
+        // mode; the server seats new hires of these departments automatically.
+        ...(post_departments !== undefined ? { post_departments } : {}),
+        ...(notices_enabled !== undefined
+          ? { notices_enabled }
+          : noticesEnabled !== undefined
+            ? { notices_enabled: noticesEnabled }
+            : {}),
         ...(members !== undefined
           ? { members: members.map((m) => ({ uid: m.uid, can_post: !!m.canPost })) }
           : {}),

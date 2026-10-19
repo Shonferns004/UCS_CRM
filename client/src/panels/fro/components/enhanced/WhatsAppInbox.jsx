@@ -38,11 +38,32 @@ const SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000
 // accounts, so an unassigned thread only shows when its project is one of them.
 // Kept in the UI as defence-in-depth in case an API response leaks an
 // unrelated conversation.
-function isVisibleToAgent(conversation, agentId, myProjects) {
+// TEMPORARY ACCESS: derived identities are time-boxed — say until when, so a
+// temp station's number is never mistaken for a permanent one.
+function formatTempExpiry(iso) {
+  if (!iso) return 'ends soon'
+  try {
+    return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  } catch { return 'ends soon' }
+}
+
+function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new Set(), activeTab = 'all') {
   const assignedAgentId = conversation?.assigned_agent_id
     ?? conversation?.assignedAgentId
     ?? conversation?.assigned_to_agent_id
     ?? conversation?.agent_id
+
+  const project = conversation?.project ?? conversation?.contact?.project
+
+  // TEMPORARY ACCESS: Archna's conversations on the granted number are visible
+  // to Laxmi even though they are claimed by Archna (assigned_agent_id differs).
+  // The temp inbox is the full inbox of that number.
+  if (project && tempProjects.has(project)) return true
+
+  // If viewing a specific project tab, allow conversations on that project
+  // (the backend already scoped them; this avoids over-filtering when
+  // myAccounts hasn't loaded yet or tempProjects is stale).
+  if (activeTab !== 'all' && project === activeTab) return true
 
   if (assignedAgentId != null) return String(assignedAgentId) === String(agentId)
 
@@ -50,7 +71,6 @@ function isVisibleToAgent(conversation, agentId, myProjects) {
   // list hasn't resolved yet, trust the API (it is already scoped server-side).
   if (myProjects.size === 0) return true
 
-  const project = conversation?.project ?? conversation?.contact?.project
   return project != null && myProjects.has(project)
 }
 
@@ -101,15 +121,16 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   const filteredByTab = useMemo(() => {
     const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean))
+    const tempProjects = new Set((myAccounts || []).filter(a => a?.temporary).map(a => a?.project).filter(Boolean))
     return conversations.filter(conversation =>
-      isVisibleToAgent(conversation, waUser?.id, myProjects)
+      isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab)
     )
-  }, [conversations, waUser?.id, myAccounts])
+  }, [conversations, waUser?.id, myAccounts, activeTab])
 
   // A conversation can be reassigned while this screen is open. Do not leave
   // its thread accessible after it is no longer assigned to this FRO.
   useEffect(() => {
-    if (activeConv && !filteredByTab.some(conversation => conversation.id === activeConv.id)) {
+    if (activeConv && !filteredByTab.some(conversation => conversation.id === activeConv.id) && activeConv.id !== justCreatedRef.current) {
       setActiveConv(null)
     }
   }, [activeConv, filteredByTab])
@@ -252,21 +273,27 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser, agentToken, queryClient])
 
+  const justCreatedRef = useRef(null)
+
   const handleNewConv = useCallback(async () => {
     if (!newConvPhone.trim() || sendingNew || !waUser) return
     setSendingNew(true)
     try {
       const result = await createConversation(newConvPhone.trim(), agentToken, newConvProject || undefined)
+      console.log('[NewConv] result:', result, 'project=', result?.conversation?.project)
       setShowNewConv(false)
       setNewConvPhone('')
-      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
       if (result.conversation) {
+        justCreatedRef.current = result.conversation.id
+        setTimeout(() => { justCreatedRef.current = null }, 5000)
         handleSelect({
           ...result.conversation,
           contact: result.contact || result.conversation.contact,
         })
       }
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
     } catch (err) {
+      console.error('[NewConv] failed:', err)
       alert('Failed: ' + err.message)
     } finally {
       setSendingNew(false)
@@ -301,7 +328,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search conversations..."
             style={{ width: '100%', padding: '6px 10px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }} />
-          <button onClick={() => { setShowNewConv(true); setNewConvProject(activeTab !== 'all' ? activeTab : (myAccounts.length === 1 ? myAccounts[0].project : '')) }}
+          <button onClick={() => { setShowNewConv(true); setNewConvProject(activeTab !== 'all' ? activeTab : (myAccounts.find(a => a.temporary)?.project || (myAccounts.length ? myAccounts[0].project : ''))) }}
             style={{ width: '100%', marginTop: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#25D366', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
             + New Conversation
           </button>
@@ -380,7 +407,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
                     style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', background: '#fff', outline: 'none' }}>
                     <option value="">— Select number —</option>
                     {myAccounts.map(a => (
-                      <option key={a.id} value={a.project}>{a.name} ({a.phone_number_id})</option>
+                      <option key={a.id} value={a.project}>
+                        {a.name} ({a.phone_number_id}){a.temporary ? ` — Temporary until ${formatTempExpiry(a.expires_at)}` : ''}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -390,7 +419,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
                   style={{ padding: '9px 18px', fontSize: 13, fontWeight: 500, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer' }}>
                   Cancel
                 </button>
-                <button onClick={handleNewConv} disabled={sendingNew || !newConvPhone.trim() || (myAccounts.length > 1 && !newConvProject)}
+                <button onClick={handleNewConv} disabled={sendingNew || !newConvPhone.trim() || (myAccounts.length > 1 && !newConvProject && activeTab === 'all')}
                   style={{ padding: '9px 18px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#25D366', color: '#fff', cursor: sendingNew || !newConvPhone.trim() ? 'not-allowed' : 'pointer', opacity: sendingNew || !newConvPhone.trim() ? 0.6 : 1 }}>
                   {sendingNew ? 'Starting...' : 'Start Conversation'}
                 </button>

@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from './temporaryWhatsappScope.js';
 import config from '../config/whatsappConfig.js';
 import { presignStoredUrl } from './mediaProxy.js';
 
@@ -15,6 +16,10 @@ function normalizePhone(phone) {
 }
 
 export async function getFroConversations(froWorkerId, restrictPairs = null) {
+  const resultConvs = [];
+  const seenIds = new Set();
+
+  // ── Permanent: donor phones from fro_assignments ──
   const { data: assignments, error: assignErr } = await db
     .from('fro_assignments')
     .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
@@ -23,13 +28,10 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
 
   if (assignErr) throw assignErr;
   let scoped = assignments || [];
-  // Station-scoped work-as: only donors whose assignment sits on a claimed
-  // (ngo_id, station) pair are visible.
   if (restrictPairs && restrictPairs.length > 0) {
     const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
     scoped = scoped.filter(a => allowed.has(`${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`));
   }
-  if (scoped.length === 0) return [];
 
   const donorPhones = scoped
     .map(a => a.donor_profiles?.mobile_number)
@@ -46,34 +48,63 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
     }
   }
 
-  if (phoneVariants.size === 0) return [];
-
-  const phoneList = [...phoneVariants];
-
-  const { data: contacts, error: contactErr } = await db
-    .from('contacts')
-    .select('id, phone, phone_normalized, wa_profile_name, project')
-    .in('phone_normalized', phoneList);
-
-  if (contactErr) {
-    if (contactErr.code === '42P01' || contactErr.message?.includes('does not exist')) return [];
-    throw contactErr;
+  // TEMPORARY ACCESS: union the donors of this worker's GRANTED STATIONS
+  // (station-donor scoped). Skipped under work-as restrictPairs.
+  if (!restrictPairs || restrictPairs.length === 0) {
+    try {
+      const temp = await loadTempAllotment(froWorkerId);
+      for (const p of temp.phoneVariants) phoneVariants.add(p);
+    } catch (e) {
+      console.error('[getFroConversations] temp allotment load failed:', e?.message || e);
+    }
   }
-  if (!contacts || contacts.length === 0) return [];
 
-  const contactIds = contacts.map(c => c.id);
+  if (phoneVariants.size > 0) {
+    const phoneList = [...phoneVariants];
+    const { data: contacts, error: contactErr } = await db
+      .from('contacts')
+      .select('id, phone, phone_normalized, wa_profile_name, project')
+      .in('phone_normalized', phoneList);
 
-  const { data: conversations, error: convErr } = await db
-    .from('conversations')
-    .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
-    .in('contact_id', contactIds)
-    .order('last_message_at', { ascending: false });
+    if (!contactErr && contacts && contacts.length > 0) {
+      const contactIds = contacts.map(c => c.id);
+      const { data: conversations, error: convErr } = await db
+        .from('conversations')
+        .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+        .in('contact_id', contactIds)
+        .order('last_message_at', { ascending: false });
 
-  if (convErr) {
-    if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
-    throw convErr;
+      if (!convErr && conversations) {
+        for (const c of conversations) {
+          if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push(c); }
+        }
+      }
+    }
   }
-  return conversations || [];
+
+  // TEMPORARY ACCESS: also include ALL conversations on temp projects (so Laxmi
+  // sees the full inbox of Archna's number, not just granted-station donors).
+  if (!restrictPairs || restrictPairs.length === 0) {
+    try {
+      const temp = await getTempWhatsappAccess(froWorkerId);
+      if (temp.projects.size > 0) {
+        const { data: tempConvs, error: tempErr } = await db
+          .from('conversations')
+          .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+          .in('project', [...temp.projects])
+          .order('last_message_at', { ascending: false });
+        if (!tempErr && tempConvs) {
+          for (const c of tempConvs) {
+            if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push(c); }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[getFroConversations] temp project conversations load failed:', e?.message || e);
+    }
+  }
+
+  return resultConvs;
 }
 
 export async function getConversationMessages(conversationId) {
@@ -95,6 +126,7 @@ export async function getConversationMessages(conversationId) {
 }
 
 export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null) {
+  console.log('[sendFroReply] conversationId=', conversationId, 'froWorkerId=', froWorkerId);
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -138,6 +170,15 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     console.warn('[sendFroReply] No project found for conversation', conversationId, '— defaulting to bsct');
   }
   project = project || 'bsct';
+
+  // TEMPORATORY ACCESS — send-time enforcement. If this project was only
+  // ever held through a temporary grant that has since expired or been
+  // revoked, the send is denied here (403) — not a second later. Permanent
+  // projects are unaffected. The SENDER needs no selection: the conversation's
+  // own project resolves the account below, so an AFLF donor is always
+  // written from AFLF's number, never the FRO's own.
+  await assertFroProjectSend(froWorkerId, project);
+
   const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
@@ -283,6 +324,11 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   const project = projectOverride || conversation.project || 'bsct';
   const recipientPhone = phoneNormalized;
 
+  // TEMPORATORY ACCESS — same send-time enforcement as sendFroReply: a
+  // project whose grant has ended must not send, even though the account
+  // fallbacks after getAccountByProject remain untouched below.
+  await assertFroProjectSend(froWorkerId, project);
+
   let account = await getAccountByProject(project);
 
   if (!account) {
@@ -396,9 +442,11 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
 }
 
 export async function createEmptyConversation(froWorkerId, phone, projectOverride) {
+  console.log('[createEmptyConversation] froWorkerId=', froWorkerId, 'phone=', phone, 'projectOverride=', projectOverride);
   const phoneNormalized = normalizePhone(phone);
   const contact = await findOrCreateContact(phoneNormalized);
   const conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
+  console.log('[createEmptyConversation] created conversation id=', conversation?.id, 'project=', conversation?.project, 'assigned=', conversation?.assigned_agent_id);
   return { conversation, contact };
 }
 
@@ -501,6 +549,8 @@ export async function markConversationRead(conversationId, froWorkerId) {
 export async function getAgentConversations(agentUserId, projectFilter, role) {
   const isAdmin = ['admin', 'master', 'super_admin'].includes(role);
 
+  console.log('[getAgentConversations] agentUserId=', agentUserId, 'projectFilter=', projectFilter, 'role=', role);
+
   let query = db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
@@ -537,19 +587,44 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
       myProjects = (accts || []).map(a => a.project).filter(Boolean);
     }
 
+    console.log('[getAgentConversations] myProjects (permanent)=', myProjects);
+
     const orParts = [`assigned_agent_id.eq.${agentUserId}`];
     if (myProjects.length > 0) {
       const projectOr = myProjects.map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
       orParts.push(projectOr);
     }
+    // TEMPORARY ACCESS: Laxmi operates on Archna's number, so she sees the
+    // FULL inbox of that number — every conversation on the granted projects,
+    // not just unclaimed threads and not just her own. (Station-donor scoping
+    // was the earlier plan; the owner asked for "all of Archna's conversations".)
+    try {
+      const temp = await getTempWhatsappAccess(agentUserId);
+      console.log('[getAgentConversations] temp projects=', [...temp.projects], 'archnaAgentIds=', [...(temp.permanentFroAgentIds || [])]);
+      if (temp.projects.size > 0) {
+        // Archna's claimed threads on temp projects (so Laxmi sees Archna's conversations)
+        for (const archnaId of (temp.permanentFroAgentIds || [])) {
+          if (archnaId && String(archnaId) !== String(agentUserId)) {
+            orParts.push(`assigned_agent_id.eq.${archnaId}`);
+          }
+        }
+        // Unclaimed threads on temp projects (so Laxmi can pick up new messages)
+        const tempProjectOr = [...temp.projects].map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
+        orParts.push(tempProjectOr);
+      }
+    } catch (e) {
+      console.error('[getAgentConversations] temp access load failed:', e?.message || e);
+    }
     query = query.or(orParts.join(','));
   }
 
   if (projectFilter) {
+    console.log('[getAgentConversations] applying projectFilter=', projectFilter);
     query = query.eq('project', projectFilter);
   }
 
   const { data: conversations, error: convErr } = await query;
+  console.log('[getAgentConversations] returned', conversations?.length, 'conversations', conversations?.map(c => ({ id: c.id?.slice(0,8), project: c.project, assigned: c.assigned_agent_id?.slice?.(0,8), phone: c.contact?.phone_normalized })));
 
   if (convErr) {
     if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
@@ -644,6 +719,9 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     console.warn('[sendTemplateReply] Conversation', conversationId, 'has NO project set — falling back to contact project');
     project = conversation.contact?.project || 'bsct';
   }
+  // TEMPORATORY ACCESS — send-time enforcement (see sendFroReply).
+  await assertFroProjectSend(froWorkerId, project);
+
   const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
