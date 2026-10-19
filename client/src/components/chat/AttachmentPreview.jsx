@@ -57,7 +57,7 @@ export default function MessageAttachment({ attachment }) {
   )
 }
 
-function Lightbox({ attachment, onClose }) {
+export function Lightbox({ attachment, onClose }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose()

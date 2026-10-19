@@ -16,6 +16,12 @@ export default defineConfig({
     },
   },
   server: {
+    // Proxy API and uploaded chat media to the local backend so images and
+    // attachments resolve when running the Vite dev server (port 5173).
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:5000', changeOrigin: true },
+      '/uploads': { target: 'http://127.0.0.1:5000', changeOrigin: true },
+    },
     // The alias above points outside the client root, so the dev server must be
     // allowed to serve that file.
     fs: { allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.')] },

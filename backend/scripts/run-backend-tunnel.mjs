@@ -1,0 +1,11 @@
+process.env.PGHOST='127.0.0.1';
+process.env.PGPORT='15432';
+process.env.PGUSER='ucs_admin';
+process.env.PGPASSWORD='ucscompany123';
+process.env.PGDATABASE='postgres';
+process.env.PGSSLMODE='require';
+process.env.DATABASE_URL='';
+process.env.DATABASE_SSL='false';
+process.env.PG_POOL_MAX=process.env.PG_POOL_MAX||'15';
+process.env.PG_IDLE_TIMEOUT_MS=process.env.PG_IDLE_TIMEOUT_MS||'300000';
+await import('../src/index.js');

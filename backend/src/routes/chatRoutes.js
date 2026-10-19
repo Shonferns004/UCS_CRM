@@ -19,6 +19,8 @@ import {
   listGroupParticipants,
   updateGroupSettings,
   deleteConversation,
+  canPostInConversation,
+  canPostOnMessage,
 } from '../controllers/chatController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { chatWriter, chatGroupCreator } from '../middleware/chatAccess.js';
@@ -93,9 +95,12 @@ router.delete('/conversations/:id', chatWriter, deleteConversation);
 router.get('/conversations/:id/messages', listMessages);
 router.get('/conversations/:id/search', searchMessages);
 router.post('/conversations/:id/read', markRead);
-router.post('/conversations/:id/messages', chatWriter, sendLimiter, uploadChat.any(), sendMessage);
+// The send/edit/delete gates are conversation-aware (not role-only) so an admin
+// can grant posting to a normally read-only role (HR, Developer, ...) in one
+// 'selected'/'selected_depts' group. See canPostInConversation / canPostOnMessage.
+router.post('/conversations/:id/messages', canPostInConversation, sendLimiter, uploadChat.any(), sendMessage);
 
-router.patch('/messages/:id', chatWriter, editMessage);
-router.delete('/messages/:id', chatWriter, deleteMessage);
+router.patch('/messages/:id', canPostOnMessage, editMessage);
+router.delete('/messages/:id', canPostOnMessage, deleteMessage);
 
 export default router;

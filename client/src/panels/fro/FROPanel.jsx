@@ -814,6 +814,7 @@ useEffect(() => onFroAction((action) => {
       // server so the sidebar reflects the identity that is actually signed in.
       const storedAgents = readWaInboxAgents(user?.id)
       setWaAgents(storedAgents)
+      let resolvedAgents = storedAgents
       if (storedAgents.length === 0 && user?.id) {
         try {
           const loginRes = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
@@ -832,10 +833,49 @@ useEffect(() => onFroAction((action) => {
               }))
               writeWaInboxAgents(agents, user?.id)
               setWaAgents(agents)
+              resolvedAgents = agents
             }
           }
         } catch { /* silent */ }
       }
+
+      // TEMPORARY ACCESS: surface time-boxed WhatsApp identities as extra inbox
+      // entries in the sidebar (derived, never persisted to the cache). Expired
+      // grants are filtered out here so the label disappears on the next refresh
+      // once the grant ends — no sweeper needed.
+      try {
+        const accRes = await fetch(`${apiBase}/fro/whatsapp/my-accounts`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (accRes.ok) {
+          const accounts = await accRes.json()
+          console.log('[FROPanel] my-accounts:', accounts)
+          const now = Date.now()
+          const baseProjects = new Set((resolvedAgents || []).map(a => a.project).filter(Boolean))
+          const tempEntries = (Array.isArray(accounts) ? accounts : [])
+            .filter(a => a?.temporary && a?.project && (!a.expires_at || new Date(a.expires_at).getTime() > now))
+            .filter(a => !baseProjects.has(a.project))
+            .reduce((acc, a) => (acc.some(x => x.project === a.project) ? acc : [...acc, a]), [])
+            .map(a => ({
+              agentUserId: resolvedAgents?.[0]?.agentUserId || 'fro',
+              accountName: a.name,
+              project: a.project,
+              whatsappUserId: a.id,
+              token,
+              temporary: true,
+              expiresAt: a.expires_at,
+            }))
+          if (tempEntries.length) {
+            setWaAgents(prev => {
+              const merged = [...prev]
+              for (const t of tempEntries) {
+                if (!merged.some(m => m.project === t.project)) merged.push(t)
+              }
+              return merged
+            })
+          }
+        }
+      } catch { /* temp layer is optional */ }
 
       // Fetch unread counts — use the FRO JWT for all WhatsApp API calls
       // since agent tokens are session tokens, not JWTs compatible with the

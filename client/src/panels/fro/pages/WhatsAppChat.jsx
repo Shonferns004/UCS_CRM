@@ -82,7 +82,12 @@ function AutoLoginLoader({ project, onReady, onError }) {
               token: s.token,
             }))
             writeWaInboxAgents(agents)
-            agent = project ? agents.find(a => a.project === project) : agents[0]
+            // Pick the session for the requested project, but fall back to the
+            // FRO's own session when there is none: a TEMPORARY grant gives no
+            // auto-login session for the granted project, yet the donor
+            // deep-link must still open (the token authenticates every inbox
+            // API regardless of which session minted it).
+            agent = project ? (agents.find(a => a.project === project) || agents[0]) : agents[0]
           }
         }
       } catch { /* silent */ }
@@ -157,7 +162,11 @@ function WhatsAppChatInner() {
     )
   }
 
-  return <WhatsAppInbox waUser={{ id: agent.agentUserId, role: 'agent' }} agentToken={agent.token} activeProject={agent.project} />
+  // No explicit project in the URL → 'all': the inbox shows every conversation
+  // this FRO may touch — their own projects UNION their temporary grants
+  // (station-donor scoped server-side). Pinning to the auto-login session's
+  // project used to hide temporary identities entirely.
+  return <WhatsAppInbox waUser={{ id: agent.agentUserId, role: 'agent' }} agentToken={agent.token} activeProject={project || undefined} />
 }
 
 export default function WhatsAppChat() {

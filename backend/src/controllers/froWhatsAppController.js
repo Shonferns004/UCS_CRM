@@ -16,6 +16,7 @@ import {
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
 import { froActPairs } from './froController.js';
+import { getTempWhatsappAccess } from '../services/temporaryWhatsappScope.js';
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 
@@ -259,6 +260,7 @@ export async function uploadMedia(req, res) {
 export async function listMyAccounts(req, res) {
   try {
     const userId = req.user.id;
+    console.log('[listMyAccounts] userId=', userId, 'role=', req.user.role);
     const { data: froAssignments } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
@@ -289,6 +291,24 @@ export async function listMyAccounts(req, res) {
     for (const a of [...(froAssignments || []), ...(crmAssignments || []), ...workerAccounts]) {
       const acct = a.whatsapp_accounts || a;
       if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
+    }
+
+    // TEMPORATORY ACCESS: derive, don't store. Accounts mapped to this
+    // worker's ACTIVE grants appear as extra identities tagged
+    // temporary=true (with expires_at so the chat UI can label them). A
+    // permanent row always wins the dedupe above — the temporary tag can
+    // never land on an identity the worker already holds permanently.
+    try {
+      const { resolveTempScopeWorkerId } = await import('../services/temporaryWhatsappScope.js');
+      const workerId = await resolveTempScopeWorkerId(userId);
+      console.log('[listMyAccounts] resolved workerId=', workerId);
+      const temp = await getTempWhatsappAccess(workerId);
+      console.log('[listMyAccounts] temp accounts=', temp.accounts, 'projects=', [...temp.projects]);
+      for (const a of temp.accounts) {
+        if (a?.id && !seen.has(a.id)) seen.set(a.id, a);
+      }
+    } catch (e) {
+      console.error('[listMyAccounts] temp accounts load failed:', e?.message || e, e?.stack);
     }
     return res.json(Array.from(seen.values()));
   } catch (error) {

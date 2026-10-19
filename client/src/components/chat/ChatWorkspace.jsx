@@ -68,6 +68,22 @@ export default function ChatWorkspace() {
   const [deleteArmed, setDeleteArmed] = useState(false)
   const [deletingChat, setDeletingChat] = useState(false)
 
+  // Pressing Escape closes the chat (or the topmost open dialog first).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      if (searchOpen) { setSearchOpen(false); return }
+      if (pickerOpen) { setPickerOpen(false); return }
+      if (groupOpen) { setGroupOpen(false); return }
+      if (settingsOpen) { setSettingsOpen(false); return }
+      if (membersOpen) { setMembersOpen(false); return }
+      // Do not navigate away on Escape: that dropped the user to the empty
+      // "Select a conversation" state. Escape only closes open dialogs.
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [searchOpen, pickerOpen, groupOpen, settingsOpen, membersOpen, navigate])
+
   const active = conversations.find((c) => c.id === activeId) || null
   const typers = useTypingIn(activeId)
   const { refresh: refreshUnread } = useUnreadCount(me, unreadKey)
@@ -85,11 +101,20 @@ export default function ChatWorkspace() {
    * — a non-admin can still open and read the room, they just get no input box.
    */
   const canWriteHere = useMemo(() => {
-    if (!me.canPost || !active) return false
-    if (active.kind !== 'group') return true
-    if (active.post_policy === 'admins_only') return isChatAdmin(me.role)
-    if (active.write_mode === 'selected') return isChatAdmin(me.role) || !!active.my_can_post
-    return true
+    if (!active) return false
+    // Groups first: an admin's explicit grant (my_can_post in a 'selected' /
+    // 'selected_depts' room) lets a normally read-only role like HR post here —
+    // the base role gate must not pre-empt it. Unrestricted groups still honour
+    // the base writer role.
+    if (active.kind === 'group') {
+      if (active.post_policy === 'admins_only') return isChatAdmin(me.role)
+      if (active.write_mode === 'selected' || active.write_mode === 'selected_depts') {
+        return isChatAdmin(me.role) || !!active.my_can_post
+      }
+      return me.canPost
+    }
+    // DMs keep the base writer role.
+    return me.canPost
   }, [me, active])
 
   // ---- conversation list --------------------------------------------------
@@ -107,7 +132,7 @@ export default function ChatWorkspace() {
       // (e.g. an HR user added only to a Notices group) saw an empty rail.
       setActiveId((prev) => {
         if (prev && arr.some((c) => c.id === prev)) return prev
-        return arr.find((c) => c.kind === 'group')?.id || arr[0]?.id || null
+        return null
       })
     } catch (e) {
       setListError(e.message || 'Could not load conversations.')
@@ -393,10 +418,10 @@ export default function ChatWorkspace() {
 
   // ---- new group room -----------------------------------------------------
   const startGroup = useCallback(
-    async ({ title, postPolicy, members }) => {
+    async ({ title, postPolicy, writeMode, members, notices_enabled, roster_departments, post_departments }) => {
       setGroupOpen(false)
       try {
-        const convo = await chatApi.createGroup(me, { title, postPolicy, members })
+        const convo = await chatApi.createGroup(me, { title, postPolicy, writeMode, members, notices_enabled, roster_departments, post_departments })
         setConversations((prev) => {
           const exists = prev.find((c) => c.id === convo.id)
           return exists ? prev.map((c) => (c.id === convo.id ? convo : c)) : [convo, ...prev]
@@ -640,6 +665,12 @@ export default function ChatWorkspace() {
                         <>
                           <strong>Admins post only.</strong> Only Super Admin, Accounts and
                           Admin can send messages in this group.
+                        </>
+                      ) : active.kind === 'group' &&
+                        (active.write_mode === 'selected' || active.write_mode === 'selected_depts') ? (
+                        <>
+                          <strong>Read-only.</strong> Only the members picked by an admin can
+                          send messages in this group.
                         </>
                       ) : null
                     }
