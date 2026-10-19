@@ -1,7 +1,7 @@
 import { sql } from '../config/db.js';
 import { getSetting } from '../models/settingsModel.js';
 import { parseRosterSetting, shapeTeamCollection, NO_TEAM_KEY } from '../utils/teamCollection.js';
-import { istDateString, istMonthKey } from '../utils/ist.js';
+import { istDateString, istMonthKey, istMonthBounds } from '../utils/ist.js';
 
 // Single source of truth for the team-wise collection board.
 //
@@ -53,6 +53,49 @@ export async function getTeamRoster() {
   }
   _rosterCache = { at: now, roster };
   return roster;
+}
+
+const TEAM_TARGETS_SETTING_KEY = 'team_monthly_targets';
+
+// Team-wise monthly targets, keyed per month: { '2026-10': { UFS1: 150000 } }.
+// Written by Accounts (Reports > Monthly Target); read here so the board can show
+// each team's target. Cached briefly for the same reason as the roster - the
+// dashboard polls and the row only changes when someone edits it in Accounts.
+let _teamTargetsCache = { at: 0, months: null };
+const TEAM_TARGETS_TTL_MS = 30_000;
+
+// Accepts the current per-month shape and the legacy single-month shape
+// ({ month, byTeam }) written before months existed.
+export function normalizeTeamTargetMonths(parsed) {
+  if (!parsed || typeof parsed !== 'object') return {};
+  const months = parsed.months && typeof parsed.months === 'object' ? parsed.months : null;
+  if (months) return months;
+  if (parsed.month && parsed.byTeam && typeof parsed.byTeam === 'object') {
+    return { [String(parsed.month)]: parsed.byTeam };
+  }
+  return {};
+}
+
+// Lets the writer (Accounts > Reports > Save Target) drop the cache so the very
+// next dashboard poll shows the new plan instead of waiting out the TTL.
+export function invalidateTeamTargetCache() {
+  _teamTargetsCache = { at: 0, months: null };
+}
+
+export async function getTeamTargetMonths() {
+  const now = Date.now();
+  if (_teamTargetsCache.months && now - _teamTargetsCache.at < TEAM_TARGETS_TTL_MS) return _teamTargetsCache.months;
+  let months = {};
+  try {
+    const raw = await getSetting(TEAM_TARGETS_SETTING_KEY);
+    let parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
+    months = normalizeTeamTargetMonths(parsed);
+  } catch {
+    months = {};
+  }
+  _teamTargetsCache = { at: now, months };
+  return months;
 }
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -156,6 +199,66 @@ export async function buildTeamCollection({ from, to, ngoIds, froId, youTeam } =
   const [teamRows, froRows] = await Promise.all([sql(teamSql, params), sql(froSql, params)]);
 
   const board = shapeTeamCollection({ roster, teamRows, froRows });
+
+  // Attach the month's team targets and each team's month-to-date progress.
+  //
+  // Targets are monthly while this board is date-filtered, so a "today" board would
+  // otherwise show today's money against a whole month's target and read as a
+  // disaster. The achievement % is therefore computed from the team's MONTH-to-date
+  // collection (same NGO/FRO scope), not from the filtered window's amount.
+  //
+  // Wrapped so a missing/unreadable settings row or a bad shape degrades to "no
+  // targets" instead of taking the leaderboard down - the board is still the primary
+  // thing on screen.
+  try {
+    const months = await getTeamTargetMonths();
+    // Month of the board's own window end, not "today": an admin looking at a past
+    // range should see that month's plan.
+    const monthKey = String(to || '').slice(0, 7);
+    const byTeamTgt = monthKey && months[monthKey] ? months[monthKey] : {};
+    const mb = istMonthBounds(new Date(to));
+
+    const mwhere = [
+      "r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')",
+      "r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')",
+    ];
+    const mparams = [mb.startDay, mb.endDay];
+    if (Array.isArray(ngoIds) && ngoIds.length > 0) {
+      mparams.push(ngoIds);
+      mwhere.push(`fa.ngo_id = ANY($${mparams.length}::uuid[])`);
+    }
+    if (froId) {
+      mparams.push([String(froId)]);
+      mwhere.push(`l.fro_worker_id = ANY($${mparams.length}::uuid[])`);
+    }
+    const mteamSql = `
+        SELECT ${teamKeySql} AS team_key,
+               COALESCE(SUM(r.amount), 0) AS total
+          FROM receipts r
+          JOIN fro_donor_logs l   ON l.id = r.log_id
+          JOIN fro_assignments fa ON fa.id = l.assignment_id
+          LEFT JOIN workers w     ON w.id = l.fro_worker_id
+        WHERE ${mwhere.join('\n          AND ')}
+        GROUP BY 1`;
+    const mteamRows = await sql(mteamSql, mparams);
+    const monthByTeam = new Map((mteamRows || []).map((x) => [String(x.team_key), Number(x.total) || 0]));
+
+    let targetsTotal = 0;
+    for (const t of board.teams) {
+      const key = String(t.team);
+      const target = Number(byTeamTgt[key]) || 0;
+      const monthAmount = Math.round((monthByTeam.get(key) || 0) * 100) / 100;
+      t.target = target;
+      t.month_amount = monthAmount;
+      t.targetPct = target > 0 ? Math.round((monthAmount / target) * 1000) / 10 : 0;
+      targetsTotal += target;
+    }
+    board.unassigned.month_amount = Math.round((monthByTeam.get(NO_TEAM_KEY) || 0) * 100) / 100;
+    board.month_targets_total = Math.round(targetsTotal * 100) / 100;
+    board.month_key = monthKey || null;
+  } catch (err) {
+    console.error('buildTeamCollection: team targets unavailable (non-fatal):', err?.message || err);
+  }
 
   // Flag the viewer's own lane. Compared against the shaped rows rather than done in
   // the client because this is where both sides are already in normalised

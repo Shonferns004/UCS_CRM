@@ -246,7 +246,12 @@ export default function CollectionRaceBoard({
                 }} />
               </span>
               <span className="twc-amount">{rupee(amount)}</span>
-              <span className="twc-meta">{Number(r.share) || 0}%</span>
+              <span className="twc-meta"
+                title={r.target > 0
+                  ? `Target ${rupee(r.target)} · this month ${rupee(r.month_amount || 0)} (${Math.round(r.targetPct || 0)}% achieved)`
+                  : `${Number(r.share) || 0}% of the board`}>
+                {r.target > 0 ? `${Math.round(r.targetPct || 0)}%` : ((Number(r.share) || 0) + '%')}
+              </span>
             </div>
           );
         })}

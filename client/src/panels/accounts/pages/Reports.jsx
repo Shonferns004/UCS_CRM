@@ -116,7 +116,8 @@ export default function Reports() {
 
   // monthly target editor state
   const [showTargetForm, setShowTargetForm] = useState(false);
-  const [targetForm, setTargetForm] = useState({ overall: '', perNgo: {} });
+  const [targetForm, setTargetForm] = useState({ overall: '', perNgo: {}, byTeam: {} });
+  const [teams, setTeams] = useState([]);
   const [savingTarget, setSavingTarget] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
 
@@ -165,6 +166,12 @@ export default function Reports() {
   }, [reportDay, month, reportFrom, reportTo]);
 
   useEffect(() => { load(); }, [reportDay, month, reportFrom, reportTo]);
+  useEffect(() => {
+    apiGet('/accounts/team-targets?month=' + month).then(d => {
+      setTargetForm(f => ({ ...f, byTeam: d.byTeam || {} }));
+      if (Array.isArray(d.teams)) setTeams(d.teams);
+    }).catch(()=>{});
+  }, [month]);
 
   // Open target form pre-filled from saved targets (or blank for even split)
   const openTargetForm = () => {
@@ -172,7 +179,7 @@ export default function Reports() {
     const byNgo = data?.byNgoTargets || {};
     const perNgo = {};
     ngos.forEach(n => { perNgo[n.id] = byNgo[n.id] != null ? String(byNgo[n.id]) : ''; });
-    setTargetForm({ overall: data?.overallTarget ? String(data.overallTarget) : '', perNgo });
+    setTargetForm(f => ({ overall: data?.overallTarget ? String(data.overallTarget) : f.overall, perNgo, byTeam: f.byTeam }));
     setShowTargetForm(true);
     setSavedToast(false);
   };
@@ -186,13 +193,19 @@ export default function Reports() {
       const share = Math.floor(overall / ngos.length);
       let rem = overall - share * ngos.length;
       ngos.forEach((n, i) => {
-        // give the remainder to the last NGO so the sum matches exactly
         perNgo[n.id] = String(share + (i === ngos.length - 1 ? rem : 0));
       });
     } else {
       ngos.forEach(n => { perNgo[n.id] = ''; });
     }
-    setTargetForm({ overall: val, perNgo });
+    const tlist = teams.length>0 ? teams : [];
+    const byTeam = {};
+    if (tlist.length>0 && overall>0) {
+      const share = Math.floor(overall/tlist.length);
+      let rem = overall-share*tlist.length;
+      tlist.forEach((t,i)=>{ byTeam[t]=String(share+(i===tlist.length-1?rem:0)); });
+    } else tlist.forEach(t=>{byTeam[t]='';});
+    setTargetForm(f=>({ overall: val, perNgo, byTeam }));
   };
 
   // When an individual NGO target is edited -> keep the overall as the anchor;
@@ -229,7 +242,13 @@ export default function Reports() {
       const rem = overall - share * ngos.length;
       ngos.forEach((n, i) => { perNgo[n.id] = String(share + (i === ngos.length - 1 ? rem : 0)); });
     }
-    setTargetForm({ overall: targetForm.overall, perNgo });
+    const tlist = teams.length>0?teams:[];
+    const byTeam={};
+    if (tlist.length>0 && overall>0) {
+      const share=Math.floor(overall/tlist.length); const rem=overall-share*tlist.length;
+      tlist.forEach((t,i)=>{byTeam[t]=String(share+(i===tlist.length-1?rem:0));});
+    }
+    setTargetForm(f=>({ overall: f.overall, perNgo, byTeam }));
   };
 
   const saveTarget = async () => {
@@ -237,9 +256,15 @@ export default function Reports() {
     const byNgo = {};
     const sum = ngos.reduce((s, n) => { const v = Number(targetForm.perNgo[n.id]) || 0; byNgo[n.id] = v; return s + v; }, 0);
     const overall = (Number(targetForm.overall) || 0) > 0 ? Number(targetForm.overall) : sum;
+    const byTeam = {};
+    const tlist = teams.length>0?teams:[];
+    tlist.forEach(t=>{ byTeam[t]=Number(targetForm.byTeam?.[t])||0; });
     setSavingTarget(true);
     try {
-      await apiPut('/accounts/report-targets', { month, overall, byNgo });
+      await Promise.all([
+        apiPut('/accounts/report-targets', { month, overall, byNgo }),
+        apiPut('/accounts/team-targets', { month, byTeam }),
+      ]);
       setSavedToast(true);
       setShowTargetForm(false);
       await load();
@@ -415,6 +440,17 @@ export default function Reports() {
                 <input type="number" value={targetForm.perNgo[n.id] || ''}
                   onChange={e => onNgoTargetChange(n.id, e.target.value)}
                   placeholder="0" style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 14, width: '100%' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>Team-wise Targets</div>
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:14 }}>
+            {(teams.length?teams:[]).map(t=>(
+              <div key={t} style={{ minWidth:160 }}>
+                <div style={{ fontSize:11, color:'var(--ink-soft)', marginBottom:4 }}>{t}</div>
+                <input type="number" value={targetForm.byTeam?.[t]||''}
+                  onChange={e=>setTargetForm(f=>({...f, byTeam:{...f.byTeam,[t]:e.target.value}}))}
+                  placeholder="0" style={{ padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', fontSize:13, width:'100%' }} />
               </div>
             ))}
           </div>
