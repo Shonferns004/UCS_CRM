@@ -15,6 +15,9 @@ import db from '../config/db.js';
 // scope_type is STATION_ALL in v1 (whole-station grants only). The
 // SELECTED_DONORS value and its child table are a follow-up; the column
 // exists now so v1 rows are forward-compatible.
+// scope_type now supports: STATION_ALL (full station), STATION_HIGH_TIER
+// (high-tier donors only), STATION_NORMAL (normal donors only). A station
+// can have at most 2 grants if separated (high + normal), or 1 if full.
 //
 // expires_at is NOT NULL: there is deliberately no "indefinite" grant. A
 // forgotten open-ended grant is a permanent data-access hole.
@@ -31,7 +34,7 @@ const STATEMENTS = [
      working_fro_worker_id uuid NOT NULL,
      granted_by_admin_id   uuid NOT NULL,
      scope_type            text NOT NULL DEFAULT 'STATION_ALL'
-                           CHECK (scope_type IN ('STATION_ALL', 'SELECTED_DONORS')),
+                           CHECK (scope_type IN ('STATION_ALL', 'SELECTED_DONORS', 'STATION_HIGH_TIER', 'STATION_NORMAL')),
      starts_at             timestamptz NOT NULL,
      expires_at            timestamptz NOT NULL,
      status                text NOT NULL DEFAULT 'SCHEDULED'
@@ -49,6 +52,9 @@ const STATEMENTS = [
   // row never blocks re-granting the same pair later — the duplicate check in
   // the API is advisory (it offers "extend instead"), this is the backstop
   // against two admins creating concurrent rows.
+  // Update scope_type CHECK constraint for existing tables (new scope types).
+  `ALTER TABLE temporary_data_assignments DROP CONSTRAINT IF EXISTS temporary_data_assignments_scope_type_check`,
+  `ALTER TABLE temporary_data_assignments ADD CONSTRAINT temporary_data_assignments_scope_type_check CHECK (scope_type IN ('STATION_ALL', 'SELECTED_DONORS', 'STATION_HIGH_TIER', 'STATION_NORMAL'))`,
   `CREATE UNIQUE INDEX IF NOT EXISTS tda_active_station_fro_uniq
      ON temporary_data_assignments (station, working_fro_worker_id)
      WHERE status IN ('SCHEDULED', 'ACTIVE')`,

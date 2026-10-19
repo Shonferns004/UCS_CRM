@@ -11,6 +11,8 @@ import {
   backfillGroupParticipantUids,
   backfillParticipantDepartments,
   syncRosterDepartments,
+  superAdminParticipant,
+  ensureSuperAdminInGroups,
 } from '../models/chatModel.js';
 import { isWriterRole } from '../middleware/chatAccess.js';
 
@@ -108,27 +110,6 @@ function toParticipants(w) {
 }
 
 /**
- * The Super Admin is not in `workers` - they log in straight from ADMIN_EMAIL
- * (authController.js adminLogin/salaryLogin) with id 0. Only this file can read
- * .env, so this is the one place their participant row can be created. Without
- * it the Super Admin opens Community, gets "not available for your account",
- * and cannot see the room they moderate.
- */
-function superAdminParticipant() {
-  const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-  if (!email) return null;
-  return {
-    uid: `email:${email}`,
-    subjectId: '0',
-    role: 'super_admin',
-    canPost: true,
-    name: 'Super Admin',
-    email,
-    ngoId: null,
-  };
-}
-
-/**
  * Re-syncs the Community room's roster.
  *
  * Existing rows are updated in place (ON CONFLICT DO UPDATE) so a role change -
@@ -174,9 +155,22 @@ export async function ensureChatSchema() {
     // Department rosters: seat new hires of a group's picked departments. The
     // boot pass fixes everything that happened while the server was down; the
     // interval catches hires made while it is up (no restart needed).
+    //
+    // The Super Admin is in EVERY group by default with full access. They are
+    // not in `workers`, so neither the roster sync nor the picker can seat them;
+    // this pass runs at boot and on the interval so existing and future groups
+    // all contain them (and repairs a row that dropped can_post).
     const runRosterSync = () =>
-      syncRosterDepartments()
-        .then((r) => { if (r.added) console.log(`[chat roster] seated ${r.added} new department member(s)`); })
+      Promise.all([
+        syncRosterDepartments(),
+        ensureSuperAdminInGroups(),
+      ])
+        .then(([r, sa]) => {
+          if (r.added) console.log(`[chat roster] seated ${r.added} new department member(s)`);
+          if (sa.seated || sa.repaired) {
+            console.log(`[chat roster] super admin present in all groups (+${sa.seated} seated, ${sa.repaired} repaired)`);
+          }
+        })
         .catch((e) => console.warn('[chat roster] sync skipped:', e?.message || String(e)));
     await runRosterSync();
     if (!rosterSyncTimer) {

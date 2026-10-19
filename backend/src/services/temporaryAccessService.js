@@ -184,7 +184,15 @@ export function canWorkAssignment(userId, assignment, grants) {
   if (assignment.fro_worker_id && String(assignment.fro_worker_id) === String(userId)) return true;
   if (!grants || grants.length === 0) return false;
   const key = pairKey(assignment.station, assignment.ngo_id);
-  return grants.some(g => pairKey(g.station, g.ngo_id) === key);
+  return grants.some(g => {
+    if (pairKey(g.station, g.ngo_id) !== key) return false;
+    const scope = g.scope_type || 'STATION_ALL';
+    if (scope === 'STATION_ALL') return true;
+    const isHighTier = assignment.batch_type === 'high_tier';
+    if (scope === 'STATION_HIGH_TIER') return isHighTier;
+    if (scope === 'STATION_NORMAL') return !isHighTier;
+    return false;
+  });
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────

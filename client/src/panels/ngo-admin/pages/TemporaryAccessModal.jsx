@@ -138,6 +138,8 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
   const [candidatesError, setCandidatesError] = useState(false);
   const [startsLocal, setStartsLocal] = useState(defaultStart);
   const [expiresLocal, setExpiresLocal] = useState(defaultExpiry);
+  const [scopeType, setScopeType] = useState('STATION_ALL');
+  const [hasHighTier, setHasHighTier] = useState(false);
   const [reasonCode, setReasonCode] = useState('STAFF_ABSENCE');
   const [reasonNote, setReasonNote] = useState('');
   const [froPickerOpen, setFroPickerOpen] = useState(false);
@@ -214,8 +216,11 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
   async function checkConflicts(workerId) {
     if (!workerId) { setWarnings(null); return; }
     try {
-      const w = await validateTemporaryAccess({ station: target.station, working_fro_worker_id: workerId });
+      const w = await validateTemporaryAccess({ station: target.station, working_fro_worker_id: workerId, ngo_id: target.ngoId });
       setWarnings(w);
+      setHasHighTier(!!w?.has_high_tier);
+      // Reset scope if station doesn't have high-tier data.
+      if (!w?.has_high_tier) setScopeType('STATION_ALL');
     } catch {
       setWarnings(null); // pre-check is advisory; server enforces for real
     }
@@ -250,7 +255,7 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
         working_fro_worker_id: froId,
         starts_at: startIso,
         expires_at: expiryIso,
-        scope_type: 'STATION_ALL',
+        scope_type: scopeType,
         reason_code: reasonCode,
         reason_note: reasonCode === 'OTHER' ? reasonNote.trim() || null : null,
       });
@@ -435,6 +440,34 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
                 <span style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>Completed work (calls, donations, receipts) stays untouched.</span>
               </span>
             </label>
+          )}
+
+          {/* ── Scope (tier-aware) ── */}
+          {hasHighTier && (
+            <div>
+              <label style={labelStyle}>Access scope</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[
+                  { value: 'STATION_ALL', label: 'Full station (all donors)', desc: 'Grants access to every donor on this station. Only one grant allowed per station.' },
+                  { value: 'STATION_HIGH_TIER', label: 'High-tier donors only', desc: 'Only high-tier leads. Can coexist with a normal-only grant.' },
+                  { value: 'STATION_NORMAL', label: 'Normal donors only', desc: 'Only normal (non-high-tier) leads. Can coexist with a high-tier grant.' },
+                ].map(opt => (
+                  <label key={opt.value} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, background: scopeType === opt.value ? '#eff6ff' : '#fff', border: `1px solid ${scopeType === opt.value ? '#93c5fd' : 'var(--line, #e5e7eb)'}`, borderRadius: 6, padding: '9px 11px', cursor: 'pointer' }}>
+                    <input type="radio" name="tac-scope" checked={scopeType === opt.value} onChange={() => setScopeType(opt.value)} style={{ marginTop: 2, accentColor: '#2563eb' }} />
+                    <span>
+                      <b>{opt.label}</b>
+                      <br />
+                      <span style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>{opt.desc}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {!hasHighTier && (
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, padding: '8px 10px' }}>
+              <b>Scope:</b> Entire station (all donors) — this station has no high-tier data.
+            </div>
           )}
 
           {/* ── Duration (mandatory expiry) — 12-hour clock, side by side ── */}

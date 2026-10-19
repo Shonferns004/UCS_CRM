@@ -659,7 +659,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const perDay = activeSalary ? parseFloat(activeSalary.salary) / daysInMonth : 0;
 
   // Late-minutes-based deductions (per-person grace, proportional half/full)
-  const lateGrace = data?.late_grace_minutes ?? worker?.late_grace_minutes ?? null;
+  const lateGrace = data?.late_grace_minutes ?? null;
   const lateT = lateThresholds(lateGrace);
   const totalLateMinutes = payAttendance
     .filter(a => !joinedThisMonth || a.date >= joinCutoff)

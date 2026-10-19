@@ -11,6 +11,9 @@ export default function Leaves() {
   const [remark, setRemark] = useState('');
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
+  // Row being decided right now — disables its inline buttons so a slow
+  // double-click can't fire approve twice.
+  const [deciding, setDeciding] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +33,19 @@ export default function Leaves() {
       fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
     } catch (e) {
       toast(e.message || 'Something went wrong', 'error');
+    }
+  };
+
+  // Inline approve/reject straight from the list — no need to open the
+  // detail modal for routine decisions.
+  const handleInlineDecide = async (e, id, status) => {
+    e.stopPropagation();
+    if (deciding) return;
+    setDeciding(id);
+    try {
+      await handleDecide(id, status);
+    } finally {
+      setDeciding('');
     }
   };
 
@@ -73,11 +89,12 @@ export default function Leaves() {
               <th>Days</th>
               <th>Starts</th>
               <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <SkeletonRows rows={5} widths={[120, 70, 40, 80, 90]} />
+              <SkeletonRows rows={5} widths={[120, 70, 40, 80, 90, 110]} />
             ) : (
               displayLeaves.map(l => (
               <tr key={l.id} onClick={() => openLeaveDetail(l)} style={{ cursor: 'pointer' }}>
@@ -91,11 +108,41 @@ export default function Leaves() {
                   label={l.status === 'approved' ? 'Approved' : (l.status === 'rejected' && l.admin_remark === 'Cancelled') ? 'Cancelled' : l.status === 'rejected' ? 'Rejected' : 'Pending'} 
                   color={l.status === 'approved' ? 'green' : (l.status === 'rejected' && l.admin_remark === 'Cancelled') ? 'grey' : l.status === 'rejected' ? 'red' : 'yellow'} 
                 /></td>
+                <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                  {l.status === 'pending' && (
+                    <>
+                      <button
+                        disabled={deciding === l.id}
+                        onClick={(e) => handleInlineDecide(e, l.id, 'Approved')}
+                        style={{
+                          padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                          background: '#16A34A', color: '#FFFFFF', border: 'none',
+                          cursor: deciding === l.id ? 'default' : 'pointer', opacity: deciding === l.id ? 0.6 : 1,
+                          fontFamily: "'Inter', sans-serif", marginRight: 6
+                        }}
+                      >
+                        ✓ Approve
+                      </button>
+                      <button
+                        disabled={deciding === l.id}
+                        onClick={(e) => handleInlineDecide(e, l.id, 'Rejected')}
+                        style={{
+                          padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                          background: '#EF4444', color: '#FFFFFF', border: 'none',
+                          cursor: deciding === l.id ? 'default' : 'pointer', opacity: deciding === l.id ? 0.6 : 1,
+                          fontFamily: "'Inter', sans-serif"
+                        }}
+                      >
+                        ✕ Reject
+                      </button>
+                    </>
+                  )}
+                </td>
               </tr>
               ))
             )}
             {!loading && !displayLeaves.length && (
-              <tr><td colSpan={5}><div className="empty">No {tab === 'active' ? 'pending' : ''} leave requests.</div></td></tr>
+              <tr><td colSpan={6}><div className="empty">No {tab === 'active' ? 'pending' : ''} leave requests.</div></td></tr>
             )}
           </tbody>
         </table>

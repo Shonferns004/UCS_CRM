@@ -190,21 +190,25 @@ export async function loadTempAllotment(workerId) {
   workerId = await resolveTempScopeWorkerId(workerId);
   if (!workerId) return empty;
 
-  let pairs;
+  let grants;
   try {
-    pairs = await getActiveGrantPairs(workerId);
+    grants = await getActiveGrants(workerId);
   } catch (e) {
     console.error('[temp wa scope] grant pairs load failed:', e?.message || e);
     return empty;
   }
-  if (!pairs || pairs.length === 0) return empty;
+  if (!grants || grants.length === 0) return empty;
 
   const stationByNgo = new Map();
-  for (const p of pairs) {
-    const ngo = p.ngo_id ?? '';
+  const scopeByPair = new Map();
+  for (const g of grants) {
+    const ngo = g.ngo_id ?? '';
     if (!stationByNgo.has(ngo)) stationByNgo.set(ngo, new Set());
-    stationByNgo.get(ngo).add(String(p.station).trim());
+    stationByNgo.get(ngo).add(String(g.station).trim());
+    const key = `${g.ngo_id ?? ''}|${String(g.station).trim()}`;
+    scopeByPair.set(key, g.scope_type || 'STATION_ALL');
   }
+  const pairs = grants.map(g => ({ station: String(g.station).trim(), ngo_id: g.ngo_id }));
   const ngoIds = [...stationByNgo.keys()].filter(Boolean);
   if (ngoIds.length === 0) return empty;
 
@@ -212,7 +216,7 @@ export async function loadTempAllotment(workerId) {
   try {
     const { data, error } = await db
       .from('fro_assignments')
-      .select('donor_id, ngo_id, station, donor_profiles!inner(mobile_number)')
+      .select('donor_id, ngo_id, station, batch_type, donor_profiles!inner(mobile_number)')
       .in('ngo_id', ngoIds)
       .not('status', 'eq', 'reassigned');
     if (error) throw error;
@@ -224,7 +228,14 @@ export async function loadTempAllotment(workerId) {
 
   const scoped = assignments.filter((a) => {
     const stations = stationByNgo.get(a.ngo_id ?? '');
-    return Boolean(stations) && stations.has(String(a.station ?? '').trim());
+    if (!stations || !stations.has(String(a.station ?? '').trim())) return false;
+    // Tier filtering based on grant scope.
+    const key = `${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`;
+    const scope = scopeByPair.get(key) || 'STATION_ALL';
+    const isHighTier = a.batch_type === 'high_tier';
+    if (scope === 'STATION_HIGH_TIER') return isHighTier;
+    if (scope === 'STATION_NORMAL') return !isHighTier;
+    return true; // STATION_ALL
   });
   if (scoped.length === 0) return empty;
 

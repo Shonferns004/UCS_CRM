@@ -6841,14 +6841,15 @@ export const getTLDashboard = async (req, res) => {
     let recWhere = `FROM receipts r
                   LEFT JOIN fro_donor_logs l ON l.id = r.log_id
                   LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+                   LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
                   WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
                     AND r.receipt_date < (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
-                    AND fa.ngo_id = ANY($3)`;
+                    AND (fa.ngo_id = ANY($3) OR (fa.id IS NULL AND n.id = ANY($3)))`;
     if (fro_id) {
       recParams.push(fro_id);
       recWhere += ` AND l.fro_worker_id = $${recParams.length}`;
     }
-    const receiptRows = await sql(`SELECT fa.ngo_id, COALESCE(SUM(r.amount),0) AS total ${recWhere} GROUP BY fa.ngo_id`, recParams);
+    const receiptRows = await sql(`SELECT COALESCE(fa.ngo_id, n.id) AS ngo_id, COALESCE(SUM(r.amount),0) AS total ${recWhere} GROUP BY COALESCE(fa.ngo_id, n.id)`, recParams);
     for (const row of receiptRows) {
       const nid = row.ngo_id;
       if (nid == null) continue;
@@ -8472,12 +8473,19 @@ export const getFroHourlyPerformance = async (req, res) => {
 // IST date boundaries are copied from getTLDashboard's collections_per_ngo for
 // the same reason.
 //
-// WHY THE STATION COMES VIA THE ASSIGNMENT rather than receipts.station. A
-// receipt's own station column is written at receipt time and can hold a
-// pre-rename code ("M-2", "ND-1") or nothing at all, whereas the assignment
-// row is what the bulk station rename rewrote. Following the receipt back
-// through fro_donor_logs to fro_assignments therefore resolves current codes
-// for history that receipts.station cannot.
+// WHY THE STATION COMES VIA THE ASSIGNMENT (with a donor-profile fallback for
+// legacy receipts). A receipt's own station column is written at receipt time
+// and can hold a pre-rename code ("M-2", "ND-1") or nothing at all, whereas the
+// assignment row is what the bulk station rename rewrote. Following the receipt
+// back through fro_donor_logs to fro_assignments therefore resolves current
+// codes for history that receipts.station cannot.
+//
+// Older receipts that predate the assignment system have log_id = NULL, so
+// there is no assignment to follow. Those are attributed through
+// donor_profiles.station (the donor's current station) and scoped to an NGO
+// via receipts.project_id -> ngos.code, so they still tie out with the
+// Collection card. When neither assignment nor donor profile yields a station
+// the receipt lands in `unattributed`.
 //
 // Receipts that resolve to a legacy or unrecognised station code ("M-2",
 // "ND-1", "Ajay 16", "AJ") are reported as `other`; receipts whose assignment
@@ -8488,8 +8496,18 @@ export const getFroHourlyPerformance = async (req, res) => {
 // out of the station ranking and shows them as labelled rows at the foot.
 //
 // Query params:
-//   ngo_id  - a specific NGO, or 'all' (default) for every NGO the caller may see
-//   month   - 'YYYY-MM'; defaults to the current IST month
+//   ngo_id      - a specific NGO, or 'all' (default) for every NGO the caller may see
+//   month       - 'YYYY-MM'; defaults to the current IST month. Sent alone when the
+//                 caller wants one month, and kept as the fallback for both ends of
+//                 a range, so an old client that only knows `month` still works.
+//   month_from  - 'YYYY-MM', first month of a range. Defaults to `month`.
+//   month_to    - 'YYYY-MM', last month of a range. Defaults to `month`.
+//
+// The response reports `months`, the number of CALENDAR months between the two
+// ends, so the client can turn the summed range into an average (Total / months)
+// without re-deriving the boundaries. The endpoint itself only ever sums: one
+// number per month range, no division here, so a Total view and an Avg view of
+// the same range are provably the same money.
 // ---------------------------------------------------------------------------
 
 // The six station families the dashboard groups by. Anything outside these is
@@ -8538,28 +8556,72 @@ export const getStationWiseCollection = async (req, res) => {
       if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
     }
 
+    // Range bounds are resolved up front so an out-of-range month (say 2026-13)
+    // is a 400 whether or not the caller can see any NGO. `month` alone is a
+    // range of exactly one month: month_from/month_to are optional overlays.
+    let from = monthBounds(req.query.month_from || req.query.month);
+    let to = monthBounds(req.query.month_to || req.query.month);
+    if (!from || !to) return res.status(400).json({ message: 'month must be YYYY-MM' });
+    // A from-picker later than the to-picker is a user slip, not an error: the
+    // pair is swapped rather than rejected, so the range always has an order and
+    // `months` can never come out at or below zero.
+    if (from.month > to.month) { const swap = from; from = to; to = swap; }
+    const months = (Number(to.month.slice(0, 4)) - Number(from.month.slice(0, 4))) * 12
+      + (Number(to.month.slice(5, 7)) - Number(from.month.slice(5, 7))) + 1;
+
     if (ngoIds.length === 0) {
-      return res.json({ month: monthBounds(req.query.month)?.month || null, from: null, to: null, stations: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
+      return res.json({ month: from.month, from_month: from.month, to_month: to.month, months, latest_year: null, latest_month: null, from: null, to: null, stations: [], registered: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
     }
 
-    const bounds = monthBounds(req.query.month);
-    if (!bounds) return res.status(400).json({ message: 'month must be YYYY-MM' });
+    // The most recent year/month that actually has receipts for the scoped NGOs.
+    // The dashboard uses this to land the Yearly view on a year that has data
+    // instead of the (possibly empty) current year.
+    const latestRows = await sql(
+      `SELECT COALESCE(EXTRACT(YEAR FROM MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata')::int, 0) AS latest_year,
+              to_char(MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') AS latest_month
+         FROM receipts r
+         LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+         LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+         LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
+        WHERE (fa.ngo_id = ANY($1) OR (fa.id IS NULL AND n.id = ANY($1)))`,
+      [ngoIds]
+    );
+    const latestYear = Number(latestRows?.[0]?.latest_year) || null;
+    const latestMonth = latestRows?.[0]?.latest_month || null;
+
+    // Registered station codes for the scoped NGOs (fro_station_assignments).
+    // Returned so the dashboard can render every station as a row even in a
+    // period where it had no receipts, instead of silently dropping it.
+    const regRows = await sql(
+      `SELECT DISTINCT station FROM fro_station_assignments WHERE ngo_id = ANY($1)`,
+      [ngoIds]
+    );
+    const registered = regRows.map(r => String(r.station)).filter(Boolean);
 
     // Identical shape to getTLDashboard's collections_per_ngo, with the GROUP BY
     // moved from fa.ngo_id to fa.station. receipt_date is a timestamptz, so the
-    // boundaries are converted from IST calendar days exactly as there.
+    // boundaries are converted from IST calendar days exactly as there. The two
+    // bounds span the whole range: one month makes `from` and `to` the same month.
+    //
+    // Station resolution: prefer the assignment's station (authoritative after a
+    // bulk rename), but fall back to donor_profiles.station for legacy receipts
+    // that were never linked to an assignment (log_id IS NULL). Those receipts
+    // are scoped to an NGO via project_id -> ngos.code instead of fa.ngo_id, so
+    // they still tie out with the Collection card above, which uses the same rule.
     const rows = await sql(
-      `SELECT fa.station AS station,
+      `SELECT COALESCE(fa.station, dp.station) AS station,
               COALESCE(SUM(r.amount), 0) AS total,
               COUNT(*)::int AS receipts
          FROM receipts r
          LEFT JOIN fro_donor_logs l ON l.id = r.log_id
          LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+         LEFT JOIN donor_profiles dp ON dp.id = r.donor_id
+         LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
         WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
           AND r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
-          AND fa.ngo_id = ANY($3)
-        GROUP BY fa.station`,
-      [bounds.from, bounds.to, ngoIds]
+          AND (fa.ngo_id = ANY($3) OR (fa.id IS NULL AND n.id = ANY($3)))
+        GROUP BY COALESCE(fa.station, dp.station)`,
+      [from.from, to.to, ngoIds]
     );
 
     const stations = [];
@@ -8600,9 +8662,15 @@ export const getStationWiseCollection = async (req, res) => {
     const total = stations.reduce((s, r) => s + r.amount, 0) + otherAmount + unattributedAmount;
 
     return res.json({
-      month: bounds.month,
-      from: bounds.from,
-      to: bounds.to,
+      month: from.month,
+      from_month: from.month,
+      to_month: to.month,
+      months,
+      registered,
+      latest_year: latestYear,
+      latest_month: latestMonth,
+      from: from.from,
+      to: to.to,
       stations,
       other: { amount: otherAmount, count: otherCount },
       unattributed: { amount: unattributedAmount, count: unattributedCount },
