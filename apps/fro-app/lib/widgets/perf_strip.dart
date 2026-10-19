@@ -15,14 +15,32 @@ class PerfStrip extends StatefulWidget {
   State<PerfStrip> createState() => _PerfStripState();
 }
 
-class _PerfStripState extends State<PerfStrip> {
+class _PerfStripState extends State<PerfStrip> with TickerProviderStateMixin {
   Performance? _data;
   Timer? _poll;
   static const int callTarget = 17;
+  late final AnimationController _heartbeatCtrl;
+  late final Animation<double> _heartbeatAnim;
+  late final AnimationController _rippleCtrl;
 
   @override
   void initState() {
     super.initState();
+    _heartbeatCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
+    _heartbeatAnim = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.08), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.08), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 25),
+      TweenSequenceItem(tween: ConstantTween<double>(1.0), weight: 30),
+    ]).animate(_heartbeatCtrl);
+    _rippleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
     _load();
     _poll = Timer.periodic(const Duration(seconds: 30), (_) => _load());
   }
@@ -30,6 +48,8 @@ class _PerfStripState extends State<PerfStrip> {
   @override
   void dispose() {
     _poll?.cancel();
+    _heartbeatCtrl.dispose();
+    _rippleCtrl.dispose();
     super.dispose();
   }
 
@@ -84,13 +104,47 @@ class _PerfStripState extends State<PerfStrip> {
               icon: Icons.phone,
             ),
             _divider(),
-            _metric(
-              label: 'Idle',
-              value: formatDuration(d?.idleSeconds),
-              good: !(d?.isIdle ?? false),
-              accent: (d?.idleSeconds ?? 0) > 0 ? AppColors.danger : AppColors.inkSoft,
-              icon: Icons.access_time,
-            ),
+            Builder(builder: (context) {
+              final idleDanger = (d?.idleSeconds ?? 0) > 3600;
+              Widget idleTile = _metric(
+                label: 'Idle',
+                value: formatDuration(d?.idleSeconds),
+                good: !(d?.isIdle ?? false),
+                accent: (d?.idleSeconds ?? 0) > 0 ? AppColors.danger : AppColors.inkSoft,
+                icon: Icons.access_time,
+                valueColor: idleDanger ? AppColors.danger : null,
+                backgroundColor: idleDanger ? AppColors.idleBg : null,
+              );
+              if (idleDanger) {
+                idleTile = AnimatedBuilder(
+                  animation: _heartbeatCtrl,
+                  builder: (_, child) => Transform.scale(
+                    scale: _heartbeatAnim.value,
+                    child: child,
+                  ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      AnimatedBuilder(
+                        animation: _rippleCtrl,
+                        builder: (_, _) {
+                          final t = _rippleCtrl.value;
+                          final t2 = (t + 0.5) % 1.0;
+                          return Stack(
+                            children: [
+                              _rippleRing(t),
+                              _rippleRing(t2),
+                            ],
+                          );
+                        },
+                      ),
+                      idleTile,
+                    ],
+                  ),
+                );
+              }
+              return idleTile;
+            }),
             _divider(),
             _metric(
               label: 'Performance',
@@ -98,6 +152,14 @@ class _PerfStripState extends State<PerfStrip> {
               good: levelHigh,
               accent: levelHigh ? AppColors.success : AppColors.danger,
               icon: Icons.trending_up,
+            ),
+            _divider(),
+            _metric(
+              label: 'Collections',
+              value: formatCurrency(d?.todayCollected),
+              accent: AppColors.success,
+              icon: Icons.account_balance_wallet,
+              valueColor: AppColors.success,
             ),
             if (call.isOnCall) ...[
               _divider(),
@@ -136,9 +198,17 @@ class _PerfStripState extends State<PerfStrip> {
     Color? accent,
     required IconData icon,
     bool? good,
+    Color? valueColor,
+    Color? backgroundColor,
   }) {
-    return Padding(
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: backgroundColor != null
+          ? BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(8),
+            )
+          : null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -163,11 +233,11 @@ class _PerfStripState extends State<PerfStrip> {
                 children: [
                   Text(
                     value,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.ink,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                      color: valueColor ?? AppColors.ink,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                   if (good != null) ...[
@@ -183,6 +253,27 @@ class _PerfStripState extends State<PerfStrip> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _rippleRing(double t) {
+    final scale = 1.0 + 0.5 * t;
+    final opacity = (1.0 - t).clamp(0.0, 1.0);
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Transform.scale(
+          scale: scale,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: AppColors.danger.withValues(alpha: (opacity * 0.6).clamp(0.0, 1.0)),
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
       ),
     );
   }

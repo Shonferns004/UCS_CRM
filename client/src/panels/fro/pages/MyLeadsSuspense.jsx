@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock } from 'lucide-react';
+import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock, Wallet } from 'lucide-react';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
@@ -25,15 +25,15 @@ function Arrow({ good }) {
   );
 }
 
-function Metric({ label, value, good, accent, icon }) {
+function Metric({ label, value, good, accent, icon, valueColor, className }) {
   return (
-    <div className="metric-cell" style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+    <div className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <span style={{ color: accent || '#94a3b8', display: 'inline-flex' }}>{icon}</span>
         <span style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.8px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <strong style={{ color: '#0f172a', fontSize: 17, lineHeight: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{value}</strong>
+        <strong style={{ color: valueColor || '#0f172a', fontSize: 17, lineHeight: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{value}</strong>
         {good != null && <Arrow good={good} />}
       </span>
     </div>
@@ -77,8 +77,9 @@ return (
           {/* Idle today, including a period still running. The timer in the top
               bar is what produces it, so this is the FRO's own answer to "how
               much of my day was actually productive". */}
-          <Metric label="Idle" value={formatDuration(data?.idle_seconds)} good={!(data?.is_idle)} accent={(data?.idle_seconds ?? 0) > 0 ? '#dc2626' : '#64748b'} icon={<Clock size={16} />} />
+          <Metric label="Idle" value={formatDuration(data?.idle_seconds)} good={!(data?.is_idle)} accent={(data?.idle_seconds ?? 0) > 0 ? '#dc2626' : '#64748b'} valueColor={(data?.idle_seconds ?? 0) > 3600 ? '#dc2626' : undefined} className={(data?.idle_seconds ?? 0) > 3600 ? 'idle-danger' : ''} icon={<Clock size={16} />} />
 <Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
+          <Metric label="Collections" value={`₹${Number(data?.today_collected ?? 0).toLocaleString('en-IN')}`} accent="#16a34a" valueColor="#16a34a" icon={<Wallet size={16} />} />
           {/* Live call timer, parked after Performance so it reads as the last
               tile rather than competing with the five metrics. It sizes to its
               content instead of flexing like a metric-cell, and CallTimer returns
@@ -165,6 +166,37 @@ export default function MyLeadsSuspense() {
         @keyframes arrow-bob {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(2px); }
+        }
+        /* Idle tile turns red + ripples + heartbeat once idle crosses 1 hour. */
+        .metric-cell.idle-danger {
+          background: #fef2f2;
+          position: relative;
+          overflow: visible;
+          animation: idle-heartbeat 1.1s ease-in-out infinite;
+        }
+        .metric-cell.idle-danger::before,
+        .metric-cell.idle-danger::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border: 2px solid rgba(220, 38, 38, .45);
+          border-radius: 0;
+          pointer-events: none;
+          animation: idle-ripple 1.8s ease-out infinite;
+        }
+        .metric-cell.idle-danger::after {
+          animation-delay: .9s;
+        }
+        @keyframes idle-ripple {
+          0% { transform: scale(1); opacity: .7; }
+          100% { transform: scale(1.5); opacity: 0; }
+        }
+        @keyframes idle-heartbeat {
+          0%, 100% { transform: scale(1); }
+          15% { transform: scale(1.08); }
+          30% { transform: scale(1); }
+          45% { transform: scale(1.08); }
+          70% { transform: scale(1); }
         }
         /* The leads/suspense divider is drawn by the second pane, not as two
            facing borders, so the seam is one hairline rather than 2px. Driven by

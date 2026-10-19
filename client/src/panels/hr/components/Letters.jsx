@@ -1591,7 +1591,7 @@ export default function Letters() {
             <button className="btn btn-sm" onClick={() => setZoom(z => Math.min(200, z + 10))} title="Zoom in" style={{ padding: '4px 10px' }}>+</button>
           </div>
         </div>
-        <div className="card-pad" style={{ overflow: 'auto', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)' }}>
+        <div className="card-pad" style={{ overflow: 'auto', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 16 }}>
           <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%' }}>
             {out && !sopSel && (
           <div className="letter">

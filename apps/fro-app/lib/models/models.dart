@@ -128,6 +128,10 @@ class Performance {
   final bool? isIdle;
   final String? level;
   final String? workerName;
+  final num? todayCollected;
+  final num? monthlyCollected;
+  final num? dailyTarget;
+  final num? todayPct;
 
   Performance({
     this.rank,
@@ -138,6 +142,10 @@ class Performance {
     this.isIdle,
     this.level,
     this.workerName,
+    this.todayCollected,
+    this.monthlyCollected,
+    this.dailyTarget,
+    this.todayPct,
   });
 
   factory Performance.fromJson(Map<String, dynamic> json) => Performance(
@@ -155,6 +163,10 @@ class Performance {
         isIdle: json['is_idle'] is bool ? json['is_idle'] as bool : null,
         level: json['level']?.toString(),
         workerName: (json['worker'] is Map ? json['worker']['name'] : null)?.toString(),
+        todayCollected: json['today_collected'] is num ? json['today_collected'] as num : null,
+        monthlyCollected: json['monthly_collected'] is num ? json['monthly_collected'] as num : null,
+        dailyTarget: json['daily_target'] is num ? json['daily_target'] as num : null,
+        todayPct: json['today_pct'] is num ? json['today_pct'] as num : null,
       );
 }
 
