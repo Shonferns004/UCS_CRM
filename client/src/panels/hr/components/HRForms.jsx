@@ -275,17 +275,17 @@ function findNgo(ngos, ngoId) {
 }
 
 function CircularProgress({ pct }) {
-  const r = 13;
+  const r = 11;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - pct / 100);
   const color = pct === 100 ? '#166534' : pct >= 60 ? '#2385f5' : '#c08a2e';
   return (
-    <svg width="32" height="32" viewBox="0 0 32 32" style={{ flexShrink: 0 }}>
-      <circle cx="16" cy="16" r={r} fill="none" stroke="var(--line)" strokeWidth="3" />
-      <circle cx="16" cy="16" r={r} fill="none" stroke={color} strokeWidth="3"
+    <svg width="26" height="26" viewBox="0 0 26 26" style={{ flexShrink: 0 }}>
+      <circle cx="13" cy="13" r={r} fill="none" stroke="var(--line)" strokeWidth="2.5" />
+      <circle cx="13" cy="13" r={r} fill="none" stroke={color} strokeWidth="2.5"
         strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-        transform="rotate(-90 16 16)" />
-      <text x="16" y="16" textAnchor="middle" dominantBaseline="central" fontSize="9" fontWeight="700" fill="var(--ink)">{pct}%</text>
+        transform="rotate(-90 13 13)" />
+      <text x="13" y="13" textAnchor="middle" dominantBaseline="central" fontSize="8" fontWeight="700" fill="var(--ink)">{pct}%</text>
     </svg>
   );
 }
@@ -569,8 +569,10 @@ export default function HRForms() {
                               <div className="hrf-id-dept">{w.department ? deptLabel(w.department) : 'Team Member'}</div>
                             </div>
                           </div>
-                          <span className="hrf-status-pill" style={{ ...statusStyle(w), position: 'static', boxShadow: 'none' }}>{statusOf(w)}</span>
-                          <CircularProgress pct={comp.pct} />
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            <CircularProgress pct={comp.pct} />
+                            <span className="hrf-status-pill" style={{ ...statusStyle(w), position: 'static', boxShadow: 'none' }}>{statusOf(w)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
