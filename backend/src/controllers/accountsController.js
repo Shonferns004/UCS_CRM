@@ -5600,6 +5600,7 @@ export const updateReceipt = async (req, res) => {
 };
 
 const TARGETS_SETTING_KEY = 'accounts_report_targets';
+const TEAM_TARGETS_SETTING_KEY = 'team_monthly_targets';
 
 // Compute working days from month start -> today for a given NGO.
 // Working days = Mon-Sat days minus that NGO's holidays, PLUS one extra Sunday
@@ -5693,6 +5694,70 @@ export const putReportTargets = async (req, res) => {
     };
     await upsertSetting(TARGETS_SETTING_KEY, JSON.stringify(payload));
     return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Team-wise monthly collection targets, keyed per month so switching the report
+// month never overwrites another month's plan. Shape: { months: { '2026-10': { UFS1: 150000 } } }
+const TEAM_MONTH_RE = /^\d{4}-\d{2}$/;
+
+const readTeamTargetMonths = async () => {
+  const raw = await getSetting(TEAM_TARGETS_SETTING_KEY);
+  let parsed = null;
+  try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
+  if (parsed && parsed.months && typeof parsed.months === 'object') return parsed.months;
+  // Legacy single-month shape written before months existed; migrate on read.
+  if (parsed && parsed.month && parsed.byTeam && typeof parsed.byTeam === 'object') {
+    return { [String(parsed.month)]: parsed.byTeam };
+  }
+  return {};
+};
+
+const cleanByTeam = (byTeam) => {
+  const out = {};
+  if (byTeam && typeof byTeam === 'object') {
+    for (const [name, val] of Object.entries(byTeam)) {
+      const key = String(name || '').trim().toUpperCase();
+      const amount = Number(val);
+      if (!key || !Number.isFinite(amount) || amount < 0) continue;
+      out[key] = amount;
+    }
+  }
+  return out;
+};
+
+// GET /accounts/team-targets?month=YYYY-MM
+export const getTeamTargets = async (req, res) => {
+  try {
+    const months = await readTeamTargetMonths();
+    const requested = (req.query.month || '').trim();
+    const month = TEAM_MONTH_RE.test(requested) ? requested : new Date().toISOString().slice(0, 7);
+    const byTeam = months[month] || {};
+    const roster = await (await import('../services/teamCollectionService.js')).getTeamRoster();
+    return res.json({ month, byTeam, teams: roster });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// PUT /accounts/team-targets { month, byTeam }
+export const putTeamTargets = async (req, res) => {
+  try {
+    const { month, byTeam } = req.body;
+    const m = (month || '').trim();
+    const key = TEAM_MONTH_RE.test(m) ? m : new Date().toISOString().slice(0, 7);
+    const months = await readTeamTargetMonths();
+    months[key] = cleanByTeam(byTeam);
+    await upsertSetting(TEAM_TARGETS_SETTING_KEY, JSON.stringify({ months }));
+    // The collection board caches this row; drop it so the dashboard reflects the
+    // save on its next poll rather than up to 30s later.
+    try {
+      const { invalidateTeamTargetCache } = await import('../services/teamCollectionService.js');
+      invalidateTeamTargetCache();
+    } catch { /* cache module unavailable - the TTL will catch up */ }
+    return res.json({ month: key, byTeam: months[key] });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

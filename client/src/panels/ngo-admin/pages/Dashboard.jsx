@@ -1582,6 +1582,7 @@ export default function Dashboard() {
   const today_collection = Number(ct.total) || 0;
   const daily_target = Number(c.daily_target) || 0;
   const monthly_target = Number(c.monthly_target) || (daily_target > 0 ? daily_target * 26 : 0);
+  const team_targets_map = c.team_targets || {};
   const verified_month_amount = Number(cm.verified?.amount) || 0;
   const verified_month_count = Number(cm.verified?.count) || 0;
   const unverified_month_amount = Number(cm.unverified?.amount) || 0;
@@ -2110,7 +2111,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {monthly_target > 0 && (
+      {(monthly_target > 0 || Object.keys(team_targets_map).length > 0) && (
         <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
@@ -2123,7 +2124,7 @@ export default function Dashboard() {
           </div>
           <div style={{ height: 8, borderRadius: 4, background: '#fef2f2', overflow: 'hidden' }}>
             <div style={{
-              width: `${Math.min(100, (month_collection / monthly_target) * 100)}%`,
+              width: `${monthly_target > 0 ? Math.min(100, (month_collection / monthly_target) * 100) : 0}%`,
               height: '100%',
               borderRadius: 4,
               background: month_collection >= monthly_target ? '#16a34a' : month_collection >= monthly_target * 0.5 ? '#f59e0b' : '#ef4444',
@@ -2131,9 +2132,18 @@ export default function Dashboard() {
             }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
-            <span>{Math.round((month_collection / monthly_target) * 100)}% achieved</span>
-            <span>{month_collection >= monthly_target ? 'Monthly target completed!' : `${Math.round(((monthly_target - month_collection) / monthly_target) * 100)}% remaining`}</span>
+            <span>{monthly_target > 0 ? Math.round((month_collection / monthly_target) * 100) : 0}% achieved</span>
+            <span>{month_collection >= monthly_target ? 'Monthly target completed!' : (monthly_target > 0 ? `${Math.round(((monthly_target - month_collection) / monthly_target) * 100)}% remaining` : '')}</span>
           </div>
+          {Object.keys(team_targets_map).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+              {Object.entries(team_targets_map).sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0)).map(([name, val]) => (
+                <span key={name} style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                  <strong style={{ color: 'var(--ink)' }}>{name}</strong>: ₹{Number(val || 0).toLocaleString('en-IN')}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

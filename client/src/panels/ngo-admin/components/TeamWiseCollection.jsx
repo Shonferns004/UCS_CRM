@@ -64,10 +64,10 @@ export default function TeamWiseCollection({ from, to, ngoId, froId, periodLabel
     labelTitle: t.unrostered ? `${t.team} (not in the team roster)` : t.team,
     amount: Number(t.amount) || 0,
     share: Number(t.share) || 0,
+    target: Number(t.target)||0,
+    targetPct: Number(t.targetPct)||0,
+    month_amount: Number(t.month_amount)||0,
     rank: i + 1,
-    // Flagged by the server, which is where both the viewer's team and the board's
-    // team names are already normalised - comparing them in the browser would mean
-    // re-implementing the case/trim rules and could silently miss the highlight.
     isYou: !!t.is_you,
     muted: !!t.unrostered,
   })), [teams]);
@@ -110,24 +110,18 @@ export default function TeamWiseCollection({ from, to, ngoId, froId, periodLabel
   const scopeLabel = [period, ngoId && ngoId !== 'all' ? 'NGO filtered' : 'All NGOs', froId ? '1 telecaller' : 'All Telecallers']
     .filter(Boolean).join(' · ');
 
+  const teamTgt = Number(data?.month_targets_total)||0;
   const footLines = [
-    // Nothing collected yet: the counts line only repeats the emptiness, so it
-    // goes away with the headline instead of sitting under an empty board.
     total > 0 ? `${teams.length} teams · ${activeFros} FROs · ${receipts} receipts` : null,
-    // Where the viewer sits, stated as a fact rather than left to be inferred from
-    // the outline. Silently absent when the viewer has no team on the board: "Your
-    // team is not on this board" would be a worse thing to assert than to omit.
     (() => {
       const mine = teams.find((t) => t.is_you);
       if (!mine) return null;
       const place = teams.indexOf(mine) + 1;
       return `You are in ${mine.team} — ${ordinal(place)} of ${teams.length}`;
     })(),
-    // No Team is deliberately not a lane on the race, so its money is footnoted
-    // here instead - otherwise this card's total would read lower than the
-    // Collection card beside it with nothing on screen explaining the difference.
     unassigned.amount > 0 ? `outside any team ${rupee(unassigned.amount)}` : null,
     Number(data?.unrostered_count) > 0 ? `${data.unrostered_count} unrostered` : null,
+    teamTgt>0 ? `Team targets (month): ${rupee(teamTgt)}` : null,
     leader?.top_fro && leader.amount > 0 ? `Top collector: ${leader.top_fro.name} ${rupee(leader.top_fro.amount)}` : null,
   ];
 

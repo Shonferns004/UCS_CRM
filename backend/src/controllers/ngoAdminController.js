@@ -1152,8 +1152,22 @@ export const getDashboard = async (req, res) => {
     if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
     let monthly_target = 0;
+    let team_targets = {};
     const currentMonthStr = now.toISOString().slice(0, 7) + '-01';
-    if (origNgoIds.length > 0) {
+    // Prefer the team-wise monthly plan when Accounts has set one: the card's
+    // target is then exactly the sum of the team targets, so the team board and
+    // this card can never quote two different monthly targets.
+    try {
+      const { getTeamTargetMonths } = await import('../services/teamCollectionService.js');
+      const months = await getTeamTargetMonths();
+      const monthKey = istMonthBounds(now).monthKey;
+      const planned = months[monthKey];
+      if (planned && Object.keys(planned).length > 0) {
+        team_targets = planned;
+        monthly_target = Object.values(planned).reduce((s, v) => s + (Number(v) || 0), 0);
+      }
+    } catch {}
+    if (!monthly_target && origNgoIds.length > 0) {
       const { data: mTargets } = await db
         .from('fro_monthly_targets')
         .select('target_amount')
@@ -1198,6 +1212,7 @@ export const getDashboard = async (req, res) => {
           },
           daily_target,
           monthly_target,
+          team_targets,
         },
         reactivations: {
           today: reactivatedToday,
