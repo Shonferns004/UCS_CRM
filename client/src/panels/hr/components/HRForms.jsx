@@ -274,22 +274,6 @@ function findNgo(ngos, ngoId) {
   return ngos.find(n => n.id === ngoId) || null;
 }
 
-function CircularProgress({ pct }) {
-  const r = 11;
-  const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - pct / 100);
-  const color = pct === 100 ? '#166534' : pct >= 60 ? '#2385f5' : '#c08a2e';
-  return (
-    <svg width="26" height="26" viewBox="0 0 26 26" style={{ flexShrink: 0 }}>
-      <circle cx="13" cy="13" r={r} fill="none" stroke="var(--line)" strokeWidth="2.5" />
-      <circle cx="13" cy="13" r={r} fill="none" stroke={color} strokeWidth="2.5"
-        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-        transform="rotate(-90 13 13)" />
-      <text x="13" y="13" textAnchor="middle" dominantBaseline="central" fontSize="8" fontWeight="700" fill="var(--ink)">{pct}%</text>
-    </svg>
-  );
-}
-
 export default function HRForms() {
   const { fetchWorkers, fetchWorkerById, updateWorker, fetchNGOs } = useHR();
   const [workers, setWorkers] = useState([]);
@@ -564,15 +548,18 @@ export default function HRForms() {
                             <span className="hrf-avatar" style={{ background: tint(color), color }}>
                               {w.photo_url ? <img src={w.photo_url} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : initialsFn(name)}
                             </span>
-                            <div style={{ minWidth: 0 }}>
+                            <div style={{ minWidth: 0, flex: 1 }}>
                               <div className="hrf-id-name">{name}</div>
                               <div className="hrf-id-dept">{w.department ? deptLabel(w.department) : 'Team Member'}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                <div style={{ flex: 1, height: 4, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
+                                  <div style={{ width: comp.pct + '%', height: '100%', borderRadius: 99, background: comp.pct === 100 ? '#166534' : comp.pct >= 60 ? '#2385f5' : '#c08a2e' }} />
+                                </div>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', minWidth: 30, textAlign: 'right' }}>{comp.pct}%</span>
+                              </div>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                            <CircularProgress pct={comp.pct} />
-                            <span className="hrf-status-pill" style={{ ...statusStyle(w), position: 'static', boxShadow: 'none' }}>{statusOf(w)}</span>
-                          </div>
+                          <span className="hrf-status-pill" style={{ ...statusStyle(w), position: 'static', boxShadow: 'none' }}>{statusOf(w)}</span>
                         </div>
                       </div>
                     </div>
