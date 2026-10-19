@@ -52,8 +52,8 @@ function formCompletion(w) {
 const statusOf = (w) => w.employment_status || (w.is_active ? 'active' : 'inactive');
 const statusStyle = (w) => {
   const st = statusOf(w);
-  if (st === 'active') return { bg: 'rgba(22,101,52,0.9)' };
-  if (st === 'absconded') return { bg: 'rgba(153,27,27,0.9)' };
+  if (st === 'active') return { bg: '#16a34a' };
+  if (st === 'absconded') return { bg: '#dc2626' };
   if (st === 'offboarded') return { bg: 'rgba(67,56,202,0.9)' };
   return { bg: 'rgba(55,65,81,0.9)' };
 };
@@ -486,12 +486,7 @@ export default function HRForms() {
 
       {/* â”€â”€ BOX GRID VIEW â”€â”€ */}
       {!selectedWorker && (
-        <div className="card">
-          <div className="card-head">
-            <h3>HR Forms</h3>
-            <span className="sub">Volunteer onboarding forms</span>
-          </div>
-          <div className="card-pad">
+        <div>
 
             <div className="hrf-toolbar">
               <div className="hrf-search">
@@ -543,10 +538,6 @@ export default function HRForms() {
                   return (
                     <div key={w.id} className="hrf-card" onClick={() => handleCardClick(w)}>
                       <div className="hrf-doc">
-                        <span className="hrf-doc-label">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          Application Form
-                        </span>
                         <div className="hrf-doc-paper">
                           <MiniFormPreview worker={w} />
                         </div>
@@ -570,18 +561,6 @@ export default function HRForms() {
                           <div className="hrf-progress-track">
                             <div className="hrf-progress-fill" style={{ width: comp.pct + '%', background: comp.pct === 100 ? '#166534' : comp.pct >= 60 ? '#2385f5' : '#c08a2e' }} />
                           </div>
-                        </div>
-                        <div className="hrf-chips">
-                          {w.phone && <span className="hrf-chip"><IconPhone /><span>{w.phone}</span></span>}
-                          {w.email && <span className="hrf-chip"><Mail size={11} /><span>{w.email}</span></span>}
-                          {joinDate && <span className="hrf-chip"><span>Joined {joinDate}</span></span>}
-                          <span
-                            className="hrf-chip"
-                            title={sigStatus.title}
-                            style={{ background: sigStatus.chipBg, color: sigStatus.chipFg }}
-                          >
-                            <span>{sigStatus.label}</span>
-                          </span>
                         </div>
                         <button className="btn btn-primary hrf-open" onClick={(e) => { e.stopPropagation(); handleCardClick(w); }}>
                           <Pencil size={14} /> Open Form
@@ -635,7 +614,6 @@ export default function HRForms() {
                 )}
               </div>
             )}
-          </div>
         </div>
       )}
 
