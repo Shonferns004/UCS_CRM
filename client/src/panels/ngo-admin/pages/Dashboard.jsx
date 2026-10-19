@@ -1790,6 +1790,9 @@ export default function Dashboard() {
   // extra render, and no chance of pointing the panel at nothing.
   const effectiveNgoKey = selectedNgoKey ?? ngo_rows[0]?.key ?? null;
   const selectedNgo = ngo_rows.find((r) => r.key === effectiveNgoKey) || null;
+  const selectedNgoStations = selectedNgo
+    ? stationsData.filter((st) => (st.ngos || []).some((n) => n.ngo_name === selectedNgo.name))
+    : [];
   // Suspense card: money still unresolved, rolled up per NGO. An entry is filed
   // under the NGO(s) of its donor's station; entries with no resolvable station
   // land in their own bucket so the tiles never silently drop money.
@@ -2449,23 +2452,29 @@ export default function Dashboard() {
             <div style={{ minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box', borderLeft: stationsNarrow ? 'none' : '1px solid var(--stations-border, #DCE7F5)', paddingLeft: stationsNarrow ? 0 : 12, marginTop: stationsNarrow ? 10 : 0, paddingTop: stationsNarrow ? 10 : 0 }}>
               {!selectedNgo ? (
                 <div style={{ fontSize: 11, color: 'var(--stations-muted, #496487)' }}>Select an NGO to see its stations.</div>
-              ) : selectedNgo.unused.length > 0 ? (
+              ) : selectedNgoStations.length > 0 ? (
                 <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: 5, paddingRight: 2, boxSizing: 'border-box' }}>
-                  {selectedNgo.unused.map((s) => (
-                    <div key={s} title={`${s} — not in use`} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: 'var(--stations-assign-surface, #FFF4F6)', border: '1px solid var(--stations-assign-border, #FFDDE3)', borderRadius: 12, padding: '8px 9px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                        <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: '#fff', border: '1px solid var(--stations-assign-border, #FFDDE3)', color: 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                  {selectedNgoStations.map((st) => {
+                    const active = !!st.fro_worker_id;
+                    return (
+                      <div key={st.station} title={`${st.station} — ${active ? 'FRO assigned' : 'no FRO'}`} style={{ flexShrink: 0, minWidth: 0, boxSizing: 'border-box', background: active ? '#fff' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${active ? 'var(--stations-border, #DCE7F5)' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 12, padding: '8px 9px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                          <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, background: active ? 'var(--stations-success-soft, #ecfbf2)' : '#fff', border: `1px solid ${active ? '#cdf3e1' : 'var(--stations-assign-border, #FFDDE3)'}`, color: active ? 'var(--stations-success, #16a765)' : 'var(--stations-assign, #E52336)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }} aria-hidden="true">
+                            {active ? '✓' : '✕'}
+                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-text, #14233D)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{st.station}</span>
+                          <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: active ? 'var(--stations-success, #16a765)' : 'var(--stations-assign, #E52336)', background: active ? 'var(--stations-success-soft, #ecfbf2)' : 'var(--stations-assign-surface, #FFF4F6)', border: `1px solid ${active ? '#cdf3e1' : 'var(--stations-assign-border, #FFDDE3)'}`, borderRadius: 999, padding: '0 6px', lineHeight: 1.5 }}>
+                            {active ? 'Active' : 'No FRO'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, background: 'var(--stations-success-soft, #ecfbf2)', border: '1px solid #cdf3e1', borderRadius: 10, padding: '10px 12px', boxSizing: 'border-box' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-success, #16a765)' }}>All stations are in use</div>
-                  <div style={{ fontSize: 10, color: 'var(--stations-muted, #496487)' }}>Nothing to assign for this NGO.</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--stations-muted, #496487)' }}>No stations found</div>
+                  <div style={{ fontSize: 10, color: 'var(--stations-muted, #496487)' }}>Nothing to track for this NGO.</div>
                 </div>
               )}
             </div>
