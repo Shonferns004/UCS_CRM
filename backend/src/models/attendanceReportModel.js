@@ -160,7 +160,7 @@ export async function getWorkerAttendanceReport(workerId, month) {
       statusLabel: STATUS_LABELS[status] || status,
       punchIn: rec?.punch_in_time ? new Date(rec.punch_in_time).toISOString() : null,
       punchOut: rec?.punch_out_time ? new Date(rec.punch_out_time).toISOString() : null,
-      lateMinutes: rec?.late_minutes || 0,
+      lateMinutes: rec?.status === 'half-day' ? 0 : (rec?.late_minutes || 0),
       isHoliday: holidaySet.has(dateStr),
       isSunday: dayName === 'Sun',
       isDeducted: deductedSet.has(dateStr),

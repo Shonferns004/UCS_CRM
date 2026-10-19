@@ -53,6 +53,8 @@ async function calculateLateMinutes(punchInTime, workerId) {
   const startMinutes = effectiveStart.hour * 60 + effectiveStart.minute;
   const punchMinutes = h * 60 + m;
   const diff = punchMinutes - startMinutes;
+  // A punch-in late enough to be a half-day must not also carry late minutes.
+  if (diff >= 240) return 0;
   return diff > 0 ? Math.min(diff, 180) : 0;
 }
 

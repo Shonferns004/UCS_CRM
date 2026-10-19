@@ -55,7 +55,12 @@ export const getAttendanceByWorkerDate = async (worker_id, date) => {
 
 export const upsertAttendanceStatus = async (worker_id, date, status, lateMinutes) => {
   const existing = await getAttendanceByWorkerDate(worker_id, date);
-  const updates = { status, late_minutes: lateMinutes != null ? lateMinutes : (existing?.late_minutes || 0) };
+  // A half-day record is already penalised as 0.5 day; if no explicit late
+  // minutes are supplied, do not carry over (or invent) late minutes for it.
+  const resolvedLate = lateMinutes != null
+    ? lateMinutes
+    : (status === 'half-day' ? 0 : (existing?.late_minutes || 0));
+  const updates = { status, late_minutes: resolvedLate };
   if (existing) {
     const { data, error } = await db
       .from('attendance')
@@ -101,7 +106,7 @@ export const getMonthlyLateMinutes = async (worker_id) => {
     .from('attendance')
     .select('late_minutes, date')
     .eq('worker_id', worker_id)
-    .not('status', 'in', '(absent,leave)')
+    .not('status', 'in', '(absent,leave,half-day)')
     .gte('date', startOfMonth)
     .lte('date', endOfMonth);
   if (error) throw error;

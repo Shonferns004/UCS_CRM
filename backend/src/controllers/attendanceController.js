@@ -74,6 +74,10 @@ async function calculateLateMinutes(punchInTime, workerId) {
   // A voluntary Sunday has no office start time — arriving late is impossible.
   if (isVoluntarySunday(istDateStr(new Date(punchInTime)))) return 0;
 
+  // If the punch-in is late enough to count as a half-day, the day is already
+  // penalised as a half-day — the late minutes must not also be charged.
+  if (await isHalfDayByLatePunch(punchInTime, workerId)) return 0;
+
   let effectiveStart = await getOfficeStart(workerId);
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) {
@@ -197,6 +201,10 @@ export const punchOut = async (req, res) => {
         punchInTime: existing.punch_in_time,
         punchOutTime: now,
       });
+      // A half-day caused by a late arrival must not also carry late minutes.
+      if (updates.status === 'half-day' && await isHalfDayByLatePunch(existing.punch_in_time, req.user.id)) {
+        updates.late_minutes = 0;
+      }
     }
     const updated = await updateAttendance(existing.id, updates);
 
@@ -465,8 +473,13 @@ export const updateAttendanceRecord = async (req, res) => {
         if (status === undefined) updates.status = 'absent';
       } else if (late_minutes === undefined || (existing && existing.punch_in_time !== punch_in_time)) {
         if (existing) {
-          updates.late_minutes = await calculateLateMinutes(punch_in_time, existing.worker_id);
-          if (status === undefined) updates.status = updates.late_minutes > 0 ? 'late' : 'present';
+          if (await isHalfDayByLatePunch(punch_in_time, existing.worker_id)) {
+            updates.late_minutes = 0;
+            if (status === undefined) updates.status = 'half-day';
+          } else {
+            updates.late_minutes = await calculateLateMinutes(punch_in_time, existing.worker_id);
+            if (status === undefined) updates.status = updates.late_minutes > 0 ? 'late' : 'present';
+          }
         }
       }
     }
@@ -474,11 +487,17 @@ export const updateAttendanceRecord = async (req, res) => {
       const nextPunchIn = punch_in_time !== undefined ? punch_in_time : existing.punch_in_time;
       const nextPunchOut = punch_out_time !== undefined ? punch_out_time : existing.punch_out_time;
       if (nextPunchIn && nextPunchOut) {
-        updates.status = await calculateAttendanceStatus({
+        const newStatus = await calculateAttendanceStatus({
           workerId: existing.worker_id,
           punchInTime: nextPunchIn,
           punchOutTime: nextPunchOut,
         });
+        updates.status = newStatus;
+        if (newStatus === 'half-day' && await isHalfDayByLatePunch(nextPunchIn, existing.worker_id)) {
+          updates.late_minutes = 0;
+        }
+      } else if (nextPunchIn && !nextPunchOut && punch_in_time !== undefined) {
+        // keep status already set above
       }
     }
 

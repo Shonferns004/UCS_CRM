@@ -1186,6 +1186,9 @@ export default function Dashboard() {
   // pair instead of rejecting the click, so the range can never be empty or
   // backwards and the server never has to correct us.
   const stationRange = useMemo(() => {
+    if (stationPeriodMode === 'lifetime') {
+      return { from: null, to: null, years: null, months: null, periodLabel: 'all time', lifetime: true };
+    }
     if (stationPeriodMode === 'yearly') {
       const toY = Number(stationYear);
       // Total mode is a single year; only Avg spans a range of years.
@@ -1215,11 +1218,12 @@ export default function Dashboard() {
     let cancelled = false;
     setStationLoading(true);
     const params = {
-      month: stationRange.to,
-      // A range is sent whenever the view spans more than one month: every
-      // yearly view (even a single year is Jan-Dec) and every Avg view.
-      // Monthly Total stays a single month, so its payload is untouched.
-      ...((stationPeriodMode === 'yearly' || stationMode === 'avg') ? { month_from: stationRange.from } : {}),
+      // Lifetime sends no date filter; monthly/yearly send month (+ month_from
+      // for ranges). ngo scoping always applies.
+      ...(stationPeriodMode === 'lifetime' ? { lifetime: '1' } : {
+        month: stationRange.to,
+        ...((stationPeriodMode === 'yearly' || stationMode === 'avg') ? { month_from: stationRange.from } : {}),
+      }),
       ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}),
     };
     getStationWiseCollection(params)
@@ -1244,11 +1248,12 @@ export default function Dashboard() {
     const raw = stationCollection;
     if (!raw) return null;
     if (stationMode !== 'avg') return raw;
-    // Years in yearly mode, months in monthly mode — same number of calendar
-    // units the range actually spans, so the average is per period.
+    // Years in yearly mode, months in monthly/lifetime mode.
     const units = stationPeriodMode === 'yearly'
       ? Math.max(1, Number(stationRange.years) || 1)
-      : Math.max(1, Number(stationRange.months) || 1);
+      : stationPeriodMode === 'lifetime'
+        ? Math.max(1, Number(raw.months) || 1)
+        : Math.max(1, Number(stationRange.months) || 1);
     const per = (v) => Math.round((Number(v) || 0) / units);
     const stations = (raw.stations || []).map(s => ({ ...s, amount: per(s.amount) }));
     const other = { ...raw.other, amount: per(raw.other?.amount) };
@@ -1260,8 +1265,10 @@ export default function Dashboard() {
   // How the period is worded in titles and tooltips, so nothing still claims
   // "this month" while a multi-month average is on screen.
   const stationPeriodNote = stationMode === 'avg'
-    ? `avg/${stationPeriodMode === 'yearly' ? 'yr' : 'mo'} over ${stationPeriodMode === 'yearly' ? stationRange.years : stationRange.months} ${stationRange.periodLabel}`
-    : (stationPeriodMode === 'yearly' ? 'this year' : 'this month');
+    ? (stationPeriodMode === 'lifetime'
+        ? `avg/mo over all time (${stationCollection?.months || 0} active months)`
+        : `avg/${stationPeriodMode === 'yearly' ? 'yr' : 'mo'} over ${stationPeriodMode === 'yearly' ? stationRange.years : stationRange.months} ${stationRange.periodLabel}`)
+    : (stationPeriodMode === 'lifetime' ? 'all time' : (stationPeriodMode === 'yearly' ? 'this year' : 'this month'));
 
   // Bucket the month's stations by family, each ranked highest-collecting first.
   // Every family gets an entry, even one with nothing this month, so its column
@@ -3383,7 +3390,7 @@ idle: {
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-flex', flexShrink: 0 }} />
                   Station-wise Collection
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }} title={stationMode === 'avg' ? `Average per ${stationPeriodMode === 'yearly' ? 'year' : 'month'} over the selected range (${stationPeriodNote})` : `Total collected in ${stationRange.to}`}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }} title={stationMode === 'avg' ? `Average per ${stationPeriodMode === 'yearly' ? 'year' : 'month'} over the selected range (${stationPeriodNote})` : (stationPeriodMode === 'lifetime' ? 'Total collected (all time)' : `Total collected in ${stationRange.to}`)}>
                     {formatRupees(stationFigures?.total || 0)}{stationMode === 'avg' ? (stationPeriodMode === 'yearly' ? ' /yr' : ' /mo') : ''}
                   </span>
                 </h3>
@@ -3392,7 +3399,7 @@ idle: {
                       each year = a whole Jan-Dec block). Both feed the same
                       Total/Avg switch below. */}
                   <div style={{ display: 'inline-flex', border: '1px solid #dbe5f1', borderRadius: 8, overflow: 'hidden', background: '#ffffff' }} role="group" aria-label="Station-wise Collection period">
-                    {[{ key: 'monthly', label: 'Monthly' }, { key: 'yearly', label: 'Yearly' }].map(p => (
+                    {[{ key: 'monthly', label: 'Monthly' }, { key: 'yearly', label: 'Yearly' }, { key: 'lifetime', label: 'Lifetime' }].map(p => (
                       <button
                         key={p.key}
                         type="button"
@@ -3450,14 +3457,14 @@ idle: {
                         style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
                       />
                     </>
-                  ) : (
+                  ) : stationPeriodMode === 'yearly' ? (
                     <>
                       {stationMode === 'avg' && (
                         <>
                           <select
                             aria-label="Station-wise Collection from year"
                             value={stationRange.from.slice(0, 4)}
-                            onChange={e => setStationYearFrom(e.target.value)}
+                            onChange={e => { stationYearUserPicked.current = true; setStationYearFrom(e.target.value); }}
                             style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
                           >
                             {Array.from({ length: 12 }, (_, i) => Number(currentIstYear()) - 10 + i).map(y => (
@@ -3478,6 +3485,8 @@ idle: {
                         ))}
                       </select>
                     </>
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600, padding: '0 8px' }}>All time</span>
                   )}
                 </div>
               </div>
@@ -3528,7 +3537,7 @@ idle: {
                     <div className="performance-card" style={{ height: 460, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '0 24px' }}>
                       <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>No station collected in this period.</div>
-                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different {stationPeriodMode === 'yearly' ? `year (currently ${stationRange.to.slice(0, 4)})` : 'month'} above.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different {stationPeriodMode === 'yearly' ? `year (currently ${stationRange.to.slice(0, 4)})` : stationPeriodMode === 'lifetime' ? 'period' : 'month'} above.</div>
                       {stationPeriodMode === 'yearly' && (
                         <>
                           {stationLatestYear && stationLatestYear !== stationRange.to.slice(0, 4) && (
