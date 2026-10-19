@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { DatePicker, Dropdown, Avatar } from '../../../components/ui'
 import { toast } from '../../../components/Toast'
-import {
-  fetchAllDailyReports,
-  fetchDailyReportSummary,
-  fetchDepartmentRoster,
-  saveDailyReportRemark,
-} from '../../../api/dailyReports'
 import { fetchTaskAssignments } from '../../../api/taskAssignments'
 import DailyReportDashboard from './DailyReportDashboard'
 import RecruitmentDashboard from './RecruitmentDashboard'
 import DeveloperDashboard from './DeveloperDashboard'
+import DeveloperMonthly from './DeveloperMonthly'
 import SocialDashboard from './SocialDashboard'
 import ReportView from '../../../components/DailyReport/ReportView'
+import {
+  fetchAllDailyReports,
+  fetchBugActivity,
+  fetchDailyReportSummary,
+  fetchDepartmentRoster,
+  fetchMonthlyDailyReports,
+  saveDailyReportRemark,
+} from '../../../api/dailyReports'
+import { monthRange } from '../components/bugWorkAgg'
 import { Block, Empty } from '../components/drShared'
 import './dailyReportsPremium.css'
 
@@ -33,6 +37,19 @@ const shiftDay = (d, n) => {
 
 const prettyDate = (d) =>
   new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+const currentMonth = () => today().slice(0, 7)
+
+const monthLabel = (m) => {
+  const d = new Date(`${m}-01T00:00:00`)
+  return Number.isNaN(d.getTime()) ? m : d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+}
+
+const shiftMonth = (m, n) => {
+  const t = new Date(`${m}-01T00:00:00Z`)
+  t.setUTCMonth(t.getUTCMonth() + n)
+  return t.toISOString().slice(0, 7)
+}
 
 const PANEL_LABELS = { dev: 'Developer', hr: 'HR', recruiter: 'Recruiter', social: 'Social Media' }
 const PANEL_TONES = { dev: '#6366f1', hr: '#0ea5e9', recruiter: '#f59e0b', social: '#ec4899' }
@@ -58,6 +75,8 @@ const IcoPulse = () => <Svg size={20}><path d="M3 12h4l3-8 4 16 3-8h4" /></Svg>
 
 export default function DailyReportsOverview() {
   const [date, setDate] = useState(today())
+  const [month, setMonth] = useState(currentMonth())
+  const [view, setView] = useState('daily') // 'daily' | 'monthly' (Developer tab)
   const [dept, setDept] = useState('dev') // Developer tab opens first
   const [employeeId, setEmployeeId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -68,6 +87,7 @@ export default function DailyReportsOverview() {
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
   const [assignedByName, setAssignedByName] = useState({})
+  const [bugActivity, setBugActivity] = useState([])
 
   const load = useCallback(async (d, panel, empId) => {
     setLoading(true)
@@ -85,7 +105,43 @@ export default function DailyReportsOverview() {
     }
   }, [])
 
-  useEffect(() => { load(date, dept, employeeId) }, [date, dept, employeeId, load])
+  // Monthly mode swaps the day's rows for the whole month's — the day summary
+  // (submitted / pending / completion) stays day-scoped and is not refetched.
+  const loadMonthly = useCallback(async (mo, panel, empId) => {
+    setLoading(true)
+    try {
+      const res = await fetchMonthlyDailyReports(mo, panel || undefined, empId || undefined)
+      setReports(Array.isArray(res?.reports) ? res.reports : [])
+    } catch (err) {
+      toast(err.message || 'Could not load the monthly report', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // One effect drives both modes: the day picker feeds the daily load, the
+  // month picker the monthly one, and both share the department + employee
+  // filters. Switching tabs back to daily re-runs the day load, so stale month
+  // rows are never left on screen.
+  useEffect(() => {
+    if (view === 'monthly') loadMonthly(month, dept, employeeId)
+    else load(date, dept, employeeId)
+  }, [view, date, month, dept, employeeId, load, loadMonthly])
+
+  // Bug-tracker events (reported / fixed / verified) for the same period as the
+  // reports. Filing a bug IS work — QA time spent finding and logging issues
+  // used to read as "did nothing" because it never touched the prose sections,
+  // so the tracker feeds the developer report directly. Developer tab only: the
+  // other departments have nothing to credit from the bug tracker.
+  useEffect(() => {
+    let alive = true
+    if (dept !== 'dev') { setBugActivity([]); return () => { alive = false } }
+    const { from, to } = view === 'monthly' ? monthRange(month) : { from: date, to: date }
+    fetchBugActivity(from, to)
+      .then((res) => { if (alive) setBugActivity(Array.isArray(res?.activity) ? res.activity : []) })
+      .catch(() => { if (alive) setBugActivity([]) })
+    return () => { alive = false }
+  }, [dept, view, date, month])
 
   // Employee filter options come from the department's roster.
   useEffect(() => {
@@ -128,6 +184,17 @@ export default function DailyReportsOverview() {
     setDept(panel)
     setEmployeeId('')
     setOpenId(null)
+    // Monthly is a Developer-tab view; landing on any other tab returns to the
+    // day view so nobody reads a month of rows under a date heading.
+    if (panel !== 'dev') setView('daily')
+  }
+
+  const pickMonth = (next) => {
+    const value = typeof next === 'string' ? next : (next?.target?.value ?? '')
+    if (!/^\d{4}-\d{2}$/.test(value)) return
+    if (value > currentMonth()) { toast('Cannot view a future month.', 'error'); return }
+    setMonth(value)
+    setOpenId(null)
   }
 
   const pickEmployee = (e) => {
@@ -152,6 +219,19 @@ export default function DailyReportsOverview() {
 
   const openReport = reports.find((r) => String(r.id) === String(openId)) || null
   const assignedAll = useMemo(() => Object.values(assignedByName).flat(), [assignedByName])
+
+  // Bug events narrowed to the picked developer. The activity feed is keyed by
+  // the person who reported / fixed / verified the bug; when one developer is
+  // selected their events follow them, so the drill-down still reads as one
+  // person's day.
+  const devBugActivity = useMemo(() => {
+    if (dept !== 'dev' || !employeeId) return bugActivity
+    const emp = roster.find((e) => String(e.id) === String(employeeId))
+    const wanted = String(emp?.name || '').trim().toLowerCase()
+    return bugActivity.filter((ev) =>
+      String(ev.person_id || '') === String(employeeId) ||
+      (wanted && String(ev.person_name || '').trim().toLowerCase() === wanted))
+  }, [bugActivity, dept, employeeId, roster])
 
   const openDetail = (report) => {
     setOpenId(report.id)
@@ -193,22 +273,56 @@ export default function DailyReportsOverview() {
     <div className="drx">
       <header className="drx-head">
         <div>
-          <h2 className="drx-title">Daily Reports</h2>
+          <h2 className="drx-title">{view === 'monthly' ? 'Monthly Developer Report' : 'Daily Reports'}</h2>
           <p className="drx-sub">
-            {prettyDate(date)}
-            {isToday && <span className="drx-live">Today</span>}
+            {view === 'monthly' ? monthLabel(month) : prettyDate(date)}
+            {view === 'daily' && isToday && <span className="drx-live">Today</span>}
+            {view === 'monthly' && month === currentMonth() && <span className="drx-live">This month</span>}
           </p>
         </div>
 
         <div className="drx-toolbar no-print">
-          <div className="drx-step">
-            <button type="button" className="drx-icon-btn" aria-label="Previous day" title="Previous day" onClick={() => pickDate(shiftDay(date, -1))}><IcoLeft /></button>
-            <DatePicker value={date} onChange={pickDate} max={today()} />
-            <button type="button" className="drx-icon-btn" aria-label="Next day" title="Next day" disabled={isToday} onClick={() => pickDate(shiftDay(date, 1))}><IcoRight /></button>
-          </div>
+          {dept === 'dev' && (
+            <div className="drx-seg" role="group" aria-label="Report period">
+              <button
+                type="button"
+                className={`drx-seg-btn${view === 'daily' ? ' on' : ''}`}
+                aria-pressed={view === 'daily'}
+                onClick={() => setView('daily')}
+              >
+                Daily
+              </button>
+              <button
+                type="button"
+                className={`drx-seg-btn${view === 'monthly' ? ' on' : ''}`}
+                aria-pressed={view === 'monthly'}
+                title="Whole month of Developer reports"
+                onClick={() => setView('monthly')}
+              >
+                Monthly
+              </button>
+            </div>
+          )}
+          {dept === 'dev' && <span className="drx-divider" />}
+
+          {view === 'monthly' ? (
+            <div className="drx-step">
+              <button type="button" className="drx-icon-btn" aria-label="Previous month" title="Previous month" onClick={() => pickMonth(shiftMonth(month, -1))}><IcoLeft /></button>
+              <span className="drx-month-label">{monthLabel(month)}</span>
+              <button type="button" className="drx-icon-btn" aria-label="Next month" title="Next month" disabled={month >= currentMonth()} onClick={() => pickMonth(shiftMonth(month, 1))}><IcoRight /></button>
+            </div>
+          ) : (
+            <div className="drx-step">
+              <button type="button" className="drx-icon-btn" aria-label="Previous day" title="Previous day" onClick={() => pickDate(shiftDay(date, -1))}><IcoLeft /></button>
+              <DatePicker value={date} onChange={pickDate} max={today()} />
+              <button type="button" className="drx-icon-btn" aria-label="Next day" title="Next day" disabled={isToday} onClick={() => pickDate(shiftDay(date, 1))}><IcoRight /></button>
+            </div>
+          )}
           <span className="drx-divider" />
           <Dropdown value={employeeId} onChange={pickEmployee} options={employeeOptions} searchable />
-          <button type="button" className="drx-btn" onClick={() => pickDate(today())} disabled={isToday}>Today</button>
+          {view === 'monthly'
+            ? <button type="button" className="drx-btn" onClick={() => pickMonth(currentMonth())} disabled={month === currentMonth()}>This month</button>
+            : <button type="button" className="drx-btn" onClick={() => pickDate(today())} disabled={isToday}>Today</button>}
           <button type="button" className="drx-btn primary" onClick={() => window.print()}><IcoPrint />Print</button>
         </div>
       </header>
@@ -216,8 +330,13 @@ export default function DailyReportsOverview() {
       <div className="drx-tabs no-print" role="tablist" aria-label="Departments">
         {PANELS.map((panel) => {
           const s = summaryMap[panel]
-          const sub = s?.submitted?.length ?? 0
-          const total = sub + (s?.pending?.length ?? 0)
+          // Monthly mode is Developer-only, so its count reads the month's rows
+          // (reporters who filed / roster) instead of today's summary; every
+          // other tab still shows the day's submitted/total. Picking another tab
+          // drops the view back to Daily (see pickDept).
+          const monthView = view === 'monthly' && panel === 'dev'
+          const sub = monthView ? new Set(reports.map((r) => String(r.reporter_id || r.reporter_name))).size : (s?.submitted?.length ?? 0)
+          const total = monthView ? roster.length : sub + (s?.pending?.length ?? 0)
           return (
             <button
               key={panel}
@@ -230,7 +349,7 @@ export default function DailyReportsOverview() {
             >
               <span className="drx-tab-dot" />
               {PANEL_LABELS[panel]}
-              <span className="drx-tab-count" title={`${sub} of ${total} submitted`}>{total ? `${sub}/${total}` : sub}</span>
+              <span className="drx-tab-count" title={monthView ? `${sub} of ${total} developers filed this month` : `${sub} of ${total} submitted`}>{total ? `${sub}/${total}` : sub}</span>
             </button>
           )
         })}
@@ -244,6 +363,16 @@ export default function DailyReportsOverview() {
           <div className="drx-skel" style={{ height: 190, marginBottom: 16 }} />
           <div className="drx-skel" style={{ height: 150 }} />
         </>
+      ) : dept === 'dev' && view === 'monthly' ? (
+        // Month view: DeveloperMonthly owns its own overview cards, so the day's
+        // Submitted / Pending / Completion trio does not apply.
+        <DeveloperMonthly
+          month={month}
+          reports={reports}
+          roster={employeeId ? roster.filter((e) => String(e.id) === String(employeeId)) : roster}
+          bugActivity={devBugActivity}
+          onUpdated={(id, patch) => setReports((prev) => prev.map((r) => (String(r.id) === String(id) ? { ...r, ...patch } : r)))}
+        />
       ) : (
         <>
           <div className="drx-summary">
@@ -273,7 +402,7 @@ export default function DailyReportsOverview() {
             </div>
           </div>
 
-          {dept === 'dev' && <DeveloperDashboard date={date} devReports={byPanel['dev'] || []} />}
+          {dept === 'dev' && <DeveloperDashboard date={date} devReports={byPanel['dev'] || []} bugActivity={devBugActivity} />}
           {dept === 'hr' && <DailyReportDashboard date={date} hrReports={byPanel['hr'] || []} />}
           {dept === 'recruiter' && <RecruitmentDashboard date={date} recReports={byPanel['recruiter'] || []} />}
           {dept === 'social' && <SocialDashboard date={date} socialReports={byPanel['social'] || []} assignedTasks={assignedAll} />}

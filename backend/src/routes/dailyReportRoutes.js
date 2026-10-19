@@ -4,9 +4,11 @@ import { isTaskHead } from '../utils/taskAssignmentAccess.js';
 import {
   saveReport,
   getMyReport,
+  getMyMonthlyReport,
   getReports,
   getReviewedReports,
   getAllReports,
+  getMonthlyReports,
   getSummary,
   getRoster,
   setReportRemark,
@@ -42,7 +44,9 @@ const reviewOnly = (req, res, next) => {
 
 router.post('/', reporters, saveReport);
 router.get('/mine', reporters, getMyReport);
+router.get('/mine/monthly', reporters, getMyMonthlyReport);
 router.get('/all', hod, getAllReports);
+router.get('/monthly', hod, getMonthlyReports);
 router.get('/summary', hod, getSummary);
 router.get('/roster', hod, getRoster);
 router.get('/reviewed', reporters, getReviewedReports);

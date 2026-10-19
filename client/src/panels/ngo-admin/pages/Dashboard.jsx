@@ -2027,7 +2027,7 @@ export default function Dashboard() {
                 Always rendered so the line is a stable part of the card. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, fontWeight: 700, color: Number(tlData?.kpis?.received_amount_high_tier || 0) > 0 ? '#8b5cf6' : 'var(--ink-soft)' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: Number(tlData?.kpis?.received_amount_high_tier || 0) > 0 ? '#8b5cf6' : 'var(--line)', flexShrink: 0 }} />
-              High Tier se: ₹{Number(tlData?.kpis?.received_amount_high_tier || 0).toLocaleString('en-IN')}
+              High Tier: ₹{Number(tlData?.kpis?.received_amount_high_tier || 0).toLocaleString('en-IN')}
             </div>
           </div>
 

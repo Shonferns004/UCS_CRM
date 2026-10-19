@@ -31,9 +31,31 @@ export const fetchAllDailyReports = (date, panel, reporterId) => {
 export const fetchDailyReportSummary = (date, panel) =>
   call(`/daily-reports/summary?date=${encodeURIComponent(date)}${panel ? `&panel=${encodeURIComponent(panel)}` : ''}`)
 
+// Month-range rows (YYYY-MM) — the Super Admin monthly developer report. Every
+// filter is optional; without one it returns the whole month for all panels.
+export const fetchMonthlyDailyReports = (month, panel, reporterId) => {
+  const parts = [`month=${encodeURIComponent(month)}`]
+  if (panel) parts.push(`panel=${encodeURIComponent(panel)}`)
+  if (reporterId) parts.push(`reporter_id=${encodeURIComponent(reporterId)}`)
+  return call(`/daily-reports/monthly?${parts.join('&')}`)
+}
+
+// The signed-in reporter's own rows for a month (YYYY-MM) — the Developer
+// panel's Monthly tab. Server scopes it to the authenticated name.
+export const fetchMyMonthlyDailyReports = (panel, month) =>
+  call(`/daily-reports/mine/monthly?panel=${encodeURIComponent(panel)}&month=${encodeURIComponent(month)}`)
+
 // Eligible employees for one department (for the dashboard's employee filter).
 export const fetchDepartmentRoster = (panel) =>
   call(`/daily-reports/roster?panel=${encodeURIComponent(panel)}`)
+
+// QA bug-tracker events (reported / fixed / verified) for a date range, one
+// entry per event with the person who did it. The developer reports count these
+// as WORK, so a day spent filing bugs — QA work like Omkar's — still shows
+// activity without anyone re-typing it into the prose. Super admin sees every
+// event; a signed-in developer only ever gets their own back from the server.
+export const fetchBugActivity = (from, to) =>
+  call(`/bugs/activity?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
 
 // Live whole-company attendance snapshot for a date (total / present / absent /
 // half-day / late / on leave / new joinings) — the same source the HR report's

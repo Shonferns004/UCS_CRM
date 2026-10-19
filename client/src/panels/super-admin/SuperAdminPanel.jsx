@@ -23,7 +23,7 @@ import LeadIncentivePage from './pages/LeadIncentivePage'
 import IncentivesPage from './pages/IncentivesPage'
 import IncentiveSetup from '../accounts/pages/IncentiveSetup'
 import Notices from './pages/Notices'
-import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Megaphone } from '@phosphor-icons/react'
+import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Megaphone, Bug } from '@phosphor-icons/react'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
@@ -42,6 +42,7 @@ const NAV = [
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
   { id: 'chat', path: '/sa/chat', label: 'UCS Chat', eyebrow: 'Team', icon: ChatIcon },
   { id: 'daily-reports', path: '/sa/daily-reports', label: 'Reports', eyebrow: 'Reports', icon: Clipboard },
+  { id: 'developers', path: '/sa/developers', label: 'Developers', eyebrow: 'Team', icon: Bug },
 ]
 
 const navMap = {}
@@ -56,6 +57,7 @@ const SIDEBAR_ORDER = [
   'incentives',
   'chat',
   'daily-reports',
+  'developers',
 ]
 
 function Sidebar({ mobileOpen }) {
@@ -351,6 +353,7 @@ export default function SuperAdminPanel() {
         <Route path="hr/*" element={<PanelFrame panel="hr" />} />
         {/* <Route path="hr-report" element={<HrRecruitmentReport />} /> */}
         <Route path="daily-reports" element={<DailyReportsOverview />} />
+        <Route path="developers/*" element={<PanelFrame panel="developers" />} />
         <Route path="incentives" element={<IncentivesPage />}>
           <Route index element={<Navigate to="sir" replace />} />
           <Route path="sir" element={<SpecialIncentives />} />
