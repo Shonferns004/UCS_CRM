@@ -1,4 +1,5 @@
 import config from '../config/whatsappConfig.js';
+import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 
 function getApiBase(account) {
@@ -204,18 +205,7 @@ async function sendViaFacebook(to, type, payload, account) {
   const apiBase = getApiBase(account);
   const token = getAccessToken(account);
 
-  const res = await fetch(apiBase, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-  return data;
+  return postWhatsAppMessage(apiBase, token, body);
 }
 
 export async function testConnection(account) {

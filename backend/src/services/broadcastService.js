@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import config from '../config/whatsappConfig.js';
+import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 
 const TIME_BUDGET_MS = 220000;
 
@@ -186,14 +187,13 @@ async function sendBatch(broadcast, recipients) {
     };
 
     try {
-      const response = await fetch(`https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const result = await response.json();
+      const result = await postWhatsAppMessage(
+        `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
+        accessToken,
+        body,
+      );
 
-      if (response.ok && result.messages?.[0]?.id) {
+      if (result.messages?.[0]?.id) {
         await db
           .from('whatsapp_broadcast_recipients')
           .update({

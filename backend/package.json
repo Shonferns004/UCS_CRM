@@ -10,7 +10,10 @@
     "start": "nodemon src/index.js",
     "dev": "nodemon src/index.js",
     "vercel-build": "echo 'Build complete'",
-    "test": "node --test \"src/**/*.test.js\"",
+    "test": "node scripts/run-tests.mjs",
+    "test:raw": "node --test \"src/**/*.test.js\"",
+    "db:create-test": "node scripts/create-test-db.mjs",
+    "test:db:setup": "node scripts/setup-test-db.mjs",
     "security:check": "node scripts/security-check.mjs",
     "security:check:staged": "node scripts/security-check.mjs --staged"
   },

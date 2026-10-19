@@ -340,10 +340,8 @@ export default function TemplateLibrary({ conversationId, contactId, project, us
         onClick={() => setActiveTemplate(activeTemplate ? null : '__open__')}
         disabled={!canUse}
         title="Template library"
-        style={{
-          border: 'none', background: 'transparent', cursor: canUse ? 'pointer' : 'not-allowed',
-          padding: '6px 4px', color: canUse ? '#2563eb' : '#d1d5db', display: 'flex', alignItems: 'center',
-        }}
+        className="wa-icon-btn"
+        style={{ color: canUse ? '#027eb5' : undefined }}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 4h16v4H4z" />

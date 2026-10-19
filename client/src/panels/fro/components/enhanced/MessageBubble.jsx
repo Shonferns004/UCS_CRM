@@ -77,8 +77,12 @@ function DateSeparator({ dateStr }) {
   else label = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '16px 0 8px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', background: '#f3f4f6', padding: '4px 12px', borderRadius: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '14px 0 8px' }}>
+      <div style={{
+        fontSize: 11.5, fontWeight: 600, color: '#54656f',
+        background: 'rgba(255,255,255,.92)', padding: '5px 12px', borderRadius: 8,
+        boxShadow: '0 1px 1px rgba(11,20,26,.08)', letterSpacing: '.01em',
+      }}>
         {label}
       </div>
     </div>
@@ -278,13 +282,14 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
 
   const bubbleStyle = {
     maxWidth: '75%',
-    padding: hasMedia && !text ? '4px 4px 6px 4px' : '6px 10px 6px 10px',
+    padding: hasMedia && !text ? '4px 4px 6px 4px' : '6px 9px 6px 9px',
     borderRadius: 8,
-    background: isOutbound ? '#dcfce7' : '#f3f4f6',
-    borderBottomRightRadius: isOutbound ? (isLast ? 4 : 8) : 8,
-    borderBottomLeftRadius: isOutbound ? 8 : (isLast ? 4 : 8),
-    borderTopRightRadius: isOutbound ? (isFirst ? 8 : 4) : 8,
-    borderTopLeftRadius: isOutbound ? 8 : (isFirst ? 8 : 4),
+    background: isOutbound ? '#d9fdd3' : '#ffffff',
+    boxShadow: '0 1px 1px rgba(11,20,26,.13)',
+    borderBottomRightRadius: isOutbound ? (isLast ? 0 : 8) : 8,
+    borderBottomLeftRadius: isOutbound ? 8 : (isLast ? 0 : 8),
+    borderTopRightRadius: isOutbound ? (isFirst ? 8 : 3) : 8,
+    borderTopLeftRadius: isOutbound ? 8 : (isFirst ? 8 : 3),
     position: 'relative',
     wordBreak: 'break-word',
   }
@@ -295,7 +300,7 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
         display: 'flex',
         justifyContent: isOutbound ? 'flex-end' : 'flex-start',
         marginBottom: isGroup ? 2 : 6,
-        padding: '0 12px',
+        padding: '0 16px',
       }}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu?.(e, message) }}
     >
@@ -318,7 +323,7 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
           </div>
         )}
         {text && (
-          <div style={{ fontSize: 13, lineHeight: 1.45, color: '#111827', whiteSpace: 'pre-wrap', padding: hasMedia ? '2px 6px 0' : 0 }}>
+          <div style={{ fontSize: 13.2, lineHeight: 1.45, color: '#111b21', whiteSpace: 'pre-wrap', padding: hasMedia ? '2px 6px 0' : 0 }}>
             {text}
           </div>
         )}
@@ -328,7 +333,7 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
             templates included -- an agent needs the same read/delivered signal
             for a template as for a typed reply. */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 2, padding: (text || (!hasMedia && !isTemplate)) ? 0 : '0 4px' }}>
-          <span style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1 }}>
+          <span style={{ fontSize: 10.5, color: '#667781', lineHeight: 1 }}>
             <TimeDisplay ts={message.created_at} />
           </span>
           {isOutbound && (
@@ -371,19 +376,25 @@ export function MessageList({ messages, onContextMenu, messagesContainerRef, mes
   if (!messages) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ fontSize: 13, color: '#9ca3af' }}>Loading messages...</div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" strokeDasharray="30 10">
+              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+            </circle>
+          </svg>
+          <div style={{ fontSize: 12.5, color: '#667781' }}>Loading messages...</div>
+        </div>
       </div>
     )
   }
   if (messages.length === 0) {
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="#d1d5db">
-          <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/>
-          <path d="M11 7h2v4h-2zm0 6h2v2h-2z"/>
-        </svg>
-        <div style={{ fontSize: 13, color: '#9ca3af' }}>No messages yet</div>
-        <div style={{ fontSize: 11, color: '#d1d5db' }}>Send a message to start the conversation</div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(255,255,255,.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(11,20,26,.08)' }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="#8696a0"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg>
+        </div>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: '#3b4a54' }}>No messages yet</div>
+        <div style={{ fontSize: 12, color: '#667781' }}>Send a message to start the conversation</div>
       </div>
     )
   }
@@ -418,7 +429,7 @@ export function MessageList({ messages, onContextMenu, messagesContainerRef, mes
   })
 
   return (
-    <div ref={messagesContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+    <div ref={messagesContainerRef} className="wa-scroll" style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }}>
       {elements}
       <div ref={messagesEndRef} />
     </div>

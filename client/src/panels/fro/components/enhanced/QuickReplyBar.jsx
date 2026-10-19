@@ -34,27 +34,14 @@ export default function QuickReplyBar({ onSend }) {
   if (loading || replies.length === 0) return null
 
   return (
-    <div style={{ padding: '6px 12px', borderTop: '1px solid #e5e7eb', background: '#fff', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div style={{ padding: '6px 12px', borderTop: '1px solid #e9edef', background: '#fff', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {replies.map(reply => (
         <button
           key={reply.id}
+          className="wa-quick-chip"
           onClick={() => handleClick(reply)}
           disabled={sendingId === reply.id}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '4px 10px',
-            fontSize: 11,
-            fontWeight: 600,
-            border: '1px solid #e5e7eb',
-            borderRadius: 16,
-            background: sendingId === reply.id ? '#f3f4f6' : '#fff',
-            color: '#374151',
-            cursor: sendingId === reply.id ? 'not-allowed' : 'pointer',
-            transition: 'all .15s',
-            opacity: sendingId === reply.id ? 0.6 : 1,
-          }}
+          style={{ opacity: sendingId === reply.id ? 0.55 : 1, cursor: sendingId === reply.id ? 'not-allowed' : 'pointer' }}
         >
           <span style={{ fontSize: 12 }}>{CATEGORY_ICONS[reply.category] || CATEGORY_ICONS.default}</span>
           <span>{reply.name}</span>

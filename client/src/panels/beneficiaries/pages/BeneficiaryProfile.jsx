@@ -35,6 +35,25 @@ const STATUS_COLORS = {
 const STATUSES = Object.keys(STATUS_COLORS)
 const GENDERS = ['MALE', 'FEMALE', 'TRANSGENDER', 'OTHER']
 
+const BENEFICIARY_TYPES = [
+  'Visually Impaired Individuals',
+  'Persons with Disabilities (PwD)',
+  'Specially Abled Individuals',
+  'Underprivileged Children',
+  'Underprivileged Women',
+  'Senior Citizens',
+  'Orphaned Children',
+  'Slum-Dwelling Families',
+  'Rural and Tribal Communities',
+  'Widows and Single Mothers',
+  'Homeless Individuals',
+  'Needy Families',
+  'Students from Low-Income Families',
+  'Unemployed Youth',
+  'Flood-Affected Families',
+  'Daily Wage Workers',
+]
+
 // Scalar `beneficiaries` columns that can be edited from this screen. Anything
 // outside this list (code, registration date, fingerprint state, audit fields)
 // is maintained by the system and stays read-only.
@@ -42,7 +61,7 @@ const EDITABLE = [
   'full_name', 'first_name', 'middle_name', 'last_name', 'date_of_birth', 'gender',
   'mobile', 'alternate_mobile', 'email', 'photo',
   'address_line_1', 'address_line_2', 'area', 'city', 'district', 'state', 'pincode',
-  'occupation', 'needed', 'aadhaar_number', 'ngo_id', 'status',
+  'occupation', 'needed', 'aadhaar_number', 'ngo_id', 'status', 'beneficiary_type',
   'mother_name', 'father_name', 'guardian_name', 'guardian_occupation',
   'total_family_members', 'monthly_family_income', 'income_category',
   'bpl_available', 'ration_card_available',
@@ -395,6 +414,7 @@ export default function BeneficiaryProfile() {
             {/* <E label="Last Name">{Text('last_name')}</E> */}
             <E label="Date of Birth">{Text('date_of_birth', { type: 'date' })}</E>
             <E label="Gender">{Select('gender', GENDERS, 'Select')}</E>
+            <E label="Beneficiary Type">{Select('beneficiary_type', BENEFICIARY_TYPES, 'Select')}</E>
             {/* <E label="Email">{Text('email', { type: 'email' })}</E> */}
             <E label="Photo URL">{Text('photo')}</E>
           </div>
@@ -406,6 +426,7 @@ export default function BeneficiaryProfile() {
             {/* <Field label="Last Name">{data.last_name}</Field> */}
             <Field label="Date of Birth">{data.date_of_birth}</Field>
             <Field label="Gender">{data.gender}</Field>
+            <Field label="Beneficiary Type">{data.beneficiary_type}</Field>
             {/* <Field label="Email">{data.email}</Field> */}
             <Field label="Photo">{data.photo ? <img src={data.photo} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover' }} /> : '-'}</Field>
           </div>
