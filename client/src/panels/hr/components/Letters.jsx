@@ -1100,6 +1100,7 @@ export default function Letters() {
   const [zoom, setZoom] = useState(50);
   const [fitZoom, setFitZoom] = useState(50);
   const [autoFit, setAutoFit] = useState(true);
+  const [previewMargin, setPreviewMargin] = useState(0);
   const previewRef = useRef(null);
   useEffect(() => {
     if (!autoFit) return;
@@ -1111,6 +1112,7 @@ export default function Letters() {
         const f = Math.min(100, Math.max(30, Math.round((w / 900) * 100)));
         setFitZoom(f);
         setZoom(f);
+        setPreviewMargin((w - 900) / 2);
       }
     };
     compute();
@@ -1628,7 +1630,7 @@ export default function Letters() {
           </div>
         </div>
         <div ref={previewRef} className="card-pad" style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: '16px 24px 16px 16px' }}>
-          <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%', margin: '0 auto' }}>
+          <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%', marginLeft: previewMargin }}>
             {out && !sopSel && (
           <div className="letter">
             {(type === 'ODAR' || type === 'Doc Submitted') && out.odar ? (
