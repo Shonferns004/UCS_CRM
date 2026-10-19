@@ -1621,13 +1621,8 @@ export default function Letters() {
       </div>
 
       <div className="card" style={{ minHeight: 0, border: 'none', boxShadow: 'none' }}>
-        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div className="card-head">
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button className="btn btn-sm" onClick={() => { setAutoFit(false); setZoom(z => Math.max(30, z - 10)); }} title="Zoom out" style={{ padding: '4px 10px' }}>-</button>
-            <span style={{ fontSize: 12, fontWeight: 600, minWidth: 42, textAlign: 'center' }}>{zoom}%</span>
-            <button className="btn btn-sm" onClick={() => { setAutoFit(false); setZoom(z => Math.min(200, z + 10)); }} title="Zoom in" style={{ padding: '4px 10px' }}>+</button>
-          </div>
         </div>
         <div ref={previewRef} className="card-pad" style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: '16px 24px 16px 16px' }}>
           <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%', marginLeft: previewMargin }}>
