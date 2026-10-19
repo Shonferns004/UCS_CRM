@@ -427,7 +427,7 @@ export default function HRForms() {
         .panel-hr .hrf-search { position:relative; flex:1; min-width:220px; }
         .panel-hr .hrf-search svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--ink-soft); pointer-events:none; }
         .panel-hr .hrf-search input { width:100%; padding:10px 14px 10px 36px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:14px; font-family:inherit; outline:none; background:var(--paper); color:var(--ink); box-sizing:border-box; }
-        .panel-hr .hrf-search input:focus { border-color:var(--sage); }
+        .panel-hr .hrf-search input:focus { border-color:#2385f5; }
         .panel-hr .hrf-status-select { padding:10px 14px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:13px; font-family:inherit; background:var(--paper); color:var(--ink); outline:none; cursor:pointer; }
         .panel-hr .hrf-grid-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:22px; }
         .panel-hr .hrf-card { border-radius:16px; overflow:hidden; background:var(--paper); border:1px solid var(--line); box-shadow:var(--shadow); cursor:pointer; transition:transform .2s ease, box-shadow .2s ease; display:flex; flex-direction:column; }
@@ -445,9 +445,9 @@ export default function HRForms() {
         .panel-hr .hrf-id-dept { font-size:12px; color:var(--ink-soft); }
         .panel-hr .hrf-progress-label { display:flex; justify-content:space-between; font-size:11px; color:var(--ink-soft); font-weight:600; margin-bottom:5px; }
         .panel-hr .hrf-progress-track { height:6px; border-radius:99px; background:var(--line); overflow:hidden; }
-        .panel-hr .hrf-progress-fill { height:100%; border-radius:99px; transition:width .3s ease; background:var(--sage); }
+        .panel-hr .hrf-progress-fill { height:100%; border-radius:99px; transition:width .3s ease; background:#2385f5; }
         .panel-hr .hrf-chips { display:flex; flex-wrap:wrap; gap:6px; }
-        .panel-hr .hrf-chip { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 9px; border-radius:99px; background:var(--sage-soft); color:var(--ink); max-width:100%; }
+        .panel-hr .hrf-chip { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 9px; border-radius:99px; background:#e7f1ff; color:var(--ink); max-width:100%; }
         .panel-hr .hrf-chip span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .panel-hr .hrf-open { margin-top:auto; justify-content:center; }
         .panel-hr .hrf-detail { display:flex; flex-direction:column; }
@@ -457,20 +457,20 @@ export default function HRForms() {
         .panel-hr .hrf-detail-nav { display:flex; gap:4px; padding:10px 20px; border-bottom:1px solid var(--line); overflow-x:auto; background:var(--paper); scrollbar-width:none; }
         .panel-hr .hrf-detail-nav::-webkit-scrollbar { display:none; }
         .panel-hr .hrf-nav-item { display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:8px; border:none; background:transparent; color:var(--ink-soft); font-size:13px; font-weight:600; font-family:inherit; cursor:pointer; white-space:nowrap; transition:all .15s; }
-        .panel-hr .hrf-nav-item:hover { background:var(--sage-soft); color:var(--ink); }
-        .panel-hr .hrf-nav-item.active { background:var(--sage); color:#fff; }
+        .panel-hr .hrf-nav-item:hover { background:#e7f1ff; color:var(--ink); }
+        .panel-hr .hrf-nav-item.active { background:#2385f5; color:#fff; }
         .panel-hr .hrf-detail-body { max-height:calc(100vh - 330px); overflow-y:auto; padding:24px 26px 30px; }
         .panel-hr .hrf-section { margin-bottom:32px; }
         .panel-hr .hrf-section-title { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
         .panel-hr .hrf-section-title h3 { margin:0; font-size:15px; }
-        .panel-hr .hrf-section-icon { display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:9px; background:var(--sage-soft); color:var(--sage); flex-shrink:0; }
+        .panel-hr .hrf-section-icon { display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:9px; background:#e7f1ff; color:#2385f5; flex-shrink:0; }
         .panel-hr .hrf-section-count { margin-left:auto; font-size:11px; font-weight:700; color:var(--ink-soft); background:var(--line); padding:2px 10px; border-radius:99px; }
         .panel-hr .hrf-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px 14px; }
         .panel-hr .hrf-grid .field.wide { grid-column:1 / -1; }
         .panel-hr .hrf-entry { border:1px solid var(--line); border-radius:var(--radius-sm); padding:16px; margin-bottom:12px; background:var(--paper); }
         .panel-hr .hrf-entry-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
         .panel-hr .hrf-entry-title { font-weight:600; font-size:13px; color:var(--ink); display:flex; align-items:center; gap:8px; }
-        .panel-hr .hrf-add { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--sage); background:var(--sage-soft); border:none; padding:5px 11px; border-radius:7px; cursor:pointer; font-family:inherit; }
+        .panel-hr .hrf-add { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:#2385f5; background:#e7f1ff; border:none; padding:5px 11px; border-radius:7px; cursor:pointer; font-family:inherit; }
         .panel-hr .hrf-add:hover { filter:brightness(.97); }
         .panel-hr .hrf-empty { border:1px dashed var(--line); border-radius:var(--radius-sm); padding:20px; text-align:center; color:var(--ink-soft); font-size:13px; background:var(--paper); }
         .panel-hr .hrf-print-btn { background:#dc2626; color:#fff; border-color:#dc2626; }
@@ -494,7 +494,7 @@ export default function HRForms() {
           <div className="card-pad">
             <div className="hrf-stats">
               <div className="hrf-stat">
-                <span className="hrf-stat-dot" style={{ background: 'var(--sage-soft)', color: 'var(--sage)' }}><IconUser /></span>
+                <span className="hrf-stat-dot" style={{ background: '#e7f1ff', color: '#2385f5' }}><IconUser /></span>
                 <div>
                   <div className="hrf-stat-num">{totalCount}</div>
                   <div className="hrf-stat-lbl">Total Employees</div>
@@ -542,11 +542,11 @@ export default function HRForms() {
               </select>
               <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
                 <button type="button" onClick={() => setViewMode('grid')} title="Grid view"
-                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: viewMode === 'grid' ? 'var(--sage)' : 'var(--paper)', color: viewMode === 'grid' ? '#fff' : 'var(--ink)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: viewMode === 'grid' ? '#2385f5' : 'var(--paper)', color: viewMode === 'grid' ? '#fff' : 'var(--ink)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                   Grid
                 </button>
                 <button type="button" onClick={() => setViewMode('list')} title="List view"
-                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: viewMode === 'list' ? 'var(--sage)' : 'var(--paper)', color: viewMode === 'list' ? '#fff' : 'var(--ink)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: viewMode === 'list' ? '#2385f5' : 'var(--paper)', color: viewMode === 'list' ? '#fff' : 'var(--ink)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                   List
                 </button>
               </div>
@@ -598,7 +598,7 @@ export default function HRForms() {
                             <span>{comp.pct}%</span>
                           </div>
                           <div className="hrf-progress-track">
-                            <div className="hrf-progress-fill" style={{ width: comp.pct + '%', background: comp.pct === 100 ? '#166534' : comp.pct >= 60 ? 'var(--sage)' : '#c08a2e' }} />
+                            <div className="hrf-progress-fill" style={{ width: comp.pct + '%', background: comp.pct === 100 ? '#166534' : comp.pct >= 60 ? '#2385f5' : '#c08a2e' }} />
                           </div>
                         </div>
                         <div className="hrf-chips">
