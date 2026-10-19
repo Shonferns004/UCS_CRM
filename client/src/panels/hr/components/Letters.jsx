@@ -1107,7 +1107,7 @@ export default function Letters() {
     const el = previewRef.current;
     if (!el) return;
     const compute = () => {
-      const w = el.clientWidth;
+      const w = el.clientWidth - 40;
       if (w > 0) {
         const f = Math.min(100, Math.max(30, Math.round((w / 900) * 100)));
         setFitZoom(f);
