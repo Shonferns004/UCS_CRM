@@ -240,9 +240,19 @@ CREATE TABLE IF NOT EXISTS incentive_slab_tiers (
 CREATE INDEX IF NOT EXISTS idx_incentive_slab_tiers_slab ON incentive_slab_tiers(slab_id);
 `;
 
+const CLAIM_COLUMNS_SQL = `
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS claim_status TEXT DEFAULT 'pending';
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS claim_photo_url TEXT;
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS claimed_by UUID REFERENCES workers(id) ON DELETE SET NULL;
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+ALTER TABLE special_incentives ADD COLUMN IF NOT EXISTS claim_remarks TEXT;
+UPDATE special_incentives SET claim_status = 'pending' WHERE status = 'won' AND claim_status IS NULL;
+`;
+
 export async function ensureSpecialIncentiveSchema() {
   try {
     await db._pool.query(CREATE_TABLE_SQL);
+    await db._pool.query(CLAIM_COLUMNS_SQL);
     console.log('special_incentives tables ready');
   } catch (e) {
     console.warn('[special incentive schema] skip:', e?.message || String(e));
