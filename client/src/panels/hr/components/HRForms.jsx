@@ -492,36 +492,6 @@ export default function HRForms() {
             <span className="sub">Volunteer onboarding forms</span>
           </div>
           <div className="card-pad">
-            <div className="hrf-stats">
-              <div className="hrf-stat">
-                <span className="hrf-stat-dot" style={{ background: '#e7f1ff', color: '#2385f5' }}><IconUser /></span>
-                <div>
-                  <div className="hrf-stat-num">{totalCount}</div>
-                  <div className="hrf-stat-lbl">Total Employees</div>
-                </div>
-              </div>
-              <div className="hrf-stat">
-                <span className="hrf-stat-dot" style={{ background: 'rgba(22,101,52,0.12)', color: '#166534' }}><IconFam /></span>
-                <div>
-                  <div className="hrf-stat-num">{activeCount}</div>
-                  <div className="hrf-stat-lbl">Active</div>
-                </div>
-              </div>
-              <div className="hrf-stat">
-                <span className="hrf-stat-dot" style={{ background: 'rgba(180,83,9,0.12)', color: '#b45309' }}><IconEdu /></span>
-                <div>
-                  <div className="hrf-stat-num">{incompleteCount}</div>
-                  <div className="hrf-stat-lbl">Incomplete Forms</div>
-                </div>
-              </div>
-              <div className="hrf-stat">
-                <span className="hrf-stat-dot" style={{ background: 'rgba(22,101,52,0.12)', color: '#166534' }}><IconUser /></span>
-                <div>
-                  <div className="hrf-stat-num">{completedCount}</div>
-                  <div className="hrf-stat-lbl">Completed Forms</div>
-                </div>
-              </div>
-            </div>
 
             <div className="hrf-toolbar">
               <div className="hrf-search">
