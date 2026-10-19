@@ -37,7 +37,7 @@ function Sidebar({ open, onClose }) {
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark" style={{background:'#5B6B4E',borderRadius:10,width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:18}}>U</div>
+          <div className="brand-mark">U</div>
           <div><h1>UFS</h1><span>Recruiter Panel</span></div>
         </div>
         <nav className="sidebar-nav">
@@ -119,7 +119,7 @@ function AppShell() {
         <div className="mobile-top">
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
           <div className="mtop-brand">
-            <div className="brand-mark" style={{background:'#5B6B4E',borderRadius:8,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:14}}>U</div>
+            <div className="brand-mark" style={{width:30,height:30,borderRadius:8,fontSize:14}}>U</div>
             <span>UFS Recruiter Panel</span>
           </div>
         </div>

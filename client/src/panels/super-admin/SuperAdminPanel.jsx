@@ -22,8 +22,7 @@ import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
 import IncentivesPage from './pages/IncentivesPage'
 import IncentiveSetup from '../accounts/pages/IncentiveSetup'
-import Notices from './pages/Notices'
-import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Megaphone } from '@phosphor-icons/react'
+import { Clipboard, CurrencyCircleDollar, BuildingOffice, Trophy, Bug } from '@phosphor-icons/react'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import { ChatIcon } from '../../components/chat/chatIcons'
@@ -39,9 +38,9 @@ const NAV = [
   { id: 'accounts', path: '/sa/accounts', label: 'Accounts', eyebrow: 'Finance', icon: CurrencyCircleDollar },
   { id: 'hr', path: '/sa/hr', label: 'HR', eyebrow: 'People', icon: Users },
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
-  { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
   { id: 'chat', path: '/sa/chat', label: 'UCS Chat', eyebrow: 'Team', icon: ChatIcon },
   { id: 'daily-reports', path: '/sa/daily-reports', label: 'Reports', eyebrow: 'Reports', icon: Clipboard },
+  { id: 'developers', path: '/sa/developers', label: 'Developers', eyebrow: 'Team', icon: Bug },
 ]
 
 const navMap = {}
@@ -51,11 +50,11 @@ NAV.forEach(n => { navMap[n.id] = n })
 // Any NAV id can be placed here; ids omitted are not shown.
 const SIDEBAR_ORDER = [
   'employees',
-  'notices',
   'data-management',
   'incentives',
   'chat',
   'daily-reports',
+  'developers',
 ]
 
 function Sidebar({ mobileOpen }) {
@@ -195,6 +194,11 @@ function PageShell({ children }) {
   // 46px avatar). The topbar is shared by every SA page, so the taller variant
   // is opted into per-route instead of restyling the shell everywhere.
   const isWorkersRoute = location.pathname === '/sa/employees'
+  // Volunteer profile renders a full-bleed surface: the content body drops its
+  // padding for this route only (via an opt-in class) so the page's container
+  // sits flush against the sidebar, topbar, right and bottom edges. The page
+  // carries its own inner inset, so no other SA page's layout moves.
+  const isProfileRoute = /^\/sa\/employees\/[^/]+$/.test(location.pathname)
   const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Super Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -272,7 +276,7 @@ function PageShell({ children }) {
           />
         </header>
         <div
-          className={`content-body${isChatRoute ? ' content-body-chat' : ''}`}
+          className={`content-body${isChatRoute ? ' content-body-chat' : ''}${isProfileRoute ? ' content-body-profile' : ''}`}
           style={{
             maxWidth: 'none',
             padding: isIframeRoute || isChatRoute ? 0 : undefined,
@@ -346,6 +350,7 @@ export default function SuperAdminPanel() {
         <Route path="hr/*" element={<PanelFrame panel="hr" />} />
         {/* <Route path="hr-report" element={<HrRecruitmentReport />} /> */}
         <Route path="daily-reports" element={<DailyReportsOverview />} />
+        <Route path="developers/*" element={<PanelFrame panel="developers" />} />
         <Route path="incentives" element={<IncentivesPage />}>
           <Route index element={<Navigate to="sir" replace />} />
           <Route path="sir" element={<SpecialIncentives />} />
@@ -355,7 +360,6 @@ export default function SuperAdminPanel() {
         </Route>
         <Route path="special-incentive" element={<Navigate to="../incentives/sir" replace />} />
         <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
-        <Route path="notices" element={<Notices />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>

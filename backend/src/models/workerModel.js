@@ -1,5 +1,6 @@
 import pg from 'pg';
 import db, { sql } from '../config/db.js';
+import { clearCaches } from '../utils/workerNameMatch.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -170,7 +171,61 @@ export const getWorkerBySession = async (user) => {
   return null;
 };
 
+// Keep the PREVIOUS spelling resolvable after a rename.
+//
+// Receipts are keyed by the free text in receipts.agent_name — stamped with
+// whatever the collector was called at collection time — and the ONE loader
+// behind the FRO's "Collected" card and "View collections" list
+// (froDonorLogModel getWorkerCollectionReceipts) matches that text against the
+// worker's CURRENT name plus their worker_aliases rows. A rename that only
+// updated workers.name therefore orphaned every receipt issued under the old
+// name: "Damini Thakur"'s October receipts vanished from "Damini Singh"'s
+// card the moment the name was edited. An alias row keeps the old spelling
+// answering to the same worker, so the collection history stays credited.
+//
+// The spelling is added only when NO worker answers to it yet: the resolvers
+// (workerNameMatch.loadAliases, froDonorLogModel getAllWorkerNameResolvers)
+// are first-wins, so a second claim on the same spelling would credit the
+// wrong person. Never throws — a failed alias insert must not fail the rename.
+const addNameAlias = async (workerId, oldName) => {
+  const alias = String(oldName || '').trim();
+  if (!alias) return;
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  try {
+    const { data: all } = await db.from('worker_aliases').select('alias_name');
+    const taken = (all || []).some(a => norm(a.alias_name) === norm(alias));
+    if (taken) return;
+    const { error } = await db.from('worker_aliases').insert({ alias_name: alias, worker_id: workerId });
+    if (error) throw error;
+    clearCaches(); // workerNameMatch caches workers + aliases in memory
+  } catch (e) {
+    console.error(`worker rename: could not alias old name "${alias}" -> ${workerId}:`, e?.message || e);
+  }
+};
+
+// The rename-alias rule in one place, shared with updateWorkerPersonalDetails
+// (onboardingModel), which writes workers.name through its own direct update
+// rather than through updateWorker. Case/whitespace-only edits are not a
+// rename: the collection loader already matches case- and trim-insensitively,
+// so no alias is needed for those.
+export const preserveOldNameAlias = async (workerId, oldName, newName) => {
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  if (!oldName || norm(oldName) === norm(newName)) return;
+  await addNameAlias(workerId, oldName);
+};
+
 export const updateWorker = async (id, updates) => {
+  // When a rename is in flight, remember the spelling the receipts already
+  // carry so it can be aliased to this worker once the update lands.
+  let oldName = null;
+  if (updates && typeof updates === 'object' && typeof updates.name === 'string') {
+    try {
+      const { data: current } = await db.from('workers').select('name').eq('id', id).maybeSingle();
+      oldName = current?.name || null;
+    } catch (e) {
+      oldName = null; // proceed with the rename; worst case the alias is skipped
+    }
+  }
   const { data, error } = await db
     .from('workers')
     .update(updates)
@@ -178,6 +233,7 @@ export const updateWorker = async (id, updates) => {
     .select()
     .single();
   if (error) throw error;
+  await preserveOldNameAlias(id, oldName, updates?.name);
   return data;
 };
 

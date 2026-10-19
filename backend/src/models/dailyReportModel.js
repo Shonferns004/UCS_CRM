@@ -92,6 +92,41 @@ export const listAllForDate = async (report_date, { panel, department, reporter_
   return data || [];
 };
 
+// Every panel's rows for a month (YYYY-MM), ordered per reporter per day — the
+// Super Admin monthly developer report. Filters are optional and applied
+// before the ordering so a single-reporter drill-down stays cheap.
+export const listAllForMonth = async (month, { panel, department, reporter_id } = {}) => {
+  let q = db
+    .from('daily_reports')
+    .select(await selectCols())
+    .gte('report_date', `${month}-01`)
+    .lte('report_date', `${month}-31`);
+  if (panel) q = q.eq('panel', panel);
+  if (department) q = q.eq('department', department);
+  if (reporter_id) q = q.eq('reporter_id', reporter_id);
+  const { data, error } = await q
+    .order('reporter_name', { ascending: true })
+    .order('report_date', { ascending: true });
+  if (error) throw error;
+  return data || [];
+};
+
+// One reporter's rows for a month — the Developer panel's own monthly view.
+// Keyed by reporter_name because that is the column upsertReport writes and
+// getReport reads, so the list always matches what their panel shows.
+export const listMineForMonth = async (panel, month, reporter_name) => {
+  const { data, error } = await db
+    .from('daily_reports')
+    .select(await selectCols())
+    .eq('panel', panel)
+    .eq('reporter_name', reporter_name)
+    .gte('report_date', `${month}-01`)
+    .lte('report_date', `${month}-31`)
+    .order('report_date', { ascending: true });
+  if (error) throw error;
+  return data || [];
+};
+
 // One panel's ACCEPTED reports for a month (YYYY-MM), reduced to the two facts
 // the Social Monthly Planner needs: which reporter's report for which day is
 // signed off. The planner turns that day's deliverables green — only the head's

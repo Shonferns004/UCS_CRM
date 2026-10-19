@@ -11,7 +11,7 @@
    ========================================================================== */
 
 .panel-accounts {
-  --sidebar-width-expanded: 232px;
+  --sidebar-width-expanded: 264px;
   --sidebar-width-collapsed: 68px;
   --sidebar-background: #ffffff;
   --sidebar-border: #e5e7eb;
@@ -28,16 +28,18 @@
 /* Surface + border follow the panel theme so the rail matches the paper the
    rest of the panel is themed to, rather than sitting on a hardcoded white. */
 .panel-accounts .app > .sidebar {
+  flex: none;
   width: var(--sidebar-width-expanded);
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--card-bg);
   border-right: 1px solid var(--line);
   color: var(--ink);
   padding: 0;
-  /* The shared rule makes the whole sidebar an overflow-y:auto box, which would
-     clip the collapse control where it straddles the right edge. Scrolling moves
-     to the nav instead, which also keeps the header and the collapse control
-     pinned instead of scrolling away with the content. */
-  overflow: visible;
+  /* Scrolling lives on the nav (flex:1, min-height:0, overflow-y:auto below),
+     which keeps the header and collapse control pinned instead of scrolling
+     away with the content. */
   z-index: 40;
   transition: width var(--sidebar-transition);
 }

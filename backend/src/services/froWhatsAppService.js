@@ -1,11 +1,16 @@
 import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from './temporaryWhatsappScope.js';
 import config from '../config/whatsappConfig.js';
-import { presignStoredUrl } from './mediaProxy.js';
+import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
 
 // Object keys under the shared media bucket. Meta fetches these URLs itself, so
 // only keys with this prefix may be turned into a signed link for it.
 const WHATSAPP_MEDIA_PREFIX = 'whatsapp-media/';
+
+// Shared media bucket: agent uploads and the cached copy of a template's own
+// header both live here, so a link built for one is signable like the other.
+const MEDIA_BUCKET = 'whatsapp-media';
 
 function normalizePhone(phone) {
   const raw = String(phone).replace(/[^0-9]/g, '');
@@ -15,6 +20,10 @@ function normalizePhone(phone) {
 }
 
 export async function getFroConversations(froWorkerId, restrictPairs = null) {
+  const resultConvs = [];
+  const seenIds = new Set();
+
+  // ── Permanent: donor phones from fro_assignments ──
   const { data: assignments, error: assignErr } = await db
     .from('fro_assignments')
     .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
@@ -23,13 +32,10 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
 
   if (assignErr) throw assignErr;
   let scoped = assignments || [];
-  // Station-scoped work-as: only donors whose assignment sits on a claimed
-  // (ngo_id, station) pair are visible.
   if (restrictPairs && restrictPairs.length > 0) {
     const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
     scoped = scoped.filter(a => allowed.has(`${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`));
   }
-  if (scoped.length === 0) return [];
 
   const donorPhones = scoped
     .map(a => a.donor_profiles?.mobile_number)
@@ -46,34 +52,63 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
     }
   }
 
-  if (phoneVariants.size === 0) return [];
-
-  const phoneList = [...phoneVariants];
-
-  const { data: contacts, error: contactErr } = await db
-    .from('contacts')
-    .select('id, phone, phone_normalized, wa_profile_name, project')
-    .in('phone_normalized', phoneList);
-
-  if (contactErr) {
-    if (contactErr.code === '42P01' || contactErr.message?.includes('does not exist')) return [];
-    throw contactErr;
+  // TEMPORARY ACCESS: union the donors of this worker's GRANTED STATIONS
+  // (station-donor scoped). Skipped under work-as restrictPairs.
+  if (!restrictPairs || restrictPairs.length === 0) {
+    try {
+      const temp = await loadTempAllotment(froWorkerId);
+      for (const p of temp.phoneVariants) phoneVariants.add(p);
+    } catch (e) {
+      console.error('[getFroConversations] temp allotment load failed:', e?.message || e);
+    }
   }
-  if (!contacts || contacts.length === 0) return [];
 
-  const contactIds = contacts.map(c => c.id);
+  if (phoneVariants.size > 0) {
+    const phoneList = [...phoneVariants];
+    const { data: contacts, error: contactErr } = await db
+      .from('contacts')
+      .select('id, phone, phone_normalized, wa_profile_name, project')
+      .in('phone_normalized', phoneList);
 
-  const { data: conversations, error: convErr } = await db
-    .from('conversations')
-    .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
-    .in('contact_id', contactIds)
-    .order('last_message_at', { ascending: false });
+    if (!contactErr && contacts && contacts.length > 0) {
+      const contactIds = contacts.map(c => c.id);
+      const { data: conversations, error: convErr } = await db
+        .from('conversations')
+        .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+        .in('contact_id', contactIds)
+        .order('last_message_at', { ascending: false });
 
-  if (convErr) {
-    if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
-    throw convErr;
+      if (!convErr && conversations) {
+        for (const c of conversations) {
+          if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push(c); }
+        }
+      }
+    }
   }
-  return conversations || [];
+
+  // TEMPORARY ACCESS: also include ALL conversations on temp projects (so Laxmi
+  // sees the full inbox of Archna's number, not just granted-station donors).
+  if (!restrictPairs || restrictPairs.length === 0) {
+    try {
+      const temp = await getTempWhatsappAccess(froWorkerId);
+      if (temp.projects.size > 0) {
+        const { data: tempConvs, error: tempErr } = await db
+          .from('conversations')
+          .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+          .in('project', [...temp.projects])
+          .order('last_message_at', { ascending: false });
+        if (!tempErr && tempConvs) {
+          for (const c of tempConvs) {
+            if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push(c); }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[getFroConversations] temp project conversations load failed:', e?.message || e);
+    }
+  }
+
+  return resultConvs;
 }
 
 export async function getConversationMessages(conversationId) {
@@ -95,6 +130,7 @@ export async function getConversationMessages(conversationId) {
 }
 
 export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null) {
+  console.log('[sendFroReply] conversationId=', conversationId, 'froWorkerId=', froWorkerId);
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -138,6 +174,15 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     console.warn('[sendFroReply] No project found for conversation', conversationId, '— defaulting to bsct');
   }
   project = project || 'bsct';
+
+  // TEMPORATORY ACCESS — send-time enforcement. If this project was only
+  // ever held through a temporary grant that has since expired or been
+  // revoked, the send is denied here (403) — not a second later. Permanent
+  // projects are unaffected. The SENDER needs no selection: the conversation's
+  // own project resolves the account below, so an AFLF donor is always
+  // written from AFLF's number, never the FRO's own.
+  await assertFroProjectSend(froWorkerId, project);
+
   const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
@@ -283,6 +328,11 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   const project = projectOverride || conversation.project || 'bsct';
   const recipientPhone = phoneNormalized;
 
+  // TEMPORATORY ACCESS — same send-time enforcement as sendFroReply: a
+  // project whose grant has ended must not send, even though the account
+  // fallbacks after getAccountByProject remain untouched below.
+  await assertFroProjectSend(froWorkerId, project);
+
   let account = await getAccountByProject(project);
 
   if (!account) {
@@ -396,9 +446,11 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
 }
 
 export async function createEmptyConversation(froWorkerId, phone, projectOverride, contactName) {
+  console.log('[createEmptyConversation] froWorkerId=', froWorkerId, 'phone=', phone, 'projectOverride=', projectOverride);
   const phoneNormalized = normalizePhone(phone);
   const contact = await findOrCreateContact(phoneNormalized, contactName);
   const conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
+  console.log('[createEmptyConversation] created conversation id=', conversation?.id, 'project=', conversation?.project, 'assigned=', conversation?.assigned_agent_id);
   return { conversation, contact };
 }
 
@@ -517,6 +569,8 @@ export async function markConversationRead(conversationId, froWorkerId) {
 export async function getAgentConversations(agentUserId, projectFilter, role) {
   const isAdmin = ['admin', 'master', 'super_admin'].includes(role);
 
+  console.log('[getAgentConversations] agentUserId=', agentUserId, 'projectFilter=', projectFilter, 'role=', role);
+
   let query = db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
@@ -553,19 +607,44 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
       myProjects = (accts || []).map(a => a.project).filter(Boolean);
     }
 
+    console.log('[getAgentConversations] myProjects (permanent)=', myProjects);
+
     const orParts = [`assigned_agent_id.eq.${agentUserId}`];
     if (myProjects.length > 0) {
       const projectOr = myProjects.map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
       orParts.push(projectOr);
     }
+    // TEMPORARY ACCESS: Laxmi operates on Archna's number, so she sees the
+    // FULL inbox of that number — every conversation on the granted projects,
+    // not just unclaimed threads and not just her own. (Station-donor scoping
+    // was the earlier plan; the owner asked for "all of Archna's conversations".)
+    try {
+      const temp = await getTempWhatsappAccess(agentUserId);
+      console.log('[getAgentConversations] temp projects=', [...temp.projects], 'archnaAgentIds=', [...(temp.permanentFroAgentIds || [])]);
+      if (temp.projects.size > 0) {
+        // Archna's claimed threads on temp projects (so Laxmi sees Archna's conversations)
+        for (const archnaId of (temp.permanentFroAgentIds || [])) {
+          if (archnaId && String(archnaId) !== String(agentUserId)) {
+            orParts.push(`assigned_agent_id.eq.${archnaId}`);
+          }
+        }
+        // Unclaimed threads on temp projects (so Laxmi can pick up new messages)
+        const tempProjectOr = [...temp.projects].map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
+        orParts.push(tempProjectOr);
+      }
+    } catch (e) {
+      console.error('[getAgentConversations] temp access load failed:', e?.message || e);
+    }
     query = query.or(orParts.join(','));
   }
 
   if (projectFilter) {
+    console.log('[getAgentConversations] applying projectFilter=', projectFilter);
     query = query.eq('project', projectFilter);
   }
 
   const { data: conversations, error: convErr } = await query;
+  console.log('[getAgentConversations] returned', conversations?.length, 'conversations', conversations?.map(c => ({ id: c.id?.slice(0,8), project: c.project, assigned: c.assigned_agent_id?.slice?.(0,8), phone: c.contact?.phone_normalized })));
 
   if (convErr) {
     if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
@@ -614,6 +693,120 @@ export async function getQuickReplies() {
   return data || [];
 }
 
+/** The HEADER component of a template, when it carries media. */
+function mediaHeaderOf(components) {
+  if (!Array.isArray(components)) return null;
+  const header = components.find((c) => c && c.type === 'HEADER');
+  if (!header) return null;
+  return ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(header.format) ? header : null;
+}
+
+/**
+ * Deterministic storage key for a template's cached header media.
+ *
+ * Meta only ever hands the header back as a short-lived sample URL
+ * (`components[].example.header_handle`), so the picker's preview 403s once that
+ * link expires and the send has nothing to attach. Copying it under a key derived
+ * from project + template name means a resync can never orphan the object and no
+ * extra lookup is needed to find it again.
+ */
+const TEMPLATE_HEADER_DIR = 'template-headers';
+const cachedHeaderKeys = new Set();
+
+function templateHeaderKey(project, templateName) {
+  const safeProject = String(project || 'unknown').replace(/[^A-Za-z0-9_-]/g, '');
+  const safeName = String(templateName || 'template').replace(/[^A-Za-z0-9_-]/g, '_');
+  return `${TEMPLATE_HEADER_DIR}/${safeProject}/${safeName}`;
+}
+
+/**
+ * Locate a cached header in whichever bucket it was written to and return both
+ * the stored URL (for a media column) and a fresh signed URL (for previews and
+ * Meta). Null when the object is missing.
+ */
+async function cachedHeaderMedia(storageKey) {
+  if (!storageKey) return null;
+  return resolveStoredKey(`${WHATSAPP_MEDIA_PREFIX}${storageKey}`);
+}
+
+/**
+ * Copy a template's header media into our own bucket, once.
+ *
+ * Returns the object key, or null when there is nothing to cache.
+ */
+async function cacheTemplateHeader(project, templateName, headerComponent) {
+  if (!headerComponent) return null;
+  const sampleUrl = headerComponent?.example?.header_handle?.[0];
+  if (!sampleUrl) return null;
+
+  const key = templateHeaderKey(project, templateName);
+  if (cachedHeaderKeys.has(key)) return key;
+
+  try {
+    const response = await fetch(sampleUrl);
+    if (!response.ok) {
+      console.warn(`[templateHeader] ${project}/${templateName}: sample download ${response.status}`);
+      return null;
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length) return null;
+
+    const contentType = headerComponent.format === 'IMAGE' ? 'image/jpeg'
+      : headerComponent.format === 'VIDEO' ? 'video/mp4'
+      : 'application/pdf';
+    const { error } = await db.storage.from(MEDIA_BUCKET).upload(key, buffer, {
+      contentType,
+      upsert: true,
+    });
+    if (error) {
+      console.warn(`[templateHeader] ${project}/${templateName}: upload failed ${error.message}`);
+      return null;
+    }
+
+    cachedHeaderKeys.add(key);
+    // Best effort: keeps the DB useful for debugging, but the deterministic key
+    // means a missing row only costs one re-download.
+    await db.from('whatsapp_templates')
+      .update({ header_storage_key: key, header_mime_type: contentType })
+      .eq('project', project)
+      .eq('name', templateName)
+      .then(({ error: dbErr }) => {
+        if (dbErr) console.warn(`[templateHeader] ${project}/${templateName}: db update ${dbErr.message}`);
+      });
+    return key;
+  } catch (error) {
+    console.warn(`[templateHeader] ${project}/${templateName}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Attach the template's own header asset to a template the picker will show:
+ * `headerMediaUrl` drives the preview image and, at send time, is reused as-is
+ * so the donor always receives the same picture the template was approved with.
+ */
+async function attachHeaderMedia(items, project) {
+  return Promise.all(items.map(async (item) => {
+    const header = mediaHeaderOf(item.components);
+    if (!header) return item;
+    // Prefer the key already recorded on the row; only reach for Meta's sample
+    // URL when this template has never been cached.
+    let key = item.header_storage_key;
+    if (!key) key = await cacheTemplateHeader(item.project || project, item.name, header);
+    if (!key) return item;
+    const media = await cachedHeaderMedia(key);
+    if (!media?.url) return item;
+    return {
+      ...item,
+      headerFormat: header.format,
+      headerMediaUrl: media.url,
+      // True when the header came from the template itself, so the UI can offer
+      // "send as-is" instead of demanding a fresh upload.
+      headerFromTemplate: true,
+    };
+  }));
+}
+
 export async function getTemplates(project) {
   let query = db
     .from('whatsapp_templates')
@@ -627,11 +820,12 @@ export async function getTemplates(project) {
   if (error) throw error;
 
   const account = project ? await getAccountByProject(project) : null;
-  return Promise.all((data || []).map(async template => {
+  const templates = await Promise.all((data || []).map(async template => {
     if (template.components?.length || !account?.waba_id || !account?.access_token) return template;
     const liveTemplate = await getLiveTemplateDefinition(account, template.name);
     return liveTemplate ? { ...template, components: liveTemplate.components, language: liveTemplate.language || template.language } : template;
   }));
+  return attachHeaderMedia(templates, project);
 }
 
 async function getLiveTemplateDefinition(account, templateName) {
@@ -662,6 +856,9 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     console.warn('[sendTemplateReply] Conversation', conversationId, 'has NO project set — falling back to contact project');
     project = conversation.contact?.project || 'bsct';
   }
+  // TEMPORATORY ACCESS — send-time enforcement (see sendFroReply).
+  await assertFroProjectSend(froWorkerId, project);
+
   const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
@@ -684,6 +881,9 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
   if (!template) throw new Error('Template not found for this WhatsApp account');
 
   const components = [];
+  // Set when the send falls back to the template's own header, so the stored
+  // message carries the same media for the chat view.
+  let cachedHeaderForChat = null;
   if (template.components) {
     for (const comp of template.components) {
       if (comp.type === 'BODY' && paramValues?.length > 0) {
@@ -697,12 +897,24 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
         }
       }
       if (comp.type === 'HEADER' && ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(comp.format)) {
-        if (!headerMediaUrl) throw new Error(`This template requires a ${comp.format.toLowerCase()} header file`);
         const mediaType = comp.format.toLowerCase();
         // Meta fetches the header itself, so the link must be publicly readable.
         // The stored bucket URL is private (403), which Meta reports as 131053
         // "Media upload error", so sign it before sending.
-        const media = { link: await presignStoredUrl(headerMediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX }) };
+        let mediaLink = headerMediaUrl
+          ? await presignStoredUrl(headerMediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX })
+          : null;
+        // No upload from the agent: fall back to the template's own approved
+        // header so the send still carries the picture the template was created
+        // with, instead of failing and forcing a manual attach on every send.
+        if (!mediaLink) {
+          const key = await cacheTemplateHeader(project, templateName, mediaHeaderOf(template.components));
+          const cached = await cachedHeaderMedia(key);
+          mediaLink = cached?.url || null;
+          cachedHeaderForChat = cached?.storedUrl || null;
+        }
+        if (!mediaLink) throw new Error(`This template requires a ${mediaType} header file`);
+        const media = { link: mediaLink };
         if (mediaType === 'document' && headerMediaName) media.filename = headerMediaName;
         components.push({ type: 'header', parameters: [{ type: mediaType, [mediaType]: media }] });
       }
@@ -763,7 +975,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       body_text: renderedBody || templateName,
       template_id: templateName,
       template_params: templateSummary,
-      media_url: headerMediaUrl || null,
+      media_url: headerMediaUrl || cachedHeaderForChat || null,
       media_mime_type: headerMime,
       status: 'queued',
       message_category: 'template',

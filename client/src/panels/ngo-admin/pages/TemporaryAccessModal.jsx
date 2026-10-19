@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Clock } from 'lucide-react';
-import { validateTemporaryAccess, createTemporaryAccess, extendTemporaryAccess, revokeTemporaryAccess } from '../api/auth';
+import { validateTemporaryAccess, createTemporaryAccess, extendTemporaryAccess, revokeTemporaryAccess, listTemporaryAccessFroCandidates } from '../api/auth';
 
 // ─── Grant Temporary Access modal ────────────────────────────────────────────
 // Separate file from StationManagement.jsx (~3,200 lines) on purpose: this is a
@@ -61,11 +61,85 @@ function toIso(localValue) {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export default function TemporaryAccessModal({ target, froWorkers, existingGrants = [], onClose, onGranted }) {
+// ── 12-hour clock controls ────────────────────────────────────────────────────
+// The canonical state stays a datetime-local string ("YYYY-MM-DDTHH:MM",
+// 24-hour), so validation, defaults and toIso() above are untouched — only the
+// WIDGET changed, because the browser's native datetime picker renders as a
+// 24-hour clock in most locales. These two helpers convert between the stored
+// value and the visible 12-hour parts.
+function splitLocal(v) {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(String(v || ''));
+  if (!m) return { date: '', hour12: 12, minute: 0, period: 'AM' };
+  const hh = Number(m[2]);
+  return {
+    date: m[1],
+    hour12: hh % 12 === 0 ? 12 : hh % 12,
+    minute: Number(m[3]),
+    period: hh >= 12 ? 'PM' : 'AM',
+  };
+}
+
+function joinLocal({ date, hour12, minute, period }) {
+  if (!date) return '';
+  let hh = Number(hour12) % 12;
+  if (period === 'PM') hh += 12;
+  return `${date}T${String(hh).padStart(2, '0')}:${String(Number(minute) || 0).padStart(2, '0')}`;
+}
+
+const labelStyle = { display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.03em' };
+const inputStyle = { width: '100%', padding: '7px 9px', fontSize: 13, border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, fontFamily: 'inherit', background: '#fff' };
+
+function Time12Control({ label, value, onChange }) {
+  const p = splitLocal(value);
+  const set = (patch) => onChange(joinLocal({ ...p, ...patch }));
+  const selStyle = { ...inputStyle, width: 'auto', padding: '7px 4px', textAlign: 'center', cursor: 'pointer' };
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+        <Clock size={14} style={{ color: 'var(--ink-soft)', flex: '0 0 auto', marginRight: 1 }} />
+        <input
+          type="date"
+          style={{ ...inputStyle, flex: '1 1 auto', minWidth: 0 }}
+          value={p.date}
+          onChange={e => set({ date: e.target.value })}
+        />
+        <select style={{ ...selStyle, flex: '0 0 54px' }} value={p.hour12} onChange={e => set({ hour12: Number(e.target.value) })} aria-label="Hour">
+          {Array.from({ length: 12 }, (_, i) => i + 1).map(h => <option key={h} value={h}>{h}</option>)}
+        </select>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-soft)', marginLeft: -2, marginRight: -2 }}>:</span>
+        <select style={{ ...selStyle, flex: '0 0 58px' }} value={String(p.minute).padStart(2, '0')} onChange={e => set({ minute: Number(e.target.value) })} aria-label="Minute">
+          {Array.from({ length: 60 }, (_, i) => i).map(m => (
+            <option key={m} value={String(m).padStart(2, '0')}>{String(m).padStart(2, '0')}</option>
+          ))}
+        </select>
+        <select style={{ ...selStyle, flex: '0 0 60px', fontWeight: 700 }} value={p.period} onChange={e => set({ period: e.target.value })} aria-label="AM or PM">
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// Window times as the admin reads them (IST reporting day, minute precision).
+function fmtWindow(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+export default function TemporaryAccessModal({ target, existingGrants = [], onClose, onGranted }) {
   const [froId, setFroId] = useState('');
   const [froSearch, setFroSearch] = useState('');
+  // Candidate FROs, fetched fresh on every open from the dedicated endpoint —
+  // so an FRO created after the Stations page loaded still appears. Grants are
+  // keyed on workers.id; no CRM-agent setup is required. null = still loading.
+  const [candidates, setCandidates] = useState(null);
+  const [candidatesError, setCandidatesError] = useState(false);
   const [startsLocal, setStartsLocal] = useState(defaultStart);
   const [expiresLocal, setExpiresLocal] = useState(defaultExpiry);
+  const [scopeType, setScopeType] = useState('STATION_ALL');
+  const [hasHighTier, setHasHighTier] = useState(false);
   const [reasonCode, setReasonCode] = useState('STAFF_ABSENCE');
   const [reasonNote, setReasonNote] = useState('');
   const [froPickerOpen, setFroPickerOpen] = useState(false);
@@ -83,15 +157,39 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
   const otherLiveGrants = liveExisting.filter(g => g.working_fro_worker_id !== froId);
   const isExtendMode = !!selectedLiveGrant;
 
+  // Fresh on every open: an FRO created after the Stations page loaded still
+  // appears, and revoked/terminated workers drop out without a page reload.
+  useEffect(() => {
+    let alive = true;
+    setCandidates(null);
+    setCandidatesError(false);
+    listTemporaryAccessFroCandidates()
+      .then(rows => { if (alive) setCandidates(Array.isArray(rows) ? rows : []); })
+      .catch(e => {
+        console.error('FRO candidates load failed:', e?.message || e);
+        if (alive) { setCandidates([]); setCandidatesError(true); }
+      });
+    return () => { alive = false; };
+  }, []);
+
+  // Freeze the page behind the modal — the NGO-admin modal CSS has no overlay
+  // scroll lock of its own, so without this the stations list keeps scrolling
+  // under the dialog.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   const eligibleFros = useMemo(
-    () => (froWorkers || []).filter(w => {
+    () => (candidates || []).filter(w => {
       const dept = String(w.department || '').toLowerCase().trim();
       const deptOk = dept === 'fro' || dept === 'telecaller' || dept === ''; // dept '' when the list endpoint omits it
       const activeOk = w.is_active !== false && w.employment_status !== 'terminated';
       const notPermanent = w.id !== target.permanentFroId; // already owns it — no grant needed
       return deptOk && activeOk && notPermanent;
     }),
-    [froWorkers, target.permanentFroId],
+    [candidates, target.permanentFroId],
   );
 
   const filteredFros = eligibleFros.filter(w =>
@@ -118,8 +216,11 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
   async function checkConflicts(workerId) {
     if (!workerId) { setWarnings(null); return; }
     try {
-      const w = await validateTemporaryAccess({ station: target.station, working_fro_worker_id: workerId });
+      const w = await validateTemporaryAccess({ station: target.station, working_fro_worker_id: workerId, ngo_id: target.ngoId });
       setWarnings(w);
+      setHasHighTier(!!w?.has_high_tier);
+      // Reset scope if station doesn't have high-tier data.
+      if (!w?.has_high_tier) setScopeType('STATION_ALL');
     } catch {
       setWarnings(null); // pre-check is advisory; server enforces for real
     }
@@ -138,7 +239,7 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
       if (isExtendMode) {
         const payload = await extendTemporaryAccess(selectedLiveGrant.id, {
           expires_at: expiryIso,
-          reason: reasonNote.trim() || `Extended from grant modal (was ${selectedLiveGrant.expires_at})`,
+          reason: (reasonCode === 'OTHER' && reasonNote.trim()) || `Extended from grant modal (was ${selectedLiveGrant.expires_at})`,
         });
         setResult({ ...payload, mode: 'extended' });
         onGranted?.(payload);
@@ -154,9 +255,9 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
         working_fro_worker_id: froId,
         starts_at: startIso,
         expires_at: expiryIso,
-        scope_type: 'STATION_ALL',
+        scope_type: scopeType,
         reason_code: reasonCode,
-        reason_note: reasonNote.trim() || null,
+        reason_note: reasonCode === 'OTHER' ? reasonNote.trim() || null : null,
       });
       // Reassignment: revoke the OTHER FROs' live grants on this station in
       // the same action ("give this data to another FRO"). Best-effort with
@@ -179,8 +280,6 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
       const body = e?.data || {};
       if (body.code === 'DUPLICATE_GRANT') {
         setError('An active grant already exists for this FRO and station. Re-select the FRO to extend their existing grant instead.');
-      } else if (body.code === 'TEMP_ACCESS_DISABLED') {
-        setError('Temporary Data Access is disabled on this server (TEMP_DATA_ACCESS_ENABLED is off).');
       } else {
         setError(e?.message || body.message || 'Failed to create grant');
       }
@@ -189,9 +288,6 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
     }
   }
 
-  const labelStyle = { display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.03em' };
-  const inputStyle = { width: '100%', padding: '7px 9px', fontSize: 13, border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, fontFamily: 'inherit', background: '#fff' };
-
   if (result) {
     const a = result.assignment || {};
     const extended = result.mode === 'extended';
@@ -199,7 +295,7 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
     const revokeFailures = result.revokeFailures || [];
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' }}>
           <div className="modal-head">
             <h3><Clock size={16} style={{ marginRight: 6, verticalAlign: -2 }} />{extended ? 'Access extended' : 'Temporary access granted'}</h3>
             <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
@@ -242,7 +338,7 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, maxHeight: '90vh', overflowY: 'auto' }}>
         <div className="modal-head">
           <h3><Clock size={16} style={{ marginRight: 6, verticalAlign: -2 }} />Grant temporary access</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
@@ -251,9 +347,10 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* ── Station summary (read-only) ── */}
           <div style={{ background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '10px 12px', fontSize: 13 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '6px 12px' }}>
               <div><span style={{ color: 'var(--ink-soft)' }}>Station:</span> <b>{target.station}</b></div>
               <div><span style={{ color: 'var(--ink-soft)' }}>Donors:</span> <b>{Number(target.donorCount || 0).toLocaleString('en-IN')}</b></div>
+              <div><span style={{ color: 'var(--ink-soft)' }}>Scope:</span> <b>Entire station</b></div>
               <div style={{ gridColumn: '1 / -1' }}>
                 <span style={{ color: 'var(--ink-soft)' }}>Permanent FRO (unchanged):</span>{' '}
                 <b>{target.permanentFroName || '—'}</b>
@@ -275,7 +372,17 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
               />
               {froPickerOpen && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 320, marginTop: 2, maxHeight: 190, overflowY: 'auto' }}>
-                  {filteredFros.map(w => (
+                  {candidates === null && (
+                    <div style={{ padding: 10, fontSize: 11.5, color: 'var(--ink-soft)', textAlign: 'center' }}>
+                      Loading FROs…
+                    </div>
+                  )}
+                  {candidates !== null && candidatesError && (
+                    <div style={{ padding: 10, fontSize: 11.5, color: '#991b1b', textAlign: 'center' }}>
+                      Couldn&apos;t load the FRO list — close and reopen to retry.
+                    </div>
+                  )}
+                  {candidates !== null && !candidatesError && filteredFros.map(w => (
                     <div
                       key={w.id}
                       onMouseDown={() => {
@@ -290,9 +397,9 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
                       <span style={{ color: 'var(--ink-soft)', fontSize: 11 }}>{w.login_id || ''}</span>
                     </div>
                   ))}
-                  {filteredFros.length === 0 && (
+                  {candidates !== null && !candidatesError && filteredFros.length === 0 && (
                     <div style={{ padding: 10, fontSize: 11.5, color: 'var(--ink-soft)', textAlign: 'center' }}>
-                      No eligible FROs match (inactive / terminated workers and the permanent FRO are excluded)
+                      No eligible FROs match — workers must be active, non-test FROs of your NGO(s); terminated workers and the permanent FRO are excluded
                     </div>
                   )}
                 </div>
@@ -335,30 +442,41 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
             </label>
           )}
 
-          {/* ── Scope (v1 fixed) ── */}
-          <div>
-            <label style={labelStyle}>Access scope</label>
-            <div style={{ fontSize: 13, padding: '8px 10px', background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)', borderRadius: 6 }}>
-              <b>Entire station</b> — all {Number(target.donorCount || 0).toLocaleString('en-IN')} donors of {target.station} (this NGO).
-              <div style={{ color: 'var(--ink-soft)', fontSize: 11.5, marginTop: 2 }}>Selected-donor subsets are not yet available.</div>
-            </div>
-          </div>
-
-          {/* ── Duration (mandatory expiry) ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: isExtendMode ? '1fr' : '1fr 1fr', gap: 10 }}>
-            {!isExtendMode && (
-              <div>
-                <label style={labelStyle}>Starts</label>
-                <input type="datetime-local" style={inputStyle} value={startsLocal} onChange={e => setStartsLocal(e.target.value)} />
-              </div>
-            )}
+          {/* ── Scope (tier-aware) ── */}
+          {hasHighTier && (
             <div>
-              <label style={labelStyle}>{isExtendMode ? 'New expiry (required)' : 'Expires (required)'}</label>
-              <input type="datetime-local" style={inputStyle} value={expiresLocal} onChange={e => setExpiresLocal(e.target.value)} />
+              <label style={labelStyle}>Access scope</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[
+                  { value: 'STATION_ALL', label: 'Full station (all donors)', desc: 'Grants access to every donor on this station. Only one grant allowed per station.' },
+                  { value: 'STATION_HIGH_TIER', label: 'High-tier donors only', desc: 'Only high-tier leads. Can coexist with a normal-only grant.' },
+                  { value: 'STATION_NORMAL', label: 'Normal donors only', desc: 'Only normal (non-high-tier) leads. Can coexist with a high-tier grant.' },
+                ].map(opt => (
+                  <label key={opt.value} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, background: scopeType === opt.value ? '#eff6ff' : '#fff', border: `1px solid ${scopeType === opt.value ? '#93c5fd' : 'var(--line, #e5e7eb)'}`, borderRadius: 6, padding: '9px 11px', cursor: 'pointer' }}>
+                    <input type="radio" name="tac-scope" checked={scopeType === opt.value} onChange={() => setScopeType(opt.value)} style={{ marginTop: 2, accentColor: '#2563eb' }} />
+                    <span>
+                      <b>{opt.label}</b>
+                      <br />
+                      <span style={{ color: 'var(--ink-soft)', fontSize: 11.5 }}>{opt.desc}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
+          )}
+          {!hasHighTier && (
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, padding: '8px 10px' }}>
+              <b>Scope:</b> Entire station (all donors) — this station has no high-tier data.
+            </div>
+          )}
+
+          {/* ── Duration (mandatory expiry) — 12-hour clock, side by side ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 }}>
+            {!isExtendMode && <Time12Control label="Starts" value={startsLocal} onChange={setStartsLocal} />}
+            <Time12Control label={isExtendMode ? 'New expiry (required)' : 'Expires (required)'} value={expiresLocal} onChange={setExpiresLocal} />
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -8 }}>
-            Times are shown in <b>IST (Asia/Kolkata)</b> — the CRM's reporting timezone. There is no indefinite access; an expiry must be set.
+            There is no indefinite access — access always ends at the expiry shown above.
           </div>
           {windowError && startsLocal && expiresLocal && (
             <div style={{ fontSize: 12.5, color: '#991b1b' }}>{windowError}</div>
@@ -367,40 +485,41 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
           {/* ── Reason ── */}
           <div>
             <label style={labelStyle}>Reason</label>
-            <select style={inputStyle} value={reasonCode} onChange={e => setReasonCode(e.target.value)}>
+            <select style={inputStyle} value={reasonCode} onChange={e => { setReasonCode(e.target.value); if (e.target.value !== 'OTHER') setReasonNote(''); }}>
               {REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
-            <textarea
-              style={{ ...inputStyle, marginTop: 8, minHeight: 54, resize: 'vertical' }}
-              placeholder={reasonCode === 'OTHER' ? 'Explanation required…' : 'Optional note…'}
-              value={reasonNote}
-              onChange={e => setReasonNote(e.target.value)}
-            />
+            {reasonCode === 'OTHER' && (
+              <input
+                style={{ ...inputStyle, marginTop: 8 }}
+                placeholder="Explain why access is needed (required)…"
+                value={reasonNote}
+                onChange={e => setReasonNote(e.target.value)}
+              />
+            )}
           </div>
 
-          {/* ── Confirmation ── */}
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '9px 11px', cursor: 'pointer' }}>
-            <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} style={{ marginTop: 2 }} />
-            <span>
-              {isExtendMode ? (
-                <>
-                  I confirm: extend <b>{selectedFro?.name || 'this FRO'}'s</b> temporary access to <b>{target.station}</b>{' '}
-                  until {expiryIso ? new Date(expiryIso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'} IST.
-                </>
-              ) : (
-                <>
-                  I confirm: <b>{selectedFro?.name || 'the selected FRO'}</b> gets temporary access to <b>{target.station}</b>{' '}
-                  {startIso && <>from {new Date(startIso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} </>}
-                  until {expiryIso ? new Date(expiryIso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'} IST.
+          {/* ── Radio-style confirmation ── */}
+          <div>
+            <label style={labelStyle}>Confirm</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, background: confirmed ? '#eff6ff' : '#fff', border: `1px solid ${confirmed ? '#93c5fd' : 'var(--line, #e5e7eb)'}`, borderRadius: 6, padding: '9px 11px', cursor: 'pointer', transition: 'border-color .15s, background .15s' }}>
+                <input type="radio" name="tac-confirm" checked={confirmed} onChange={() => setConfirmed(true)} style={{ marginTop: 2, accentColor: '#2563eb' }} />
+                <span>
+                  I confirm — <b>{selectedFro?.name || 'the selected FRO'}</b>{' '}
+                  {isExtendMode
+                    ? <>gets their grant on <b>{target.station}</b> extended until <b>{fmtWindow(expiryIso)}</b>.</>
+                    : <>gets temporary access to <b>{target.station}</b> from <b>{fmtWindow(startIso)}</b> until <b>{fmtWindow(expiryIso)}</b>.</>}
                   {alsoRevoke && otherLiveGrants.length > 0 && (
-                    <> Current access of <b>{otherLiveGrants.map(g => g.working_fro_name || 'FRO').join(', ')}</b> will be revoked in the same step.</>
+                    <> Access of <b>{otherLiveGrants.map(g => g.working_fro_name || 'FRO').join(', ')}</b> will be revoked in the same step.</>
                   )}
-                </>
-              )}
-              <br />
-              <b>{target.permanentFroName || 'The permanent FRO'} stays the owner</b> — donor ownership, receipts and history will not change.
-            </span>
-          </label>
+                </span>
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, background: !confirmed ? '#f8fafc' : '#fff', border: `1px solid ${!confirmed ? 'var(--line, #e5e7eb)' : '#93c5fd'}`, borderRadius: 6, padding: '9px 11px', cursor: 'pointer' }}>
+                <input type="radio" name="tac-confirm" checked={!confirmed} onChange={() => setConfirmed(false)} style={{ marginTop: 2, accentColor: '#2563eb' }} />
+                <span style={{ color: 'var(--ink-soft)' }}>Not yet — I&apos;ll keep editing</span>
+              </label>
+            </div>
+          </div>
 
           {error && (
             <div style={{ fontSize: 12.5, color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 10px' }}>
@@ -409,7 +528,7 @@ export default function TemporaryAccessModal({ target, froWorkers, existingGrant
           )}
         </div>
 
-        <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: '1px solid var(--line, #e5e7eb)' }}>
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"

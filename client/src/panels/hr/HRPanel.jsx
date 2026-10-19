@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { useHR } from './store'
-import { Grid, Users, Plane, Clock, FileTxt, Bell, Star, ChartBar } from './icons'
+import { Bell } from './icons'
+import { LayoutDashboard, Users, Clock, Palmtree, FileText, Library, Briefcase, BookOpenCheck, Ticket, MessageCircle, BarChart3 } from 'lucide-react'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -29,22 +30,21 @@ import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import NoticePopup from '../../components/NoticePopup'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
-import { ChatIcon } from '../../components/chat/chatIcons'
 import SevakPanel from '../sevak-library/SevakPanel'
 import SuperAdminTicketSection from '../../components/SuperAdminTicketSection'
 
 const NAV = [
-  { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
+  { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:LayoutDashboard, eyebrow:'Dashboard',   sub:'Your team at a glance' },
   { id:'employees',  path:'/hr/employees',   label:'Volunteers',  icon:Users,   eyebrow:'People',      sub:'Add and manage volunteers' },
   { id:'attendance', path:'/hr/attendance',  label:'Attendance',  icon:Clock,   eyebrow:'Daily',       sub:'Mark who is in today' },
-  { id:'leaves',     path:'/hr/leaves',      label:'Leaves',      icon:Plane,   eyebrow:'Time off',    sub:'Requests and approvals' },
-  { id:'letters',    path:'/hr/letters',     label:'Letters & Forms', icon:FileTxt, eyebrow:'Documents',   sub:'Letters and volunteer onboarding forms' },
-  { id:'library',    path:'/hr/library',     label:'Library',     icon:Grid,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
-  { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
-  { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:Star,    eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
-  { id:'tickets',    path:'/hr/tickets',     label:'Tickets',     icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
-  { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
-  { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:ChartBar,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
+  { id:'leaves',     path:'/hr/leaves',      label:'Leaves',      icon:Palmtree, eyebrow:'Time off',    sub:'Requests and approvals' },
+  { id:'letters',    path:'/hr/letters',     label:'Letters & Forms', icon:FileText, eyebrow:'Documents',   sub:'Letters and volunteer onboarding forms' },
+  { id:'library',    path:'/hr/library',     label:'Library',     icon:Library,     eyebrow:'Sevak', sub:'Sevak Library memberships' },
+  { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Briefcase,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
+  { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:BookOpenCheck, eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
+  { id:'tickets',    path:'/hr/tickets',     label:'Tickets',     icon:Ticket, eyebrow:'Corrections', sub:'Attendance correction tickets' },
+  { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:MessageCircle, eyebrow:'Team', sub:'Company announcements — read only' },
+  { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:BarChart3,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
 ]
 
 const hrSettingsViews = [

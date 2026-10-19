@@ -1,4 +1,4 @@
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import db from '../config/db.js';
 
@@ -101,6 +101,47 @@ export async function openStoredObject(url) {
     } catch (err) {
       // Wrong account for this bucket (AccessDenied/NoSuchBucket) — try the next.
     }
+  }
+  return null;
+}
+
+// Resolve one object by its full key without knowing which account holds it.
+//
+// Objects land in whichever bucket was active when they were written (a header
+// cached months ago can sit in a bucket other than today's default), so a key on
+// its own is not enough to build a working link. Probe each configured account
+// and return both the raw stored URL (safe to persist in a media column, since
+// the read path re-signs it) and a signed URL (for handing to Meta or the
+// browser). Null when no account can read the key.
+export async function resolveStoredKey(fullKey, { expiresIn } = {}) {
+  const key = String(fullKey || '');
+  if (!key) return null;
+
+  const accounts = db.storage.accounts().filter((a) => a.configured);
+  for (const account of accounts) {
+    const handle = db.storage.raw(account.name);
+    if (!handle) continue;
+    try {
+      await handle.client.send(new HeadObjectCommand({ Bucket: handle.bucket, Key: key }));
+    } catch {
+      // Wrong bucket for this account (NoSuchKey/NoSuchBucket/AccessDenied).
+      continue;
+    }
+
+    const storedUrl = `https://${handle.bucket}.s3.${handle.region}.amazonaws.com/${key}`;
+    let url = storedUrl;
+    try {
+      const wanted = Number(expiresIn);
+      const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : DEFAULT_PRESIGN_SECONDS, 60), MAX_PRESIGN_SECONDS);
+      url = await getSignedUrl(
+        handle.client,
+        new GetObjectCommand({ Bucket: handle.bucket, Key: key }),
+        { expiresIn: secs },
+      );
+    } catch (e) {
+      console.warn(`[media-proxy] could not sign ${handle.bucket}/${key}: ${e?.message || e}`);
+    }
+    return { account: account.name, bucket: handle.bucket, key, storedUrl, url };
   }
   return null;
 }

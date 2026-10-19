@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import StatCard from './StatCard.jsx';
 import AccountCard from './AccountCard.jsx';
+import AgentsDrawer from './AgentsDrawer.jsx';
 import './whatsappAccounts.css';
 
 const PROJECT_OPTIONS = [
@@ -29,15 +31,14 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [fetchingTemplates, setFetchingTemplates] = useState(null);
   const [templateOptions, setTemplateOptions] = useState({});
   const [agents, setAgents] = useState({});
-  const [showAgents, setShowAgents] = useState({});
+  const [agentsLoading, setAgentsLoading] = useState({});
+  const [agentsError, setAgentsError] = useState({});
+  const [drawerAccount, setDrawerAccount] = useState(null);
+  const [assigning, setAssigning] = useState(false);
   const [revealToken, setRevealToken] = useState({});
   const [showToken, setShowToken] = useState(false);
-  const [agentSearch, setAgentSearch] = useState({});
-  const [agentResults, setAgentResults] = useState({});
-  const [assigning, setAssigning] = useState({});
   const [search, setSearch] = useState('');
   const [loadError, setLoadError] = useState(null);
-  const searchTimer = useRef({});
 
   async function loadAccounts() {
     setLoading(true);
@@ -147,47 +148,61 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const toggleField = (field) => setForm(p => ({ ...p, [field]: !p[field] }));
 
   const loadAgents = async (accountId) => {
+    setAgentsLoading(prev => ({ ...prev, [accountId]: true }));
+    setAgentsError(prev => ({ ...prev, [accountId]: null }));
     try {
       const data = await apiGet(`/whatsapp/accounts/${accountId}/agents`);
       setAgents(prev => ({ ...prev, [accountId]: data || [] }));
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      setAgentsError(prev => ({ ...prev, [accountId]: 'Could not load assigned agents. Please try again.' }));
+    } finally {
+      setAgentsLoading(prev => ({ ...prev, [accountId]: false }));
+    }
   };
 
-  const toggleAgents = (accountId) => {
-    const opening = !showAgents[accountId];
-    setShowAgents(prev => ({ ...prev, [accountId]: opening }));
-    if (opening && !agents[accountId]) loadAgents(accountId);
+  const openAgents = (account) => {
+    setDrawerAccount(account);
+    if (!agents[account.id]) loadAgents(account.id);
   };
 
-  const handleAgentSearch = (accountId, query) => {
-    setAgentSearch(prev => ({ ...prev, [accountId]: query }));
-    if (searchTimer.current[accountId]) clearTimeout(searchTimer.current[accountId]);
-    if (query.length < 2) { setAgentResults(prev => ({ ...prev, [accountId]: [] })); return; }
-    searchTimer.current[accountId] = setTimeout(async () => {
-      try {
-        const data = await apiGet(`/whatsapp/accounts/agents/search?q=${encodeURIComponent(query)}`);
-        setAgentResults(prev => ({ ...prev, [accountId]: data || [] }));
-      } catch { setAgentResults(prev => ({ ...prev, [accountId]: [] })); }
-    }, 300);
-  };
-
-  const assignAgent = async (accountId, froWorkerId) => {
-    setAssigning(prev => ({ ...prev, [accountId]: true }));
+  // Assign runs as a sequential batch: one POST per worker, as the API
+  // accepts a single froWorkerId per call.
+  const assignAgents = async (accountId, workerIds) => {
+    if (!workerIds.length) return false;
+    setAssigning(true);
+    let done = 0;
     try {
-      await apiPost(`/whatsapp/accounts/${accountId}/agents`, { froWorkerId });
-      setAgentSearch(prev => ({ ...prev, [accountId]: '' }));
-      setAgentResults(prev => ({ ...prev, [accountId]: [] }));
+      for (const id of workerIds) {
+        await apiPost(`/whatsapp/accounts/${accountId}/agents`, { froWorkerId: id });
+        done += 1;
+      }
       await loadAgents(accountId);
-    } catch (err) { alert(err.message); }
-    finally { setAssigning(prev => ({ ...prev, [accountId]: false })); }
+      toast(done === 1 ? '1 agent assigned' : `${done} agents assigned`, 'success');
+      return true;
+    } catch (err) {
+      if (done > 0) {
+        await loadAgents(accountId);
+        toast(
+          `Assigned ${done} of ${workerIds.length} agents. ${err.message || 'The rest failed.'}`,
+          'error'
+        );
+      } else {
+        toast(err.message || 'Could not assign agent', 'error');
+      }
+      return false;
+    } finally {
+      setAssigning(false);
+    }
   };
 
-  const removeAgent = async (accountId, froId, name) => {
-    if (!confirm(`Remove agent "${name}" from this account?`)) return;
+  // Confirmation lives in the drawer row, so this only performs the call.
+  const removeAgent = async (accountId, froId) => {
     try {
       await apiDelete(`/whatsapp/accounts/${accountId}/agents/${froId}`);
       await loadAgents(accountId);
-    } catch (err) { alert(err.message); }
+      toast('Agent removed', 'success');
+    } catch (err) { toast(err.message || 'Could not remove agent', 'error'); }
   };
 
   const query = search.trim().toLowerCase();
@@ -363,20 +378,27 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
               onFetchTemplates={() => fetchTemplates(acc)}
               templates={templateOptions[acc.id]}
               onSelectTemplate={(value) => setAccountTemplate(acc, value)}
-              agentsOpen={Boolean(showAgents[acc.id])}
-              onToggleAgents={() => toggleAgents(acc.id)}
-              agents={agents[acc.id]}
-              agentSearch={agentSearch[acc.id] || ''}
-              onAgentSearchChange={(value) => handleAgentSearch(acc.id, value)}
-              agentResults={agentResults[acc.id]}
-              assigning={Boolean(assigning[acc.id])}
-              onAssignAgent={(workerId) => assignAgent(acc.id, workerId)}
-              onRemoveAgent={(froId, name) => removeAgent(acc.id, froId, name)}
+              agentCount={agents[acc.id] ? agents[acc.id].length : null}
+              onOpenAgents={() => openAgents(acc)}
               onEdit={() => openEdit(acc)}
               onDelete={() => handleDelete(acc.id, acc.name)}
             />
           ))}
         </div>
+      )}
+
+      {drawerAccount && (
+        <AgentsDrawer
+          account={drawerAccount}
+          agents={agents[drawerAccount.id]}
+          loading={Boolean(agentsLoading[drawerAccount.id])}
+          loadError={agentsError[drawerAccount.id] || null}
+          assigning={assigning}
+          onClose={() => setDrawerAccount(null)}
+          onReload={() => loadAgents(drawerAccount.id)}
+          onRemove={(froId) => removeAgent(drawerAccount.id, froId)}
+          onAssign={(workerIds) => assignAgents(drawerAccount.id, workerIds)}
+        />
       )}
     </div>
   );

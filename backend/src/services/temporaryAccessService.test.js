@@ -3,8 +3,6 @@
 // What these pin, and why each failure would matter in production:
 //  • window boundaries — a grant must deny at exactly expires_at (Scenario D:
 //    6:00 grant, 6:01 attempt), and must not authorize before starts_at;
-//  • feature flag — TEMP_DATA_ACCESS_ENABLED off must behave as "no grants
-//    exist", never as "all access";
 //  • pair matching — station/NGO mismatch must not widen access (Scenario F:
 //    a BOD-4 grant never covers AFD-2, even for the same NGO);
 //  • ownership separation — canWorkAssignment grants no ownership write;
@@ -14,7 +12,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  isTempAccessEnabled,
   isWindowLive,
   pairKey,
   canWorkAssignment,
@@ -22,26 +19,6 @@ import {
 import { deriveStatus } from '../controllers/temporaryAccessController.js';
 
 const iso = (t) => new Date(t).toISOString();
-
-// ─── feature flag ────────────────────────────────────────────────────────────
-test('feature flag is opt-in: unset env means disabled', () => {
-  const prev = process.env.TEMP_DATA_ACCESS_ENABLED;
-  try {
-    delete process.env.TEMP_DATA_ACCESS_ENABLED;
-    assert.equal(isTempAccessEnabled(), false);
-    process.env.TEMP_DATA_ACCESS_ENABLED = 'false';
-    assert.equal(isTempAccessEnabled(), false);
-    process.env.TEMP_DATA_ACCESS_ENABLED = 'FALSE';
-    assert.equal(isTempAccessEnabled(), false);
-    process.env.TEMP_DATA_ACCESS_ENABLED = 'true';
-    assert.equal(isTempAccessEnabled(), true);
-    process.env.TEMP_DATA_ACCESS_ENABLED = '1';
-    assert.equal(isTempAccessEnabled(), false, 'only literal "true" enables — no truthy surprises');
-  } finally {
-    if (prev === undefined) delete process.env.TEMP_DATA_ACCESS_ENABLED;
-    else process.env.TEMP_DATA_ACCESS_ENABLED = prev;
-  }
-});
 
 // ─── window boundaries (Scenario D) ──────────────────────────────────────────
 const grantWindow = {

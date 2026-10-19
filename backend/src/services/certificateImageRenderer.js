@@ -65,33 +65,47 @@ export const FONT_FAMILIES = [...new Set(FONTS.map((f) => f.name.replace(/ Bold$
 
 const FONT_DIRS = ['C:\\Windows\\Fonts', '/usr/share/fonts', '/usr/local/share/fonts', '/Library/Fonts', '/System/Library/Fonts'];
 
+// A missing family must degrade to a bundled, normal-case font — never to
+// whatever font happens to sit first on disk. (Cinzel, the first bundled file
+// alphabetically, draws every glyph as a capital, so an unmatched family used
+// to silently render "ALL CAPS".)
+const FALLBACK_FAMILY = 'Inter'; // bundled in FONT_ASSETS
+
 const fontCache = new Map();
 
 function fontPathFor(family, bold) {
   const base = String(family || 'Arial').trim() || 'Arial';
   const wanted = bold ? FONTS.find((f) => f.name === `${base} Bold`) : FONTS.find((f) => f.name === base);
-  const reg = FONTS.find((f) => f.name === base) || FONTS.find((f) => f.name === 'Arial');
-  const pick = wanted || reg || FONTS[0];
+  const reg = FONTS.find((f) => f.name === base);
+  const pick = wanted || reg;
+  if (!pick) return null;
   for (const dir of (pick.dir ? [pick.dir, ...FONT_DIRS] : FONT_DIRS)) {
-    const p = `${dir}\\${pick.file}`.replace(/\\/g, '/').replace(/\/\/+/g, '/');
-    const p2 = dir.includes('Windows') ? p : `${dir}/${pick.file}`;
-    if (existsSync(p2)) return p2;
+    const p = `${dir}/${pick.file}`;
+    if (existsSync(p)) return p;
   }
-  const fallback = `C:\\Windows\\Fonts\\${pick.file}`;
-  return fallback;
+  return null;
 }
 
 function getFont(family, bold) {
   const key = `${family || 'Arial'}|${bold ? 1 : 0}`;
   if (fontCache.has(key)) return fontCache.get(key);
-  let font;
-  try {
-    font = openSync(fontPathFor(family, bold));
-  } catch {
-    try { font = openSync(fontPathFor('Arial', bold)); } catch { font = null; }
+  let font = null;
+  for (const candidate of [family, FALLBACK_FAMILY, 'Arial']) {
+    const p = fontPathFor(candidate, bold);
+    if (!p) continue;
+    try { font = openSync(p); break; } catch { /* try the next candidate */ }
   }
   fontCache.set(key, font);
   return font;
+}
+
+// The family name written into the SVG has to be one resvg can actually find;
+// resvg's own fallback picks the first loaded font, which may be an all-caps
+// display face. Resolve to a family whose file exists on this machine.
+function resolveSvgFamily(family) {
+  const base = String(family || 'Arial').trim() || 'Arial';
+  if (fontPathFor(base, false)) return base;
+  return FALLBACK_FAMILY;
 }
 
 function measure(font, text, size, letterSpacing = 0) {
@@ -174,7 +188,7 @@ function svgForField(style, value, font) {
   const h = Math.max(10, Number(style.height) || 40);
   const align = ['left', 'center', 'right', 'justify'].includes(style.textAlign) ? style.textAlign : 'center';
   const svgFamilyRaw = String(style.fontFamily || 'Arial');
-  const svgFontFamily = svgFamilyRaw.replace(/\s*(Bold\s*)?Italic$/i, '').trim() || 'Arial';
+  const svgFontFamily = resolveSvgFamily(svgFamilyRaw.replace(/\s*(Bold\s*)?Italic$/i, '').trim() || 'Arial');
   const svgItalic = String(style.fontStyle || '').toLowerCase() === 'italic' || /italic/i.test(svgFamilyRaw);
   const valign = ['top', 'middle', 'bottom'].includes(style.verticalAlign) ? style.verticalAlign : 'middle';
   const color = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(String(style.color || '')) ? style.color : '#111111';
@@ -238,7 +252,7 @@ export async function renderImageCertificate(imageBuffer, fields, values) {
     font: {
       fontDirs: [FONT_ASSETS, 'C:\\Windows\\Fonts', '/usr/share/fonts', '/usr/local/share/fonts', '/Library/Fonts', '/System/Library/Fonts'].filter((d) => existsSync(d)),
       loadSystemFonts: true,
-      defaultFontFamily: 'Arial',
+      defaultFontFamily: FALLBACK_FAMILY,
     },
   });
   const overlay = Buffer.from(resvg.render().asPng());

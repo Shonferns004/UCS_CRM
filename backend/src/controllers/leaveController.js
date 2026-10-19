@@ -7,6 +7,8 @@ import {
   getLeaveById,
 } from '../models/leaveModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
+import redis from '../config/redis.cjs';
+import { cacheGet, cacheSet, cacheDel } from '../utils/ttlCache.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -128,6 +130,8 @@ export const apply = async (req, res) => {
       'leave',
       result?.id
     );
+    redis.del('hr:leaves:all', 'hr:leaves:pending').catch(() => { });
+    cacheDel('leaves:all', 'leaves:pending');
     return res.status(201).json({ message: 'Leave application submitted', leave: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -145,8 +149,15 @@ export const myLeaves = async (req, res) => {
 
 export const listAll = async (req, res) => {
   try {
+    const L1 = cacheGet('leaves:all', 30000);
+    if (L1 !== undefined) return res.json(L1);
+    const L2 = await redis.get('hr:leaves:all');
+    if (L2) { cacheSet('leaves:all', L2); return res.json(L2); }
     const leaves = await getAllLeaves();
-    return res.json(leaves);
+    const trimmed = (leaves || []).map(({ proof_data, proof_mime, ...rest }) => rest);
+    cacheSet('leaves:all', trimmed);
+    redis.set('hr:leaves:all', trimmed, 30).catch(() => { });
+    return res.json(trimmed);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -154,8 +165,15 @@ export const listAll = async (req, res) => {
 
 export const listPending = async (req, res) => {
   try {
+    const L1 = cacheGet('leaves:pending', 30000);
+    if (L1 !== undefined) return res.json(L1);
+    const L2 = await redis.get('hr:leaves:pending');
+    if (L2) { cacheSet('leaves:pending', L2); return res.json(L2); }
     const leaves = await getPendingLeaves();
-    return res.json(leaves);
+    const trimmed = (leaves || []).map(({ proof_data, proof_mime, ...rest }) => rest);
+    cacheSet('leaves:pending', trimmed);
+    redis.set('hr:leaves:pending', trimmed, 30).catch(() => { });
+    return res.json(trimmed);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -180,6 +198,8 @@ export const updateStatus = async (req, res) => {
         return res.status(400).json({ message: 'Only approved leaves can be cancelled' });
       }
       const result = await updateLeaveStatus(id, 'rejected', 'Cancelled');
+      redis.del('hr:leaves:all', 'hr:leaves:pending').catch(() => { });
+    cacheDel('leaves:all', 'leaves:pending');
       return res.json({ message: 'Leave cancelled', leave: result });
     }
 
@@ -188,6 +208,8 @@ export const updateStatus = async (req, res) => {
     }
 
     const result = await updateLeaveStatus(id, status, admin_remark || null);
+    redis.del('hr:leaves:all', 'hr:leaves:pending').catch(() => { });
+    cacheDel('leaves:all', 'leaves:pending');
     return res.json({ message: `Leave ${status}`, leave: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -164,7 +164,9 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
   return result;
 }
 
-async function getUserNgoIds(user) {
+// Exported for the Temporary Access candidate picker, which reuses this NGO
+// scoping without the crm_agents gate (see temporaryAccessController).
+export async function getUserNgoIds(user) {
   const access = await getUserNgoAccess(user.id, user.role);
   const ids = access.map(a => a.ngo_id).filter(Boolean);
   if (ids.length > 0) return ids;
@@ -658,31 +660,14 @@ export const getFroWorkers = async (req, res) => {
       }
     }
 
-let agentLabelMap = {};
-    let agentIdMap = {};
-    if (workerIds.length > 0) {
-      const { data: agentRows, error: agentErr } = await db
-        .from('crm_agents')
-        .select('id, worker_id, label')
-        .in('worker_id', workerIds)
-        .eq('is_active', true);
-      if (agentErr) throw agentErr;
-      for (const a of agentRows || []) {
-        if (a.worker_id && !agentLabelMap[a.worker_id]) agentLabelMap[a.worker_id] = a.label;
-        if (a.worker_id && !agentIdMap[a.worker_id]) agentIdMap[a.worker_id] = a.id;
-      }
-    }
-
-    // Only FROs that actually have an agent show here. `name` stays the volunteer's
-    // real name -- it used to be overwritten with the agent label, which made every
-    // row read "Agent 1" and left the station picker unable to say whose account it
-    // was. The label is reported as agent_label, and the agent as agent_id, so a
-    // caller can show "Agent 1 -- Maya Jadhao" and assign by agent.
-    const coveredFroWorkers = froWorkers.filter(w => agentLabelMap[w.id]);
-
-    const result = await Promise.all(coveredFroWorkers.map(async (w) => {
+    // No crm_agents gate. The "CRM login Agents" feature is being retired
+    // (migration 185_drop_crm_agents.sql), so no agent rows are provisioned
+    // for newly created FROs — filtering this list by agent made every recent
+    // hire invisible here (station picker, Attendance, Temporary Access grant
+    // modal). Neither a station assignment nor a temporary grant needs an
+    // agent; both are keyed on workers.id.
+    const result = await Promise.all(froWorkers.map(async (w) => {
       const salary = await getActiveSalaryByWorker(w.id);
-      const agentName = agentLabelMap[w.id];
       return {
         id: w.id,
         name: w.name,
@@ -692,13 +677,12 @@ let agentLabelMap = {};
         gender: w.gender,
         department: w.department,
         is_active: w.is_active,
+        employment_status: w.employment_status || null,
         created_at: w.created_at,
         salary: salary ? parseFloat(salary.salary) : 0,
         salary_from_month: salary ? salary.from_month : null,
         allocated_ngo_ids: allocMap[w.id] || [],
         fro_name: w.name,
-        agent_label: agentName || null,
-        agent_id: agentIdMap[w.id] || null,
       };
     }));
 
@@ -1168,8 +1152,22 @@ export const getDashboard = async (req, res) => {
     if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
     let monthly_target = 0;
+    let team_targets = {};
     const currentMonthStr = now.toISOString().slice(0, 7) + '-01';
-    if (origNgoIds.length > 0) {
+    // Prefer the team-wise monthly plan when Accounts has set one: the card's
+    // target is then exactly the sum of the team targets, so the team board and
+    // this card can never quote two different monthly targets.
+    try {
+      const { getTeamTargetMonths } = await import('../services/teamCollectionService.js');
+      const months = await getTeamTargetMonths();
+      const monthKey = istMonthBounds(now).monthKey;
+      const planned = months[monthKey];
+      if (planned && Object.keys(planned).length > 0) {
+        team_targets = planned;
+        monthly_target = Object.values(planned).reduce((s, v) => s + (Number(v) || 0), 0);
+      }
+    } catch {}
+    if (!monthly_target && origNgoIds.length > 0) {
       const { data: mTargets } = await db
         .from('fro_monthly_targets')
         .select('target_amount')
@@ -1214,6 +1212,7 @@ export const getDashboard = async (req, res) => {
           },
           daily_target,
           monthly_target,
+          team_targets,
         },
         reactivations: {
           today: reactivatedToday,
@@ -3706,6 +3705,155 @@ export const deleteStationDonors = async (req, res) => {
     });
   } catch (error) {
     console.error('deleteStationDonors ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Normalize a hand-entered mobile number to the 10-digit form donor_profiles
+// keys on. Accepts spaces, dashes and an optional +91/91/0 prefix so an admin
+// pasting a number from a phone contact list does not create a second profile
+// for a donor already on the station. Returns null when the result is not a
+// valid 10-digit Indian mobile.
+const normalizeAddedMobile = (raw) => {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  let local = digits;
+  if (local.length === 12 && local.startsWith('91')) local = local.slice(2);
+  else if (local.length === 11 && local.startsWith('0')) local = local.slice(1);
+  return local.length === 10 ? local : null;
+};
+
+// Manually add ONE donor to an existing station from the station row's kebab
+// ("Add donor"). Sibling of deleteStationDonors and of the old-data upload: it
+// writes the same shape the upload writes (profile by mobile + one ACTIVE
+// fro_assignment on the station, owned by the station's FRO) but for a single
+// hand-entered name/number instead of a spreadsheet.
+//
+// The one-number-per-NGO rule (partial unique index uq_fro_assignments_active_donor_ngo)
+// means a donor already active anywhere in this NGO is refused rather than
+// silently duplicated. A profile that already exists under the same mobile is
+// reused (name only filled when it was empty) so a shared number does not
+// overwrite a donor's real name.
+export const addStationDonor = async (req, res) => {
+  try {
+    const station = String(req.params.station || '').trim();
+    if (!station) {
+      return res.status(400).json({ message: 'Station is required' });
+    }
+
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ message: 'Donor name is required' });
+    }
+
+    const mobile = normalizeAddedMobile(req.body?.mobile);
+    if (!mobile) {
+      return res.status(400).json({ message: 'Enter a valid 10-digit mobile number' });
+    }
+
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('id, name').eq('id', req.user.ngo_id).maybeSingle();
+      if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
+    }
+    if (ngoEntries.length === 0) {
+      return res.status(403).json({ message: 'No NGO access' });
+    }
+
+    // A station name is shared across NGOs, so the write must land in exactly
+    // one NGO. The caller passes the scope it opened the row under; without it
+    // fall back to the single owned NGO, and refuse when that is ambiguous.
+    const requestedNgoId = req.body?.ngo_id;
+    let target = null;
+    if (requestedNgoId) {
+      target = ngoEntries.find(e => String(e.ngoId) === String(requestedNgoId)) || null;
+      if (!target) return res.status(403).json({ message: 'Access denied for this NGO' });
+    } else if (ngoEntries.length === 1) {
+      target = ngoEntries[0];
+    }
+    if (!target) {
+      return res.status(400).json({ message: 'Pick the NGO this donor belongs to' });
+    }
+
+    // The station must actually exist for this NGO; otherwise a typo silently
+    // creates a phantom station bucket that no read path lists.
+    const stationAssign = await getStationAssignmentByNgoAndStation(target.ngoId, station);
+    if (!stationAssign) {
+      return res.status(404).json({ message: `Station ${station} is not registered for ${target.ngoName || 'this NGO'}` });
+    }
+
+    // Reuse the profile if the number is already known anywhere.
+    const existingProfile = await getDonorByMobile(mobile);
+    let donorId = existingProfile?.id || null;
+    if (!donorId) {
+      const { data: created, error: pErr } = await db
+        .from('donor_profiles')
+        .insert([{ mobile_number: mobile, name, amount: 0, total_amount: 0, donation_count: 1 }])
+        .select('id')
+        .single();
+      if (pErr) throw pErr;
+      donorId = created.id;
+    } else if (!existingProfile.name && name) {
+      // Fill a missing name only; never overwrite a donor's existing name.
+      await db.from('donor_profiles').update({ name }).eq('id', donorId);
+    }
+
+    // One ACTIVE assignment per (donor, ngo). An existing one — on this station
+    // or any other in the NGO — is a conflict, reported with where it sits.
+    const already = await getActiveAssignmentDonorIds(target.ngoId, [donorId]);
+    if (already.has(donorId)) {
+      const { data: current } = await db
+        .from('fro_assignments')
+        .select('station, status')
+        .eq('donor_id', donorId)
+        .eq('ngo_id', target.ngoId)
+        .not('status', 'eq', 'reassigned')
+        .maybeSingle();
+      return res.status(409).json({
+        message: `${name || mobile} is already assigned in ${target.ngoName}`
+          + (current?.station ? ` on station ${current.station}` : '')
+          + ' (one active assignment per donor per NGO).',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const batchId = crypto.randomUUID();
+    const { data: assignment, error: aErr } = await db
+      .from('fro_assignments')
+      .insert([{
+        donor_id: donorId,
+        fro_worker_id: stationAssign.fro_worker_id || null,
+        ngo_id: target.ngoId,
+        station,
+        status: 'pending',
+        assigned_at: now,
+        batch_id: batchId,
+        batch_type: 'old_data',
+      }])
+      .select('id, fro_worker_id')
+      .single();
+    if (aErr) throw aErr;
+
+    // The station's cached donor_count and disposition roll-up are stale now.
+    bustStationCache();
+
+    const { data: fro } = assignment.fro_worker_id
+      ? await db.from('workers').select('name').eq('id', assignment.fro_worker_id).maybeSingle()
+      : { data: null };
+
+    return res.status(201).json({
+      donor_id: donorId,
+      assignment_id: assignment.id,
+      station,
+      ngo_id: target.ngoId,
+      ngo_name: target.ngoName || '',
+      donor_name: name,
+      donor_mobile: mobile,
+      fro_name: fro?.name || 'Unassigned',
+      message: `${name} added to ${station}` + (fro?.name ? ` — assigned to ${fro.name}` : ' — no FRO on this station'),
+    });
+  } catch (error) {
+    console.error('addStationDonor ERROR:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -6693,14 +6841,15 @@ export const getTLDashboard = async (req, res) => {
     let recWhere = `FROM receipts r
                   LEFT JOIN fro_donor_logs l ON l.id = r.log_id
                   LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+                   LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
                   WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
                     AND r.receipt_date < (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
-                    AND fa.ngo_id = ANY($3)`;
+                    AND (fa.ngo_id = ANY($3) OR (fa.id IS NULL AND n.id = ANY($3)))`;
     if (fro_id) {
       recParams.push(fro_id);
       recWhere += ` AND l.fro_worker_id = $${recParams.length}`;
     }
-    const receiptRows = await sql(`SELECT fa.ngo_id, COALESCE(SUM(r.amount),0) AS total ${recWhere} GROUP BY fa.ngo_id`, recParams);
+    const receiptRows = await sql(`SELECT COALESCE(fa.ngo_id, n.id) AS ngo_id, COALESCE(SUM(r.amount),0) AS total ${recWhere} GROUP BY COALESCE(fa.ngo_id, n.id)`, recParams);
     for (const row of receiptRows) {
       const nid = row.ngo_id;
       if (nid == null) continue;
@@ -8324,12 +8473,19 @@ export const getFroHourlyPerformance = async (req, res) => {
 // IST date boundaries are copied from getTLDashboard's collections_per_ngo for
 // the same reason.
 //
-// WHY THE STATION COMES VIA THE ASSIGNMENT rather than receipts.station. A
-// receipt's own station column is written at receipt time and can hold a
-// pre-rename code ("M-2", "ND-1") or nothing at all, whereas the assignment
-// row is what the bulk station rename rewrote. Following the receipt back
-// through fro_donor_logs to fro_assignments therefore resolves current codes
-// for history that receipts.station cannot.
+// WHY THE STATION COMES VIA THE ASSIGNMENT (with a donor-profile fallback for
+// legacy receipts). A receipt's own station column is written at receipt time
+// and can hold a pre-rename code ("M-2", "ND-1") or nothing at all, whereas the
+// assignment row is what the bulk station rename rewrote. Following the receipt
+// back through fro_donor_logs to fro_assignments therefore resolves current
+// codes for history that receipts.station cannot.
+//
+// Older receipts that predate the assignment system have log_id = NULL, so
+// there is no assignment to follow. Those are attributed through
+// donor_profiles.station (the donor's current station) and scoped to an NGO
+// via receipts.project_id -> ngos.code, so they still tie out with the
+// Collection card. When neither assignment nor donor profile yields a station
+// the receipt lands in `unattributed`.
 //
 // Receipts that resolve to a legacy or unrecognised station code ("M-2",
 // "ND-1", "Ajay 16", "AJ") are reported as `other`; receipts whose assignment
@@ -8340,8 +8496,18 @@ export const getFroHourlyPerformance = async (req, res) => {
 // out of the station ranking and shows them as labelled rows at the foot.
 //
 // Query params:
-//   ngo_id  - a specific NGO, or 'all' (default) for every NGO the caller may see
-//   month   - 'YYYY-MM'; defaults to the current IST month
+//   ngo_id      - a specific NGO, or 'all' (default) for every NGO the caller may see
+//   month       - 'YYYY-MM'; defaults to the current IST month. Sent alone when the
+//                 caller wants one month, and kept as the fallback for both ends of
+//                 a range, so an old client that only knows `month` still works.
+//   month_from  - 'YYYY-MM', first month of a range. Defaults to `month`.
+//   month_to    - 'YYYY-MM', last month of a range. Defaults to `month`.
+//
+// The response reports `months`, the number of CALENDAR months between the two
+// ends, so the client can turn the summed range into an average (Total / months)
+// without re-deriving the boundaries. The endpoint itself only ever sums: one
+// number per month range, no division here, so a Total view and an Avg view of
+// the same range are provably the same money.
 // ---------------------------------------------------------------------------
 
 // The six station families the dashboard groups by. Anything outside these is
@@ -8390,28 +8556,72 @@ export const getStationWiseCollection = async (req, res) => {
       if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
     }
 
+    // Range bounds are resolved up front so an out-of-range month (say 2026-13)
+    // is a 400 whether or not the caller can see any NGO. `month` alone is a
+    // range of exactly one month: month_from/month_to are optional overlays.
+    let from = monthBounds(req.query.month_from || req.query.month);
+    let to = monthBounds(req.query.month_to || req.query.month);
+    if (!from || !to) return res.status(400).json({ message: 'month must be YYYY-MM' });
+    // A from-picker later than the to-picker is a user slip, not an error: the
+    // pair is swapped rather than rejected, so the range always has an order and
+    // `months` can never come out at or below zero.
+    if (from.month > to.month) { const swap = from; from = to; to = swap; }
+    const months = (Number(to.month.slice(0, 4)) - Number(from.month.slice(0, 4))) * 12
+      + (Number(to.month.slice(5, 7)) - Number(from.month.slice(5, 7))) + 1;
+
     if (ngoIds.length === 0) {
-      return res.json({ month: monthBounds(req.query.month)?.month || null, from: null, to: null, stations: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
+      return res.json({ month: from.month, from_month: from.month, to_month: to.month, months, latest_year: null, latest_month: null, from: null, to: null, stations: [], registered: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
     }
 
-    const bounds = monthBounds(req.query.month);
-    if (!bounds) return res.status(400).json({ message: 'month must be YYYY-MM' });
+    // The most recent year/month that actually has receipts for the scoped NGOs.
+    // The dashboard uses this to land the Yearly view on a year that has data
+    // instead of the (possibly empty) current year.
+    const latestRows = await sql(
+      `SELECT COALESCE(EXTRACT(YEAR FROM MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata')::int, 0) AS latest_year,
+              to_char(MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') AS latest_month
+         FROM receipts r
+         LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+         LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+         LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
+        WHERE (fa.ngo_id = ANY($1) OR (fa.id IS NULL AND n.id = ANY($1)))`,
+      [ngoIds]
+    );
+    const latestYear = Number(latestRows?.[0]?.latest_year) || null;
+    const latestMonth = latestRows?.[0]?.latest_month || null;
+
+    // Registered station codes for the scoped NGOs (fro_station_assignments).
+    // Returned so the dashboard can render every station as a row even in a
+    // period where it had no receipts, instead of silently dropping it.
+    const regRows = await sql(
+      `SELECT DISTINCT station FROM fro_station_assignments WHERE ngo_id = ANY($1)`,
+      [ngoIds]
+    );
+    const registered = regRows.map(r => String(r.station)).filter(Boolean);
 
     // Identical shape to getTLDashboard's collections_per_ngo, with the GROUP BY
     // moved from fa.ngo_id to fa.station. receipt_date is a timestamptz, so the
-    // boundaries are converted from IST calendar days exactly as there.
+    // boundaries are converted from IST calendar days exactly as there. The two
+    // bounds span the whole range: one month makes `from` and `to` the same month.
+    //
+    // Station resolution: prefer the assignment's station (authoritative after a
+    // bulk rename), but fall back to donor_profiles.station for legacy receipts
+    // that were never linked to an assignment (log_id IS NULL). Those receipts
+    // are scoped to an NGO via project_id -> ngos.code instead of fa.ngo_id, so
+    // they still tie out with the Collection card above, which uses the same rule.
     const rows = await sql(
-      `SELECT fa.station AS station,
+      `SELECT COALESCE(fa.station, dp.station) AS station,
               COALESCE(SUM(r.amount), 0) AS total,
               COUNT(*)::int AS receipts
          FROM receipts r
          LEFT JOIN fro_donor_logs l ON l.id = r.log_id
          LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+         LEFT JOIN donor_profiles dp ON dp.id = r.donor_id
+         LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
         WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
           AND r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
-          AND fa.ngo_id = ANY($3)
-        GROUP BY fa.station`,
-      [bounds.from, bounds.to, ngoIds]
+          AND (fa.ngo_id = ANY($3) OR (fa.id IS NULL AND n.id = ANY($3)))
+        GROUP BY COALESCE(fa.station, dp.station)`,
+      [from.from, to.to, ngoIds]
     );
 
     const stations = [];
@@ -8452,9 +8662,15 @@ export const getStationWiseCollection = async (req, res) => {
     const total = stations.reduce((s, r) => s + r.amount, 0) + otherAmount + unattributedAmount;
 
     return res.json({
-      month: bounds.month,
-      from: bounds.from,
-      to: bounds.to,
+      month: from.month,
+      from_month: from.month,
+      to_month: to.month,
+      months,
+      registered,
+      latest_year: latestYear,
+      latest_month: latestMonth,
+      from: from.from,
+      to: to.to,
       stations,
       other: { amount: otherAmount, count: otherCount },
       unattributed: { amount: unattributedAmount, count: unattributedCount },

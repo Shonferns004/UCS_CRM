@@ -12,4 +12,4 @@
 ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS write_mode TEXT NOT NULL DEFAULT 'everyone';
 ALTER TABLE chat_conversations DROP CONSTRAINT IF EXISTS chat_conversations_write_mode;
 ALTER TABLE chat_conversations ADD CONSTRAINT chat_conversations_write_mode
-  CHECK (write_mode IS NULL OR write_mode IN ('everyone', 'selected'));
+  CHECK (write_mode IS NULL OR write_mode IN ('everyone', 'selected', 'selected_depts'));

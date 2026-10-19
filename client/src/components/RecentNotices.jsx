@@ -465,25 +465,31 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
         <div className="rn-list" style={{ ...(fill ? { flex: 1, minHeight: 0 } : { maxHeight: 240 }), overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 7, paddingRight: 2 }}>
           {notices.map((n, i) => {
             const accent = ACCENTS[i % ACCENTS.length]
+            // Chat-sourced rows are read-only here: the chat room owns edit,
+            // delete and the popup's read-tracking (opening one already marks
+            // it viewed via /notices/:id/seen, which the server no-ops for
+            // chat ids).
+            const isChat = n.source === 'chat'
+            const rowEditMode = isAdmin && editMode && !isChat
             return (
-            <div key={n.id || i} className={isAdmin && editMode ? undefined : 'rn-row'} style={{
+            <div key={n.id || i} className={rowEditMode ? undefined : 'rn-row'} style={{
               position: 'relative',
               display: 'flex', gap: 10, padding: '10px 13px',
               borderRadius: 10, background: '#fff', border: '1px solid #f1f5f9',
               alignItems: 'center',
               // In edit mode the row holds real inputs and buttons, so a row-wide
               // click target would swallow their clicks. Keep it inert there.
-              cursor: isAdmin && editMode ? 'default' : 'pointer',
-              ...(isAdmin && editMode ? {} : { role: 'button', tabIndex: 0, 'aria-label': `Open notice: ${n.title || ''}` }),
+              cursor: rowEditMode ? 'default' : 'pointer',
+              ...(rowEditMode ? {} : { role: 'button', tabIndex: 0, 'aria-label': `Open notice: ${n.title || ''}` }),
             }}
               onClick={(e) => {
-                if (isAdmin && editMode) return
+                if (rowEditMode) return
                 // Let the delete/save buttons and the image do their own thing.
                 if (e.target.closest('button, a, img')) return
                 openDetail(n)
               }}
               onKeyDown={(e) => {
-                if (isAdmin && editMode) return
+                if (rowEditMode) return
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(n) }
               }}
             >
@@ -494,7 +500,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
               <span className="rn-corner bl" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
               <span className="rn-corner br" style={{ animationDelay: `${(i % 6) * 0.25}s` }} />
               <div style={{ minWidth: 0, flex: 1 }}>
-                {isAdmin && editMode ? (
+                {rowEditMode ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <input value={editForms[n.id]?.title || ''} onChange={e => handleEditChange(n.id, 'title', e.target.value)}
                       style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: 7, padding: '5px 9px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
@@ -532,7 +538,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                   </>
                 )}
               </div>
-              {!(isAdmin && editMode) && (
+              {!rowEditMode && (
                 n.media_url && brokenMedia[n.id] ? (
                   <span style={{ flexShrink: 0, fontSize: 9, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '3px 6px' }}>
                     Failed
@@ -556,7 +562,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                   />
                 ) : null
               )}
-              {isAdmin && (editMode ? (
+              {rowEditMode ? (
                 <button
                   onClick={() => handleSave(n.id)}
                   disabled={savingId === n.id}
@@ -571,7 +577,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                 >
                   {savingId === n.id ? 'Saving' : 'Save'}
                 </button>
-              ) : canDelete ? (
+              ) : !isChat && canDelete ? (
                 <button
                   className="rn-del"
                   onClick={() => handleDelete(n.id)}
@@ -591,7 +597,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                     {deletingId === n.id ? 'hourglass_top' : 'delete'}
                   </span>
                 </button>
-              ) : null)}
+              ) : null}
             </div>
             )
           })}

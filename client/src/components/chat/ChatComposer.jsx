@@ -37,7 +37,7 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
    * enforces the same pair (isChatAdminRole + kind==='group') on every send —
    * this only decides whether the megaphone is drawn at all.
    */
-  const canNotice = conversation?.kind === 'group' && isChatAdmin(me?.role)
+  const canNotice = conversation?.kind === 'group' && isChatAdmin(me?.role) && conversation?.notices_enabled !== false
 
   // A new conversation starts from a clean composer.
   useEffect(() => {
@@ -260,7 +260,7 @@ export default function ChatComposer({ conversation, me, onSend, disabled, disab
               {fileError}
             </span>
           ) : (
-            'Enter to send · Shift+Enter for a new line'
+            ''
           )}
         </span>
         <span

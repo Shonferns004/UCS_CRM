@@ -16,7 +16,7 @@ import { API_BASE } from '../../../lib/apiBase';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { CONNECTED_QUICK, NOT_CONNECTED_QUICK, OTHERS_ID, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 import { istDateString, istDateTimeToIso } from '../utils/time';
-import { getWhatsAppProject } from '../utils/whatsappProject';
+import { getWhatsAppProject, resolveWhatsAppProject } from '../utils/whatsappProject';
 import { readWaInboxAgents } from '../utils/waInboxAgents';
 
 function callFmt(seconds) {
@@ -291,16 +291,38 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // thread for this number, or offers to start one when none exists yet. The
   // project hint is only passed when this FRO actually has an agent session for
   // it, otherwise the inbox would fail to find any agent and show an error.
-  const openWhatsAppChat = useCallback((lead) => {
+  const openWhatsAppChat = useCallback(async (lead) => {
     const digits = String(lead?.donor_mobile || '').replace(/\D/g, '');
     if (!digits) { toast('No WhatsApp number for this lead', 'info'); return; }
     const name = String(lead?.donor_name || '').trim();
     let url = `/fro/whatsapp-chat?phone=${digits}${name ? `&name=${encodeURIComponent(name)}` : ''}`;
     try {
-      const waAgents = readWaInboxAgents();
       const project = getWhatsAppProject(lead);
-      if (project && waAgents.some((a) => a.project === project)) url += `&project=${project}`;
-    } catch { /* ignore malformed wa_agents */ }
+      if (project) {
+        // Permanent sessions (cache) + temporary identities (derived, time-boxed).
+        const held = [];
+        try {
+          (readWaInboxAgents() || []).forEach(a => a?.project && held.push(a.project));
+        } catch {}
+        try {
+          const token = localStorage.getItem('ucs_token');
+          if (token) {
+            const res = await fetch(`${API_BASE}/fro/whatsapp/my-accounts`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const accounts = await res.json();
+              const now = Date.now();
+              (Array.isArray(accounts) ? accounts : []).forEach(a => {
+                if (a?.project && (!a.expires_at || new Date(a.expires_at).getTime() > now)) held.push(a.project);
+              });
+            }
+          }
+        } catch {}
+        const resolved = resolveWhatsAppProject(project, held);
+        if (resolved) url += `&project=${resolved}`;
+      }
+    } catch { /* ignore */ }
     navigate(url);
   }, [navigate]);
   const [donors, setDonors] = useState([]);

@@ -88,9 +88,11 @@ import {
   getNonConnectedFresh,
   deleteNonConnectedFresh,
   deleteStationDonors,
+  addStationDonor,
 } from '../controllers/ngoAdminController.js';
 import {
   listTemporaryAccess,
+  listFroCandidates,
   getTemporaryAccess,
   createTemporaryAccess,
   extendTemporaryAccess,
@@ -138,6 +140,11 @@ router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admi
 // (line 134) is. Accounts may look at a station's donors; clearing one is a
 // destructive action on an FRO's work list, so it stays admin/super_admin.
 router.post('/station-donors/delete', authenticateRole('admin', 'super_admin'), deleteStationDonors);
+
+// Adding a single donor to an existing station from the station row's kebab.
+// Same admin-only guard as the delete above (it writes a lead onto an FRO's
+// work list), and it reuses the old-data upload's profile+assignment shape.
+router.post('/stations/:station/add-donor', authenticateRole('admin', 'super_admin'), addStationDonor);
 
 // Per-day FRO stats (calls / talk / break / skips) — also used by HR for warning letters on a selected FRO
 router.get('/fro-daily-stats', authenticateRole('admin', 'super_admin', 'hr'), getFroDailyStats);
@@ -255,9 +262,13 @@ router.post('/restore-wrong-assignments', restoreWrongAssignments);
 // inherits the admin-only guard — grants are NEVER self-service for FROs.
 // Reads/writes temporary_data_assignments only; permanent station ownership
 // (fro_station_assignments) is read but never modified from here.
-// All handlers no-op with 503 unless TEMP_DATA_ACCESS_ENABLED=true.
+// Always on (the TEMP_DATA_ACCESS_ENABLED flag was removed); authorization
+// still fails closed on grant-lookup errors inside temporaryAccessService.
 router.get('/temporary-access', listTemporaryAccess);
 router.get('/temporary-access/validate', validateTemporaryAccess);
+// Grant-modal candidate list. MUST precede /temporary-access/:id or the path
+// would be captured as an id (see listFroCandidates).
+router.get('/temporary-access/fro-candidates', listFroCandidates);
 router.get('/temporary-access/:id', getTemporaryAccess);
 router.post('/temporary-access', createTemporaryAccess);
 router.post('/temporary-access/:id/extend', extendTemporaryAccess);

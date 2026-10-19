@@ -1,65 +1,30 @@
 import { useMemo } from 'react'
 import { Block, Kpi, Empty, StatusPill, StatusBar, ReporterBar, TableWrap, ProseList } from '../components/drShared'
+import { collectTasks, textEntries } from '../components/devReportAgg'
+import { bugWorkByPerson, totalsOf, KIND_LABELS } from '../components/bugWorkAgg'
 
 // Developer summary inside Super-Admin Daily Reports → Developer tab, built from
-// the day's daily_reports rows (panel="dev"). Four blocks:
+// the day's daily_reports rows (panel="dev"). Five blocks:
 //   1. Today's Tasks      — task status counts (Done / In Progress / Pending)
 //      and the combined task list with a status badge per entry.
 //   2. Bug Fixes & Technical Blocks — the reporters' prose, one bullet each.
-//   3. Support Required from HOD    — prose from each developer report.
+//   3. Bug Work (tracker) — live QA activity: bugs reported / fixed / verified
+//      today, per person. Reporting a bug IS work, so a developer whose day is
+//      spent in the tracker (QA work) still shows activity here even with
+//      nothing typed into the prose sections.
 //   4. Next Working Day Plan        — the reporters' one-per-line plans.
 // Values all live in report.data, so legacy plain-text reports still render.
+// Parsing lives in components/devReportAgg.js so the monthly view reads rows
+// exactly the same way.
 
-const asList = (value) => {
-  if (Array.isArray(value)) return value
-  if (value == null) return []
-  return String(value).split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-}
-
-const taskStatusOf = (it) => {
-  if (it?.status === 'done' || it?.done) return 'done'
-  if (it?.status === 'wip') return 'wip'
-  return 'pending'
-}
-
-// Combine every developer's checklist into one task list with a status badge,
-// and count statuses across reports.
-const collectTasks = (devReports) => {
-  const tasks = []
-  const counts = { done: 0, wip: 0, pending: 0 }
-  const seen = new Set()
-  for (const r of devReports) {
-    const raw = r.data?.tasks?.tasks
-    const items = Array.isArray(raw) ? raw : asList(raw)
-    for (const it of items) {
-      const text = String(it?.text ?? it ?? '').trim()
-      if (!text) continue
-      const key = text.toLowerCase()
-      counts[taskStatusOf(it)] += seen.has(key) ? 0 : 1
-      if (seen.has(key)) continue
-      seen.add(key)
-      tasks.push({ text, status: taskStatusOf(it), reporter: r.reporter_name })
-    }
-  }
-  return { tasks, counts }
-}
-
-// Group a text field by report so each contributor is credited.
-const textEntries = (devReports, section, field) => {
-  const out = []
-  for (const r of devReports) {
-    const lines = asList(r.data?.[section]?.[field])
-    if (lines.length) out.push({ reporter: r.reporter_name, lines })
-  }
-  return out
-}
-
-export default function DeveloperDashboard({ date, devReports = [] }) {
+export default function DeveloperDashboard({ date, devReports = [], bugActivity = [] }) {
   const { tasks, counts } = useMemo(() => collectTasks(devReports), [devReports])
   const technicalIssues = useMemo(() => textEntries(devReports, 'dev_notes', 'technical_issues'), [devReports])
-  const support = useMemo(() => textEntries(devReports, 'support', 'support'), [devReports])
   const plans = useMemo(() => textEntries(devReports, 'nextday', 'nextday'), [devReports])
   const reporters = [...new Set(devReports.map((r) => r.reporter_name).filter(Boolean))]
+
+  const bugRows = useMemo(() => bugWorkByPerson(bugActivity), [bugActivity])
+  const bugTotals = useMemo(() => totalsOf(bugRows), [bugRows])
 
   return (
     <div data-date={date}>
@@ -99,6 +64,52 @@ export default function DeveloperDashboard({ date, devReports = [] }) {
       <Block title="2. Bug Fixes & Technical Blocks">
         <ProseList entries={technicalIssues} />
       </Block>
+
+      {/* Block 3 is the live bug tracker, not the prose — it is what makes a
+          QA-only day count as work. Hidden entirely when the tracker has
+          nothing for this date, so a normal dev day reads exactly as before. */}
+      {bugActivity.length > 0 && (
+        <Block title="3. Bug Work — reported / fixed / verified" aside={`${bugTotals.total} ${bugTotals.total === 1 ? 'action' : 'actions'} from the tracker`}>
+          <div className="dr-kpis">
+            <Kpi label="Reported" value={bugTotals.reported} accent="#dc2626" />
+            <Kpi label="Fixed" value={bugTotals.fixed} accent="#d97706" />
+            <Kpi label="Verified" value={bugTotals.verified} accent="#16a34a" />
+          </div>
+          <TableWrap>
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Reported</th>
+                <th>Fixed</th>
+                <th>Verified</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bugRows.map((r) => (
+                <tr key={r.key}>
+                  <td style={{ fontWeight: 600 }}>{r.name}</td>
+                  <td>{r.counts.reported || '—'}</td>
+                  <td>{r.counts.fixed || '—'}</td>
+                  <td>{r.counts.verified || '—'}</td>
+                  <td><span className="drx-pill wip">{r.total}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+          <ul className="drx-bugwork-list">
+            {bugActivity.map((ev) => (
+              <li key={ev.id}>
+                <span className={`drx-bugwork-kind ${ev.kind}`}>{KIND_LABELS[ev.kind] || ev.kind}</span>
+                <span className="drx-bugwork-title">{ev.title}</span>
+                <span className="drx-bugwork-meta">
+                  {[ev.person_name, ev.module, ev.severity && ev.severity.toUpperCase()].filter(Boolean).join(' · ')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      )}
 
       {/* <Block title="3. Support Required from HOD">
         <ProseList entries={support} />

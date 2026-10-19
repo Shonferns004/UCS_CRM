@@ -17,17 +17,13 @@ import { cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
 //               swap (unlike work-as, which mints a painted token)
 //   • admin   — who granted the access (granted_by_admin_id)
 //
-// Feature flag: TEMP_DATA_ACCESS_ENABLED. When off, every helper behaves as
-// if no grants exist — the permanent system is untouched and the new routes
-// refuse to operate. This is the rollout/rollback switch.
+// Rollout note: the TEMP_DATA_ACCESS_ENABLED gate was removed — the feature is
+// always on. Authorization itself is unchanged: it fails CLOSED on any lookup
+// error (see getActiveGrants), so removing the flag only removed the ability
+// to take the whole layer dark.
 
 const GRANT_CACHE_TTL_MS = 15 * 1000;
 const GRANT_CACHE_PREFIX = 'tda:grants:';
-
-export function isTempAccessEnabled() {
-  // Opt-in: absent/empty/false keeps the feature dark. Configured via .env.
-  return String(process.env.TEMP_DATA_ACCESS_ENABLED || '').toLowerCase() === 'true';
-}
 
 // ─── Active grants for a worker ──────────────────────────────────────────────
 //
@@ -51,7 +47,7 @@ export function isWindowLive(grant, now = Date.now()) {
 }
 
 export async function getActiveGrants(workerId) {
-  if (!isTempAccessEnabled() || !workerId) return [];
+  if (!workerId) return [];
   const cacheKey = `${GRANT_CACHE_PREFIX}${workerId}`;
   let rows = cacheGet(cacheKey, GRANT_CACHE_TTL_MS);
   if (rows === undefined) {
@@ -188,7 +184,15 @@ export function canWorkAssignment(userId, assignment, grants) {
   if (assignment.fro_worker_id && String(assignment.fro_worker_id) === String(userId)) return true;
   if (!grants || grants.length === 0) return false;
   const key = pairKey(assignment.station, assignment.ngo_id);
-  return grants.some(g => pairKey(g.station, g.ngo_id) === key);
+  return grants.some(g => {
+    if (pairKey(g.station, g.ngo_id) !== key) return false;
+    const scope = g.scope_type || 'STATION_ALL';
+    if (scope === 'STATION_ALL') return true;
+    const isHighTier = assignment.batch_type === 'high_tier';
+    if (scope === 'STATION_HIGH_TIER') return isHighTier;
+    if (scope === 'STATION_NORMAL') return !isHighTier;
+    return false;
+  });
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────

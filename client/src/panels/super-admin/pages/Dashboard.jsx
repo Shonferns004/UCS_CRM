@@ -1,6 +1,5 @@
-﻿import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts, getReceiptStats } from '../api/endpoints'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getLeaves, getAllTickets, getEvents, getReceiptStats } from '../api/endpoints'
 import { api } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { deptLabel } from '../../../lib/labels'
@@ -19,17 +18,17 @@ const MUTED = '#64748b'
 
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' }
 const NGO_PALETTE = [MINT_DEEP, RED, '#4C7C8C', AMBER, '#3F8760', '#7A5C8C', MINT_DARK, '#B07D4F']
-const SEVERITY = {
-  critical: { color: '#DC2626', icon: 'error' },
-  warning: { color: '#D97706', icon: 'warning' },
-  info: { color: '#2563EB', icon: 'info' },
-}
 const PERIODS = [
   { key: '7d', label: '7 Days' }, { key: '30d', label: '30 Days' }, { key: '90d', label: '90 Days' },
   { key: '1y', label: '1 Year' }, { key: 'all', label: 'All Time' },
 ]
 const PERFORMER_PERIODS = [
   { key: 'today', label: 'Today' }, { key: '7d', label: 'Weekly' }, { key: '1y', label: 'Yearly' }, { key: 'all', label: 'All Time' },
+]
+// Which ranking to show. Only one list renders at a time so the card keeps a
+// fixed height instead of stretching the card beside it.
+const PERFORMER_KINDS = [
+  { key: 'fros', label: 'FROs' }, { key: 'recruiters', label: 'Recruiters' },
 ]
 
 const ngoColorCache = {}
@@ -304,118 +303,6 @@ function ListModal({ type, onClose }) {
   )
 }
 
-/* ============ PANEL SUMMARY MODAL ============ */
-const PANEL_META = {
-  accounts: { title: 'Accounts — Lead Verification', icon: 'receipt_long' },
-  fro: { title: 'FRO — Field Operations', icon: 'groups' },
-  hr: { title: 'HR — Volunteer Management', icon: 'badge' },
-  'event-head': { title: 'Events', icon: 'event' },
-  recruiter: { title: 'Recruiter — Lead Pipeline', icon: 'person_search' },
-}
-
-function PanelSummaryModal({ panel, onClose, dashboardData }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const sum = (arr, f) => arr.reduce((s, x) => s + Number(f(x) || 0), 0)
-    const sameDay = (d) => d && new Date(d).toDateString() === new Date().toDateString()
-    const fetchers = {
-      accounts: () => getAccountsLeads().then(d => {
-        const list = asList(d)
-        const by = (f) => { const a = list.filter(f); return { count: a.length, amount: sum(a, l => l.amount) } }
-        return { cards: [
-          { label: 'Pending', ...by(l => l.accounts_status === 'pending'), sub: 'total' },
-          { label: 'Verified', ...by(l => l.accounts_status === 'verified'), sub: 'total' },
-          { label: 'Verified today', ...by(l => l.accounts_status === 'verified' && sameDay(l.verified_at)), sub: 'collected' },
-          { label: 'Total amount', count: list.length, amount: sum(list, l => l.amount), sub: 'leads', amountAsValue: true },
-        ] }
-      }),
-      fro: () => api('/fro/status', { _prefix: 'ucs' }).then(list => {
-        const a = Array.isArray(list) ? list : []
-        const active = a.filter(f => f.worker?.is_active).length
-        return { cards: [
-          { label: 'Total FROs', value: a.length, sub: 'Registered volunteers' },
-          { label: 'Active', value: active, sub: `${a.length - active} inactive` },
-          { label: 'Punched in', value: a.filter(f => f.worker?.is_punched_in).length, sub: 'Today' },
-          { label: "Today's collection", value: inr(sum(a, f => f.performance?.today_collection)), sub: `Data used: ${sum(a, f => f.performance?.data_used)}` },
-        ] }
-      }),
-      hr: () => Promise.all([getWorkers(), getAttendance()]).then(([w, a]) => {
-        const workers = asList(w), att = asList(a).filter(x => sameDay(x.date))
-        const byId = Object.fromEntries(workers.map(x => [x.id, x]))
-        const depts = {}
-        const slot = n => (depts[n] ||= { total: 0, present: 0, absent: 0, late: 0 })
-        workers.forEach(x => slot(x.department || 'Unassigned').total++)
-        att.forEach(x => {
-          const s = slot(byId[x.worker_id]?.department || 'Unassigned')
-          if (x.status in s) s[x.status]++
-        })
-        const present = att.filter(x => x.status === 'present' || x.punched_in).length
-        return {
-          cards: [
-            { label: 'Volunteers', value: workers.length, sub: 'All time' },
-            { label: 'Active', value: workers.filter(x => x.is_active).length, sub: 'Currently active' },
-            { label: 'Attendance', value: `${att.length ? Math.round((present / att.length) * 100) : 0}%`, sub: `${present} of ${att.length} today` },
-          ],
-          depts: Object.entries(depts).sort(([x], [y]) => x.localeCompare(y)).map(([name, c]) => ({ name, ...c })),
-        }
-      }),
-      'event-head': () => {
-        const ev = dashboardData?.upcoming_events || []
-        const next = ev.find(e => new Date(e.event_date) >= new Date())
-        return Promise.resolve({ cards: [
-          { label: 'Upcoming events', value: ev.length, sub: 'Scheduled' },
-          ...(next ? [{ label: 'Next event', value: next.title, sub: new Date(next.event_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + (next.event_time ? ` at ${next.event_time.slice(0, 5)}` : '') }] : []),
-        ] })
-      },
-      recruiter: () => getRecruiterLeads().then(d => {
-        const list = asList(d)
-        const sel = list.filter(l => l.status === 'selected' || l.status === 'verified').length
-        const rej = list.filter(l => l.status === 'rejected').length
-        return { cards: [
-          { label: 'Total leads', value: list.length, sub: 'All time' },
-          { label: 'New today', value: list.filter(l => sameDay(l.created_at)).length, sub: 'Added today' },
-          { label: 'Conversion', value: `${sel + rej ? ((sel / (sel + rej)) * 100).toFixed(1) : '0.0'}%`, sub: 'Selected vs rejected' },
-        ] }
-      }),
-    }
-    setLoading(true)
-    fetchers[panel]().then(setData).catch(e => { console.error('API error:', e.message); setData({ cards: [] }) }).finally(() => setLoading(false))
-  }, [panel, dashboardData])
-
-  const meta = PANEL_META[panel]
-  return (
-    <Modal title={meta.title} icon={meta.icon} color={MINT_DEEP} onClose={onClose}>
-      {loading ? <p className="nd-muted">Loading...</p> : (
-        <>
-          <div className="ps-grid">
-            {data.cards.map(c => (
-              <div key={c.label} className="ps-card">
-                <span className="ps-label">{c.label}</span>
-                <span className="ps-value">{c.value ?? (c.amountAsValue ? inr(c.amount) : c.count)}</span>
-                <span className="ps-sub">{c.value === undefined && !c.amountAsValue ? `${inr(c.amount)} ${c.sub}` : c.amountAsValue ? `Across ${c.count} ${c.sub}` : c.sub}</span>
-              </div>
-            ))}
-          </div>
-          {data.depts?.length > 0 && (
-            <div className="nd-table-wrap" style={{ marginTop: 14 }}>
-              <table className="nd-table">
-                <thead><tr><th>Department</th><th>Total</th><th>Present</th><th>Absent</th><th>Late</th></tr></thead>
-                <tbody>
-                  {data.depts.map(d => (
-                    <tr key={d.name}><td>{deptLabel(d.name)}</td><td>{d.total}</td><td>{d.present}</td><td>{d.absent}</td><td>{d.late}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </Modal>
-  )
-}
-
 /* ============ NGO STATION MODAL ============ */
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled', busy: 'Busy', ringing: 'Ringing',
@@ -448,9 +335,18 @@ function NgoStationModal({ ngoName, ngoId, onClose }) {
 
   useEffect(() => {
     setLoading(true)
-    api('/ngo-admin/dashboard/station-stats').then(async res => {
+    // Scope station-stats with ngo_id the way the NGO-Admin panel does, then take
+    // every key it returns. Station names are reused across NGOs ('DH-5' is BOD-15
+    // for BSCT, AOD-15 for AFLF, MOD-15 for MANN), so matching keys against an
+    // NGO-name prefix never hit and this modal always opened empty. Given ngo_id
+    // the endpoint returns only this NGO's stations, so no name filter is needed.
+    const statsParams = new URLSearchParams()
+    if (ngoId) statsParams.set('ngo_id', ngoId)
+    api(`/ngo-admin/dashboard/station-stats?${statsParams}`).then(async res => {
       const all = res?.stations || {}
-      const matched = Object.keys(all).filter(k => k === ngoName || k.startsWith(ngoName + '-')).sort()
+      const matched = ngoId
+        ? Object.keys(all).sort()
+        : Object.keys(all).filter(k => k === ngoName || k.startsWith(ngoName + '-')).sort()
       setStations(matched)
       const agg = {}
       matched.forEach(st => Object.entries(all[st] || {}).forEach(([s, c]) => { agg[s] = (agg[s] || 0) + c }))
@@ -675,41 +571,34 @@ function FroPerformanceToday({ froLiveData = [] }) {
 /*                            DASHBOARD                             */
 /* ================================================================ */
 export default function Dashboard() {
-  const navigate = useNavigate()
   const [period, setPeriod] = useState('all')
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [animated, setAnimated] = useState(false)
   const [nameModal, setNameModal] = useState(null)
-  const [panelModal, setPanelModal] = useState(null)
   const [listModal, setListModal] = useState(null)
   const [ngoStationModal, setNgoStationModal] = useState(null)
-  const [alertModal, setAlertModal] = useState(null)
-  const [attnTab, setAttnTab] = useState('actions')
-  const [allUserList, setAllUserList] = useState([])
   const [froLiveData, setFroLiveData] = useState([])
-  const [adminTargets, setAdminTargets] = useState([])
-  const [targetsLoading, setTargetsLoading] = useState(false)
-  const [targetModalAdmin, setTargetModalAdmin] = useState(null)
-  const [editTargetValue, setEditTargetValue] = useState('')
-  const [savingTarget, setSavingTarget] = useState(false)
   const [performerPeriod, setPerformerPeriod] = useState('all')
-  const [performers, setPerformers] = useState({ fros: [], recruiters: [] })
-  const [actionCenter, setActionCenter] = useState({ pendingLeaves: 0, hrVerifiedTickets: 0, pendingTickets: 0, pendingAccountsLeads: 0, submittedEvents: 0, recruiterPipeline: 0 })
-  const [alertsData, setAlertsData] = useState({ alerts: [], summary: { critical: 0, warning: 0, info: 0 } })
+  const [performerKind, setPerformerKind] = useState('fros')
   const [receiptStats, setReceiptStats] = useState([])
+  const [ngoCollections, setNgoCollections] = useState([])
+  const [accLeads, setAccLeads] = useState([])
+  const [recLeads, setRecLeads] = useState([])
   const [ready, setReady] = useState(false) // secondary requests wait for the main dashboard call
 
   /* ---------- one-time loads ---------- */
-  useEffect(() => { if (!ready) return; getUsers().then(d => setAllUserList(asList(d))).catch(e => console.error('API error:', e.message)) }, [ready])
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
   useEffect(() => { if (!ready) return; getReceiptStats().then(d => setReceiptStats(Array.isArray(d?.statsByProject) ? d.statsByProject : [])).catch(() => {}) }, [ready])
-  useEffect(() => {
-    if (!ready) return
-    setTargetsLoading(true)
-    getNgoAdminTargets().then(d => setAdminTargets(Array.isArray(d) ? d : [])).catch(e => console.error('API error:', e.message)).finally(() => setTargetsLoading(false))
-  }, [ready])
+  // Per-NGO accounts collection (today/month) — the same source the accounts
+  // panel's Collections card reads, so the dashboard NGO cards agree with it.
+  useEffect(() => { if (!ready) return; api('/accounts/collections', { _prefix: 'ucs' }).then(d => setNgoCollections(Array.isArray(d) ? d : [])).catch(() => {}) }, [ready])
+  // Lead-verification counts come from the same /accounts/leads route the
+  // Accounts modals and the accounts panel list use, so the tiles match the
+  // modal that opens on click (the dashboard payload's own slice is scoped
+  // narrower and disagreed with the panel).
+  useEffect(() => { if (!ready) return; getAccountsLeads().then(d => setAccLeads(asList(d))).catch(() => {}) }, [ready])
 
   /* ---------- live data (refreshed via realtime) ---------- */
   const fetchDashboard = useCallback(() => getDashboard(period).then(d => { setData(d); setErr('') }).catch(e => setErr(e.message)), [period])
@@ -720,31 +609,9 @@ export default function Dashboard() {
   }, [])
   useEffect(() => { if (ready) fetchFroLive() }, [ready, fetchFroLive])
 
-  useEffect(() => {
-    if (!ready) return
-    getDashboard(performerPeriod).then(d => setPerformers({ fros: d?.topFros || [], recruiters: d?.topRecruiters || [] })).catch(e => console.error('API error:', e.message))
-  }, [ready, performerPeriod])
-
-  const fetchActionCenter = useCallback(() => {
-    Promise.allSettled([getLeaves(), getAllTickets(), getAccountsLeads(), getEvents(), getRecruiterLeads()]).then(res => {
-      const [leaves, tickets, acc, events, rec] = res.map(r => (r.status === 'fulfilled' ? asList(r.value) : []))
-      const n = (list, f) => list.filter(f).length
-      setActionCenter({
-        pendingLeaves: n(leaves, LIST_CONFIGS.pendingLeaves.keep),
-        hrVerifiedTickets: n(tickets, LIST_CONFIGS.hrVerifiedTickets.keep),
-        pendingTickets: n(tickets, LIST_CONFIGS.pendingTickets.keep),
-        pendingAccountsLeads: n(acc, LIST_CONFIGS.pendingAccountsLeads.keep),
-        submittedEvents: n(events, LIST_CONFIGS.submittedEvents.keep),
-        recruiterPipeline: n(rec, LIST_CONFIGS.recruiterPipeline.keep),
-      })
-    })
-  }, [])
-  useEffect(() => { if (ready) fetchActionCenter() }, [ready, fetchActionCenter])
-
-  const fetchAlerts = useCallback(() => {
-    getSuperAdminAlerts().then(d => setAlertsData(d || { alerts: [], summary: { critical: 0, warning: 0, info: 0 } })).catch(e => console.error('API error:', e.message))
-  }, [])
-  useEffect(() => { if (ready) fetchAlerts() }, [ready, fetchAlerts])
+  // Recruiter leads feed the "Top recruiters" ranking; the period control below
+  // filters them client-side (the /leads route ignores any period param).
+  useEffect(() => { if (!ready) return; getRecruiterLeads().then(d => setRecLeads(asList(d))).catch(() => {}) }, [ready])
 
   /* ---------- realtime (debounced) ---------- */
   const timers = useRef({})
@@ -754,7 +621,7 @@ export default function Dashboard() {
   }, [])
   useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), [])
 
-  const refreshAggregates = useCallback(() => debounce('agg', () => { fetchDashboard(); fetchActionCenter(); fetchAlerts() }), [debounce, fetchDashboard, fetchActionCenter, fetchAlerts])
+  const refreshAggregates = useCallback(() => debounce('agg', () => { fetchDashboard() }), [debounce, fetchDashboard])
   const refreshFro = useCallback(() => debounce('fro', () => { fetchFroLive(); fetchDashboard() }), [debounce, fetchFroLive, fetchDashboard])
   const rt = (fn) => ({ event: '*', onInsert: fn, onUpdate: fn, onDelete: fn })
   ;['leads', 'workers', 'attendance', 'events', 'leaves', 'attendance_corrections'].forEach(t => useRealtime(t, rt(refreshAggregates))) // eslint-disable-line react-hooks/rules-of-hooks
@@ -773,16 +640,94 @@ export default function Dashboard() {
   /* ---------- derived data ---------- */
   const {
     ngos: ngosD = {}, workers: workersD = {}, attendance: attD = {}, salary_payable: salary = 0,
-    accounts: accD = {}, monthly_revenue: monthlyRevenue = [], recent_activities: activities = [],
-    upcoming_events: events = [], froAssignments = [],
+    recent_activities: activities = [],
+    froAssignments = [],
   } = data
   const ngoUserCounts = ngosD.per_ngo || []
-  const acc = {
-    pending: accD.pending?.count ?? 0, pendingAmount: accD.pending?.amount ?? 0,
-    verified: accD.verified?.count ?? 0, verifiedAmount: accD.verified?.amount ?? 0,
-    rejected: accD.rejected?.count ?? 0, rejectedAmount: accD.rejected?.amount ?? 0,
-    today: accD.verified_today?.count ?? 0, todayAmount: accD.verified_today?.amount ?? 0,
-  }
+  // Lead-verification tiles, derived from /accounts/leads (the accounts panel's
+  // own list) so they match the accounts panel and the modal each tile opens.
+  const acc = (() => {
+    const out = { pending: 0, pendingAmount: 0, verified: 0, verifiedAmount: 0, today: 0, todayAmount: 0 }
+    for (const l of accLeads) {
+      const amt = Number(l.amount) || 0
+      const st = lc(l.accounts_status)
+      if (st === 'pending') { out.pending++; out.pendingAmount += amt }
+      else if (st === 'verified') {
+        out.verified++; out.verifiedAmount += amt
+        if (l.verified_at?.slice(0, 10) === todayStr()) { out.today++; out.todayAmount += amt }
+      }
+    }
+    return out
+  })()
+
+  // Monthly revenue — verified collections bucketed by the month they were
+  // verified, from the same /accounts/leads rows `acc` uses. The backend's own
+  // trend query omitted the lead filters, so it over-counted (its 12-month
+  // total exceeded the all-time verified total); this stays consistent with the
+  // Verified tile above.
+  const monthlyRevenue = (() => {
+    const now = new Date()
+    const months = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+    const bucket = Object.fromEntries(months.map(m => [m, { month: m, amount: 0, count: 0 }]))
+    for (const l of accLeads) {
+      if (lc(l.accounts_status) !== 'verified') continue
+      const key = l.verified_at?.slice(0, 7)
+      if (bucket[key]) { bucket[key].amount += Number(l.amount) || 0; bucket[key].count++ }
+    }
+    return months.map(m => bucket[m])
+  })()
+
+  // Top performers — derived client-side so the period control actually filters
+  // (the dashboard endpoint hardcodes these all-time). FROs are ranked by
+  // verified collection, recruiters by lead count, both within the window.
+  const performers = (() => {
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const windowStart =
+      performerPeriod === 'all' ? null
+        : performerPeriod === 'today' ? startOfToday
+          : (() => { const d = new Date(startOfToday); d.setDate(d.getDate() - (performerPeriod === '7d' ? 6 : 364)); return d })()
+    const inWindow = (ts) => {
+      if (!windowStart) return true
+      if (!ts) return false
+      const t = new Date(ts).getTime()
+      return !Number.isNaN(t) && t >= windowStart.getTime()
+    }
+
+    const froTotals = {}
+    for (const l of accLeads) {
+      if (lc(l.accounts_status) !== 'verified') continue
+      if (!inWindow(l.verified_at || l.created_at)) continue
+      const name = l.agent_name || 'Unknown'
+      froTotals[name] = (froTotals[name] || 0) + (Number(l.amount) || 0)
+    }
+    const fros = Object.entries(froTotals)
+      .map(([name, totalCollection], i) => ({ id: `fro-${i}`, name, totalCollection }))
+      .filter(f => f.totalCollection > 0)
+      .sort((a, b) => b.totalCollection - a.totalCollection)
+      .slice(0, 5)
+
+    const recTotals = {}
+    for (const l of recLeads) {
+      if (!inWindow(l.created_at)) continue
+      const rid = l.recruiter_id || l.created_by
+      if (!rid) continue
+      const name = l.workers?.name || l.created_by_name || 'Unknown'
+      const cur = recTotals[rid]
+      if (cur) cur.leadCount++
+      else recTotals[rid] = { id: `rec-${rid}`, name, leadCount: 1 }
+    }
+    const recruiters = Object.values(recTotals)
+      .filter(r => r.leadCount > 0)
+      .sort((a, b) => b.leadCount - a.leadCount)
+      .slice(0, 5)
+
+    return { fros, recruiters }
+  })()
 
   const hasToday = attD.today?.present !== undefined
   const attSrc = hasToday ? attD.today : attD.by_worker || {}
@@ -802,33 +747,6 @@ export default function Dashboard() {
 
   const greeting = (h => (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'))(new Date().getHours())
   const dateStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const roleCount = (...roles) => allUserList.filter(u => roles.includes(u.role)).length
-
-  const kpis = [
-    { label: 'Total donation', value: money(acc.verifiedAmount), sub: `${acc.verified} verified leads`, icon: 'payments', onClick: () => setListModal('acc_verified') },
-    { label: 'Verified today', value: acc.today, sub: inr(acc.todayAmount), icon: 'task_alt', onClick: () => setListModal('acc_verified_today') },
-    { label: 'Pending verification', value: acc.pending, sub: inr(acc.pendingAmount), icon: 'hourglass_top', tone: acc.pending > 0 ? AMBER : null, onClick: () => setListModal('acc_pending') },
-    { label: 'Attendance', value: `${attPercent}%`, sub: `${attSrc.present ?? 0} present · ${attSrc.absent ?? 0} absent`, icon: 'how_to_reg', tone: attPercent < 60 ? RED : null, onClick: () => openAttendance('Present') },
-    { label: 'Active volunteers', value: workersD.active ?? 0, sub: `of ${workersD.total ?? 0} total`, icon: 'groups', onClick: () => setPanelModal('hr') },
-  ]
-
-  const actionCards = [
-    { label: 'Pending leaves', key: 'pendingLeaves', icon: 'event_busy' },
-    { label: 'Tickets to approve', key: 'hrVerifiedTickets', icon: 'verified' },
-    { label: 'Pending tickets', key: 'pendingTickets', icon: 'confirmation_number' },
-    { label: 'Unverified leads', key: 'pendingAccountsLeads', icon: 'receipt_long' },
-    { label: 'Events to approve', key: 'submittedEvents', icon: 'event_upcoming' },
-    { label: 'Recruiter pipeline', key: 'recruiterPipeline', icon: 'person_search' },
-  ]
-  const actionTotal = Object.values(actionCenter).reduce((s, v) => s + v, 0)
-
-  const panels = [
-    { key: 'accounts', label: 'Accounts', icon: 'receipt_long', sub: `${roleCount('accounts')} volunteers` },
-    { key: 'fro', label: 'FRO', icon: 'groups', sub: `${roleCount('fro') || froLiveData.length} volunteers` },
-    { key: 'hr', label: 'HR', icon: 'badge', sub: `${roleCount('hr', 'hoadmin')} volunteers` },
-    { key: 'event-head', label: 'Events', icon: 'event', sub: `${events.length} upcoming` },
-    { key: 'recruiter', label: 'Recruiter', icon: 'person_search', sub: `${roleCount('recruiter')} volunteers` },
-  ]
 
   const revMax = Math.max(...monthlyRevenue.map(m => m.amount), 1)
   const revPts = monthlyRevenue.map((m, i) => `${(i / (monthlyRevenue.length - 1 || 1)) * 100},${95 - (m.amount / revMax) * 85}`)
@@ -845,16 +763,6 @@ export default function Dashboard() {
     if (m < 60) return `${m}m ago`
     if (m < 1440) return `${Math.floor(m / 60)}h ago`
     return new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-  }
-
-  const saveTarget = async () => {
-    setSavingTarget(true)
-    try {
-      const v = Number(editTargetValue) || 0
-      await setNgoAdminTarget(targetModalAdmin.id, v)
-      setAdminTargets(prev => prev.map(t => (t.id === targetModalAdmin.id ? { ...t, daily_target: v } : t)))
-      setTargetModalAdmin(null)
-    } catch (e) { alert(e.message) } finally { setSavingTarget(false) }
   }
 
   /* ================= RENDER ================= */
@@ -883,66 +791,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ---------- Needs attention ---------- */}
-      <SectionCard icon="notifications_active" title="Needs attention" className="nd-mb"
-        right={<><span className="nd-live"><i />Live</span>
-          <Segmented value={attnTab} onChange={setAttnTab} options={[
-            { key: 'actions', label: 'Pending actions', badge: actionTotal },
-            { key: 'alerts', label: 'Risk & alerts', badge: alertsData.alerts.length },
-          ]} /></>}>
-        {attnTab === 'actions' ? (
-          <div className="nd-auto-grid" style={{ '--min': '190px' }}>
-            {actionCards.map(c => {
-              const n = actionCenter[c.key]
-              return (
-                <button key={c.key} className={`nd-action${n > 0 ? ' has' : ''}`} onClick={() => setListModal(c.key)}>
-                  <span className="material-symbols-outlined">{c.icon}</span>
-                  <span className="nd-action-txt"><small>{c.label}</small><b>{n}</b></span>
-                </button>
-              )
-            })}
-          </div>
-        ) : alertsData.alerts.length === 0 ? <p className="nd-muted">No active alerts. Everything looks fine.</p> : (
-          <div className="nd-alert-list">
-            {alertsData.alerts.map((a, i) => {
-              const s = SEVERITY[a.severity] || SEVERITY.info
-              return (
-                <button key={a.id || i} className="nd-alert-item" style={{ borderLeftColor: s.color }} onClick={() => setAlertModal(a)}>
-                  <span className="material-symbols-outlined" style={{ color: s.color }}>{s.icon}</span>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span className="nd-alert-title">{a.title}</span>
-                    <span className="nd-alert-desc">{a.description}</span>
-                    {a.actionLabel && <span className="nd-alert-action">{a.actionLabel}</span>}
-                  </span>
-                  <b style={{ color: s.color, fontSize: 20 }}>{a.count}</b>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </SectionCard>
-
-      {/* ---------- KPI strip ---------- */}
-      <div className="nd-auto-grid nd-mb" style={{ '--min': '200px' }}>
-        {kpis.map(k => (
-          <button key={k.label} className="nd-card nd-kpi" onClick={k.onClick}>
-            <span className="nd-kpi-label"><span className="material-symbols-outlined">{k.icon}</span>{k.label}</span>
-            <span className="nd-kpi-value" style={k.tone ? { color: k.tone } : undefined}>{k.value}</span>
-            <span className="nd-kpi-sub">{k.sub}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* ---------- Department shortcuts ---------- */}
-      <div className="nd-auto-grid nd-mb" style={{ '--min': '170px' }}>
-        {panels.map(p => (
-          <button key={p.key} className="nd-panel-link" onClick={() => setPanelModal(p.key)}>
-            <span className="material-symbols-outlined">{p.icon}</span>
-            <span><b>{p.label}</b><small>{p.sub}</small></span>
-          </button>
-        ))}
-      </div>
-
       {/* ---------- NGO cards ---------- */}
       {ngoUserCounts.some(n => isMainNgo(n.name)) && (
         <div className="nd-auto-grid nd-mb" style={{ '--min': '280px' }}>
@@ -950,21 +798,23 @@ export default function Dashboard() {
             const n = ngoUserCounts.find(x => lc(x.name).startsWith(prefix))
             if (!n) return null
             const nc = ngoColor(n.name)
+            // Accounts collection keyed by project_id ('bsct'/'aflf'/'mann');
+            // the card's prefix 'man' maps to project_id 'mann'.
+            const coll = ngoCollections.find(c => c.project_id === (prefix === 'man' ? 'mann' : prefix))
             const fros = froLiveData.filter(f => f.worker?.ngo_name === n.name)
             const sum = (k) => fros.reduce((s, f) => s + Number(f.performance?.[k] || 0), 0)
             const live = fros.filter(f => f.status === 'on_call' || f.status === 'online').length
-            const assigned = froAssignments.filter(f => (f.ngos || []).includes(n.name)).length
             return (
-              <div key={n.name} className="nd-card" style={{ borderLeft: `4px solid ${nc}` }}>
+              <div key={n.name} className="nd-card">
                 <div className="nd-ngo-head">
                   <b style={{ color: nc }}>{n.name}</b>
                   <span>{n.workers || n.count || 0} volunteers · <span style={{ color: MINT_DEEP }}>{live} live</span></span>
                 </div>
                 <div className="nd-stat-grid">
-                  <div><small>Today's collection</small><b style={{ color: MINT_DEEP }}>{inr(sum('today_collection'))}</b></div>
+                  <div><small>Today's collection</small><b style={{ color: MINT_DEEP }}>{inr(coll?.today_total || 0)}</b></div>
+                  <div><small>This month</small><b>{inr(coll?.month_total || 0)}</b></div>
                   <div><small>Today's calls</small><b>{sum('today_calls')}</b></div>
                   <div><small>Today's data used</small><b>{sum('data_used')}</b></div>
-                  <div><small>Total FROs</small><b>{assigned}</b></div>
                 </div>
               </div>
             )
@@ -1031,13 +881,12 @@ export default function Dashboard() {
         <PipelineFlow stages={[
           { label: 'Pending', value: acc.pending, sub: inr(acc.pendingAmount), color: AMBER_LIGHT },
           { label: 'Verified', value: acc.verified, sub: inr(acc.verifiedAmount), color: MINT },
-          { label: 'Rejected', value: acc.rejected, sub: inr(acc.rejectedAmount), color: BLUSH },
           { label: 'Verified today', value: acc.today, sub: inr(acc.todayAmount), color: MINT_DEEP },
         ]} />
         <div className="nd-auto-grid" style={{ '--min': '160px', marginTop: 10 }}>
-          {[['Pending', acc.pending, acc.pendingAmount, 'acc_pending', AMBER_LIGHT], ['Verified', acc.verified, acc.verifiedAmount, 'acc_verified', MINT],
-            ['Rejected', acc.rejected, acc.rejectedAmount, 'acc_rejected', BLUSH], ['Verified today', acc.today, acc.todayAmount, 'acc_verified_today', MINT_DEEP]].map(([l, n, amt, key, c]) => (
-            <button key={key} className="nd-mini" style={{ borderLeftColor: c }} onClick={() => setListModal(key)}>
+          {[['Pending', acc.pending, acc.pendingAmount, 'acc_pending'], ['Verified', acc.verified, acc.verifiedAmount, 'acc_verified'],
+            ['Verified today', acc.today, acc.todayAmount, 'acc_verified_today']].map(([l, n, amt, key]) => (
+            <button key={key} className="nd-mini" onClick={() => setListModal(key)}>
               <small>{l}</small><b>{n}</b><span>{inr(amt)}</span>
             </button>
           ))}
@@ -1080,11 +929,18 @@ export default function Dashboard() {
         </SectionCard>
 
         <SectionCard icon="emoji_events" title="Top performers">
-          <Segmented value={performerPeriod} onChange={setPerformerPeriod} options={PERFORMER_PERIODS} />
+          <div className="nd-perf-filters">
+            <Segmented value={performerKind} onChange={setPerformerKind} options={PERFORMER_KINDS} />
+            <Segmented value={performerPeriod} onChange={setPerformerPeriod} options={PERFORMER_PERIODS} />
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14 }}>
-            {performers.fros.length === 0 && performers.recruiters.length === 0 && <p className="nd-muted">No performer data yet</p>}
-            {performers.fros.length > 0 && <RankList title="Top FROs by collection" items={performers.fros} valueKey="totalCollection" format={inr} colors={[AMBER, MINT_DEEP, '#4C7C8C', '#7A5C8C', MUTED]} />}
-            {performers.recruiters.length > 0 && <RankList title="Top recruiters by leads" items={performers.recruiters} valueKey="leadCount" colors={[MINT_DEEP, '#4C7C8C', AMBER, '#7A5C8C', MUTED]} />}
+            {performerKind === 'fros'
+              ? (performers.fros.length > 0
+                  ? <RankList title="Top FROs by collection" items={performers.fros} valueKey="totalCollection" format={inr} colors={[AMBER, MINT_DEEP, '#4C7C8C', '#7A5C8C', MUTED]} />
+                  : <p className="nd-muted">No FRO collection data yet</p>)
+              : (performers.recruiters.length > 0
+                  ? <RankList title="Top recruiters by leads" items={performers.recruiters} valueKey="leadCount" colors={[MINT_DEEP, '#4C7C8C', AMBER, '#7A5C8C', MUTED]} />
+                  : <p className="nd-muted">No recruiter lead data yet</p>)}
           </div>
         </SectionCard>
 
@@ -1108,54 +964,6 @@ export default function Dashboard() {
         </SectionCard>
       </div>
 
-      {/* ---------- Admin daily targets ---------- */}
-      <SectionCard icon="track_changes" title="Admin daily targets" className="nd-mb" right={<span className="nd-sec-note">{targetsLoading ? 'Loading...' : `${adminTargets.length} admins`}</span>}>
-        {targetsLoading ? <p className="nd-muted">Loading...</p> : adminTargets.length === 0 ? <p className="nd-muted">No admin data available</p> : (
-          <div className="nd-table-wrap" style={{ maxHeight: 'none' }}>
-            <table className="nd-table">
-              <thead><tr><th>Admin</th><th>Today's collection</th><th>Daily target</th><th>Progress</th><th /></tr></thead>
-              <tbody>
-                {adminTargets.map(t => {
-                  const pct = t.daily_target > 0 ? Math.min(100, Math.round((t.today_collection / t.daily_target) * 100)) : 0
-                  return (
-                    <tr key={t.id}>
-                      <td><b>{t.name}</b> <small className="nd-faint">{t.login_id}</small></td>
-                      <td style={{ color: MINT_DEEP, fontWeight: 700 }}>{inr(t.today_collection)}</td>
-                      <td>{t.daily_target > 0 ? inr(t.daily_target) : <span className="nd-faint">Not set</span>}</td>
-                      <td>{t.daily_target > 0
-                        ? <div className="nd-progress"><div className="nd-track" style={{ width: 70 }}><div style={{ width: `${pct}%`, background: pct >= 100 ? MINT_DEEP : pct >= 50 ? AMBER : RED }} /></div>{pct}%</div>
-                        : '—'}</td>
-                      <td><button className="nd-btn-sm" onClick={() => { setTargetModalAdmin(t); setEditTargetValue(String(t.daily_target || '')) }}>{t.daily_target > 0 ? 'Edit' : 'Set'}</button></td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </SectionCard>
-
-      {/* ---------- Events ---------- */}
-      <SectionCard icon="event" title="Upcoming events" className="nd-mb" right={events.length > 0 && <span className="nd-sec-note">{events.length}</span>}>
-        {events.length === 0 ? <p className="nd-muted">No upcoming events</p> : (
-          <div className="nd-scroll" style={{ maxHeight: 240 }}>
-            {events.map((ev, i) => {
-              const d = new Date(ev.event_date)
-              return (
-                <div key={ev.id || i} className="nd-event">
-                  <div className="nd-event-date"><small>{d.toLocaleString('en-IN', { month: 'short' })}</small><b>{d.getDate()}</b></div>
-                  <div style={{ minWidth: 0 }}>
-                    <h4>{ev.title}</h4>
-                    <p>{[ev.location, ev.event_time?.slice(0, 5)].filter(Boolean).join(' • ')}</p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <button className="nd-add-btn" onClick={() => navigate('/sa/events')}>+ Add new event</button>
-      </SectionCard>
-
       {/* ---------- Salary ---------- */}
       {salary > 0 && (
         <div className="nd-card nd-mb nd-salary">
@@ -1171,40 +979,8 @@ export default function Dashboard() {
       {/* ================= MODALS ================= */}
       {nameModal && <NameListModal {...nameModal} onClose={() => setNameModal(null)} />}
       {listModal && <ListModal type={listModal} onClose={() => setListModal(null)} />}
-      {panelModal && <PanelSummaryModal panel={panelModal} dashboardData={data} onClose={() => setPanelModal(null)} />}
       {ngoStationModal && (
         <NgoStationModal ngoName={ngoStationModal} ngoId={ngoUserCounts.find(n => n?.name === ngoStationModal)?.id || ''} onClose={() => setNgoStationModal(null)} />
-      )}
-
-      {alertModal && (() => {
-        const s = SEVERITY[alertModal.severity] || SEVERITY.info
-        return (
-          <Modal title={alertModal.title} icon={s.icon} color={s.color} badge={alertModal.severity.toUpperCase()} onClose={() => setAlertModal(null)}>
-            <p style={{ fontSize: 13, color: MUTED, margin: '0 0 6px' }}>{alertModal.description}</p>
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px' }}>Category: <b style={{ color: INK }}>{alertModal.category}</b> · Count: <b style={{ color: s.color }}>{alertModal.count}</b></p>
-            {alertModal.details?.map((item, i) => (
-              <div key={i} className="nd-modal-row">
-                <span className="nd-avatar" style={{ background: `${s.color}18`, color: s.color }}>{item.name?.charAt(0) || '?'}</span>
-                <div style={{ minWidth: 0 }}>
-                  <span className="nd-modal-name">{item.name}</span>
-                  {item.value && <span className="nd-modal-dept">{deptLabel(item.value)}</span>}
-                </div>
-              </div>
-            ))}
-          </Modal>
-        )
-      })()}
-
-      {targetModalAdmin && (
-        <Modal title={`Set daily target — ${targetModalAdmin.name}`} icon="track_changes" onClose={() => setTargetModalAdmin(null)}
-          footer={<>
-            <button className="nd-btn-sm" onClick={() => setTargetModalAdmin(null)}>Cancel</button>
-            <button className="nd-btn-sm primary" disabled={savingTarget} onClick={saveTarget}>{savingTarget ? 'Saving...' : 'Save target'}</button>
-          </>}>
-          <label className="nd-label" htmlFor="nd-target">Daily target amount (₹)</label>
-          <input id="nd-target" className="nd-input" type="number" min="0" placeholder="e.g. 100000" value={editTargetValue} onChange={e => setEditTargetValue(e.target.value)} autoFocus />
-          <p className="nd-muted">Today's collection: {inr(targetModalAdmin.today_collection)} across {targetModalAdmin.ngo_count || 0} NGOs</p>
-        </Modal>
       )}
     </div>
   )
@@ -1221,12 +997,7 @@ const CSS = `
 .nd-sec-right { margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .nd-sec-note { font-size:12px; color:#94a3b8; font-weight:600; }
 .nd-muted { color:#94a3b8; font-size:13px; margin:8px 0 0; }
-.nd-faint { color:#94a3b8; }
 .nd-greeting { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:99px; background:${MINT_LIGHT}; color:${MINT_DEEP}; font-size:12px; font-weight:700; }
-.nd-live { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:${MINT_DEEP}; }
-.nd-live i { width:7px; height:7px; border-radius:50%; background:${MINT_DEEP}; animation:ndPulse 2s ease-in-out infinite; }
-@keyframes ndPulse { 50% { opacity:.4; } }
-@media (prefers-reduced-motion: reduce) { .nd-live i { animation:none; } }
 button:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 
 .nd-seg { display:inline-flex; gap:3px; background:#F1F5F2; border-radius:10px; padding:3px; }
@@ -1234,32 +1005,8 @@ button:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 .nd-seg button.on { background:#fff; color:${MINT_DARK}; box-shadow:0 1px 4px rgba(0,0,0,.08); }
 .nd-seg-badge { background:${RED}; color:#fff; border-radius:99px; padding:0 6px; font-size:11px; line-height:16px; }
 
-.nd-action { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid #E2E8F0; background:#F8FAFC; cursor:pointer; font-family:inherit; text-align:left; color:#94a3b8; }
-.nd-action.has { background:#FFFBEB; border-color:${AMBER}40; color:${AMBER}; }
-.nd-action-txt { display:flex; flex-direction:column; min-width:0; }
-.nd-action small { font-size:12px; font-weight:600; color:${MUTED}; }
-.nd-action b { font-size:20px; line-height:1.1; font-variant-numeric:tabular-nums; }
-.nd-action:hover { box-shadow:0 4px 12px rgba(30,77,59,.1); }
-
-.nd-alert-list { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto; }
-.nd-alert-item { display:flex; align-items:flex-start; gap:12px; padding:12px 14px; border-radius:12px; border:none; border-left:3px solid; background:#FAFBFA; cursor:pointer; font-family:inherit; text-align:left; width:100%; }
-.nd-alert-item:hover { background:${MINT_LIGHT}; }
-.nd-alert-title { display:block; font-size:13px; font-weight:700; color:${INK}; }
-.nd-alert-desc { display:block; font-size:12px; color:${MUTED}; margin-top:2px; }
-.nd-alert-action { display:block; font-size:12px; font-weight:700; color:${MINT_DEEP}; margin-top:4px; }
-
-.nd-kpi { display:flex; flex-direction:column; gap:4px; cursor:pointer; }
-.nd-kpi:hover { box-shadow:0 6px 18px rgba(30,77,59,.12); }
-.nd-kpi-label { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${MUTED}; }
-.nd-kpi-label .material-symbols-outlined { font-size:16px; color:${MINT_DEEP}; }
-.nd-kpi-value { font-size:26px; font-weight:800; color:${INK}; line-height:1.1; }
-.nd-kpi-sub { font-size:12px; color:#94a3b8; }
-
-.nd-panel-link { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#fff; border:1px solid #DCEEE2; border-left:4px solid ${MINT}; border-radius:12px; cursor:pointer; font-family:inherit; text-align:left; color:${INK}; }
-.nd-panel-link:hover { background:${MINT_LIGHT}; }
-.nd-panel-link .material-symbols-outlined { font-size:18px; width:32px; height:32px; border-radius:8px; background:${MINT_LIGHT}; color:${MINT_DEEP}; display:flex; align-items:center; justify-content:center; }
-.nd-panel-link b { display:block; font-size:14px; color:${MINT_DARK}; }
-.nd-panel-link small { font-size:12px; color:#5F7269; }
+/* Top performers: kind toggle + period toggle share one row (wraps when narrow). */
+.nd-perf-filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 
 .nd-ngo-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; font-size:14px; }
 .nd-ngo-head span { margin-left:auto; font-size:12px; color:#94a3b8; font-weight:600; }
@@ -1285,7 +1032,7 @@ button:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 .nd-track div { height:100%; border-radius:99px; transition:width .6s ease; }
 .nd-pipeline { display:flex; gap:8px; padding:6px 0; }
 .nd-pipe-stage { flex:1; min-width:0; text-align:center; }
-.nd-mini { display:flex; flex-direction:column; gap:2px; padding:12px 14px; border:1px solid #DCEEE2; border-left:3px solid; border-radius:12px; background:#fff; cursor:pointer; font-family:inherit; text-align:left; }
+.nd-mini { display:flex; flex-direction:column; gap:2px; padding:12px 14px; border:1px solid #DCEEE2; border-radius:12px; background:#fff; cursor:pointer; font-family:inherit; text-align:left; }
 .nd-mini:hover { background:${MINT_LIGHT}; }
 .nd-mini small { font-size:12px; font-weight:600; color:#94a3b8; }
 .nd-mini b { font-size:24px; color:${INK}; }
@@ -1313,13 +1060,7 @@ button:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 .nd-act-icon .material-symbols-outlined { font-size:16px; }
 .nd-act-msg { display:block; font-size:13px; font-weight:600; color:${INK}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nd-act-meta { display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; }
-.nd-event { display:flex; gap:12px; align-items:center; padding:10px 12px; border-radius:12px; border:1px solid #DCEEE2; }
-.nd-event-date { width:46px; height:50px; border-radius:12px; flex-shrink:0; background:${MINT_LIGHT}; color:${MINT_DEEP}; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-.nd-event-date b { font-size:18px; line-height:1; }
-.nd-event h4 { margin:0; font-size:13px; font-weight:700; color:${INK}; }
-.nd-event p { margin:3px 0 0; font-size:12px; color:#94a3b8; }
-.nd-add-btn { width:100%; margin-top:14px; padding:10px 0; border:1.5px dashed ${MINT_DEEP}; background:${MINT_LIGHT}; color:${MINT_DEEP}; border-radius:12px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
-.nd-salary { display:flex; align-items:center; gap:12px; border-left:4px solid ${MINT_DEEP}; flex-wrap:wrap; }
+.nd-salary { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .nd-salary .material-symbols-outlined { color:${MINT_DEEP}; }
 .nd-salary small { display:block; font-size:12px; font-weight:600; color:#94a3b8; }
 .nd-salary b { font-size:22px; color:${MINT_DEEP}; }
@@ -1330,12 +1071,6 @@ button:focus-visible { outline:2px solid ${MINT_DARK}; outline-offset:2px; }
 .nd-table th { position:sticky; top:0; background:#fff; text-align:left; padding:9px 10px; font-size:12px; font-weight:700; color:#94a3b8; border-bottom:1px solid #EAF3EC; white-space:nowrap; }
 .nd-table td { padding:9px 10px; border-bottom:1px solid #F0F7F2; vertical-align:middle; }
 .nd-table tbody tr:hover { background:${MINT_LIGHT}; }
-.nd-progress { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:${MUTED}; }
-.nd-btn-sm { padding:6px 12px; border:1px solid #DCEEE2; border-radius:8px; background:#fff; color:${MINT_DARK}; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
-.nd-btn-sm.primary { background:${MINT_DEEP}; color:#fff; border-color:${MINT_DEEP}; }
-.nd-btn-sm:disabled { opacity:.5; }
-.nd-label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
-.nd-input { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font:inherit; font-size:14px; box-sizing:border-box; }
 
 .nd-modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(31,51,43,.45); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:20px; }
 .nd-modal { background:#fff; border-radius:20px; width:100%; max-width:480px; max-height:80vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px -12px rgba(31,51,43,.35); animation:ndPop .25s ease; }

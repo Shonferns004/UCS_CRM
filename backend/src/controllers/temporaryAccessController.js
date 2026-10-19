@@ -1,6 +1,6 @@
 import db from '../config/db.js';
+import { getFroWorkersByNgo, getUserNgoIds } from './ngoAdminController.js';
 import {
-  isTempAccessEnabled,
   getActiveGrants,
   invalidateGrantCache,
   recordAssignmentEvent,
@@ -10,10 +10,7 @@ import {
 //
 // Every handler is mounted behind authenticateRole('admin','super_admin') in
 // ngoAdminRoutes.js (after its router.use), so admin-only is enforced by the
-// router, not trusted from the client. All handlers also refuse to operate
-// unless TEMP_DATA_ACCESS_ENABLED — the feature flag is the rollback switch:
-// flipping it off freezes grants (authorization fails closed) and hides the
-// management routes.
+// router, not trusted from the client.
 //
 // Invariants enforced here (see plan §3/§6):
 //  • Permanent ownership (fro_station_assignments.fro_worker_id) is READ but
@@ -26,15 +23,45 @@ import {
 
 const REASON_CODES = new Set(['STAFF_ABSENCE', 'WORKLOAD_SUPPORT', 'SPECIAL_ASSIGNMENT', 'OTHER']);
 
-function serviceUnavailable(res) {
-  return res.status(503).json({
-    message: 'Temporary Data Access is disabled (TEMP_DATA_ACCESS_ENABLED is off)',
-    code: 'TEMP_ACCESS_DISABLED',
-  });
-}
-
 function badRequest(res, message, code = 'VALIDATION') {
   return res.status(400).json({ message, code });
+}
+
+// ─── FRO candidates for the grant modal ──────────────────────────────────────
+//
+// GET /temporary-access/fro-candidates — the picker source for "Working FRO
+// (temporary)". It reuses getFroWorkersByNgo (department = FRO, same NGO
+// scoping as the admin's own NGOs, test accounts excluded) and carries no
+// crm_agents requirement at all — the legacy agent gate that used to live on
+// /ngo-admin/fro-workers is gone with the CRM login Agents feature (migration
+// 185_drop_crm_agents.sql). The modal keeps its own endpoint anyway so the
+// list is fetched fresh on every open: an FRO created after the Stations page
+// loaded still appears. employment_status/is_active are returned raw; the
+// modal applies its own active/terminated/owner exclusions.
+export async function listFroCandidates(req, res) {
+  try {
+    const ngoIds = await getUserNgoIds(req.user);
+    const byId = new Map();
+    for (const ngoId of ngoIds) {
+      const rows = await getFroWorkersByNgo(ngoId);
+      for (const w of rows) byId.set(w.id, w);
+    }
+    const list = [...byId.values()]
+      .map(w => ({
+        id: w.id,
+        name: w.name,
+        login_id: w.login_id,
+        email: w.email,
+        department: w.department,
+        is_active: w.is_active,
+        employment_status: w.employment_status || null,
+      }))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    return res.json(list);
+  } catch (e) {
+    console.error('listFroCandidates failed:', e?.message || e);
+    return res.status(500).json({ message: 'Failed to load FRO candidates' });
+  }
 }
 
 // Status derivation without a sweeper: live window + explicit revocation.
@@ -76,7 +103,6 @@ async function attachWorkerNames(rows) {
 // the admin sees "permanent vs temporary" workers separately (plan §8).
 export async function listTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { status, station, fro_worker_id, ngo_id, q } = req.query;
 
     let query = db
@@ -150,7 +176,6 @@ export async function listTemporaryAccess(req, res) {
 // ─── GET /temporary-access/:id ───────────────────────────────────────────────
 export async function getTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { data, error } = await db
       .from('temporary_data_assignments')
       .select(ASSIGN_COLS)
@@ -180,7 +205,7 @@ export async function getTemporaryAccess(req, res) {
 // ─── POST /temporary-access ──────────────────────────────────────────────────
 export async function createTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
+    console.log('[createTemporaryAccess] checking duplicate for station=', req.body?.station, 'fro=', req.body?.working_fro_worker_id);
     const {
       ngo_id, station, working_fro_worker_id, starts_at, expires_at,
       reason_code, reason_note, scope_type = 'STATION_ALL',
@@ -196,10 +221,12 @@ export async function createTemporaryAccess(req, res) {
     if (reason_code === 'OTHER' && !String(reason_note || '').trim()) {
       return badRequest(res, 'reason_note is required when reason_code is OTHER');
     }
-    if (scope_type !== 'STATION_ALL') {
-      // v1 ships whole-station grants only (decision locked); SELECTED_DONORS
-      // arrives with its child table in the follow-up.
-      return badRequest(res, 'scope_type SELECTED_DONORS is not yet supported; use STATION_ALL', 'SCOPE_UNSUPPORTED');
+    const VALID_SCOPES = new Set(['STATION_ALL', 'STATION_HIGH_TIER', 'STATION_NORMAL', 'SELECTED_DONORS']);
+    if (!VALID_SCOPES.has(scope_type)) {
+      return badRequest(res, `scope_type must be one of: ${[...VALID_SCOPES].join(', ')}`, 'BAD_SCOPE');
+    }
+    if (scope_type === 'SELECTED_DONORS') {
+      return badRequest(res, 'scope_type SELECTED_DONORS is not yet supported; use STATION_ALL, STATION_HIGH_TIER, or STATION_NORMAL', 'SCOPE_UNSUPPORTED');
     }
     const start = new Date(starts_at);
     const expiry = new Date(expires_at);
@@ -238,14 +265,36 @@ export async function createTemporaryAccess(req, res) {
       return badRequest(res, 'Selected FRO is not eligible (inactive or terminated)', 'FRO_INELIGIBLE');
     }
 
+    // Expire stale grants first so the partial unique index
+    // (tda_active_station_fro_uniq, WHERE status IN SCHEDULED/ACTIVE) does not
+    // block re-granting after expiry. Status is derived at read time, but the
+    // index needs the DB column to reflect expiry.
+    try {
+      const upd = await db._pool.query(
+        `UPDATE temporary_data_assignments
+            SET status = 'EXPIRED', updated_at = now()
+          WHERE station = $1
+            AND working_fro_worker_id = $2
+            AND status IN ('SCHEDULED', 'ACTIVE')
+            AND expires_at <= now()
+          RETURNING id`,
+        [station, working_fro_worker_id],
+      );
+      console.log('[createTemporaryAccess] expired stale grants:', upd.rows?.length);
+    } catch (updErr) {
+      console.error('[createTemporaryAccess] stale-grant expiry update failed:', updErr?.message);
+    }
+
     // Duplicate live grant → hint to extend instead of stacking rows.
-    const { data: dup } = await db
+    const { data: dup, error: dupErr } = await db
       .from('temporary_data_assignments')
       .select('id, expires_at, status')
       .eq('station', station)
       .eq('working_fro_worker_id', working_fro_worker_id)
       .in('status', ['SCHEDULED', 'ACTIVE'])
+      .gt('expires_at', new Date().toISOString())
       .maybeSingle();
+    console.log('[createTemporaryAccess] dup check: dup=', dup, 'err=', dupErr?.message, 'now=', new Date().toISOString());
     if (dup) {
       return res.status(409).json({
         message: 'An active temporary grant already exists for this FRO and station — extend it instead',
@@ -255,15 +304,38 @@ export async function createTemporaryAccess(req, res) {
       });
     }
 
+    // ── "Full vs separated" rule ──
+    // A station can have at most 2 grants if separated (high + normal),
+    // or 1 if full access. Can't mix full with separated.
+    const { data: existingStationGrants } = await db
+      .from('temporary_data_assignments')
+      .select('id, scope_type, working_fro_worker_id')
+      .eq('station', station)
+      .in('status', ['SCHEDULED', 'ACTIVE'])
+      .gt('expires_at', new Date().toISOString());
+    const activeScopes = new Set((existingStationGrants || []).map(g => g.scope_type));
+    if (scope_type === 'STATION_ALL') {
+      if (activeScopes.size > 0) {
+        return badRequest(res, 'Cannot grant full access: station already has a separated (high/normal) grant. Revoke existing grants first.', 'SCOPE_CONFLICT');
+      }
+    } else {
+      // STATION_HIGH_TIER or STATION_NORMAL
+      if (activeScopes.has('STATION_ALL')) {
+        return badRequest(res, 'Cannot grant tiered access: station already has a full-access grant. Revoke it first.', 'SCOPE_CONFLICT');
+      }
+      if (activeScopes.has(scope_type)) {
+        return badRequest(res, `A ${scope_type} grant already exists for this station. Revoke it first.`, 'SCOPE_CONFLICT');
+      }
+    }
+
     // Overlap advisory: another FRO already works this station temporarily.
-    // Warn, do not block — two authorized workers is a legitimate admin choice
-    // (the plan requires warning + conflict visibility, not prevention).
     const { data: overlaps } = await db
       .from('temporary_data_assignments')
       .select('id, working_fro_worker_id, expires_at')
       .eq('station', station)
       .neq('working_fro_worker_id', working_fro_worker_id)
-      .in('status', ['SCHEDULED', 'ACTIVE']);
+      .in('status', ['SCHEDULED', 'ACTIVE'])
+      .gt('expires_at', new Date().toISOString());
     const conflicts = (overlaps || []).map(o => ({
       assignment_id: o.id,
       working_fro_worker_id: o.working_fro_worker_id,
@@ -319,9 +391,54 @@ export async function createTemporaryAccess(req, res) {
     // Partial unique index race (two admins created the same pair at once)
     // surfaces here as a 23505 — answer with the same "extend instead" hint.
     if (error?.code === '23505' || String(error?.message || '').includes('tda_active_station_fro_uniq')) {
-      return res.status(409).json({
-        message: 'An active temporary grant already exists for this FRO and station — extend it instead',
-        code: 'DUPLICATE_GRANT',
+      console.log('[createTemporaryAccess] 23505 caught, checking if existing grant is expired...');
+      // The existing grant might be expired but still have status ACTIVE.
+      // Update it and retry.
+      await db._pool.query(
+        `UPDATE temporary_data_assignments
+            SET status = 'EXPIRED', updated_at = now()
+          WHERE station = $1
+            AND working_fro_worker_id = $2
+            AND status IN ('SCHEDULED', 'ACTIVE')
+            AND expires_at <= now()`,
+        [station, working_fro_worker_id],
+      );
+      // Retry the insert
+      const retryResult = await db.transaction(async () => {
+        const { rows, error: retryErr } = await db._pool.query(
+          `INSERT INTO temporary_data_assignments
+             (ngo_id, station, working_fro_worker_id, granted_by_admin_id,
+              scope_type, starts_at, expires_at, status, reason_code, reason_note)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING ${ASSIGN_COLS.split(',').map(c => c.trim()).join(', ')}`,
+          [
+            ngo_id, station, working_fro_worker_id, adminId,
+            scope_type, start.toISOString(), expiry.toISOString(),
+            start.getTime() > Date.now() ? 'SCHEDULED' : 'ACTIVE',
+            reason_code, String(reason_note || '').trim() || null,
+          ],
+        );
+        if (retryErr) throw retryErr;
+        const row = rows[0];
+        await recordAssignmentEvent({
+          assignmentId: row.id,
+          eventType: 'GRANTED',
+          actorAdminId: adminId,
+          actorRole: adminRole,
+          newState: {
+            station: row.station, ngo_id: row.ngo_id,
+            working_fro_worker_id: row.working_fro_worker_id,
+            scope_type: row.scope_type, starts_at: row.starts_at, expires_at: row.expires_at,
+          },
+          reason: reason_code,
+        });
+        return row;
+      });
+      invalidateGrantCache(working_fro_worker_id);
+      return res.status(201).json({
+        assignment: { ...retryResult, computed_status: deriveStatus(retryResult) },
+        conflicts,
+        permanent_owner_unchanged: true,
       });
     }
     console.error('createTemporaryAccess error:', error.message);
@@ -334,7 +451,6 @@ export async function createTemporaryAccess(req, res) {
 // changing them retroactively would rewrite what was authorized in the past.
 export async function extendTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { expires_at, reason } = req.body || {};
     const expiry = new Date(expires_at);
     if (isNaN(expiry.getTime())) return badRequest(res, 'expires_at must be a valid date');
@@ -398,7 +514,6 @@ export async function extendTemporaryAccess(req, res) {
 // work — logs, receipts, ownership — is never touched.
 export async function revokeTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { reason } = req.body || {};
 
     const { data: before, error: bErr } = await db
@@ -464,27 +579,43 @@ export async function revokeTemporaryAccess(req, res) {
 // the admin confirms (the same checks create runs, minus the insert).
 export async function validateTemporaryAccess(req, res) {
   try {
-    if (!isTempAccessEnabled()) return serviceUnavailable(res);
     const { station, working_fro_worker_id } = req.query;
     if (!station || !working_fro_worker_id) {
       return badRequest(res, 'station and working_fro_worker_id are required');
     }
-    const { data: dup } = await db
+    const { data: dup, error: dupErr } = await db
       .from('temporary_data_assignments')
-      .select('id, expires_at, status')
+      .select('id, expires_at, status, scope_type')
       .eq('station', station)
       .eq('working_fro_worker_id', working_fro_worker_id)
       .in('status', ['SCHEDULED', 'ACTIVE'])
+      .gt('expires_at', new Date().toISOString())
       .maybeSingle();
+    console.log('[validateTemporaryAccess] dup check: dup=', dup, 'err=', dupErr?.message);
     const { data: overlaps } = await db
       .from('temporary_data_assignments')
-      .select('id, working_fro_worker_id, expires_at')
+      .select('id, working_fro_worker_id, expires_at, scope_type')
       .eq('station', station)
       .neq('working_fro_worker_id', working_fro_worker_id)
-      .in('status', ['SCHEDULED', 'ACTIVE']);
+      .in('status', ['SCHEDULED', 'ACTIVE'])
+      .gt('expires_at', new Date().toISOString());
+
+    // Check if station has high-tier data.
+    let hasHighTier = false;
+    try {
+      const { data: htRows } = await db
+        .from('fro_assignments')
+        .select('id')
+        .eq('station', station)
+        .eq('batch_type', 'high_tier')
+        .limit(1);
+      hasHighTier = (htRows || []).length > 0;
+    } catch (e) { /* ignore */ }
+
     return res.json({
-      duplicate: dup ? { id: dup.id, expires_at: dup.expires_at } : null,
+      duplicate: dup ? { id: dup.id, expires_at: dup.expires_at, scope_type: dup.scope_type } : null,
       conflicts: (overlaps || []),
+      has_high_tier: hasHighTier,
     });
   } catch (error) {
     console.error('validateTemporaryAccess error:', error.message);
