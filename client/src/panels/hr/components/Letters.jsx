@@ -1520,14 +1520,12 @@ export default function Letters() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 40fr) minmax(0, 60fr)', gap: 12, alignItems: 'start' }}>
       <div className="card" style={{ minHeight: 0 }}>
-        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '8px 4px' }}>
-          <div>
-            <h3>Generate a letter</h3>
-            <div className="tabs" style={{ marginTop: 8 }}>
-              <button className={'tab' + (viewTab === 'letter' ? ' active' : '')} onClick={() => setViewTab('letter')}>Letter</button>
-              <button className={'tab' + (viewTab === 'messages' ? ' active' : '')} onClick={() => setViewTab('messages')}>Messages</button>
-            </div>
-          </div>
+        <div className="card-head" style={{ padding: '10px 14px' }}>
+          <h3 style={{ margin: 0 }}>Generate a letter</h3>
+        </div>
+        <div className="tabs" style={{ padding: '0 14px', borderBottom: '1px solid var(--line)' }}>
+          <button className={'tab' + (viewTab === 'letter' ? ' active' : '')} onClick={() => setViewTab('letter')}>Letter</button>
+          <button className={'tab' + (viewTab === 'messages' ? ' active' : '')} onClick={() => setViewTab('messages')}>Messages</button>
         </div>
         <div className="card-pad" style={{ padding: '12px 16px 8px' }}>
         {loading ? (
