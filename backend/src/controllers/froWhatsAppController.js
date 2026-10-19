@@ -154,12 +154,12 @@ export async function sendDirect(req, res) {
 
 export async function createConversation(req, res) {
   try {
-    const { phone, project } = req.body;
+    const { phone, project, name } = req.body;
     if (!phone) {
       return res.status(400).json({ message: 'Phone is required' });
     }
 
-    const result = await createEmptyConversation(req.user.id, phone, project || null);
+    const result = await createEmptyConversation(req.user.id, phone, project || null, name || null);
     return res.json({ success: true, ...result });
   } catch (error) {
     return res.status(500).json({ message: error.message });

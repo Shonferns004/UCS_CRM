@@ -294,7 +294,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const openWhatsAppChat = useCallback((lead) => {
     const digits = String(lead?.donor_mobile || '').replace(/\D/g, '');
     if (!digits) { toast('No WhatsApp number for this lead', 'info'); return; }
-    let url = `/fro/whatsapp-chat?phone=${digits}`;
+    const name = String(lead?.donor_name || '').trim();
+    let url = `/fro/whatsapp-chat?phone=${digits}${name ? `&name=${encodeURIComponent(name)}` : ''}`;
     try {
       const waAgents = readWaInboxAgents();
       const project = getWhatsAppProject(lead);

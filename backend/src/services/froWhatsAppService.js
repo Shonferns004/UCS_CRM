@@ -395,21 +395,36 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   return { message, conversation: fullConversation };
 }
 
-export async function createEmptyConversation(froWorkerId, phone, projectOverride) {
+export async function createEmptyConversation(froWorkerId, phone, projectOverride, contactName) {
   const phoneNormalized = normalizePhone(phone);
-  const contact = await findOrCreateContact(phoneNormalized);
+  const contact = await findOrCreateContact(phoneNormalized, contactName);
   const conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
   return { conversation, contact };
 }
 
-async function findOrCreateContact(phoneNormalized) {
+async function findOrCreateContact(phoneNormalized, contactName) {
+  const name = contactName && String(contactName).trim() ? String(contactName).trim() : null;
+
   const { data: existing } = await db
     .from('contacts')
     .select('*')
     .eq('phone_normalized', phoneNormalized)
     .maybeSingle();
 
-  if (existing) return existing;
+  if (existing) {
+    // Backfill the display name from the lead when the contact has none yet, so
+    // the inbox shows a name instead of a bare number.
+    if (name && !existing.wa_profile_name) {
+      const { data: updated } = await db
+        .from('contacts')
+        .update({ wa_profile_name: name })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      return updated || existing;
+    }
+    return existing;
+  }
 
   try {
     const { data: newContact, error } = await db
@@ -418,6 +433,7 @@ async function findOrCreateContact(phoneNormalized) {
         phone: phoneNormalized,
         phone_normalized: phoneNormalized,
         source: 'fro_initiated',
+        ...(name ? { wa_profile_name: name } : {}),
       })
       .select()
       .single();
@@ -558,7 +574,9 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
 
   const seen = new Map();
   for (const c of conversations || []) {
-    const key = `${c.contact_id}__${c.project || 'none'}`;
+    // group_id joins the dedupe key so two different WhatsApp groups that
+    // happen to share a first sender are not collapsed into one row.
+    const key = `${c.contact_id}__${c.project || 'none'}__${c.group_id || ''}`;
     if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
       seen.set(key, c);
     }

@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react'
 import { MediaUploadPreview } from './MediaPreview'
 import AudioRecorder from './AudioRecorder'
+import TemplateLibrary from './TemplateLibrary'
+import EmojiPicker from './EmojiPicker'
 
-export default function MessageComposer({ onSend, onSendMedia, disabled }) {
+export default function MessageComposer({ onSend, onSendMedia, disabled, templateProps }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [files, setFiles] = useState([])
@@ -66,7 +68,7 @@ export default function MessageComposer({ onSend, onSendMedia, disabled }) {
   }
 
   return (
-    <div style={{ padding: '8px 12px', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
+    <div style={{ padding: '8px 12px', borderTop: '1px solid #e9edef', background: '#f0f2f5' }}>
       {files.length > 0 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           {files.map((file, i) => (
@@ -74,51 +76,55 @@ export default function MessageComposer({ onSend, onSendMedia, disabled }) {
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+        <EmojiPicker textareaRef={inputRef} onInsert={setText} disabled={sending || disabled} />
         <button
+          className="wa-icon-btn"
           onClick={() => fileRef.current?.click()}
           disabled={sending || disabled}
-          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 4px', color: '#6b7280', flexShrink: 0 }}
           title="Attach files"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
           </svg>
         </button>
         <input ref={fileRef} type="file" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }} onChange={handleFileChange} />
         <button
+          className="wa-icon-btn"
           onClick={() => setShowRecorder(true)}
           disabled={sending || disabled}
-          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 4px', color: '#ef4444', flexShrink: 0 }}
           title="Record audio"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
             <line x1="12" y1="19" x2="12" y2="23"/>
             <line x1="8" y1="23" x2="16" y2="23"/>
           </svg>
         </button>
+        {/* Template library sits to the right of the mic. It is deliberately not
+            gated on `disabled`: when the 24-hour window is closed a template is
+            the only message Meta will still accept from this thread. */}
+        {templateProps && <TemplateLibrary {...templateProps} />}
         <textarea
           ref={inputRef}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
+          placeholder="Type a message"
           disabled={sending || disabled}
           rows={1}
+          className="wa-composer-input"
           style={{
             flex: 1,
-            padding: '8px 12px',
-            fontSize: 13,
-            border: '1px solid #d1d5db',
-            borderRadius: 20,
+            padding: '9px 13px',
+            fontSize: 13.2,
             outline: 'none',
             resize: 'none',
             fontFamily: 'inherit',
             lineHeight: 1.4,
             maxHeight: 120,
-            background: '#fff',
+            color: '#111b21',
           }}
           onInput={(e) => {
             e.target.style.height = 'auto'
@@ -128,20 +134,24 @@ export default function MessageComposer({ onSend, onSendMedia, disabled }) {
         <button
           onClick={handleSend}
           disabled={!canSend}
+          title={text.trim() || files.length ? 'Send' : 'Type a message to send'}
           style={{
             border: 'none',
             borderRadius: '50%',
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: canSend ? '#25D366' : '#d1d5db',
+            background: canSend ? '#00a884' : '#cfd4d6',
             color: '#fff',
             cursor: canSend ? 'pointer' : 'not-allowed',
             flexShrink: 0,
             transition: 'background .15s',
+            boxShadow: canSend ? '0 1px 3px rgba(0,168,132,.4)' : 'none',
           }}
+          onMouseOver={e => { if (canSend) e.currentTarget.style.background = '#008069' }}
+          onMouseOut={e => { if (canSend) e.currentTarget.style.background = '#00a884' }}
         >
           {sending ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -150,7 +160,7 @@ export default function MessageComposer({ onSend, onSendMedia, disabled }) {
               </circle>
             </svg>
           ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
             </svg>
           )}

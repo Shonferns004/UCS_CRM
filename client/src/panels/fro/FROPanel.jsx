@@ -506,13 +506,13 @@ function Sidebar({ open, onClose, waUnreadCounts, si, waAgents = [] }) {
   // so an impersonation switch or shared terminal can't leak another FRO's inbox
   // links into this sidebar.
   if (waAgents.length === 1) {
-    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: `Inbox ${INBOX_SHORT[waAgents[0].project] || waAgents[0].project}`, Icon: MessageCircle })
+    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: `WhatsApp ${INBOX_SHORT[waAgents[0].project] || waAgents[0].project}`, Icon: MessageCircle })
   } else if (waAgents.length > 1) {
     waAgents.forEach(a => {
-      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `Inbox ${INBOX_SHORT[a.project] || a.project}`, Icon: MessageCircle })
+      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `WhatsApp ${INBOX_SHORT[a.project] || a.project}`, Icon: MessageCircle })
     })
   } else {
-    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'Inbox', Icon: MessageCircle })
+    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp', Icon: MessageCircle })
   }
   return (
     <>

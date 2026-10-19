@@ -139,6 +139,8 @@ import { ensureAssetSchema } from './bootstrap/ensureAssetSchema.js';
 import { ensureEventHeadPlannerEventLinkSchema } from './bootstrap/ensureEventHeadPlannerEventLinkSchema.js';
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { ensureTemporaryDataAccessSchema } from './bootstrap/ensureTemporaryDataAccessSchema.js';
+import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSchema.js';
+import { ensureWhatsAppConversationSchema } from './bootstrap/ensureWhatsAppConversationSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config();
@@ -1234,6 +1236,8 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureEventHeadPlannerEventLinkSchema().catch(e => console.error('ensureEventHeadPlannerEventLinkSchema failed:', e?.message || e));
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     await ensureTemporaryDataAccessSchema().catch(e => console.error('ensureTemporaryDataAccessSchema failed:', e?.message || e));
+    await ensureWhatsAppAccountSchema().catch(e => console.error('ensureWhatsAppAccountSchema failed:', e?.message || e));
+    await ensureWhatsAppConversationSchema().catch(e => console.error('ensureWhatsAppConversationSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

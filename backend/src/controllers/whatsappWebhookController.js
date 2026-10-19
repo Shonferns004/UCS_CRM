@@ -5,6 +5,11 @@ import { applyRouting } from '../services/routingService.js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
 
+// WhatsApp group threads use a `...@g.us` JID. Cloud API puts the group id in
+// `to` on most payloads and in `from` on others, so check both. The group id
+// is what keys one conversation per WhatsApp group instead of one per sender.
+const groupIdFromJid = (v) => (typeof v === 'string' && v.endsWith('@g.us') ? v : null);
+
 export function verifyWhatsAppWebhook(req, res) {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -40,7 +45,12 @@ export async function whatsappWebhookEntry(req, res) {
 
     if (changes?.field === 'messages' && value?.messages) {
       for (const message of value.messages) {
-        const from = message.from;
+        const groupId = groupIdFromJid(message.to) || groupIdFromJid(message.from);
+        // When `from` itself is the group JID, the actual sender sits in
+        // value.contacts[0].wa_id; fall back to `from` if Meta omits it.
+        const from = groupId && message.from === groupId
+          ? (value.contacts?.[0]?.wa_id || message.from)
+          : message.from;
         let bodyText = message.text?.body || null;
 
         if (message.type === 'image') bodyText = message.image?.caption || '[Image]';
@@ -80,8 +90,11 @@ export async function whatsappWebhookEntry(req, res) {
         let query = db
           .from('conversations')
           .select('*')
-          .eq('contact_id', contact.id)
           .eq('status', 'open');
+        // A group message keys its thread by the group id so every participant
+        // posts into the same conversation; DMs keep the per-contact key.
+        if (groupId) query = query.eq('group_id', groupId);
+        else query = query.eq('contact_id', contact.id);
         if (projectFilter) query = query.eq('project', projectFilter);
         else query = query.is('project', null);
         const { data: conversation } = await query.maybeSingle();
@@ -96,6 +109,8 @@ export async function whatsappWebhookEntry(req, res) {
               last_message_at: new Date().toISOString(),
               last_inbound_at: new Date().toISOString(),
               project: accountProject !== 'unknown' ? accountProject : null,
+              is_group: !!groupId,
+              group_id: groupId,
             })
             .select()
             .single();
@@ -165,6 +180,10 @@ export async function whatsappWebhookEntry(req, res) {
           .update({
             last_message_at: new Date().toISOString(),
             last_inbound_at: new Date().toISOString(),
+            // Raise the unread chip for this thread. markConversationRead resets it
+            // to 0 when the FRO actually opens the conversation, so the badge only
+            // reflects messages the agent has not looked at yet.
+            unread_count: (activeConversation.unread_count || 0) + 1,
           })
           .eq('id', activeConversation.id);
 

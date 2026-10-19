@@ -33,7 +33,7 @@ function InboxSkeleton() {
             <div className="sk" style={{ width: 84, height: 10 }} />
           </div>
         </div>
-        <div style={{ flex: 1, padding: '22px 28px', background: '#f9fafb' }}>
+        <div style={{ flex: 1, padding: '22px 28px', background: '#efeae2' }}>
           <div className="sk" style={{ width: '34%', maxWidth: 250, height: 44, marginBottom: 12 }} />
           <div className="sk" style={{ width: '46%', maxWidth: 330, height: 54, marginLeft: 'auto', marginBottom: 12 }} />
           <div className="sk" style={{ width: '28%', maxWidth: 210, height: 40 }} />
