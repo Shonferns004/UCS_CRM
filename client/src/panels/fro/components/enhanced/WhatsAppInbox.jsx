@@ -493,7 +493,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
           <FilterChip active={activeTab === 'all'} onClick={() => setActiveTab('all')}>
             All
           </FilterChip>
-          {projectChips.map(p => (
+          {/* {projectChips.map(p => (
             <FilterChip
               key={p.id}
               color={p.color}
@@ -503,7 +503,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
             >
               {p.label}
             </FilterChip>
-          ))}
+          ))} */}
           <FilterChip active={unreadOnly} count={unreadTotal} onClick={() => setUnreadOnly(v => !v)}>
             Unread
           </FilterChip>
