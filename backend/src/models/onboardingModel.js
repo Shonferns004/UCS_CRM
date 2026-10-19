@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { preserveOldNameAlias } from './workerModel.js';
 
 // ---- Company Policies ----
 
@@ -94,6 +95,18 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
   // and stamp the audit metadata. Letting callers set them through this generic
   // updater would create a second path around that lock.
 
+  // When a rename is in flight, capture the old spelling before the update
+  // lands so receipts issued under it stay credited (see preserveOldNameAlias).
+  let oldName = null;
+  if (updates.name !== undefined && typeof updates.name === 'string') {
+    try {
+      const { data: current } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
+      oldName = current?.name || null;
+    } catch (e) {
+      oldName = null; // proceed with the rename; worst case the alias is skipped
+    }
+  }
+
   const { data, error } = await db
     .from('workers')
     .update(updates)
@@ -101,6 +114,7 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
     .select()
     .single();
   if (error) throw error;
+  await preserveOldNameAlias(workerId, oldName, updates.name);
   return data;
 };
 

@@ -34,7 +34,7 @@ const TYPE_LABEL = {
 
 const DATE_FORMATS = [
   ['', 'As typed (YYYY-MM-DD)'],
-  ['DD/MM/YYYY', 'DD/MM/YYYY'],
+  ['DD - Mon - YYYY', 'DD - Mon - YYYY'],
   ['DD MMM YYYY', 'DD MMM YYYY'],
   ['MMMM D, YYYY', 'MMMM D, YYYY'],
 ]
@@ -75,7 +75,9 @@ export function formatDateValue(raw, pattern) {
   const day = Number(d)
   const month = Number(mo)
   let out
-  if (pattern === 'DD/MM/YYYY') out = `${d}/${mo}/${y}`
+  // Includes the older keys ('DD - Month - YYYY', 'DD - MM - YYYY', 'DD-MM-YYYY',
+  // 'DD/MM/YYYY') so templates saved before this format existed still render the current style.
+  if (pattern === 'DD - Mon - YYYY' || pattern === 'DD - Month - YYYY' || pattern === 'DD - MM - YYYY' || pattern === 'DD-MM-YYYY' || pattern === 'DD/MM/YYYY') out = `${d} - ${MONTHS_SHORT[month - 1] || mo} - ${y}`
   else if (pattern === 'DD MMM YYYY') out = `${d} ${MONTHS_SHORT[month - 1] || mo} ${y}`
   else if (pattern === 'MMMM D, YYYY') out = `${MONTHS_LONG[month - 1] || mo} ${day}, ${y}`
   else out = `${y}-${mo}-${d}`
@@ -1192,7 +1194,7 @@ export default function CertificateEditorPage({ draft, setDraft, canManage, ngos
                   {(sel.field_type === 'date' || sel.field_type === 'datetime') && (
                     <div className="ced-field">
                       <label className="ced-lbl" htmlFor="ced-fdatefmt">Date Format</label>
-                      <select id="ced-fdatefmt" className="ced-inp" value={selStyle.dateFormat || ''} onChange={(e) => patchStyle(sel.field_key, { dateFormat: e.target.value })}>
+                      <select id="ced-fdatefmt" className="ced-inp" value={['DD - Month - YYYY', 'DD - MM - YYYY', 'DD-MM-YYYY', 'DD/MM/YYYY'].includes(selStyle.dateFormat) ? 'DD - Mon - YYYY' : (selStyle.dateFormat || '')} onChange={(e) => patchStyle(sel.field_key, { dateFormat: e.target.value })}>
                         {DATE_FORMATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
                     </div>

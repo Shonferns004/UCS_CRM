@@ -60,8 +60,10 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
   const [q, setQ] = useState('')
   const [deptSel, setDeptSel] = useState(() => new Set())
   const [personSel, setPersonSel] = useState(() => new Set())
-  const [postPolicy, setPostPolicy] = useState('everyone')
-  const [writeMode, setWriteMode] = useState('everyone')
+  const [permission, setPermission] = useState('everyone')
+  const [noticesEnabled, setNoticesEnabled] = useState(true)
+  const [posterSel, setPosterSel] = useState(() => new Set())
+  const [posterQuery, setPosterQuery] = useState('')
   const [saving, setSaving] = useState(false)
 
   const dialogRef = useRef(null)
@@ -146,6 +148,19 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
     (p) => personSel.has(p.uid) || deptSel.has(p.department)
   )
   const memberCount = finalMembers.length
+  const posterMembers = finalMembers.filter((p) => {
+    const q = posterQuery.trim().toLowerCase()
+    if (!q) return true
+    return (p.name || '').toLowerCase().includes(q) || (p.department || '').toLowerCase().includes(q)
+  })
+
+  useEffect(() => {
+    if (permission === 'selected') {
+      setPosterSel(new Set())
+    } else if (permission === 'selected_depts') {
+      setPosterSel(new Set(finalMembers.filter((p) => deptSel.has(p.department)).map((p) => p.uid)))
+    }
+  }, [permission])
   const canSubmit = title.trim().length > 0 && memberCount > 0 && !saving
 
   // Chips show what is selected; people already covered by a picked department
@@ -178,10 +193,32 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
     e?.preventDefault?.()
     if (!canSubmit) return
     setSaving(true)
+    const postPolicy = permission === 'admins' ? 'admins_only' : 'everyone'
+    const writeMode =
+      permission === 'selected' || permission === 'selected_depts' ? permission : 'everyone'
+    // Visibility departments (picked on the departments tab) are stored so the
+    // server can auto-seat future hires of those departments. Posting
+    // departments only matter in 'selected_depts' mode and are derived from
+    // which departments are fully ticked in the poster list.
+    const rosterDepartments = [...deptSel]
+    const postDepartments =
+      permission === 'selected_depts'
+        ? [
+            ...new Set(
+              finalMembers
+                .filter((p) => posterSel.has(p.uid))
+                .map((p) => p.department)
+                .filter(Boolean)
+            ),
+          ]
+        : []
     onCreated({
       title: title.trim(),
       postPolicy,
       writeMode,
+      roster_departments: rosterDepartments,
+      post_departments: postDepartments,
+      notices_enabled: noticesEnabled,
       members: finalMembers.map((p) => ({
         uid: p.uid,
         subject_id: String(p.id),
@@ -189,9 +226,12 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
         name: p.name,
         email: p.email,
         ngo_id: p.ngo_id,
-        // In 'selected' mode every initially-picked person is ticked; the
-        // admin can un-tick via the settings dialog later.
-        can_post: writeMode === 'selected' ? true : undefined,
+        // In 'selected'/'selected_depts' mode only the people ticked here may
+        // post; the server re-derives this for future hires from post_departments.
+        can_post:
+          writeMode === 'selected' || writeMode === 'selected_depts'
+            ? posterSel.has(p.uid)
+            : undefined,
       })),
     })
   }
@@ -363,7 +403,8 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                       <p className="chat-state-sub">No one matches “{q.trim()}”.</p>
                     )}
                   </div>
-                </>
+   
+               </>
               )}
 
               {(deptNames.length > 0 || pickedPeople.length > 0) && (
@@ -416,16 +457,16 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
               <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
                 Who can post
               </label>
-              <div style={{ marginBottom: 16 }}>
+              <div>
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="post_policy"
-                    checked={postPolicy === 'everyone'}
-                    onChange={() => setPostPolicy('everyone')}
+                    name="permission"
+                    checked={permission === 'everyone'}
+                    onChange={() => setPermission('everyone')}
                   />
                   <span className="chat-pickrow-body">
-                    <span className="chat-person-name">Everyone in the group</span>
+                    <span className="chat-person-name">Everyone</span>
                     <br />
                     <span className="chat-person-role">All members can send messages</span>
                   </span>
@@ -433,9 +474,9 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="post_policy"
-                    checked={postPolicy === 'admins_only'}
-                    onChange={() => setPostPolicy('admins_only')}
+                    name="permission"
+                    checked={permission === 'admins'}
+                    onChange={() => setPermission('admins')}
                   />
                   <span className="chat-pickrow-body">
                     <span className="chat-person-name">Admins only</span>
@@ -445,42 +486,154 @@ export default function GroupCreateDialog({ me, onClose, onCreated }) {
                     </span>
                   </span>
                 </label>
-              </div>
-
-              <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
-                Individual chat permission
-              </label>
-              <div>
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="write_mode"
-                    checked={writeMode === 'everyone'}
-                    onChange={() => setWriteMode('everyone')}
+                    name="permission"
+                    checked={permission === 'selected'}
+                    onChange={() => setPermission('selected')}
                   />
                   <span className="chat-pickrow-body">
-                    <span className="chat-person-name">All members</span>
+                    <span className="chat-person-name">Selected people</span>
                     <br />
-                    <span className="chat-person-role">Everyone above the role gate may post</span>
+                    <span className="chat-person-role">
+                      Only the people you pick can chat; others read.
+                      Manage per-person later via Group settings.
+                    </span>
                   </span>
                 </label>
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="write_mode"
-                    checked={writeMode === 'selected'}
-                    onChange={() => setWriteMode('selected')}
+                    name="permission"
+                    checked={permission === 'selected_depts'}
+                    onChange={() => setPermission('selected_depts')}
                   />
                   <span className="chat-pickrow-body">
-                    <span className="chat-person-name">Only selected members</span>
+                    <span className="chat-person-name">Selected departments</span>
                     <br />
                     <span className="chat-person-role">
-                      Everyone you picked above can chat; others read-only. Manage
-                      per-person later via Group settings.
+                      Only members of the departments you pick can chat; others read.
                     </span>
                   </span>
                 </label>
               </div>
+
+              {permission === 'selected' && finalMembers.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  {deptSel.size > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Departments</div>
+                      {[...deptSel].map((dept) => {
+                        const members = finalMembers.filter((p) => p.department === dept)
+                        const allChecked = members.length > 0 && members.every((p) => posterSel.has(p.uid))
+                        return (
+                          <label key={dept} className="chat-pickrow">
+                            <input
+                              type="checkbox"
+                              checked={allChecked}
+                              onChange={() => {
+                                setPosterSel((prev) => {
+                                  const next = new Set(prev)
+                                  if (allChecked) {
+                                    for (const m of members) next.delete(m.uid)
+                                  } else {
+                                    for (const m of members) next.add(m.uid)
+                                  }
+                                  return next
+                                })
+                              }}
+                            />
+                            <span className="chat-pickrow-body">
+                              <span className="chat-person-name">{dept}</span>
+                              <br />
+                              <span className="chat-person-role">{members.length} members</span>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    value={posterQuery}
+                    onChange={(e) => setPosterQuery(e.target.value)}
+                    placeholder="Search members..."
+                    style={{ width: '100%', marginBottom: 8, padding: '6px 8px' }}
+                  />
+                  <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                    {posterMembers.map((p) => (
+                    <label key={p.uid} className="chat-pickrow">
+                      <input
+                        type="checkbox"
+                        checked={posterSel.has(p.uid)}
+                        onChange={() => {
+                          setPosterSel((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(p.uid)) next.delete(p.uid)
+                            else next.add(p.uid)
+                            return next
+                          })
+                        }}
+                      />
+                      <span className="chat-pickrow-body">
+                        <span className="chat-person-name">{p.name}</span>
+                        <br />
+                        <span className="chat-person-role">{p.department}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                 </div>
+               )}
+              {permission === 'selected_depts' && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Departments</div>
+                  {Array.from(new Set(finalMembers.map((p) => p.department).filter(Boolean))).map((dept) => {
+                    const members = finalMembers.filter((p) => p.department === dept)
+                    const allChecked = members.length > 0 && members.every((p) => posterSel.has(p.uid))
+                    return (
+                      <label key={dept} className="chat-pickrow">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          onChange={() => {
+                            setPosterSel((prev) => {
+                              const next = new Set(prev)
+                              if (allChecked) {
+                                for (const m of members) next.delete(m.uid)
+                              } else {
+                                for (const m of members) next.add(m.uid)
+                              }
+                              return next
+                            })
+                          }}
+                        />
+                        <span className="chat-pickrow-body">
+                          <span className="chat-person-name">{dept}</span>
+                          <br />
+                          <span className="chat-person-role">{members.length} members</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <label className="chat-pickrow" style={{ marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={noticesEnabled}
+                  onChange={(e) => setNoticesEnabled(e.target.checked)}
+                />
+                <span className="chat-pickrow-body">
+                  <span className="chat-person-name">Enable announcements</span>
+                  <br />
+                  <span className="chat-person-role">
+                    Allow admins to post one-time notice popups in this group.
+                  </span>
+                </span>
+              </label>
+
             </>
           )}
         </form>

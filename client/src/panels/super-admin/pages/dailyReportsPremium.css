@@ -61,6 +61,35 @@
 .drx-btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); transform: translateY(-1px); }
 .drx-btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* Daily / Monthly segmented switch (Developer tab) */
+.drx-seg { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--drx-line); border-radius: 10px; background: var(--drx-tint); }
+.drx-seg-btn {
+  padding: 6px 14px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 650; color: var(--drx-soft); transition: all .15s ease;
+}
+.drx-seg-btn:hover { color: var(--drx-ink); }
+.drx-seg-btn.on { background: var(--drx-card); color: var(--drx-accent); box-shadow: 0 1px 2px rgba(15, 23, 42, .10); }
+
+/* Month label between the stepper arrows */
+.drx-month-label {
+  min-width: 148px; text-align: center; padding: 8px 12px; border: 1px solid var(--drx-line);
+  border-radius: 10px; background: var(--drx-card); font-size: 13px; font-weight: 650; color: var(--drx-ink);
+}
+
+/* Day-of-month chips for the developer drill-down */
+.drx-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.drx-day {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--drx-line); border-radius: 9px; background: var(--drx-card);
+  font: inherit; font-size: 12px; font-weight: 650; color: var(--drx-mute); cursor: not-allowed;
+  transition: all .14s ease; padding: 0;
+}
+.drx-day.has { color: var(--drx-soft); background: rgba(34, 197, 94, .10); border-color: rgba(34, 197, 94, .45); cursor: pointer; }
+.drx-day.has:hover { background: rgba(34, 197, 94, .20); color: var(--drx-ink); transform: translateY(-1px); }
+.drx-day.today { box-shadow: inset 0 0 0 2px var(--drx-accent); }
+.drx-day.sel { background: var(--drx-accent); border-color: var(--drx-accent); color: #fff; }
+.drx-day.sel:hover { background: var(--drx-accent); color: #fff; }
+
 /* Department tabs */
 .drx-tabs {
   display: flex; gap: 4px; padding: 4px; margin-bottom: 16px; width: fit-content; max-width: 100%;
@@ -223,6 +252,22 @@
   display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 5px; border-radius: 999px;
   font-size: 12px; font-weight: 600; color: #92400e; background: rgba(245, 158, 11, .13); border: 1px solid rgba(245, 158, 11, .3);
 }
+
+/* Bug work (live tracker activity inside the developer report) */
+.drx-bugwork-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.drx-bugwork-list li {
+  display: flex; align-items: baseline; gap: 10px; padding: 8px 12px; border-radius: 10px;
+  background: var(--drx-tint); font-size: 13px; flex-wrap: wrap;
+}
+.drx-bugwork-kind {
+  flex: none; padding: 2px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.drx-bugwork-kind.reported { color: #991b1b; background: rgba(220, 38, 38, .14); }
+.drx-bugwork-kind.fixed { color: #92400e; background: rgba(217, 119, 6, .16); }
+.drx-bugwork-kind.verified { color: #15803d; background: rgba(22, 163, 74, .14); }
+.drx-bugwork-title { flex: 1 1 200px; min-width: 0; color: var(--drx-ink); }
+.drx-bugwork-meta { font-size: 11.5px; color: var(--drx-mute); white-space: nowrap; }
 
 /* Skeleton */
 .drx-skel { border-radius: var(--drx-r); background: linear-gradient(90deg, var(--drx-tint) 25%, rgba(148, 163, 184, .24) 37%, var(--drx-tint) 63%); background-size: 400% 100%; animation: drx-shimmer 1.4s ease infinite; }

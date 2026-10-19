@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CloseIcon, MegaphoneIcon, CheckIcon } from './chatIcons'
 import { fullStamp } from './chatTime'
+import { Lightbox } from './AttachmentPreview'
 
 /**
  * The one-time notice popup.
@@ -16,6 +17,7 @@ import { fullStamp } from './chatTime'
  */
 export default function NoticePopup({ notice, onDismiss }) {
   const okRef = useRef(null)
+  const [lightboxImg, setLightboxImg] = useState(null)
 
   useEffect(() => {
     okRef.current?.focus()
@@ -51,12 +53,6 @@ export default function NoticePopup({ notice, onDismiss }) {
         aria-label={notice.notice_title || 'Notice'}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="chat-notice-popup-banner" aria-hidden="true">
-          <span className="chat-notice-dialog-icon">
-            <MegaphoneIcon size={20} />
-          </span>
-        </div>
-
         <div className="chat-dialog-body chat-notice-popup-body">
           <div className="chat-notice-badge chat-notice-badge-lg">
             <MegaphoneIcon size={13} />
@@ -88,19 +84,19 @@ export default function NoticePopup({ notice, onDismiss }) {
           {gallery.length > 0 && (
             <div className="chat-notice-gallery chat-notice-gallery-lg" data-count={Math.min(gallery.length, 4)}>
               {gallery.map((img, i) => (
-                <a
+                <button
                   key={img.url || i}
                   className="chat-notice-gallery-item"
-                  href={img.url}
-                  target="_blank"
-                  rel="noreferrer"
+                  onClick={() => setLightboxImg(img)}
+                  style={{ border: 0, padding: 0, background: 'transparent', cursor: 'zoom-in' }}
+                  
                   title={img.name || 'Open image'}
                 >
                   <img
                     src={img.url}
                     alt={img.name || `${notice.notice_title || 'Notice'} image ${i + 1}`}
                   />
-                </a>
+                </button>
               ))}
             </div>
           )}
@@ -118,15 +114,6 @@ export default function NoticePopup({ notice, onDismiss }) {
           </button>
         </div>
 
-        <button
-          type="button"
-          className="chat-notice-popup-x"
-          onClick={onDismiss}
-          aria-label="Dismiss this notice"
-          title="Dismiss"
-        >
-          <CloseIcon size={18} />
-        </button>
       </div>
     </div>
   )

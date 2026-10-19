@@ -489,10 +489,12 @@
    ========================================================================== */
 .chat-att-image {
   display: block;
-  max-width: 100%;
-  max-height: 320px;
+  max-width: min(100%, 320px);
+  max-height: 240px;
+  width: auto;
+  height: auto;
   border-radius: var(--chat-r-sm);
-  object-fit: cover;
+  object-fit: contain;
   background: var(--chat-border);
 }
 
@@ -1095,21 +1097,23 @@
 /* Notices sit centred regardless of who posted them: they are announcements
    addressed to the room, not one side of a conversation. The own-row rule
    above has the same specificity, so this has to come later to win. */
-.chat-row[data-notice='true'] { justify-content: center; }
+.chat-row[data-notice='true'] { justify-content: flex-start; }
+.chat-row[data-notice='true'][data-own='true'] { justify-content: flex-end; }
 
 .chat-bubble[data-notice='true'] {
   width: 100%;
   max-width: min(88%, 720px);
-  background: linear-gradient(180deg, #FDFEFF 0%, #F3F8FF 100%);
-  border: 1px solid #CFE0FF;
-  border-left: 4px solid var(--chat-primary);
-  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.08);
+  background: #FFFFFF;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-r-lg);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
   /* The card lays out its own lines; the plain-bubble pre-wrap would double up. */
   white-space: normal;
+  padding: 14px 16px;
 }
 .chat-row[data-own='true'] .chat-bubble[data-notice='true'] {
   /* Deliberately NOT the own-bubble tint � a notice is not "my message". */
-  background: linear-gradient(180deg, #FDFEFF 0%, #F3F8FF 100%);
+  background: #FFFFFF;
 }
 
 .chat-notice-card {
@@ -1168,12 +1172,13 @@
   display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
-  object-fit: cover;
+  object-fit: contain;
+  max-height: 200px;
 }
 .chat-notice-gallery-lg { margin-top: 12px; }
 .chat-notice-gallery-lg .chat-notice-gallery-item img {
   aspect-ratio: 16 / 10;
-  max-height: 320px;
+  max-height: 240px;
 }
 
 /* Notice composer dialog -------------------------------------------------- */
@@ -1238,7 +1243,17 @@
    alert is never trapped underneath a notice. */
 .chat-notice-overlay { z-index: 1600; align-items: center; }
 
-.chat-notice-popup { position: relative; max-width: 460px; }
+.chat-notice-popup {
+  position: relative;
+  max-width: 420px;
+  width: 100%;
+  max-height: 80dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--chat-r-lg);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+}
 
 .chat-notice-popup-banner {
   height: 64px;
@@ -1246,7 +1261,7 @@
   background: linear-gradient(135deg, var(--chat-navy) 0%, var(--chat-primary) 100%);
   border-radius: var(--chat-r-lg) var(--chat-r-lg) 0 0;
 }
-.chat-notice-popup-body { padding-top: 14px; }
+.chat-notice-popup-body { padding-top: 14px; overflow-y: auto; min-height: 0; }
 .chat-notice-popup-title {
   margin: 8px 0 0;
   font-size: 18px;

@@ -103,12 +103,48 @@ function pickName(user) {
  * stored in chat_participants), while the Super Admin's carries an email and
  * their subject_id is the literal '0'.
  */
+function getTokenPayload() {
+  try {
+    const token = localStorage.getItem('ucs_token')
+    if (!token) return null
+    const parts = String(token).split('.')
+    if (parts.length !== 3) return null
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const json = decodeURIComponent(
+      atob(b64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
 function pickUid(user) {
-  if (!user) return ''
-  const email = String(user.email || '').trim().toLowerCase()
-  if (email) return `email:${email}`
-  const id = user.id ?? user.uid ?? user.user_id ?? user.worker_id ?? user.uuid ?? null
-  if (id != null && String(id) !== '') return `login:${id}`
+  // Mirror chatUidFor() on the backend EXACTLY. The backend resolves the uid
+  // from the JWT claims (email wins when present, otherwise the id), NOT from
+  // the worker record's email column. The session user object stored in
+  // localStorage carries the worker's email even for worker-panel logins, whose
+  // JWT has no email claim — trusting user.email here would produce an
+  // email:<addr> uid that the backend never uses, so the caller's own messages
+  // render on the wrong side and their socket rooms never match.
+  const payload = getTokenPayload()
+  if (payload) {
+    const email = String(payload.email || '').trim().toLowerCase()
+    if (email) return `email:${email}`
+    const id = payload.id ?? payload.workerId ?? payload.worker_id ?? payload.sub ?? null
+    if (id != null && String(id) !== '') return `login:${id}`
+  }
+  // Fallback for sessions without a decodable token (e.g. tests): keep the old
+  // behaviour, but only from the user object as a last resort.
+  if (user) {
+    const email = String(user.email || '').trim().toLowerCase()
+    if (email) return `email:${email}`
+    const id = user.id ?? user.uid ?? user.user_id ?? user.worker_id ?? user.uuid ?? null
+    if (id != null && String(id) !== '') return `login:${id}`
+  }
   return ''
 }
 

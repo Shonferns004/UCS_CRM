@@ -7,6 +7,7 @@ import {
   getSeenNoticeIds,
   markNoticeSeen,
 } from '../models/noticeModel.js';
+import { resolveChatIdentity, listNoticeFeedFor } from '../models/chatModel.js';
 import { presignNoticeMediaUrls, presignNoticeMediaUrl } from '../services/signatureMediaLink.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,6 +58,46 @@ export const listNotices = async (req, res) => {
     const seen = await getSeenNoticeIds(req.user.id);
     const signed = await presignNoticeMediaUrls((notices || []).map(n => n.media_url));
     const out = (notices || []).map((n, i) => ({ ...n, media_url: signed[i], seen: seen.has(String(n.id)) }));
+
+    // Chat group announcements ride along so a notice posted in UCS chat shows
+    // up in every dashboard's "Recent Notices" too. Same containment rule as
+    // chat itself (the caller must be a participant of the room), so this
+    // cannot leak a notice from a group the caller is not in. The id is
+    // prefixed "chat-" so it can never collide with a panel notice's UUID, and
+    // `source` lets the widget hide edit/delete (the chat message owns those).
+    const chatMe = resolveChatIdentity(req.user);
+    if (chatMe) {
+      try {
+        const chatRows = await listNoticeFeedFor(chatMe.uid, 100);
+        for (const m of chatRows) {
+          let gallery = null;
+          try {
+            gallery = typeof m.attachment_gallery === 'string'
+              ? JSON.parse(m.attachment_gallery)
+              : m.attachment_gallery;
+          } catch { gallery = null; }
+          const first = Array.isArray(gallery) && gallery.length ? gallery[0] : null;
+          out.push({
+            id: `chat-${m.id}`,
+            source: 'chat',
+            chat_message_id: m.id,
+            conversation_id: m.conversation_id,
+            title: m.notice_title || m.conversation_title || 'Group notice',
+            content: m.body || '',
+            media_url: first?.url || m.attachment_url || null,
+            media_type: first?.type || m.attachment_type || null,
+            media_name: first?.name || m.attachment_name || null,
+            target_role: null,
+            created_at: m.created_at,
+            created_by_name: m.sender_name || null,
+            seen: true,
+          });
+        }
+      } catch (e) {
+        // A chat outage must not take the panel notice list down with it.
+        console.warn('[notices] chat notice merge skipped:', e?.message || String(e));
+      }
+    }
     return res.json(out);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -65,6 +106,9 @@ export const listNotices = async (req, res) => {
 
 export const markSeen = async (req, res) => {
   try {
+    // Chat-sourced rows carry their own read tracking (chat_notice_views);
+    // they arrive here only because the widget posts blindly on open.
+    if (String(req.params.id || '').startsWith('chat-')) return res.json({ seen: true });
     await markNoticeSeen(req.user.id, req.params.id);
     return res.json({ seen: true });
   } catch (error) {
@@ -103,6 +147,11 @@ export const editNotice = async (req, res) => {
 
 export const removeNotice = async (req, res) => {
   try {
+    // Chat-sourced rows are messages in a room; deleting them belongs to the
+    // chat surface, not here.
+    if (String(req.params.id || '').startsWith('chat-')) {
+      return res.status(400).json({ message: 'Chat notices are managed in the chat room' });
+    }
     const result = await deleteNotice(req.params.id);
     return res.json(result);
   } catch (error) {

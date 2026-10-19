@@ -165,6 +165,10 @@ export async function whatsappWebhookEntry(req, res) {
           .update({
             last_message_at: new Date().toISOString(),
             last_inbound_at: new Date().toISOString(),
+            // Raise the unread chip for this thread. markConversationRead resets
+            // it to 0 when the FRO actually opens the conversation, so the badge
+            // only reflects messages the agent has not looked at yet.
+            unread_count: (activeConversation.unread_count || 0) + 1,
           })
           .eq('id', activeConversation.id);
 

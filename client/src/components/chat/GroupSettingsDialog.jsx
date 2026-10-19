@@ -24,8 +24,16 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
   const [error, setError] = useState('')
 
   const [title, setTitle] = useState(conversation?.title || '')
-  const [postPolicy, setPostPolicy] = useState(conversation?.post_policy || 'everyone')
-  const [writeMode, setWriteMode] = useState(conversation?.write_mode || 'everyone')
+  const initPermission =
+    conversation?.post_policy === 'admins_only'
+      ? 'admins'
+      : conversation?.write_mode === 'selected_depts'
+        ? 'selected_depts'
+        : conversation?.write_mode === 'selected'
+          ? 'selected'
+          : 'everyone'
+  const [permission, setPermission] = useState(initPermission)
+  const [noticesEnabled, setNoticesEnabled] = useState(conversation?.notices_enabled !== false)
   const [ticks, setTicks] = useState(() => new Map())
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -110,6 +118,28 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
     e?.preventDefault?.()
     if (!canSubmit) return
     setSaving(true)
+    const postPolicy = permission === 'admins' ? 'admins_only' : 'everyone'
+    const writeMode = permission === 'selected' || permission === 'selected_depts' ? permission : 'everyone'
+    // In selected-depts mode the department tick list is the source of truth;
+    // derive the department names from fully-ticked departments so the server
+    // can auto-seat future hires of those departments with posting rights.
+    const postDepartments =
+      permission === 'selected_depts'
+        ? (() => {
+            const groups = new Map()
+            for (const p of participants) {
+              const key = p.department || roleLabel(p.role)
+              if (!groups.has(key)) groups.set(key, [])
+              groups.get(key).push(p)
+            }
+            const out = []
+            for (const [dept, members] of groups) {
+              const tickable = members.filter((p) => !isAdmin(p.role))
+              if (tickable.length > 0 && tickable.every((p) => !!ticks.get(p.uid))) out.push(dept)
+            }
+            return out
+          })()
+        : undefined
     const members = participants.map((p) => ({
       uid: p.uid,
       canPost: isAdmin(p.role) ? true : !!ticks.get(p.uid),
@@ -119,6 +149,8 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
         title: title.trim(),
         postPolicy,
         writeMode,
+        ...(postDepartments !== undefined ? { post_departments: postDepartments } : {}),
+        notices_enabled: noticesEnabled,
         members,
       })
       .then((dto) => {
@@ -223,12 +255,12 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="post_policy"
-                    checked={postPolicy === 'everyone'}
-                    onChange={() => setPostPolicy('everyone')}
+                    name="permission"
+                    checked={permission === 'everyone'}
+                    onChange={() => setPermission('everyone')}
                   />
                   <span className="chat-pickrow-body">
-                    <span className="chat-person-name">Everyone in the group</span>
+                    <span className="chat-person-name">Everyone</span>
                     <br />
                     <span className="chat-person-role">All members can send messages</span>
                   </span>
@@ -236,9 +268,9 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="post_policy"
-                    checked={postPolicy === 'admins_only'}
-                    onChange={() => setPostPolicy('admins_only')}
+                    name="permission"
+                    checked={permission === 'admins'}
+                    onChange={() => setPermission('admins')}
                   />
                   <span className="chat-pickrow-body">
                     <span className="chat-person-name">Admins only</span>
@@ -248,60 +280,115 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
                     </span>
                   </span>
                 </label>
-              </div>
-
-              <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
-                Individual chat permission
-              </label>
-              <div style={{ marginBottom: 12 }}>
                 <label className="chat-pickrow">
                   <input
                     type="radio"
-                    name="write_mode"
-                    checked={writeMode === 'everyone'}
-                    onChange={() => setWriteMode('everyone')}
+                    name="permission"
+                    checked={permission === 'selected'}
+                    onChange={() => setPermission('selected')}
                   />
                   <span className="chat-pickrow-body">
-                    <span className="chat-person-name">All members</span>
-                    <br />
-                    <span className="chat-person-role">
-                      Everyone above the role gate may post
-                    </span>
-                  </span>
-                </label>
-                <label className="chat-pickrow">
-                  <input
-                    type="radio"
-                    name="write_mode"
-                    checked={writeMode === 'selected'}
-                    onChange={() => setWriteMode('selected')}
-                  />
-                  <span className="chat-pickrow-body">
-                    <span className="chat-person-name">Only selected members</span>
+                    <span className="chat-person-name">Selected people</span>
                     <br />
                     <span className="chat-person-role">
                       Tick who can chat below; everyone else reads
                     </span>
                   </span>
                 </label>
+                <label className="chat-pickrow">
+                  <input
+                    type="radio"
+                    name="permission"
+                    checked={permission === 'selected_depts'}
+                    onChange={() => setPermission('selected_depts')}
+                  />
+                  <span className="chat-pickrow-body">
+                    <span className="chat-person-name">Selected departments</span>
+                    <br />
+                    <span className="chat-person-role">
+                      Only members of the departments you tick can chat; others read
+                    </span>
+                  </span>
+                </label>
               </div>
 
-              <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
-                Members ({participants.length})
+              <label className="chat-pickrow" style={{ marginBottom: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={noticesEnabled}
+                  onChange={(e) => setNoticesEnabled(e.target.checked)}
+                />
+                <span className="chat-pickrow-body">
+                  <span className="chat-person-name">Enable announcements</span>
+                  <br />
+                  <span className="chat-person-role">
+                    Allow admins to post one-time notice popups in this group.
+                  </span>
+                </span>
               </label>
-              <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
-                {participants.map((p) => {
-                  const locked = isAdmin(p.role)
-                  const checked = locked || (writeMode === 'everyone' ? true : !!ticks.get(p.uid))
-                  return (
-                    <label key={p.uid} className="chat-pickrow">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={locked || writeMode === 'everyone'}
-                        onChange={() => toggleTick(p.uid, locked)}
-                        aria-label={`${p.name} can chat`}
-                      />
+
+              {permission === 'selected_depts' && (
+                <>
+                  <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
+                    Departments
+                  </label>
+                  <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+                    {(() => {
+                      const groups = new Map()
+                      for (const p of participants) {
+                        const key = p.department || roleLabel(p.role)
+                        if (!groups.has(key)) groups.set(key, [])
+                        groups.get(key).push(p)
+                      }
+                      return Array.from(groups.entries()).map(([dept, members]) => {
+                        const tickable = members.filter((p) => !isAdmin(p.role))
+                        const allChecked =
+                          tickable.length > 0 && tickable.every((p) => !!ticks.get(p.uid))
+                        return (
+                          <label key={dept} className="chat-pickrow">
+                            <input
+                              type="checkbox"
+                              checked={allChecked}
+                              onChange={() => {
+                                setTicks((prev) => {
+                                  const next = new Map(prev)
+                                  for (const p of tickable) next.set(p.uid, !allChecked)
+                                  return next
+                                })
+                              }}
+                              aria-label={`${dept} department can chat`}
+                            />
+                            <span className="chat-pickrow-body">
+                              <span className="chat-person-name">{dept}</span>
+                              <br />
+                              <span className="chat-person-role">{members.length} members</span>
+                            </span>
+                          </label>
+                        )
+                      })
+                    })()}
+                  </div>
+                </>
+              )}
+
+              {permission === 'selected' && (
+                <>
+                  <label className="chat-field-label" style={{ display: 'block', marginBottom: 6 }}>
+                    Members ({participants.length})
+                  </label>
+                  <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+                    {participants.map((p) => {
+                      const locked = isAdmin(p.role)
+                      const checked = locked || !!ticks.get(p.uid)
+                      return (
+                        <label key={p.uid} className="chat-pickrow">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={locked}
+                            onChange={() => toggleTick(p.uid, locked)}
+                            aria-label={`${p.name} can chat`}
+                          />
                       <Avatar name={p.name} size={32} />
                       <span className="chat-pickrow-body">
                         <span className="chat-person-name">{p.name}</span>
@@ -315,6 +402,8 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
                   <p className="chat-state-sub">No members found.</p>
                 )}
               </div>
+                </>
+              )}
 
               {error && (
                 <p className="chat-state-sub" style={{ color: 'var(--danger, #b91c1c)' }}>
@@ -334,11 +423,12 @@ export default function GroupSettingsDialog({ me, conversation, onClose, onUpdat
             className="chat-btn chat-btn-danger"
             onClick={remove}
             disabled={deleting || saving}
+style={{ minWidth: 120 }}
           >
             {deleting
               ? 'Deleting…'
               : confirmDelete
-                ? 'Really delete? This cannot be undone'
+                ? 'Confirm delete?'
                 : 'Delete group'}
           </button>
           <div style={{ display: 'flex', gap: 8 }}>

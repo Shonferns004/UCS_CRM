@@ -136,7 +136,15 @@ export function toConversationDto(row) {
     // Only group rooms carry a policy; a DM is always open to its two members.
     post_policy: row.kind === 'group' ? (row.post_policy || 'everyone') : null,
     // 'selected' means only the members an admin ticked (plus admins) may post.
+    // 'selected_depts' is the same gate, but the choice was made per department
+    // and the sync keeps seating new hires of those departments automatically.
     write_mode: row.kind === 'group' ? (row.write_mode || 'everyone') : null,
+    // Departments the creator picked for visibility (auto-seated by the sync)
+    // and for posting (used only when write_mode='selected_depts').
+    roster_departments: row.kind === 'group' ? (row.roster_departments || []) : [],
+    post_departments: row.kind === 'group' ? (row.post_departments || []) : [],
+    // Whether the announcement/notice feature is enabled for this group.
+    notices_enabled: row.kind === 'group' ? row.notices_enabled !== false : null,
     // The caller's own per-member chat permission, so the composer can hide
     // itself in a 'selected' room without a second round trip. Meaningless
     // outside 'selected' mode - the server re-derives everything on write.
@@ -242,16 +250,23 @@ export async function touchConversation(id) {
  * In every other mode a forged can_post row still grants nothing.
  */
 export function canPostIn(convo, me, participant) {
-  if (!me?.canPost) return false;
-  if (convo?.kind !== 'group') return true;
+  // DMs and the seed room: the writer-role gate still holds. A per-group tick
+  // never opens a direct message — it is scoped to one room only.
+  if (convo?.kind !== 'group') return !!me?.canPost;
   if ((convo.post_policy || 'everyone') === 'admins_only') return isChatAdminRole(me.role);
-  if ((convo.write_mode || 'everyone') === 'selected') {
+  if ((convo.write_mode || 'everyone') === 'selected' || convo.write_mode === 'selected_depts') {
     // Admins always keep the wheel: someone has to be able to post the next
     // notice and untick the person who was muted by mistake.
     if (isChatAdminRole(me.role)) return true;
+    // An explicit per-member grant is authoritative here, and is the ONE way a
+    // normally read-only role (HR, Developer, Event Head, ...) earns posting
+    // rights — in this room only. The row exists because an admin ticked it in
+    // 'selected' / 'selected_depts' mode, and it grants nothing anywhere else.
     return !!participant?.can_post;
   }
-  return true;
+  // 'everyone' write mode: the admin did not restrict it, so the global writer
+  // role gate still applies (a read-only role cannot post here).
+  return !!me?.canPost;
 }
 
 /**
@@ -262,71 +277,94 @@ export function canPostIn(convo, me, participant) {
  * seated, so a group created with an empty roster still has exactly one member
  * rather than being an orphan nobody can open.
  */
-export async function createGroup({ title, creator, members, postPolicy, writeMode }) {
+export async function createGroup({ title, creator, members, postPolicy, writeMode, noticesEnabled, rosterDepartments, postDepartments }) {
   const slug = `group:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const { rows } = await db._pool.query(
-    `INSERT INTO chat_conversations (kind, slug, title, created_by, post_policy, write_mode)
-     VALUES ('group', $1, $2, $3, $4, $5)
+    `INSERT INTO chat_conversations (kind, slug, title, created_by, post_policy, write_mode, notices_enabled, roster_departments, post_departments)
+     VALUES ('group', $1, $2, $3, $4, $5, $6, $7::text[], $8::text[])
      RETURNING *`,
     [
       slug, title, creator.uid,
       postPolicy === 'admins_only' ? 'admins_only' : 'everyone',
-      writeMode === 'selected' ? 'selected' : 'everyone',
+      writeMode === 'selected' || writeMode === 'selected_depts' ? writeMode : 'everyone',
+      noticesEnabled === false ? false : true,
+      Array.isArray(rosterDepartments) ? rosterDepartments : [],
+      Array.isArray(postDepartments) ? postDepartments : [],
     ]
   );
   const convo = rows[0];
 
+  // Seat every member under BOTH uid spellings when they have an email, exactly
+  // like the Community sync does: worker-panel logins resolve to `login:<id>`
+  // (no email in the JWT) while HR-panel logins resolve to `email:<address>`.
+  // Seating only one spelling leaves the other login path unable to see the
+  // room. De-duplicate by uid so the same person never gets two identical rows.
+  const seated = new Map(); // uid -> participant payload
+  const seatPerson = (person, computedCanPost) => {
+    const subjectId = person.subjectId ?? person.subject_id;
+    const email = person.email ? String(person.email).trim().toLowerCase() : null;
+    const base = {
+      subjectId,
+      role: person.role,
+      department: person.department || 'Unassigned',
+      canPost: computedCanPost,
+      name: person.name,
+      email: person.email || null,
+      ngoId: person.ngo_id ?? person.ngoId ?? null,
+    };
+    const primaryUid = email ? `email:${email}` : `login:${subjectId}`;
+    if (!seated.has(primaryUid)) seated.set(primaryUid, { ...base, uid: primaryUid });
+    // Secondary spelling for workers who might sign in the other way.
+    if (email && subjectId != null && String(subjectId) !== '') {
+      const secondaryUid = `login:${subjectId}`;
+      if (!seated.has(secondaryUid)) seated.set(secondaryUid, { ...base, uid: secondaryUid });
+    }
+  };
+
   // Creator first so they are always a participant even if the roster omitted
-  // them, then de-duplicated by uid so the same person in two depts seats once.
-  const roster = new Map();
-  roster.set(creator.uid, {
-    uid: creator.uid,
-    subjectId: creator.subjectId,
-    role: creator.role,
-    canPost: canPostIn(convo, creator, null),
-    name: creator.name,
-  });
+  // them.
+  seatPerson(creator, canPostIn(convo, creator, null));
+
   for (const m of members || []) {
-    if (!m?.uid || roster.has(m.uid)) continue;
-    roster.set(m.uid, {
-      uid: m.uid,
-      subjectId: m.subject_id ?? m.subjectId,
-      role: m.role,
-      // Seated with the flag their policy grants, so the cached UI copy agrees
-      // with what sendMessage will actually allow. In 'selected' mode the
-      // per-member canPost the creator chose is what counts.
-      canPost: canPostIn(
-        convo,
-        { canPost: isWriterRole(m.role), role: m.role },
-        { can_post: m.canPost !== false }
-      ),
-      name: m.name,
-      email: m.email,
-      ngoId: m.ngo_id ?? m.ngoId,
-    });
+    if (!m?.uid) continue;
+    // Skip if already seated under this member's primary uid.
+    const email = m.email ? String(m.email).trim().toLowerCase() : null;
+    const primaryUid = email ? `email:${email}` : `login:${m.subject_id ?? m.subjectId}`;
+    if (seated.has(primaryUid)) continue;
+    seatPerson(m, canPostIn(
+      convo,
+      { canPost: isWriterRole(m.role), role: m.role },
+      { can_post: m.canPost !== false }
+    ));
   }
 
-  for (const p of roster.values()) {
+  for (const p of seated.values()) {
     await addParticipant(convo.id, p);
   }
-  return { convo, memberCount: roster.size };
+  // memberCount counts distinct people, not uid spellings.
+  const distinctPeople = new Set([...seated.values()].map((p) => String(p.subjectId)));
+  return { convo, memberCount: distinctPeople.size };
 }
 
-/** Renames a group and/or flips its two policy switches. */
-export async function updateGroupSettings(id, { title, postPolicy, writeMode }) {
+/** Renames a group and/or flips its policy switches. */
+export async function updateGroupSettings(id, { title, postPolicy, writeMode, noticesEnabled, postDepartments }) {
   const { rows } = await db._pool.query(
     `UPDATE chat_conversations
-        SET title       = COALESCE($2, title),
-            post_policy = COALESCE($3, post_policy),
-            write_mode  = COALESCE($4, write_mode),
-            updated_at  = now()
+        SET title            = COALESCE($2, title),
+            post_policy      = COALESCE($3, post_policy),
+            write_mode       = COALESCE($4, write_mode),
+            notices_enabled  = COALESCE($5, notices_enabled),
+            post_departments = COALESCE($6::text[], post_departments),
+            updated_at       = now()
       WHERE id = $1
       RETURNING *`,
     [
       id,
       title == null ? null : title,
       postPolicy == null ? null : (postPolicy === 'admins_only' ? 'admins_only' : 'everyone'),
-      writeMode == null ? null : (writeMode === 'selected' ? 'selected' : 'everyone'),
+      writeMode == null ? null : (writeMode === 'selected' || writeMode === 'selected_depts' ? writeMode : 'everyone'),
+      noticesEnabled == null ? null : !!noticesEnabled,
+      Array.isArray(postDepartments) ? postDepartments : null,
     ]
   );
   return rows[0] || null;
@@ -344,13 +382,31 @@ export async function setParticipantsCanPost(conversationId, entries) {
   for (const e of entries || []) {
     const uid = String(e?.uid || '').trim();
     if (!uid) continue;
-    const { rowCount } = await db._pool.query(
-      `UPDATE chat_participants
-          SET can_post = $3
-        WHERE conversation_id = $1 AND uid = $2`,
-      [conversationId, uid, !!e.canPost]
+    // Resolve the subject behind this uid and update EVERY spelling of it
+    // (email:<addr> and login:<id>), so a 'selected' room's can_post flag
+    // agrees for both login paths instead of only the one the dialog listed.
+    const { rows } = await db._pool.query(
+      `SELECT subject_id FROM chat_participants WHERE conversation_id = $1 AND uid = $2 LIMIT 1`,
+      [conversationId, uid]
     );
-    changed += rowCount || 0;
+    const subjectId = rows[0]?.subject_id;
+    if (subjectId != null && String(subjectId) !== '') {
+      const { rowCount } = await db._pool.query(
+        `UPDATE chat_participants
+            SET can_post = $3
+          WHERE conversation_id = $1 AND subject_id = $2`,
+        [conversationId, subjectId, !!e.canPost]
+      );
+      changed += rowCount || 0;
+    } else {
+      const { rowCount } = await db._pool.query(
+        `UPDATE chat_participants
+            SET can_post = $3
+          WHERE conversation_id = $1 AND uid = $2`,
+        [conversationId, uid, !!e.canPost]
+      );
+      changed += rowCount || 0;
+    }
   }
   return changed;
 }
@@ -362,17 +418,18 @@ export async function setParticipantsCanPost(conversationId, entries) {
 export async function addParticipant(conversationId, p) {
   const { rows } = await db._pool.query(
     `INSERT INTO chat_participants
-       (conversation_id, uid, subject_id, role, can_post, display_name, email, ngo_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (conversation_id, uid, subject_id, role, can_post, display_name, email, ngo_id, department)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (conversation_id, uid) DO UPDATE
        SET subject_id  = EXCLUDED.subject_id,
            role        = EXCLUDED.role,
            can_post    = EXCLUDED.can_post,
            display_name= EXCLUDED.display_name,
            email       = EXCLUDED.email,
-           ngo_id      = EXCLUDED.ngo_id
+           ngo_id      = EXCLUDED.ngo_id,
+           department  = COALESCE(EXCLUDED.department, chat_participants.department)
      RETURNING *`,
-    [conversationId, p.uid, p.subjectId, p.role, !!p.canPost, p.name, p.email || null, p.ngoId || null]
+    [conversationId, p.uid, p.subjectId, p.role, !!p.canPost, p.name, p.email || null, p.ngoId || null, p.department || null]
   );
   return rows[0];
 }
@@ -415,7 +472,8 @@ export async function listParticipants(conversationId) {
 export async function listConversationsFor(me) {
   const { rows } = await db._pool.query(
      `SELECT
-        c.id, c.kind, c.slug, c.title, c.updated_at, c.post_policy, c.write_mode,
+        c.id, c.kind, c.slug, c.title, c.updated_at, c.post_policy, c.write_mode, c.notices_enabled,
+        c.roster_departments, c.post_departments,
         p.last_read_at, p.last_read_msg_id,
         p.can_post AS my_can_post,
         lm.id         AS last_message_id,
@@ -870,4 +928,258 @@ export async function removeStaleParticipants(conversationId, keepUids) {
     [conversationId, keepUids]
   );
   return rows.map((r) => r.uid);
+}
+
+/**
+ * Backfill: ensure every group participant is seated under BOTH uid spellings.
+ */
+export async function backfillGroupParticipantUids() {
+  const { rows: groups } = await db._pool.query(
+    `SELECT id FROM chat_conversations WHERE kind = 'group'`
+  );
+  for (const g of groups) {
+    const { rows: parts } = await db._pool.query(
+      `SELECT * FROM chat_participants WHERE conversation_id = $1`,
+      [g.id]
+    );
+    const bySubject = new Map();
+    for (const p of parts) {
+      const key = String(p.subject_id ?? p.uid);
+      if (!bySubject.has(key)) bySubject.set(key, []);
+      bySubject.get(key).push(p);
+    }
+    for (const [subjectId, list] of bySubject) {
+      let email = list.map((p) => p.email).find((e) => e);
+      // Fall back to the workers table: older rows may have a NULL email even
+      // though the worker has one, which would otherwise skip the email: spelling.
+      if (!email && subjectId != null && String(subjectId) !== '' && String(subjectId) !== 'null' && String(subjectId) !== 'undefined') {
+        try {
+          const { rows: w } = await db._pool.query(
+            `SELECT email FROM workers WHERE id::text = $1 LIMIT 1`,
+            [String(subjectId)]
+          );
+          email = w[0]?.email || null;
+        } catch {
+          email = null;
+        }
+      }
+      const role = list[0].role;
+      const name = list[0].display_name;
+      const ngoId = list[0].ngo_id;
+      const e = email ? String(email).trim().toLowerCase() : null;
+      const loginUid = subjectId != null && String(subjectId) !== '' && String(subjectId) !== 'null' && String(subjectId) !== 'undefined'
+        ? `login:${subjectId}`
+        : null;
+      const emailUid = e ? `email:${e}` : null;
+      // Preserve each spelling's own can_post instead of OR-ing them, which
+      // used to flip a read-only member into a poster via the other spelling.
+      const emailCanPost = (list.find((p) => p.uid === emailUid)?.can_post)
+        ?? (list.find((p) => p.uid === loginUid)?.can_post)
+        ?? list[0]?.can_post
+        ?? false;
+      const loginCanPost = (list.find((p) => p.uid === loginUid)?.can_post)
+        ?? (list.find((p) => p.uid === emailUid)?.can_post)
+        ?? list[0]?.can_post
+        ?? false;
+      if (e) {
+        await addParticipant(g.id, {
+          uid: `email:${e}`,
+          subjectId,
+          role,
+          canPost: !!emailCanPost,
+          name,
+          email: e,
+          ngoId,
+        });
+      }
+      if (loginUid) {
+        await addParticipant(g.id, {
+          uid: loginUid,
+          subjectId,
+          role,
+          canPost: !!loginCanPost,
+          name,
+          email: e,
+          ngoId,
+        });
+      }
+    }
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Department roster sync (auto-seating)
+// ---------------------------------------------------------------------------
+
+/**
+ * Seats every active worker whose department is in a group's roster_departments
+ * and who is not yet a participant - the "new HR hire joins automatically" path.
+ *
+ * Runs at boot and on an interval, and right after a group is created or its
+ * settings saved. Deactivated/terminated workers are excluded by listDirectory,
+ * so leavers simply stop being candidates (existing rows are left alone here;
+ * only ADDITIONS are made - removal is an admin decision).
+ *
+ * can_post for a newly seated member:
+ *   - write_mode 'selected_depts'  -> true only when the department is in
+ *     post_departments (admins pass the gate regardless of this flag)
+ *   - write_mode 'selected'        -> false (only hand-ticked members chat)
+ *   - otherwise                    -> true (cached UI hint; policy gates instead)
+ *
+ * @param {number|null} conversationId limit to one group; null = every group
+ *        that has a non-empty roster_departments.
+ */
+export async function syncRosterDepartments(conversationId = null) {
+  const { rows: groups } = await db._pool.query(
+    `SELECT id, write_mode, roster_departments, post_departments
+       FROM chat_conversations
+      WHERE kind = 'group'
+        AND COALESCE(cardinality(roster_departments), 0) > 0
+        AND ($1::int IS NULL OR id = $1)`,
+    [conversationId]
+  );
+  if (!groups.length) return { added: 0 };
+
+  const directory = await listDirectory();
+  const byDept = new Map(); // lower(department) -> directory people
+  for (const person of directory) {
+    const key = String(person.department || '').trim().toLowerCase();
+    if (!key) continue;
+    if (!byDept.has(key)) byDept.set(key, []);
+    byDept.get(key).push(person);
+  }
+
+  let added = 0;
+  for (const g of groups) {
+    const roster = (g.roster_departments || [])
+      .map((d) => String(d).trim().toLowerCase())
+      .filter(Boolean);
+    if (!roster.length) continue;
+    const postDepartmentsRaw = (g.post_departments || []).map((d) => String(d).trim()).filter(Boolean);
+    const post = new Set(postDepartmentsRaw.map((d) => d.toLowerCase()));
+    const mode = g.write_mode || 'everyone';
+
+    const { rows: existing } = await db._pool.query(
+      `SELECT DISTINCT subject_id FROM chat_participants WHERE conversation_id = $1`,
+      [g.id]
+    );
+    const have = new Set(existing.map((r) => String(r.subject_id)));
+
+    for (const key of roster) {
+      for (const person of byDept.get(key) || []) {
+        if (have.has(String(person.id))) continue;
+        have.add(String(person.id));
+        const deptKey = String(person.department || '').trim().toLowerCase();
+        const canPost =
+          mode === 'selected_depts' ? post.has(deptKey)
+          : mode === 'selected' ? false
+          : true;
+        // Both uid spellings, exactly like createGroup: worker-panel logins are
+        // login:<id>, HR-panel logins are email:<address>.
+        const email = person.email ? String(person.email).trim().toLowerCase() : null;
+        const base = {
+          subjectId: person.id,
+          role: person.role,
+          department: person.department || 'Unassigned',
+          canPost,
+          name: person.name,
+          email,
+          ngoId: person.ngo_id ?? null,
+        };
+        if (email) {
+          await addParticipant(g.id, { ...base, uid: `email:${email}` });
+          await addParticipant(g.id, { ...base, uid: `login:${person.id}` });
+        } else {
+          await addParticipant(g.id, { ...base, uid: `login:${person.id}` });
+        }
+        added += 1;
+      }
+    }
+
+    // Reconcile EXISTING seats in department mode: the department list is the
+    // source of truth there (the settings dialog only offers department
+    // toggles), so a member whose department is (or isn't) in post_departments
+    // must have a matching can_post regardless of historical glitches.
+    if (mode === 'selected_depts') {
+      await db._pool.query(
+        `UPDATE chat_participants p
+            SET can_post = (lower(COALESCE(btrim(p.department), '')) = ANY(
+                  SELECT lower(btrim(d)) FROM unnest($2::text[]) AS d))
+          WHERE p.conversation_id = $1
+            AND p.role NOT IN ('super_admin', 'accounts', 'admin')
+            AND COALESCE(p.can_post, false) IS DISTINCT FROM
+                (lower(COALESCE(btrim(p.department), '')) = ANY(
+                  SELECT lower(btrim(d)) FROM unnest($2::text[]) AS d))`,
+        [g.id, postDepartmentsRaw]
+      );
+    }
+  }
+  return { added };
+}
+
+/**
+ * Backfills chat_participants.department for rows seated before migration 192
+ * (matched by subject_id, then email). One pass at boot - new rows always carry
+ * their department from the sync or the create path.
+ */
+export async function backfillParticipantDepartments() {
+  const { rows: missing } = await db._pool.query(
+    `SELECT DISTINCT p.conversation_id, p.subject_id, p.email
+       FROM chat_participants p
+       JOIN chat_conversations c ON c.id = p.conversation_id
+      WHERE c.kind = 'group'
+        AND (p.department IS NULL OR p.department = '')`
+  );
+  if (!missing.length) return 0;
+  const directory = await listDirectory();
+  const byId = new Map(directory.map((d) => [String(d.id), d.department]));
+  const byEmail = new Map(directory.filter((d) => d.email).map((d) => [d.email, d.department]));
+  let filled = 0;
+  for (const row of missing) {
+    const dept =
+      (row.subject_id != null && byId.get(String(row.subject_id))) ||
+      byEmail.get(String(row.email || '').trim().toLowerCase()) ||
+      null;
+    if (!dept) continue;
+    const { rowCount } = await db._pool.query(
+      `UPDATE chat_participants SET department = $3
+        WHERE conversation_id = $1 AND subject_id = $2
+          AND (department IS NULL OR department = '')`,
+      [row.conversation_id, row.subject_id, dept]
+    );
+    filled += rowCount || 0;
+  }
+  return filled;
+}
+
+/**
+ * Chat-side notice feed for the dashboards' "Recent Notices" widget.
+ *
+ * Group announcements (is_notice) from rooms the caller belongs to, with
+ * announcements enabled, newest first. Visibility is the ordinary chat
+ * containment rule (JOIN chat_participants), so a notice can never surface
+ * for someone outside its room. Independent of listPendingNotices: that one
+ * feeds the one-time popup (undelivered only); this one is history.
+ */
+export async function listNoticeFeedFor(uid, limit = 50) {
+  const cap = Math.min(Number(limit) || 50, 200);
+  const { rows } = await db._pool.query(
+    `SELECT m.id, m.body, m.notice_title, m.sender_name, m.created_at,
+            m.attachment_url, m.attachment_name, m.attachment_type,
+            m.attachment_gallery,
+            c.id AS conversation_id, c.title AS conversation_title
+       FROM chat_messages m
+       JOIN chat_conversations c ON c.id = m.conversation_id
+       JOIN chat_participants p ON p.conversation_id = c.id AND p.uid = $1
+      WHERE m.is_notice = true
+        AND m.deleted_at IS NULL
+        AND c.kind = 'group'
+        AND c.notices_enabled IS DISTINCT FROM false
+        AND c.is_archived = false
+      ORDER BY m.id DESC
+      LIMIT $2`,
+    [uid, cap]
+  );
+  return rows;
 }

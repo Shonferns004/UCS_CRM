@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PageHeader, Select, SearchInput, Badge, StatusPill, Empty } from '../components/ui.jsx'
 import MonthlyCalendarView from '../components/planner/MonthlyCalendarView.jsx'
+import { renderPosterToPdf } from '../components/eventPosterPdf.jsx'
 import {
   fetchWorkspaceNgos,
   fetchSectors,
@@ -124,12 +125,21 @@ const monthlyTargetFor = (n) => NGO_MONTHLY_TARGET[ngoCodeKey(n)] ?? DEFAULT_MON
    Logos live in /public/logo (same files Event Reports uses); the colours match
    each NGO's letter-head so the printed page reads as that NGO's report. */
 const NGO_BRAND = {
-  bsct: { name: 'BSCT', fullName: 'Being Sevak Charitable Trust', logo: '/logo/beingsevak-logo.png', color: '#204E8C', headingColor: '#204E8C', accent: '#FFC72C', colorLight: '#EAF1FB' },
+  bsct: { name: 'BSCT', fullName: 'Being Sevak Charitable Trust', displayName: 'Being Sevak', sub: 'Charitable Trust', brandImage: '/logo/bsct-logo.png', logo: '/logo/beingsevak-logo.png', color: '#204E8C', headingColor: '#204E8C', accent: '#FFC72C', colorLight: '#EAF1FB' },
   mann: { name: 'MANN', fullName: 'Mann Care Foundation', logo: '/logo/mann-logo.png', color: '#F42D92', headingColor: '#C23875', accent: '#F42D92', colorLight: '#FDE7F3' },
   aflf: { name: 'AFLF', fullName: 'Ashray For Life Foundation', logo: '/logo/aflf-logo.png', color: '#0E6BA8', headingColor: '#DC2626', accent: '#22D3EE', colorLight: '#E6F4FB' },
 }
 const DEFAULT_BRAND = { name: 'NGO', fullName: 'NGO', logo: '', color: '#2036bd', headingColor: '#2036bd', accent: '#2036bd', colorLight: '#eef0ff' }
-const ngoBrandFor = (n) => NGO_BRAND[ngoCodeKey(n)] || { ...DEFAULT_BRAND, name: ngoShortLabel(n), fullName: n?.name || 'NGO' }
+/* Some NGO rows carry no code; fall back to matching the name so the brand
+   (and its footer image) still resolves for "Being Sevak", "Mann", "Ashray". */
+const brandKeyForName = (n) => {
+  const s = `${n?.code || ''} ${n?.name || ''}`.toLowerCase()
+  if (/bsct|being\s*sevak/.test(s)) return 'bsct'
+  if (/mann/.test(s)) return 'mann'
+  if (/aflf|ashray/.test(s)) return 'aflf'
+  return ''
+}
+const ngoBrandFor = (n) => NGO_BRAND[ngoCodeKey(n)] || NGO_BRAND[brandKeyForName(n)] || { ...DEFAULT_BRAND, name: ngoShortLabel(n), fullName: n?.name || 'NGO' }
 
 const capFirst = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
 
@@ -213,6 +223,8 @@ const SCROLLBAR_CSS = `
 .ap-scroll::-webkit-scrollbar-track { background: #eef0f7; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .ap-scroll::-webkit-scrollbar-thumb { background: #b9bcd0; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .ap-scroll::-webkit-scrollbar-thumb:hover { background: #9498b0; background-clip: padding-box; }
+.ap-spin { animation: ap-spin 0.8s linear infinite; }
+@keyframes ap-spin { to { transform: rotate(360deg); } }
 `
 
 /* AI programme urgency, mapped to a badge tone: the loudest for Urgent and
@@ -1049,164 +1061,36 @@ const pickFileToDataUrl = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
-/* Same-origin logo file → data URL (jsPDF needs the bytes). Any failure just
-   drops the logo; the sheet still renders. */
-const urlToDataUrl = async (url) => {
-  try {
-    const res = await fetch(url)
-    const blob = await res.blob()
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result || ''))
-      reader.onerror = () => reject(new Error('read failed'))
-      reader.readAsDataURL(blob)
-    })
-  } catch {
-    return ''
-  }
-}
+/* Map the legacy "Event Detail Sheet" args onto the new EventPosterReport
+   template, so the Monthly Planner downloads the same "Being Sevak" poster that
+   Event Reports produces. Extra fields the new template supports (tagline,
+   footer quote, report no.) are not collected by the planner's create form, so
+   they stay blank. */
+const posterPropsFromSheetArgs = ({ name, date, ngoLabel, activityName, venue, description, slogan, tagline, images, brand } = {}) => ({
+  title: name || '',
+  headline: name || '',
+  date,
+  description: description || '',
+  venue: venue || '',
+  tagline: tagline || activityName || '',
+  slogan: slogan || '',
+  footerQuote: '',
+  reportNo: '',
+  brandName: brand?.displayName || brand?.fullName || ngoLabel || 'NGO',
+  brandSub: brand?.sub || '',
+  teamMembers: [],
+  photos: images || [],
+  logoUrl: brand?.logo || '',
+  sevakBanoImage: '/logo/sevak-logo.png',
+  brandImage: brand?.brandImage || '',
+})
 
-const hexToRgb = (hex) => {
-  const h = String(hex || '').replace('#', '')
-  const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
-  const n = parseInt(v || '2036bd', 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-
-const dataUrlFormat = (u) => (u.startsWith('data:image/png') ? 'PNG' : u.startsWith('data:image/webp') ? 'WEBP' : 'JPEG')
-
-/* ── Event Poster PDF (Being Sevak style, 1 page A4) ─────────────────────────
-   Replaces the old "Event Detail" sheet. Same arguments as before, plus the
-   optional `subtitle` and `teamMembers`. Drawn directly with jsPDF. */
-const POSTER = {
-  blue: [11, 79, 168], lime: [228, 245, 15], green: [47, 143, 58],
-  greenText: [233, 247, 160], white: [255, 255, 255], soft: [238, 242, 248],
-}
-const ordinal = (n) => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0] }
-
-async function buildPosterDoc(jsPDF, { name, subtitle, date, ngoLabel, activityName, venue, description, teamMembers, images, brand, logoData }) {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const P = POSTER, W = 210, H = 297, B = 4
-  const fill = (c) => doc.setFillColor(c[0], c[1], c[2])
-  const ink = (c) => doc.setTextColor(c[0], c[1], c[2])
-  const draw = (c) => doc.setDrawColor(c[0], c[1], c[2])
-  const fmtOf = (u) => (u.startsWith('data:image/png') ? 'PNG' : u.startsWith('data:image/webp') ? 'WEBP' : 'JPEG')
-
-  // page background
-  fill(P.blue); doc.rect(0, 0, W, H, 'F')
-
-  // ── header ──
-  draw(P.white); doc.setLineWidth(0.4); doc.rect(B + 2, B + 2, W - 2 * B - 4, 30)
-  const textMaxW = W - 2 * B - 4 - 16 - 30
-  ink(P.lime); doc.setFont('times', 'bold'); doc.setFontSize(24)
-  const tl = doc.splitTextToSize(String(name || 'Event'), textMaxW).slice(0, 2)
-  const sub = subtitle || activityName || ngoLabel || ''
-  const titleH = tl.length * 9
-  let ty = B + 2 + (30 - titleH - (sub ? 8 : 0)) / 2 + 7
-  doc.text(tl, B + 10, ty)
-  if (sub) {
-    ink(P.white); doc.setFontSize(14)
-    doc.text(doc.splitTextToSize(String(sub), textMaxW)[0], B + 10, ty + titleH - 1)
-  }
-  const cx = W - B - 10 - 12, cy = B + 2 + 15
-  if (logoData) { try { doc.addImage(logoData, fmtOf(logoData), cx - 10, cy - 10, 20, 20) } catch { /* skip */ } }
-
-  // ── date band ──
-  draw(P.white); doc.setLineWidth(0.5); fill(P.blue); doc.roundedRect(B, 41, W - 2 * B, 16, 1, 1, 'FD')
-  const d = date ? new Date(`${String(date).slice(0, 10)}T00:00:00`) : null
-  if (d && !isNaN(d)) {
-    const day = String(d.getDate()), suf = ordinal(d.getDate())
-    const rest = ` ${d.toLocaleString('en-GB', { month: 'long' })}, ${d.getFullYear()}`
-    ink(P.lime); doc.setFont('times', 'bold'); doc.setFontSize(25)
-    const w1 = doc.getTextWidth(`Date:-${day}`), w2 = doc.getTextWidth(rest)
-    doc.setFontSize(14); const ws = doc.getTextWidth(suf)
-    let x = W / 2 - (w1 + ws + w2) / 2
-    doc.setFontSize(25); doc.text(`Date:-${day}`, x, 52); x += w1
-    doc.setFontSize(14); doc.text(suf, x, 49.5); x += ws
-    doc.setFontSize(25); doc.text(rest, x, 52)
-  }
-
-  // ── white body ──
-  const bodyY = 60, bodyB = H - B
-  fill(P.white); doc.rect(B, bodyY, W - 2 * B, bodyB - bodyY, 'F')
-
-  // description box (measured first so photos can use the space above it)
-  const dx = B + 6, dw = W - 2 * B - 12
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11)
-  const descLines = doc.splitTextToSize(String(description || ''), dw - 12).slice(0, 7)
-  const venueLines = venue ? doc.splitTextToSize(`VENUE : ${venue}`, dw - 12).slice(0, 2) : []
-  const teamLines = teamMembers?.length ? doc.splitTextToSize(`Team: ${teamMembers.join(', ')}`, dw - 12).slice(0, 2) : []
-  const lh = 5.2
-  const descH = 8 + (descLines.length + venueLines.length + teamLines.length) * lh + (venueLines.length ? 1.5 : 0) + (teamLines.length ? 1.5 : 0)
-  const footTop = bodyB - 16
-  const descY = footTop - 4 - descH
-
-  // photos
-  const imgs = (images || []).slice(0, 6)
-  const n = imgs.length
-  const gx = dx, gw = dw
-  const gap = 3
-  const cols = n <= 4 ? 2 : 3
-  const rows = Math.max(1, Math.ceil(n / cols))
-  const gy = bodyY + 6
-  const availH = Math.max(40, descY - 6 - gy)
-  const cellW = (gw - gap * (cols - 1)) / cols
-  const cellH = Math.max(28, Math.min(cellW * 1.3, (availH - gap * (rows - 1)) / rows))
-  if (n === 0) console.warn('Event poster: no images to draw')
-  for (let i = 0; i < n; i++) {
-    const r = Math.floor(i / cols), c = i % cols
-    const inRow = Math.min(cols, n - r * cols)
-    const x = gx + c * (cellW + gap) + (cols - inRow) * (cellW + gap) / 2
-    const y = gy + r * (cellH + gap)
-    fill(P.soft); doc.roundedRect(x, y, cellW, cellH, 5, 5, 'F')
-    // Fit the photo INSIDE the frame (no clipping): the JS cover+crop trick
-    // relies on saveGraphicsState/clip, which silently aborted the draw and
-    // left empty frames. Contain always shows the image; a decode failure still
-    // fills the frame so nothing looks broken.
-    let iw = cellW, ih = cellH
-    try {
-      const props = doc.getImageProperties(imgs[i])
-      if (props?.width && props?.height) {
-        const s = Math.min(cellW / props.width, cellH / props.height)
-        iw = props.width * s
-        ih = props.height * s
-      }
-    } catch (e) {
-      console.error('Event poster: could not read image properties', e)
-    }
-    try {
-      doc.addImage(imgs[i], fmtOf(imgs[i]), x + (cellW - iw) / 2, y + (cellH - ih) / 2, iw, ih, undefined, 'FAST')
-    } catch (e) {
-      console.error('Event poster: could not draw image', e)
-    }
-    draw(P.blue); doc.setLineWidth(1); doc.roundedRect(x, y, cellW, cellH, 5, 5, 'S')
-  }
-
-  // description
-  fill(P.blue); doc.rect(dx, descY, dw, descH, 'F')
-  fill(P.lime); doc.rect(dx, descY, 2.2, descH, 'F')
-  let yy = descY + 8
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); ink(P.lime)
-  doc.text(descLines, dx + 8, yy); yy += descLines.length * lh
-  if (venueLines.length) { yy += 1.5; doc.setFont('helvetica', 'bold'); doc.text(venueLines, dx + 8, yy); yy += venueLines.length * lh }
-  if (teamLines.length) { yy += 1.5; doc.setFont('helvetica', 'normal'); doc.setFontSize(10); ink([219, 232, 255]); doc.text(teamLines, dx + 8, yy) }
-
-  // footer
-  draw(P.blue); doc.setLineWidth(0.4); doc.line(dx, footTop, dx + dw, footTop)
-  fill(P.blue); doc.circle(W / 2, footTop + 7, 4, 'F')
-  ink(P.white); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('1', W / 2, footTop + 8.3, { align: 'center' })
-  ink([8, 58, 128]); doc.setFont('times', 'bold'); doc.setFontSize(13)
-  doc.text(String(brand?.fullName || 'NGO').toUpperCase().slice(0, 28), dx + dw, footTop + 8, { align: 'right' })
-  return doc
-}
-
-
-async function buildEventDetailPdf({ name, subtitle, date, ngoLabel, activityName, venue, description, teamMembers, images, brand }) {
-  const { default: jsPDF } = await import('jspdf')
-  const logoData = brand?.logo ? await urlToDataUrl(brand.logo) : ''
-  const doc = await buildPosterDoc(jsPDF, { name, subtitle, date, ngoLabel, activityName, venue, description, teamMembers, images, brand, logoData })
-  const safe = String(name || 'event').replace(/[^A-Za-z0-9-_]+/g, '_').slice(0, 40)
-  doc.save(`event-${safe}${date ? '-' + date : ''}.pdf`)
+/* Download the event poster (new EventPosterReport template) for the given
+   sheet args. Rendered off-screen and captured with html2canvas into a
+   one-page A4 PDF (see components/eventPosterPdf.jsx). */
+async function downloadEventPoster(args = {}) {
+  const safe = String(args.name || 'event').replace(/[^A-Za-z0-9-_]+/g, '_').slice(0, 40)
+  await renderPosterToPdf(posterPropsFromSheetArgs(args), `event-${safe}${args.date ? '-' + args.date : ''}.pdf`)
 }
 
 /* ── Create the real event from a done programme ─────────────────────────────
@@ -1220,8 +1104,10 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
   const [name, setName] = useState(entry?.name || '')
   const [date] = useState(entry?.date || '')
   const [ngoId, setNgoId] = useState(entry?.ngoId ? String(entry.ngoId) : '')
-  const [venue, setVenue] = useState('')
+  const [venue, setVenue] = useState(entry?.location || '')
   const [description, setDescription] = useState('')
+  const [slogan, setSlogan] = useState('')
+  const [tagline, setTagline] = useState('')
   const [images, setImages] = useState([])
   const [uploadingImages, setUploadingImages] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -1295,6 +1181,8 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
         date,
         venue: venue.trim() || null,
         description: description.trim() || null,
+        slogan: slogan.trim() || null,
+        tagline: tagline.trim() || null,
         // Saved in display order: the ★ default photo is always images[0], which is
         // what the Monthly Report (and every other report) shows as its cover photo.
         images: images.map((im) => im.url),
@@ -1318,11 +1206,13 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
         beneficiary: entry?.beneficiary || '',
         venue: venue.trim(),
         description: description.trim(),
+        slogan: slogan.trim(),
+        tagline: tagline.trim(),
         images: images.map((im) => im.dataUrl || im.url),
         brand: ngoBrandFor(ngo),
       }
       try {
-        await buildEventDetailPdf(pdfArgs)
+        await downloadEventPoster(pdfArgs)
       } catch (pdfErr) {
         console.error('Event detail PDF failed', pdfErr)
       }
@@ -1353,17 +1243,17 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
         <Field label="Event name">
           <input className="eh-select" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
           <Field label="Date (planned)" hint="From the planner — the day this programme is planned for.">
             <input className="eh-select" value={date ? shortDate(date) : '—'} readOnly disabled />
           </Field>
           <Field label="Venue" hint="Optional">
             <input className="eh-select" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g. Community hall" />
           </Field>
+          <Field label="NGO">
+            <FestivalNgoSelect ngos={ngos} value={ngoId} disabled={busy} onChange={setNgoId} />
+          </Field>
         </div>
-        <Field label="NGO">
-          <FestivalNgoSelect ngos={ngos} value={ngoId} disabled={busy} onChange={setNgoId} />
-        </Field>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={LABEL}>Activity</span>
           <Badge tone="secondary">{activity?.name || '—'}</Badge>
@@ -1375,6 +1265,22 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What the event is about…"
+          />
+        </Field>
+        <Field label="Distributed Item">
+          <input
+            className="eh-select"
+            value={tagline}
+            onChange={(e) => setTagline(e.target.value)}
+            placeholder="Enter item name (e.g., Ration Kit, Clothes, Stationery Kit)"
+          />
+        </Field>
+        <Field label="Slogan" hint="Optional — printed on the poster above the Sevak Bano strip.">
+          <input
+            className="eh-select"
+            value={slogan}
+            onChange={(e) => setSlogan(e.target.value)}
+            placeholder="e.g. Serving Selfless Service"
           />
         </Field>
         <Field label="Photos" hint="Upload 4 to 6 images — stored on S3, printed on the Event Detail Sheet. The ★ one is the cover shown on the Monthly Report.">
@@ -2450,6 +2356,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // display:none) because html2canvas renders nothing for hidden nodes.
   const reportRef = useRef(null)
   const [downloading, setDownloading] = useState('')
+  const [sheetBusy, setSheetBusy] = useState('')
 
   /* No early return for "All NGOs": the report is downloadable from that scope
        too, and its AI column has to be filled from every NGO's ticked ideas. An
@@ -3292,7 +3199,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const sugg = rowSuggestionsFor(key).find((s) => s.is_selected) || null
     const name = programmeNameForKey(key, label)
     const benef = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean) || festBenef[key] || ''
-    setCreateEventFor({ key, date: programmeDateForKey(key, date), name, ngoId: rowNgoId(key), suggestion: sugg, beneficiary: benef })
+    const location = festivalLocationFor(key)
+    setCreateEventFor({ key, date: programmeDateForKey(key, date), name, ngoId: rowNgoId(key), suggestion: sugg, beneficiary: benef, location })
   }
 
   /* "+ Add another programme": adds a fresh programme ROW under this date, so a
@@ -3426,58 +3334,64 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      when this tab still has it; otherwise rebuilds it from the stored event (its
      images live on the event), so the download works after a refresh too. */
   const downloadEventSheet = async (key, date, label) => {
-    let args = pdfCache.get(key)
-    const ev = findScheduledEvent(key, date, label)
-    // Persist the durable row link the first time a pre-existing event (created
-    // before the link feature) is recognised for this programme, so the row keeps
-    // offering "Download" on every device and can never create a duplicate.
-    if (ev?.id && key && !plannerLinkMap[key]) {
-      const link = {
-        observance_date: programmeDateForKey(key, date),
-        festival: key.includes('::') ? key.slice(key.indexOf('::') + 2) : '',
-        ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || null,
-        event_id: ev.id,
-      }
-      setPlannerLinkMap((cur) => ({ ...cur, [key]: link }))
-      setPlannerEventLink(link).catch(() => {})
-    }
-    if (!args) {
-      const p = ev?.extendedProps || {}
-      const sugg = key ? rowSuggestionsFor(key) : []
-      const linked = sugg.find((s) => s.is_selected) || sugg.find((s) => Number(s.suggested_event_id) > 0) || null
-      const ngo = ngos.find((n) => String(n.id) === String(rowNgoId(key))) || null
-      const actIds = (Array.isArray(p.activities) ? p.activities : []).map((a) => Number(a.id))
-      const activity = activities.find((a) => actIds.includes(Number(a.id))) || null
-      // Images are stored on S3 as URLs; the PDF needs bytes, so each is read
-      // back through the server proxy (avoids a cross-origin browser fetch).
-      // Legacy inline data URLs are used as-is.
-      const rawImages = Array.isArray(p.images) ? p.images : []
-      const images = []
-      for (let i = 0; i < rawImages.length; i++) {
-        const u = String(rawImages[i] || '')
-        if (!u) continue
-        if (u.startsWith('data:')) { images.push(u); continue }
-        try { images.push(ev?.id ? await fetchEventImageDataUrl(ev.id, i, true) : u) }
-        catch { /* skip an image that will not load */ }
-      }
-      args = {
-        name: String(ev?.title || '').split(' · ')[0].trim() || programmeNameForKey(key, label),
-        date: String(p.date || date || '').slice(0, 10),
-        ngoLabel: ngo?.name || '',
-        activityName: activity?.name || '',
-        beneficiary: sugg.map((s) => s.beneficiary).find(Boolean) || festBenef[key] || '',
-        venue: p.venue || '',
-        description: p.description || '',
-        images,
-        brand: ngoBrandFor(ngo),
-      }
-    }
-    if (!args) { showToast('Nothing to download yet.'); return }
+    if (sheetBusy === key) return
+    setSheetBusy(key)
     try {
-      await buildEventDetailPdf(args)
+      let args = pdfCache.get(key)
+      const ev = findScheduledEvent(key, date, label)
+      // Persist the durable row link the first time a pre-existing event (created
+      // before the link feature) is recognised for this programme, so the row keeps
+      // offering "Download" on every device and can never create a duplicate.
+      if (ev?.id && key && !plannerLinkMap[key]) {
+        const link = {
+          observance_date: programmeDateForKey(key, date),
+          festival: key.includes('::') ? key.slice(key.indexOf('::') + 2) : '',
+          ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || null,
+          event_id: ev.id,
+        }
+        setPlannerLinkMap((cur) => ({ ...cur, [key]: link }))
+        setPlannerEventLink(link).catch(() => {})
+      }
+      if (!args) {
+        const p = ev?.extendedProps || {}
+        const sugg = key ? rowSuggestionsFor(key) : []
+        const linked = sugg.find((s) => s.is_selected) || sugg.find((s) => Number(s.suggested_event_id) > 0) || null
+        const ngo = ngos.find((n) => String(n.id) === String(rowNgoId(key) || p.ngoId || p.ngo_id || '')) || null
+        const actIds = (Array.isArray(p.activities) ? p.activities : []).map((a) => Number(a.id))
+        const activity = activities.find((a) => actIds.includes(Number(a.id))) || null
+        // Images are stored on S3 as URLs; the PDF needs bytes, so each is read
+        // back through the server proxy (avoids a cross-origin browser fetch).
+        // Legacy inline data URLs are used as-is.
+        const rawImages = Array.isArray(p.images) ? p.images : []
+        const images = []
+        for (let i = 0; i < rawImages.length; i++) {
+          const u = String(rawImages[i] || '')
+          if (!u) continue
+          if (u.startsWith('data:')) { images.push(u); continue }
+          try { images.push(ev?.id ? await fetchEventImageDataUrl(ev.id, i, true) : u) }
+          catch { /* skip an image that will not load */ }
+        }
+        args = {
+          name: String(ev?.title || '').split(' · ')[0].trim() || programmeNameForKey(key, label),
+          date: String(p.date || date || '').slice(0, 10),
+          ngoLabel: ngo?.name || '',
+          activityName: activity?.name || '',
+          beneficiary: sugg.map((s) => s.beneficiary).find(Boolean) || festBenef[key] || '',
+          venue: p.venue || '',
+          description: p.description || '',
+          slogan: p.slogan || '',
+          tagline: p.tagline || '',
+          images,
+          brand: ngoBrandFor(ngo),
+        }
+      }
+      if (!args) { showToast('Nothing to download yet.'); return }
+      await downloadEventPoster(args)
     } catch (e) {
       console.error('Event sheet download failed', e)
       showToast('Could not download the sheet.')
+    } finally {
+      setSheetBusy('')
     }
   }
 
@@ -3574,16 +3488,28 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         {alreadyScheduled && allDone && (
           <button
             className="eh-btn"
-            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5, background: '#e5e7eb', color: '#374151', border: 'none' }}
+            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5, background: '#e5e7eb', color: '#374151', border: 'none', cursor: sheetBusy === key ? 'wait' : 'pointer', opacity: sheetBusy === key ? 0.75 : 1 }}
             title="Download this event's detail sheet (photos included)"
+            disabled={sheetBusy === key}
             onClick={() => downloadEventSheet(key, date, label)}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M5 21h14" />
-            </svg>
-            Download
+            {sheetBusy === key ? (
+              <>
+                <svg className="ap-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                  <path d="M21 12a9 9 0 1 1-6.2-8.56" />
+                </svg>
+                Downloading…
+              </>
+            ) : (
+              <>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+                Download
+              </>
+            )}
           </button>
         )}
       </div>

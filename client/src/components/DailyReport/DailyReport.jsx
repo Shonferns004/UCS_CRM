@@ -331,11 +331,15 @@ export default function DailyReport({
   loadTeamTasks,
   notify,
   lockToToday = false,
+  // Day the form opens on (YYYY-MM-DD). The Monthly tab passes a picked day so
+  // "Edit this day" lands straight in the editor; callers remount with a key
+  // when it changes, since the date is only read on mount.
+  initialDate,
 }) {
   // The dev panel mounts its own ToastProvider, not the global ToastContainer,
   // so callers can hand in their local toast; HR (and others) use the global one.
   const toast = notify || globalToast
-  const [date, setDate] = useState(todayIst())
+  const [date, setDate] = useState(initialDate || todayIst())
   const [data, setData] = useState(() => emptyData(sections))
   const [summary, setSummary] = useState(null)
   const [assigned, setAssigned] = useState([])

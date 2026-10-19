@@ -73,13 +73,13 @@ async function authorize(req, res, { writerOnly = false } = {}) {
     notFound(res);
     return null;
   }
-  if (writerOnly && !me.canPost) {
-    res.status(403).json({ message: 'Only Super Admin, Accounts, Admin and FRO can post in chat.' });
-    return null;
-  }
   const participant = await chat.getParticipant(convo.id, me.uid);
   if (!participant) {
     notFound(res);
+    return null;
+  }
+  if (writerOnly && !chat.canPostIn(convo, me, participant)) {
+    res.status(403).json({ message: 'You cannot post in this conversation.' });
     return null;
   }
   return { me, convo, participant };
@@ -94,7 +94,7 @@ async function authorize(req, res, { writerOnly = false } = {}) {
  *
  * Returns true when the caller was already refused (and the response sent).
  */
-function policyBlocksPost(ctx) {
+function policyBlocksPost(ctx, res) {
   if (chat.canPostIn(ctx.convo, ctx.me, ctx.participant)) return false;
   const policy = ctx.convo.post_policy || 'everyone';
   const writeMode = ctx.convo.write_mode || 'everyone';
@@ -102,12 +102,60 @@ function policyBlocksPost(ctx) {
     message:
       policy === 'admins_only'
         ? 'Only admins can post in this group.'
-        : writeMode === 'selected'
+        : writeMode === 'selected' || writeMode === 'selected_depts'
           ? 'You cannot post in this group. Only members chosen by an admin can chat here.'
           : 'You cannot post in this conversation.',
   });
   return true;
 }
+
+/**
+ * Route-level write gate that honours a per-group posting grant.
+ *
+ * The role-only `chatWriter` middleware (chatAccess) keeps every role outside
+ * CHAT_ROLES (HR, Developer, Event Head, ...) out of all write routes. That is
+ * right for DMs and unrestricted rooms, but wrong for a group an admin has
+ * deliberately opened to a non-writer department via 'selected' /
+ * 'selected_depts': the tick on chat_participants.can_post IS the grant, and it
+ * must be honoured for that one room only.
+ *
+ * `idType` is 'conversation' for /conversations/:id/messages and 'message' for
+ * /messages/:id. Resolves the conversation, then applies the exact same
+ * `canPostIn` policy the send handler uses so there is a single source of
+ * truth. Reads are unaffected — they stay participant-scoped in the handler.
+ */
+function requirePostPermission(idType) {
+  return async (req, res, next) => {
+    try {
+      const me = identify(req, res);
+      if (!me) return;
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) return notFound(res);
+      let convoId = id;
+      if (idType === 'message') {
+        const msg = await chat.getMessage(id);
+        if (!msg) return notFound(res);
+        convoId = msg.conversation_id;
+      }
+      const convo = await chat.getConversation(convoId);
+      if (!convo) return notFound(res);
+      // A read-only role must never reach a DM, even with a stale row.
+      if (convo.kind === 'direct' && !me.canPost) return notFound(res);
+      const participant = await chat.getParticipant(convo.id, me.uid);
+      if (!participant) return notFound(res);
+      if (!chat.canPostIn(convo, me, participant)) {
+        return res.status(403).json({ message: 'You cannot post in this conversation.' });
+      }
+      return next();
+    } catch (err) {
+      console.error('[chat] requirePostPermission', err);
+      return res.status(500).json({ message: 'Could not verify posting rights' });
+    }
+  };
+}
+
+export const canPostInConversation = requirePostPermission('conversation');
+export const canPostOnMessage = requirePostPermission('message');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Key is "chat/<file>"; the static mount serves backend/uploads at /uploads,
@@ -280,8 +328,21 @@ export const createGroup = async (req, res) => {
     const postPolicy = req.body?.post_policy === 'admins_only' ? 'admins_only' : 'everyone';
     // 'selected' = only the members the creator ticks may chat; everyone else
     // in the room reads. Decided at creation time or later via the group's
-    // settings dialog - same column, same gate.
-    const writeMode = req.body?.write_mode === 'selected' ? 'selected' : 'everyone';
+    // settings dialog - same column, same gate. 'selected_depts' is the same
+    // gate but was picked department-wise; the sync seats new hires of those
+    // departments automatically.
+    const writeMode =
+      req.body?.write_mode === 'selected' || req.body?.write_mode === 'selected_depts'
+        ? req.body.write_mode
+        : 'everyone';
+    // Department names as picked in the dialog (visibility = roster, posting =
+    // post). Sanitised to plain trimmed strings; empty means "static roster".
+    const deptList = (v) =>
+      Array.isArray(v)
+        ? [...new Set(v.map((d) => String(d || '').trim()).filter(Boolean))].slice(0, 30)
+        : [];
+    const rosterDepartments = deptList(req.body?.roster_departments);
+    const postDepartments = deptList(req.body?.post_departments);
 
     // Re-seat against the real directory so a forged role cannot grant can_post.
     const directory = await chat.listDirectory();
@@ -292,19 +353,46 @@ export const createGroup = async (req, res) => {
       return { ...person, subject_id: String(person.id), canPost: m.canPost };
     });
 
+    const noticesEnabled = req.body?.notices_enabled !== false && req.body?.notices_enabled !== 'false' && req.body?.notices_enabled !== 0;
     const { convo, memberCount } = await chat.createGroup({
       title,
-      creator: { uid: me.uid, subjectId: me.subjectId, role: me.role, canPost: me.canPost, name: me.name },
+      creator: { uid: me.uid, subjectId: me.subjectId, role: me.role, canPost: me.canPost, name: me.name, email: req.user?.email || null, ngoId: req.user?.ngo_id || null },
       members: roster,
       postPolicy,
       writeMode,
+      noticesEnabled,
+      rosterDepartments,
+      postDepartments,
     });
+    // Seat any roster-department member the client's directory view missed
+    // (stale tab, new hire since page load) - the same sync the interval runs.
+    if (rosterDepartments.length) {
+      chat.syncRosterDepartments(convo.id)
+        .catch((e) => console.warn('[chat] roster sync failed:', e?.message || String(e)));
+    }
 
     // Tell exactly the people seated in the room (creator included) that it
     // exists: their sockets are not in `chat:<id>` yet, and a broadcast would
     // leak the new group's id to everyone else. Id-only frame - the client
     // reacts by rejoining its rooms and refetching its own rail.
-    emitChatToUsers([me.uid, ...roster.map((m) => m.uid)], {
+    // Seat both uid spellings per person so worker- and HR-panel logins both
+    // receive the frame (mirrors the dual-uid seating in createGroup).
+    const notifyUids = new Set([me.uid]);
+    if (me.email || req.user?.email) {
+      const e = String(me.email || req.user?.email || '').trim().toLowerCase();
+      if (e) notifyUids.add(`email:${e}`);
+      if (me.subjectId) notifyUids.add(`login:${me.subjectId}`);
+    } else if (me.subjectId) {
+      notifyUids.add(`login:${me.subjectId}`);
+    }
+    for (const m of roster) {
+      const e = m.email ? String(m.email).trim().toLowerCase() : null;
+      if (e) notifyUids.add(`email:${e}`);
+      const sid = m.subject_id ?? m.subjectId ?? m.id;
+      if (sid != null && String(sid) !== '') notifyUids.add(`login:${sid}`);
+      if (m.uid) notifyUids.add(m.uid);
+    }
+    emitChatToUsers([...notifyUids], {
       type: 'conversation:created',
       conversation_id: convo.id,
     });
@@ -404,7 +492,7 @@ export const sendMessage = async (req, res) => {
     const ctx = await authorize(req, res, { writerOnly: true });
     if (!ctx) return;
     const { me, convo } = ctx;
-    if (policyBlocksPost(ctx)) return;
+    if (policyBlocksPost(ctx, res)) return;
 
     // A notice rides the ordinary send path; only its gates differ. Each rule
     // blocks a different thing: a DM is a two-person room where a broadcast
@@ -418,6 +506,9 @@ export const sendMessage = async (req, res) => {
     if (wantsNotice) {
       if (convo.kind !== 'group') {
         return res.status(400).json({ message: 'Notices can only be posted in a group' });
+      }
+      if (convo.notices_enabled === false) {
+        return res.status(400).json({ message: 'Announcements are disabled for this group.' });
       }
       if (!isChatAdminRole(me.role)) {
         return res.status(403).json({ message: 'Only Super Admin, Accounts and Admin can post notices.' });
@@ -619,9 +710,9 @@ export const editMessage = async (req, res) => {
   try {
     const me = identify(req, res);
     if (!me) return;
-    if (!me.canPost) {
-      return res.status(403).json({ message: 'Only Super Admin and Accounts can edit messages.' });
-    }
+    // Posting rights for this room were already enforced by the
+    // `canPostOnMessage` middleware (it honours a per-group grant, so a
+    // read-only role ticked into a 'selected' room may edit its own message).
     const msg = await chat.getMessage(Number(req.params.id));
     if (!msg) return notFound(res);
     const convo = await chat.getConversation(msg.conversation_id);
@@ -663,9 +754,9 @@ export const deleteMessage = async (req, res) => {
   try {
     const me = identify(req, res);
     if (!me) return;
-    if (!me.canPost) {
-      return res.status(403).json({ message: 'Only Super Admin, Accounts, Admin and FRO can delete messages.' });
-    }
+    // Posting rights for this room were already enforced by the
+    // `canPostOnMessage` middleware (honours a per-group grant). Deletion below
+    // is still sender-only unless you are a chat admin.
     const msg = await chat.getMessage(Number(req.params.id));
     if (!msg) return notFound(res);
     const convo = await chat.getConversation(msg.conversation_id);
@@ -786,14 +877,32 @@ export const updateGroupSettings = async (req, res) => {
           ? 'admins_only'
           : 'everyone';
     const writeMode =
-      req.body?.write_mode == null ? null : req.body.write_mode === 'selected' ? 'selected' : 'everyone';
+      req.body?.write_mode == null
+        ? null
+        : req.body.write_mode === 'selected' || req.body.write_mode === 'selected_depts'
+          ? req.body.write_mode
+          : 'everyone';
+    const noticesEnabled =
+      req.body?.notices_enabled == null ? null : !!req.body.notices_enabled;
+    // Department list used when write_mode='selected_depts': the sync seats new
+    // hires of these departments with can_post=true automatically.
+    const postDepartments = Array.isArray(req.body?.post_departments)
+      ? [...new Set(req.body.post_departments.map((d) => String(d || '').trim()).filter(Boolean))].slice(0, 30)
+      : writeMode === 'selected_depts' || writeMode === null
+        ? undefined // keep the stored list unless the mode explicitly changed away
+        : [];
 
-    const updated = await chat.updateGroupSettings(convo.id, { title, postPolicy, writeMode });
+    const updated = await chat.updateGroupSettings(convo.id, { title, postPolicy, writeMode, noticesEnabled, postDepartments });
     if (Array.isArray(req.body?.members)) {
       await chat.setParticipantsCanPost(
         convo.id,
         req.body.members.map((m) => ({ uid: m?.uid, canPost: m?.can_post }))
       );
+    }
+    // A newly ticked department (or a mode switch to selected_depts) should
+    // take effect for people already in the roster, not just future hires.
+    if (Array.isArray(req.body?.post_departments) || writeMode === 'selected_depts') {
+      await chat.syncRosterDepartments(convo.id);
     }
 
     // Everyone in the room should see the rename/policy flip immediately; the
@@ -838,6 +947,53 @@ export const deleteConversation = async (req, res) => {
     const convo = await chat.getConversation(id);
     if (!convo) return notFound(res);
     if (!(await chat.isParticipant(convo.id, me.uid))) return notFound(res);
+
+    // Collect every attachment (single + notice galleries) so the underlying
+    // files are removed along with the conversation, not left orphaned in
+    // storage. Done before the DB delete so a failure here still leaves the
+    // conversation intact.
+    const { rows: msgRows } = await db._pool.query(
+      `SELECT attachment_url, attachment_gallery FROM chat_messages WHERE conversation_id = $1`,
+      [convo.id]
+    );
+    const s3Keys = new Set();
+    const localFiles = new Set();
+    const collect = (url) => {
+      if (!url || url === '#') return;
+      if (url.startsWith('/uploads/')) {
+        localFiles.add(path.resolve(LOCAL_UPLOAD_DIR, url.replace(/^\/uploads\//, '')));
+        return;
+      }
+      const m = String(url).match(/(chat\/[^/?#]+)/);
+      if (m) s3Keys.add(m[1]);
+    };
+    for (const r of msgRows) {
+      collect(r.attachment_url);
+      if (r.attachment_gallery) {
+        try {
+          const parsed = JSON.parse(r.attachment_gallery);
+          if (Array.isArray(parsed)) for (const a of parsed) collect(a?.url);
+        } catch {
+          /* ignore corrupt gallery JSON */
+        }
+      }
+    }
+    // Best-effort file removal: a storage hiccup must not block the delete.
+    if (s3Keys.size) {
+      try {
+        await db.storage.from(CHAT_BUCKET).remove([...s3Keys]);
+      } catch (e) {
+        console.warn('[chat] deleteConversation: S3 remove failed:', e?.message || String(e));
+      }
+    }
+    for (const f of localFiles) {
+      try {
+        fs.unlinkSync(f);
+      } catch {
+        /* file may already be gone */
+      }
+    }
+
     // Delete first so a failed write never announces a phantom removal.
     await db._pool.query(`DELETE FROM chat_conversations WHERE id = $1`, [convo.id]);
     // Broadcast globally, not room-scoped: people who never joined this room's

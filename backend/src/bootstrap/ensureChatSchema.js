@@ -8,8 +8,14 @@ import {
   addParticipant,
   removeStaleParticipants,
   listCommunityCandidates,
+  backfillGroupParticipantUids,
+  backfillParticipantDepartments,
+  syncRosterDepartments,
 } from '../models/chatModel.js';
 import { isWriterRole } from '../middleware/chatAccess.js';
+
+// Module-level so a repeated ensureChatSchema call cannot stack intervals.
+let rosterSyncTimer = null;
 
 /**
  * Community Chat bootstrap (plan.md §3, §5).
@@ -156,6 +162,27 @@ async function syncCommunityParticipants(conversationId) {
 export async function ensureChatSchema() {
   try {
     await applyMigrations();
+    // Backfill dual uid spellings for user-created groups so both login paths
+    // can see them, regardless of whether the Community room exists.
+    try {
+      await backfillGroupParticipantUids();
+      await backfillParticipantDepartments();
+      console.log('chat schema ready; group participant uids backfilled');
+    } catch (e) {
+      console.warn('[chat schema] group uid backfill skipped:', e?.message || String(e));
+    }
+    // Department rosters: seat new hires of a group's picked departments. The
+    // boot pass fixes everything that happened while the server was down; the
+    // interval catches hires made while it is up (no restart needed).
+    const runRosterSync = () =>
+      syncRosterDepartments()
+        .then((r) => { if (r.added) console.log(`[chat roster] seated ${r.added} new department member(s)`); })
+        .catch((e) => console.warn('[chat roster] sync skipped:', e?.message || String(e)));
+    await runRosterSync();
+    if (!rosterSyncTimer) {
+      rosterSyncTimer = setInterval(runRosterSync, 60 * 1000);
+      rosterSyncTimer.unref?.();
+    }
     const convo = await ensureConversation();
     if (!convo) {
       console.log('community room absent (deleted; re-seed disabled) — skipping participant sync');

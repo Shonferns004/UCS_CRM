@@ -6,6 +6,8 @@ import {
   getReportById,
   listReportsForDate,
   listAllForDate,
+  listAllForMonth,
+  listMineForMonth,
   listAcceptedForMonth,
   upsertReport,
   setRemark,
@@ -94,18 +96,28 @@ const toIsoDay = (value) => {
 
 const MAX_FIELDS_PER_SECTION = 60;
 const MAX_CHECKLIST_ITEMS = 200;
+// The task board statuses the client stores on a checklist item.
+const TASK_STATUSES = ['pending', 'wip', 'done'];
 
-// A checklist value is [{ text, done }]; a table row is any flat object (e.g.
-// { task, reason, expected } for pending HR tasks, or { position, required,
-// interviewed, … } for a vacancy list). Keep the arrays small and the strings
-// clamped so a hostile payload cannot bloat the JSONB.
+// A checklist value is [{ text, status, done }]; a table row is any flat object
+// (e.g. { task, reason, expected } for pending HR tasks, or { position,
+// required, interviewed, … } for a vacancy list). Keep the arrays small and the
+// strings clamped so a hostile payload cannot bloat the JSONB.
 const sanitizeList = (arr) => {
   const out = [];
   for (const item of arr.slice(0, MAX_CHECKLIST_ITEMS)) {
     if (item && typeof item === 'object' && !Array.isArray(item)) {
       if (typeof item.text !== 'undefined') {
         const text = clampText(item.text, 1000).trim();
-        if (text) out.push({ text, done: !!item.done });
+        if (text) {
+          // Keep the board status (pending / wip / done). WIP cannot be derived
+          // from `done`, so stripping it here made every "move to WIP" revert to
+          // Pending on the next load. Fall back to the legacy `done` flag for
+          // rows written before WIP existed.
+          const raw = String(item.status ?? '').trim().toLowerCase();
+          const status = TASK_STATUSES.includes(raw) ? raw : (item.done ? 'done' : 'pending');
+          out.push({ text, status, done: status === 'done' });
+        }
       } else {
         const row = {};
         for (const [k, v] of Object.entries(item).slice(0, 32)) {
@@ -122,7 +134,7 @@ const sanitizeList = (arr) => {
       }
     } else if (typeof item === 'string') {
       const text = clampText(item, 1000).trim();
-      if (text) out.push({ text, done: false });
+      if (text) out.push({ text, status: 'pending', done: false });
     }
   }
   return out;
@@ -287,6 +299,23 @@ export async function getMyReport(req, res) {
   }
 }
 
+// The signed-in reporter's own rows for a month — the Developer panel's monthly
+// view. Scoped to the authenticated name, so nobody can read another's month.
+export async function getMyMonthlyReport(req, res) {
+  const panel = requirePanel(req, res);
+  if (panel.error) return panel.error;
+  const month = readMonth(req, res);
+  if (!month) return;
+  try {
+    const reporter = await resolveReporter(req);
+    const reports = await listMineForMonth(panel.panel, month, reporter.name);
+    return res.json({ month, panel: panel.panel, reporter_name: reporter.name, reports });
+  } catch (error) {
+    console.error('[daily-reports] monthly own report failed:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function getReports(req, res) {
   const panel = requirePanel(req, res);
   if (panel.error) return panel.error;
@@ -350,6 +379,42 @@ export async function getAllReports(req, res) {
     return res.json({ date, reports });
   } catch (error) {
     console.error('[daily-reports] fetch all failed:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+const ISO_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+const readMonth = (req, res) => {
+  const month = String(req.query.month || '').trim();
+  if (!ISO_MONTH.test(month)) {
+    res.status(400).json({ message: 'month query parameter is required (YYYY-MM)' });
+    return null;
+  }
+  return month;
+};
+
+// All departments for a month — drives the Super Admin monthly report. Same
+// re-bucketing and filters as getAllReports above, just over a date range: a
+// digital row is stored under 'dev' but reviewed under 'social', so the panel
+// filter has to see the reviewed value, which means the range is filtered in
+// memory after the mapping rather than in SQL.
+export async function getMonthlyReports(req, res) {
+  const month = readMonth(req, res);
+  if (!month) return;
+  const panel = req.query.panel && PANELS.includes(String(req.query.panel)) ? String(req.query.panel) : null;
+  const reporter_id = req.query.reporter_id ? String(req.query.reporter_id) : null;
+  try {
+    const [rows, digital] = await Promise.all([
+      listAllForMonth(month, { reporter_id }),
+      loadDigitalReporterNames(),
+    ]);
+    const reports = rows
+      .map((r) => withReviewedPanel(r, digital))
+      .filter((r) => !panel || r.panel === panel);
+    return res.json({ month, reports });
+  } catch (error) {
+    console.error('[daily-reports] monthly fetch failed:', error.message);
     return res.status(500).json({ message: error.message });
   }
 }
