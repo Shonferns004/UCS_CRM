@@ -1098,6 +1098,7 @@ export default function Letters() {
   const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
   const [zoom, setZoom] = useState(50);
+  const [viewTab, setViewTab] = useState('letter');
   const [showDownload, setShowDownload] = useState(false);
   const [loading, setLoading] = useState(true);
   const pdfRef = useRef(null);
@@ -1494,7 +1495,12 @@ export default function Letters() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 340px) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="tabs" style={{ marginBottom: 4 }}>
+        <button className={'tab' + (viewTab === 'letter' ? ' active' : '')} onClick={() => setViewTab('letter')}>Letter</button>
+        <button className={'tab' + (viewTab === 'messages' ? ' active' : '')} onClick={() => setViewTab('messages')}>Messages</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 340px) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
       <div className="card" style={{ minHeight: 0 }}>
         <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
         <div className="card-pad">
@@ -1509,22 +1515,22 @@ export default function Letters() {
           </div>
         ) : (
         <div className="form-row" style={{ flexDirection:'row', flexWrap:'wrap' }}>
-          <label className="field" style={{ flex: '0 0 105px', minWidth: 0 }}>NGOs
+          {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 105px', minWidth: 0 }}>NGOs
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN','UCS']} />
-          </label>
+          </label>)}
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Volunteer
             <Dropdown value={name} onChange={e=>setName(e.target.value)} searchable
               options={workers.map(w => ({value: w.name, label: w.name}))} />
           </label>
-          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Letter type
+          {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Letter type
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
-          </label>
-          {type === 'NOBSD2' && (
+          </label>)}
+          {viewTab === 'letter' && type === 'NOBSD2' && (
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Monthly Amount (₹)
             <input type="number" min="0" step="100" value={bsd2Amount} onChange={e=>setBsd2Amount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0))} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           )}
-          <div className="field" style={{ flex: '1 1 100%', minWidth: 0 }}>
+          {viewTab === 'messages' && (<div className="field" style={{ flex: '1 1 100%', minWidth: 0 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Volunteer Message</span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <button type="button" onClick={() => setSopSel('')}
@@ -1544,25 +1550,25 @@ export default function Letters() {
                 </button>
               ))}
             </div>
-          </div>
-          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>
+          </div>)}
+          {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>
             {type === 'Offer letter' ? 'Joining / Letter Date' : type === 'Joining letter' ? 'Joining Date' : 'Last Working Date'}
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
-          </label>
-          {(type === 'Experience letter' || type === 'Relieving letter') && (
+          </label>)}
+          {viewTab === 'letter' && (type === 'Experience letter' || type === 'Relieving letter') && (
           <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Joining Date
             <input type="date" value={joiningDateInput} onChange={e=>setJoiningDateInput(e.target.value)}
               title="Leave empty to use the volunteer's record"
               style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           )}
-          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>HR name
+          {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>HR name
             <Dropdown value={hrName} onChange={e=>setHrName(e.target.value)} options={[{value:'',label:'Select HR...'}, ...[...workers.filter(w => (w.dept||w.department||'').toLowerCase().includes('hr') || (w.dept||w.department||'').toLowerCase().includes('admin')).map(w => ({value: w.name, label: w.name})), {value:'deepak karkera', label:'deepak karkera'}].map(o => o).filter((o, i, arr) => arr.findIndex(x => x.value === o.value) === i)]} />
-          </label>
-          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Designation
+          </label>)}
+          {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Designation
             <Dropdown value={subject} onChange={e => { if (e.target.value === '__add_role__') { const r = prompt('Enter role name:'); if (r && r.trim()) { setExtraRoles(p => [...p, r.trim()]); setSubject(r.trim()); } } else { setSubject(e.target.value); } }} options={[...[...new Set([...workers.map(w => w.role || w.department || 'Team Member'), ...extraRoles])].sort().map(v => ({ value: v, label: deptLabel(v) })), { value: '__add_role__', label: '+ Add Role' }]} renderOption={o => o.value === '__add_role__' ? <span style={{color:'#dc2626',fontWeight:600}}>+ Add Role</span> : o.label} />
-          </label>
-          {type === 'Offer letter' && (
+          </label>)}
+          {viewTab === 'letter' && type === 'Offer letter' && (
           <label className="field" style={{ flex: '0 0 220px', minWidth: 0 }}>Gross Monthly (₹)
             <span style={{ display: 'flex', gap: 6 }}>
               <input type="number" min="0" step="500" value={ctcMonthly} placeholder="₹[XX,XXX]"
@@ -1575,14 +1581,14 @@ export default function Letters() {
             </span>
           </label>
           )}
-          {['Offer letter', 'Relieving letter', 'Experience letter'].includes(type) && (
+          {viewTab === 'letter' && ['Offer letter', 'Relieving letter', 'Experience letter'].includes(type) && (
           <label className="field" style={{ flex: '1 1 260px', minWidth: 0 }}>Remarks (optional)
             <input type="text" value={remarks} onChange={e=>setRemarks(e.target.value)}
               placeholder={type === 'Relieving letter' ? 'e.g. No pending dues; ID card returned' : 'e.g. Note printed below the letter'}
               style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           )}
-          <label className="field btn-field"><span>&nbsp;</span>{showDownload && (
+          <label className="field btn-field"><span>&nbsp;</span>{showDownload && viewTab === 'letter' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={downloadPdf} disabled={!!sending} title="Download PDF" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><FileTxt size={18}/></button>
               {sopSel ? (
@@ -1590,6 +1596,13 @@ export default function Letters() {
               ) : (
                 <button className="btn btn-primary" onClick={sendLetterPdf} disabled={!!sending} title={`Send the ${type} as a PDF`} style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><Send size={18}/></button>
               )}
+              <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
+              {sending && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sending…</span>}
+            </span>
+          )}
+          {showDownload && viewTab === 'messages' && (
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={sendWarningText} disabled={!!sending || !sopSel} title="Send the selected message" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
               <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
               {sending && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sending…</span>}
             </span>
@@ -1661,6 +1674,7 @@ export default function Letters() {
         padding:40, color:'#000', background:'#fff',
         width:'800px', display:'none'
       }} />
+    </div>
     </div>
   );
 }
