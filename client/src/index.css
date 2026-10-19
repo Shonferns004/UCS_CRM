@@ -1,6 +1,15 @@
 @layer base {
   * { margin:0; padding:0; box-sizing:border-box; }
 
+  /* Fixed height chain so the app shell owns the viewport and the document
+     itself never scrolls. The background lives here (and on .app) so no gap
+     can ever fall through to the browser's default white. */
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    background: #f4f7fb;
+  }
+
   body {
     font-family: 'Poppins', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -1934,7 +1943,7 @@
 .panel-accounts .app, .panel-ngo-admin .app, .panel-fro .app { display:flex; min-height:100vh; }
 .panel-fro .app { height:100dvh; overflow:hidden; }
 .panel-event-head .app { display:flex; min-height:100vh; height:100vh; overflow:hidden; }
-.panel-accounts .app { height:100vh; overflow:hidden; }
+.panel-accounts .app { min-height:0; height:100vh; height:100dvh; overflow:hidden; background:#f4f7fb; }
 /* ngo-admin gets NO height/overflow rule of its own. Line 1184's shared
    min-height:100vh is what lets the window scroll, and its `.main` is only
    `margin-left:200px` - no flex growth, no content-body, no inner scroller. The
@@ -2087,6 +2096,15 @@
 .panel-event-head .user-menu-label, .panel-accounts .user-menu-label, .panel-ngo-admin .user-menu-label, .panel-fro .user-menu-label { padding:8px 12px 4px; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-soft); font-weight:600; }
 .panel-event-head .user-menu-divider, .panel-accounts .user-menu-divider, .panel-ngo-admin .user-menu-divider, .panel-fro .user-menu-divider { height:1px; background:var(--line); margin:4px 8px; }
 .panel-event-head .content-body, .panel-accounts .content-body, .panel-ngo-admin .content-body, .panel-fro .content-body { padding:24px; flex:1; overflow-y:auto; overflow-x:hidden; }
+
+/* ── WhatsApp Accounts shell ──
+   On the WA Accounts route only (:has gates it so chat/tickets keep their own
+   content-body scroller), .main becomes THE scroll container and carries the
+   page background. .content-body stops being a scroller and sizes to its
+   content, so the colour paints to every edge and there is exactly one
+   scrollbar. The background lives on the shell, never on .wa-page. */
+.panel-accounts .main:has(.wa-page) { background:#f4f7fb; overflow-y:auto; padding-bottom:48px; }
+.panel-accounts .content-body:has(> .wa-page) { flex:none; min-height:0; overflow:visible; padding:24px 24px 0; }
 .panel-event-head .card, .panel-accounts .card, .panel-ngo-admin .card, .panel-fro .card { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:16px; }
 .panel-event-head .card-head, .panel-accounts .card-head, .panel-ngo-admin .card-head, .panel-fro .card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
 .panel-event-head .card-head h3, .panel-accounts .card-head h3, .panel-ngo-admin .card-head h3, .panel-fro .card-head h3 { font-size:14px; font-weight:600; }
