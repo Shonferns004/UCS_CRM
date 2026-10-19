@@ -1,4 +1,4 @@
-import TechnicalTickets from '../../components/TechnicalTickets';
+import TechnicalTickets from '../../../components/TechnicalTickets';
 
 export default function Tickets() {
   return (
