@@ -1556,9 +1556,9 @@ export default function Letters() {
             <input type="number" min="0" step="100" value={bsd2Amount} onChange={e=>setBsd2Amount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0))} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           )}
-          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
+          {viewTab === 'messages' && (<label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
             <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
-          </label>
+          </label>)}
           {viewTab === 'letter' && (<label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>
             {type === 'Offer letter' ? 'Joining / Letter Date' : type === 'Joining letter' ? 'Joining Date' : 'Last Working Date'}
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
