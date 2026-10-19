@@ -1529,7 +1529,7 @@ export default function Letters() {
             </div>
           </div>
         </div>
-        <div className="card-pad">
+        <div className="card-pad" style={{ padding: '12px 16px 8px' }}>
         {loading ? (
           <div className="form-row" aria-hidden="true" style={{ flexDirection:'row', flexWrap:'wrap' }}>
             {Array.from({ length: 6 }).map((_, i) => (
