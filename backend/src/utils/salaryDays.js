@@ -273,7 +273,9 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
 
   const available = Math.min(daysInMonth, viewDay) - (joinedThisMonth ? (joinDay - 1) : 0);
   const leaveCount = afterJoin.filter(r => r.status === 'leave').length;
-  const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
+  // A half-day record is already penalised as 0.5 day, so its late_minutes must
+  // not also be charged as a late deduction (double penalty).
+  const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.status === 'half-day' ? 0 : (r.late_minutes || 0)), 0);
   const lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace, { graceForfeited: absenceEval.graceForfeited });
 
   const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt, new Date(year, month + 1, 0)) <= 3) ? 1.5 : 0;

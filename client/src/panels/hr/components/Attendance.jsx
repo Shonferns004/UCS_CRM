@@ -529,7 +529,7 @@ export default function Attendance() {
       const joinDate = (w.created_at || '').slice(0, 10);
       const covered = new Set(records.map(r => r.date));
       let present = 0, late = 0, halfDay = 0, leave = 0, absent = 0;
-      const totalLateMinutes = records.reduce((sum, r) => sum + (isVoluntarySunday(r.date) ? 0 : (r.late_minutes || 0)), 0);
+      const totalLateMinutes = records.reduce((sum, r) => sum + (isVoluntarySunday(r.date) || r.status === 'half-day' ? 0 : (r.late_minutes || 0)), 0);
       // Bulk table has no leave/proof context — clawback only; the backend
       // payroll engine is authoritative for forfeiture (Option A single budget).
       const lateDeductionDays = calcLateDeductionDays(totalLateMinutes, w.late_grace_minutes);

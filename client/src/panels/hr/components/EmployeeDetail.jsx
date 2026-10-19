@@ -662,7 +662,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const lateGrace = data?.late_grace_minutes ?? null;
   const lateT = lateThresholds(lateGrace);
   const totalLateMinutes = payAttendance
-    .filter(a => !joinedThisMonth || a.date >= joinCutoff)
+    .filter(a => (!joinedThisMonth || a.date >= joinCutoff) && a.status !== 'half-day')
     .reduce((sum, a) => sum + (a.late_minutes || 0), 0);
 
   // Grace forfeited (unauthorized absence) shares the same single grace budget
@@ -761,7 +761,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
       }
     }
     const pLateMins = pAtt
-      .filter(a => (!pJoined || a.date >= pJoinCutoff) && !isVoluntarySunday(a.date))
+      .filter(a => (!pJoined || a.date >= pJoinCutoff) && !isVoluntarySunday(a.date) && a.status !== 'half-day')
       .reduce((s, a) => s + (a.late_minutes || 0), 0);
     let pLateDays = calcLateDeductionDays(pLateMins, lateGrace, !!absenceGrace[prevMonthKey]);
     const pPaid = Math.max(0, pAvailable - pDeducted.size);
@@ -1112,7 +1112,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                   {/* Late tally rides the month-filter line so the calendar keeps a
                       clean body — no status dropdown; the cells show status themselves. */}
                   {(() => {
-                    const mLate = payAttendance.reduce((s, a) => s + (a.late_minutes || 0), 0);
+                    const mLate = payAttendance.reduce((s, a) => s + (a.status === 'half-day' ? 0 : (a.late_minutes || 0)), 0);
                     return (
                       <div style={{ display:'flex', alignItems:'baseline', gap:7, padding:'7px 13px', background:'var(--bg)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)' }}>
                         <span style={{ fontWeight:600, fontSize:12, color:'var(--ink)' }}>Late this month</span>

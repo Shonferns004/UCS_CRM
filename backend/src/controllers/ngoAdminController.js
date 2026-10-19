@@ -8556,26 +8556,56 @@ export const getStationWiseCollection = async (req, res) => {
       if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
     }
 
-    // Range bounds are resolved up front so an out-of-range month (say 2026-13)
-    // is a 400 whether or not the caller can see any NGO. `month` alone is a
-    // range of exactly one month: month_from/month_to are optional overlays.
-    let from = monthBounds(req.query.month_from || req.query.month);
-    let to = monthBounds(req.query.month_to || req.query.month);
-    if (!from || !to) return res.status(400).json({ message: 'month must be YYYY-MM' });
-    // A from-picker later than the to-picker is a user slip, not an error: the
-    // pair is swapped rather than rejected, so the range always has an order and
-    // `months` can never come out at or below zero.
-    if (from.month > to.month) { const swap = from; from = to; to = swap; }
-    const months = (Number(to.month.slice(0, 4)) - Number(from.month.slice(0, 4))) * 12
-      + (Number(to.month.slice(5, 7)) - Number(from.month.slice(5, 7))) + 1;
+    // 'lifetime' means all receipts, no date filter.
+    const lifetime = req.query.lifetime === '1' || req.query.lifetime === 'true'
+      || req.query.period === 'lifetime';
+
+    // Range bounds. Lifetime has none: from/to/months are filled in later from
+    // the actual min/max receipt dates. Otherwise month/month_from/month_to behave
+    // exactly as before.
+    let from, to, months;
+    if (!lifetime) {
+      from = monthBounds(req.query.month_from || req.query.month);
+      to = monthBounds(req.query.month_to || req.query.month);
+      if (!from || !to) return res.status(400).json({ message: 'month must be YYYY-MM' });
+      // A from-picker later than the to-picker is a user slip, not an error.
+      if (from.month > to.month) { const swap = from; from = to; to = swap; }
+      months = (Number(to.month.slice(0, 4)) - Number(from.month.slice(0, 4))) * 12
+        + (Number(to.month.slice(5, 7)) - Number(from.month.slice(5, 7))) + 1;
+    } else {
+      from = null; to = null; months = 0;
+    }
 
     if (ngoIds.length === 0) {
-      return res.json({ month: from.month, from_month: from.month, to_month: to.month, months, latest_year: null, latest_month: null, from: null, to: null, stations: [], registered: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
+      return res.json({ month: lifetime ? null : from.month, from_month: lifetime ? null : from.month, to_month: lifetime ? null : to.month, months, lifetime, latest_year: null, latest_month: null, from: null, to: null, stations: [], registered: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
     }
 
     // The most recent year/month that actually has receipts for the scoped NGOs.
     // The dashboard uses this to land the Yearly view on a year that has data
     // instead of the (possibly empty) current year.
+    // Lifetime: derive from/to/months from the actual receipt span.
+    if (lifetime) {
+      const aggRows = await sql(
+        `SELECT to_char(MIN(r.receipt_date) AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS from_date,
+                to_char(MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS to_date,
+                COUNT(DISTINCT to_char(r.receipt_date AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM'))::int AS months
+           FROM receipts r
+           LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+           LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+           LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
+          WHERE (fa.ngo_id = ANY($1) OR (fa.id IS NULL AND n.id = ANY($1)))`,
+        [ngoIds]
+      );
+      const a = aggRows?.[0] || {};
+      if (a.from_date) {
+        from = { from: a.from_date, month: String(a.from_date).slice(0, 7) };
+        to = { to: a.to_date, month: String(a.to_date).slice(0, 7) };
+        months = Number(a.months) || 0;
+      } else {
+        from = null; to = null; months = 0;
+      }
+    }
+
     const latestRows = await sql(
       `SELECT COALESCE(EXTRACT(YEAR FROM MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata')::int, 0) AS latest_year,
               to_char(MAX(r.receipt_date) AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') AS latest_month
@@ -8608,6 +8638,15 @@ export const getStationWiseCollection = async (req, res) => {
     // that were never linked to an assignment (log_id IS NULL). Those receipts
     // are scoped to an NGO via project_id -> ngos.code instead of fa.ngo_id, so
     // they still tie out with the Collection card above, which uses the same rule.
+    const ngoParam = lifetime ? '$1' : '$3';
+    const whereParts = [];
+    if (!lifetime) {
+      whereParts.push("r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')");
+      whereParts.push("r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')");
+    }
+    whereParts.push("(fa.ngo_id = ANY(" + ngoParam + ") OR (fa.id IS NULL AND n.id = ANY(" + ngoParam + "))) ");
+    const whereClause = whereParts.join("\n          AND ");
+    const sqlParams = lifetime ? [ngoIds] : [from.from, to.to, ngoIds];
     const rows = await sql(
       `SELECT COALESCE(fa.station, dp.station) AS station,
               COALESCE(SUM(r.amount), 0) AS total,
@@ -8617,11 +8656,9 @@ export const getStationWiseCollection = async (req, res) => {
          LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
          LEFT JOIN donor_profiles dp ON dp.id = r.donor_id
          LEFT JOIN ngos n ON n.code = UPPER(r.project_id)
-        WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
-          AND r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
-          AND (fa.ngo_id = ANY($3) OR (fa.id IS NULL AND n.id = ANY($3)))
+        WHERE ${whereClause}
         GROUP BY COALESCE(fa.station, dp.station)`,
-      [from.from, to.to, ngoIds]
+      sqlParams
     );
 
     const stations = [];
@@ -8662,15 +8699,16 @@ export const getStationWiseCollection = async (req, res) => {
     const total = stations.reduce((s, r) => s + r.amount, 0) + otherAmount + unattributedAmount;
 
     return res.json({
-      month: from.month,
-      from_month: from.month,
-      to_month: to.month,
+      month: from ? from.month : null,
+      from_month: from ? from.month : null,
+      to_month: to ? to.month : null,
       months,
+      lifetime,
       registered,
       latest_year: latestYear,
       latest_month: latestMonth,
-      from: from.from,
-      to: to.to,
+      from: from ? from.from : null,
+      to: to ? to.to : null,
       stations,
       other: { amount: otherAmount, count: otherCount },
       unattributed: { amount: unattributedAmount, count: unattributedCount },
