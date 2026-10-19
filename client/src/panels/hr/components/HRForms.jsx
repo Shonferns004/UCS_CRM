@@ -274,6 +274,22 @@ function findNgo(ngos, ngoId) {
   return ngos.find(n => n.id === ngoId) || null;
 }
 
+function CircularProgress({ pct }) {
+  const r = 13;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - pct / 100);
+  const color = pct === 100 ? '#166534' : pct >= 60 ? '#2385f5' : '#c08a2e';
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" style={{ flexShrink: 0 }}>
+      <circle cx="16" cy="16" r={r} fill="none" stroke="var(--line)" strokeWidth="3" />
+      <circle cx="16" cy="16" r={r} fill="none" stroke={color} strokeWidth="3"
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+        transform="rotate(-90 16 16)" />
+      <text x="16" y="16" textAnchor="middle" dominantBaseline="central" fontSize="9" fontWeight="700" fill="var(--ink)">{pct}%</text>
+    </svg>
+  );
+}
+
 export default function HRForms() {
   const { fetchWorkers, fetchWorkerById, updateWorker, fetchNGOs } = useHR();
   const [workers, setWorkers] = useState([]);
@@ -554,19 +570,8 @@ export default function HRForms() {
                             </div>
                           </div>
                           <span className="hrf-status-pill" style={{ ...statusStyle(w), position: 'static', boxShadow: 'none' }}>{statusOf(w)}</span>
+                          <CircularProgress pct={comp.pct} />
                         </div>
-                        <div>
-                          <div className="hrf-progress-label">
-                            <span>Form completeness</span>
-                            <span>{comp.pct}%</span>
-                          </div>
-                          <div className="hrf-progress-track">
-                            <div className="hrf-progress-fill" style={{ width: comp.pct + '%', background: comp.pct === 100 ? '#166534' : comp.pct >= 60 ? '#2385f5' : '#c08a2e' }} />
-                          </div>
-                        </div>
-                        <button className="btn btn-primary hrf-open" onClick={(e) => { e.stopPropagation(); handleCardClick(w); }}>
-                          <Pencil size={14} /> Open Form
-                        </button>
                       </div>
                     </div>
                   );
