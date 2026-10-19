@@ -70,12 +70,17 @@ export default function Recruiters() {
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
   const [formErrors, setFormErrors] = useState({ name: '', phone: '' });
+  const [visibleCount, setVisibleCount] = useState(8);
 
   useEffect(() => {
     setLeadsLoading(true);
     fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
     fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); }).finally(() => setRecruitersLoading(false));
   }, []);
+
+  // Reset the progressive list when any filter changes so we don't show a
+  // stale "Load more" tail.
+  useEffect(() => { setVisibleCount(8); }, [recruiterFilter, statusFilter, sourceFilter, search, rangeKey, tab]);
 
   // The date range is the widest filter on the page, so it narrows the raw lead
   // list first and everything downstream — stat cards, leaderboard and both tab
@@ -329,7 +334,7 @@ export default function Recruiters() {
                 ) : filteredLeads.length === 0 ? (
                   <tr><td colSpan={8}><div className="empty">No leads found. <button className="btn btn-sm" onClick={() => openForm(null)}>Add one</button></div></td></tr>
                 ) : (
-                  filteredLeads.map(lead => {
+                  filteredLeads.slice(0, visibleCount).map(lead => {
                     const st = STATUSES.find(s => s.key === cleanField(lead.status)) || { label: cleanField(lead.status) || '—', color: '#9ca3af' };
                     const displayAge = lead.dob ? calcAge(lead.dob) : lead.age;
                     return (
@@ -350,6 +355,14 @@ export default function Recruiters() {
                 )}
               </tbody>
             </table>
+            {visibleCount < filteredLeads.length && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12, marginBottom: 6 }}>
+                <button className="btn btn-outline" onClick={() => setVisibleCount(c => c + 8)}
+                  style={{ gap: 10, padding: '9px 24px', borderRadius: 8, fontWeight: 600, fontSize: 13, border: '1px solid var(--line)', boxShadow: '0 1px 3px rgba(16,24,40,.06)' }}>
+                  Load more <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>({filteredLeads.length - visibleCount} more)</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
