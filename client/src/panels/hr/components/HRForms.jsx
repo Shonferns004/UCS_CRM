@@ -52,10 +52,10 @@ function formCompletion(w) {
 const statusOf = (w) => w.employment_status || (w.is_active ? 'active' : 'inactive');
 const statusStyle = (w) => {
   const st = statusOf(w);
-  if (st === 'active') return { bg: '#16a34a' };
-  if (st === 'absconded') return { bg: '#dc2626' };
-  if (st === 'offboarded') return { bg: 'rgba(67,56,202,0.9)' };
-  return { bg: 'rgba(55,65,81,0.9)' };
+  if (st === 'active') return { background: '#16a34a' };
+  if (st === 'absconded') return { background: '#dc2626' };
+  if (st === 'offboarded') return { background: 'rgba(67,56,202,0.9)' };
+  return { background: 'rgba(55,65,81,0.9)' };
 };
 
 function MiniFormPreview({ worker }) {
