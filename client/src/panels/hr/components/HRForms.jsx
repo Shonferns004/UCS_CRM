@@ -280,6 +280,7 @@ export default function HRForms() {
   const [ngos, setNgos] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [viewMode, setViewMode] = useState('grid');
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -312,6 +313,7 @@ export default function HRForms() {
   const totalCount = workers.length;
   const activeCount = workers.filter((w) => statusOf(w) === 'active').length;
   const incompleteCount = workers.filter((w) => formCompletion(w).pct < 100).length;
+  const completedCount = workers.filter((w) => formCompletion(w).pct === 100).length;
 
   const handleCardClick = async (worker) => {
     setSelectedWorker(worker);
@@ -512,6 +514,13 @@ export default function HRForms() {
                   <div className="hrf-stat-lbl">Incomplete Forms</div>
                 </div>
               </div>
+              <div className="hrf-stat">
+                <span className="hrf-stat-dot" style={{ background: 'rgba(22,101,52,0.12)', color: '#166534' }}><IconUser /></span>
+                <div>
+                  <div className="hrf-stat-num">{completedCount}</div>
+                  <div className="hrf-stat-lbl">Completed Forms</div>
+                </div>
+              </div>
             </div>
 
             <div className="hrf-toolbar">
@@ -531,9 +540,19 @@ export default function HRForms() {
                 <option value="offboarded">Offboarded</option>
                 <option value="incomplete">Incomplete forms</option>
               </select>
+              <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                <button type="button" onClick={() => setViewMode('grid')} title="Grid view"
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: viewMode === 'grid' ? 'var(--sage)' : 'var(--paper)', color: viewMode === 'grid' ? '#fff' : 'var(--ink)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                  Grid
+                </button>
+                <button type="button" onClick={() => setViewMode('list')} title="List view"
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', background: viewMode === 'list' ? 'var(--sage)' : 'var(--paper)', color: viewMode === 'list' ? '#fff' : 'var(--ink)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                  List
+                </button>
+              </div>
             </div>
 
-            <div className="hrf-grid-cards">
+            {viewMode === 'grid' && (<div className="hrf-grid-cards">
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} aria-hidden="true" className="hrf-card">
@@ -607,7 +626,45 @@ export default function HRForms() {
                   No volunteers found
                 </div>
               )}
-            </div>
+            </div>)}
+            {viewMode === 'list' && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--line)' }}>
+                      <th style={{ padding: '8px' }}>Employee</th>
+                      <th style={{ padding: '8px' }}>Role</th>
+                      <th style={{ padding: '8px' }}>Completion</th>
+                      <th style={{ padding: '8px' }}>Status</th>
+                      <th style={{ padding: '8px' }}>Joined</th>
+                      <th style={{ padding: '8px' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? null : filtered.map((w) => {
+                      const name = w.name || 'Unknown';
+                      const comp = formCompletion(w);
+                      const joinDate = w.created_at ? new Date(w.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—';
+                      return (
+                        <tr key={w.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                          <td style={{ padding: '8px', fontWeight: 600 }}>{name}</td>
+                          <td style={{ padding: '8px' }}>{w.department ? deptLabel(w.department) : 'Team Member'}</td>
+                          <td style={{ padding: '8px' }}>{comp.pct}%</td>
+                          <td style={{ padding: '8px' }}>{statusOf(w)}</td>
+                          <td style={{ padding: '8px' }}>{joinDate}</td>
+                          <td style={{ padding: '8px' }}>
+                            <button className="btn btn-sm btn-primary" onClick={() => handleCardClick(w)}>Open Form</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {!loading && filtered.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--ink-soft)' }}>No volunteers found</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
