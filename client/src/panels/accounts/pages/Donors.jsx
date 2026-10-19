@@ -763,6 +763,7 @@ export default function Donors() {
   const { user } = useUcs()
   const isMobile = useIsMobile()
   const [donors, setDonors] = useState([])
+  const [newDataRows, setNewDataRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -828,7 +829,37 @@ export default function Donors() {
     finally { setLoading(false) }
   }, [])
 
+  const loadNewData = useCallback(async (ngoName) => {
+    try {
+      const params = new URLSearchParams()
+      params.set('page', '1')
+      params.set('per_page', '5000')
+      const ngo = (ngoOptions || []).find(n => n.name === ngoName)
+      if (ngo?.id) params.set('ngo_id', ngo.id)
+      const res = await apiGet('/ngo-admin/new-data?' + params.toString())
+      const rows = Array.isArray(res?.unassigned) ? res.unassigned : []
+      const mapped = rows.map(r => ({
+        id: `nd:${r.mobile_number || ''}:${r.ngo || ''}`,
+        name: r.name || '',
+        mobile_number: r.mobile_number || '',
+        ngo: r.ngo || '',
+        data_category: r.data_category || r.category || '',
+        category: r.category || '',
+        amount: r.amount || 0,
+        created_at: r.created_at || null,
+        assignment_list: [],
+        isNewData: true,
+      }))
+      setNewDataRows(mapped)
+    } catch (e) {
+      console.error('Error loading unassigned new data:', e.message)
+      setNewDataRows([])
+    }
+  }, [ngoOptions])
+
   useEffect(() => { load(search, page, ngoFilter, agentFilter, stationFilter) }, [load, search, page, ngoFilter, agentFilter, stationFilter])
+
+  useEffect(() => { loadNewData(ngoFilter) }, [loadNewData, ngoFilter])
 
   const handleSearch = (e) => {
     setSearch(e.target.value)
@@ -864,6 +895,13 @@ export default function Donors() {
   }
 
   const closeMenus = () => { setRowMenu(new Set()) }
+
+  const includeNewData = !agentFilter && !stationFilter
+  const searchLower = search.trim().toLowerCase()
+  const visibleNewData = includeNewData
+    ? newDataRows.filter(d => !searchLower || String(d.name || '').toLowerCase().includes(searchLower) || String(d.mobile_number || '').toLowerCase().includes(searchLower))
+    : []
+  const displayDonors = (page === 1) ? [...visibleNewData, ...donors] : donors
 
   const toggleRowMenu = (e, id) => {
     e.stopPropagation()
@@ -936,6 +974,11 @@ export default function Donors() {
                 style={{ paddingLeft: 30 }}
               />
             </div>
+            {newDataRows.length > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                Unassigned new data: {newDataRows.length}
+              </span>
+            )}
             <button className="btn" onClick={handleExport} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               {exporting ? 'Exporting...' : 'Export Excel'}
@@ -946,29 +989,33 @@ export default function Donors() {
           <div className="donor-cards-list">
             {loading ? (
               Array.from({ length: 5 }, (_, i) => <SkeletonCard key={i} />)
-            ) : donors.length === 0 ? (
+            ) : displayDonors.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</div>
-            ) : donors.map(d => {
-              const assignments = parseAssignments(d, ngoFilter, agentFilter, false)
+            ) : displayDonors.map(d => {
+              const assignments = d.isNewData
+                ? [{ name: 'Unassigned (New Data)', station: '' }]
+                : parseAssignments(d, ngoFilter, agentFilter, false)
               if (assignments.length === 0) return null
               const isOpen = !!expanded[d.id]
               const { name, secondary, initial } = donorMeta(d)
               return (
-                <div key={d.id} className="donor-card" onClick={() => setSelectedId(d.id)}>
+                <div key={d.id} className="donor-card" onClick={() => { if (!d.isNewData) setSelectedId(d.id) }}>
                   <div className="donor-card-head">
                     <div className="donor-avatar">{initial}</div>
                     <div className="donor-info">
                       <div className="donor-name" title={name}>{name}</div>
                       {secondary && <div className="donor-sub" title={secondary}>{secondary}</div>}
                     </div>
-                    <span className="action-wrap">
-                      <button className="kebab" onClick={e => toggleRowMenu(e, d.id)} aria-label="Row actions"><MoreHorizontal size={16} /></button>
-                      {rowMenu.has(d.id) && (
-                        <div className="row-menu" onClick={e => e.stopPropagation()}>
-                          {buildRowMenu(d)}
-                        </div>
-                      )}
-                    </span>
+                    {!d.isNewData && (
+                      <span className="action-wrap">
+                        <button className="kebab" onClick={e => toggleRowMenu(e, d.id)} aria-label="Row actions"><MoreHorizontal size={16} /></button>
+                        {rowMenu.has(d.id) && (
+                          <div className="row-menu" onClick={e => e.stopPropagation()}>
+                            {buildRowMenu(d)}
+                          </div>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <div className="donor-card-sub">
                     <span className="donor-card-mobile">{d.mobile_number || '-'}</span>
@@ -1001,15 +1048,17 @@ export default function Donors() {
               <tbody>
                 {loading ? (
                   Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={3} />)
-                ) : donors.length === 0 ? (
+                ) : displayDonors.length === 0 ? (
                   <tr><td colSpan={3} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
-                ) : donors.map(d => {
-                  const assignments = parseAssignments(d, ngoFilter, agentFilter, false)
+                ) : displayDonors.map(d => {
+                  const assignments = d.isNewData
+                    ? [{ name: 'Unassigned (New Data)', station: '' }]
+                    : parseAssignments(d, ngoFilter, agentFilter, false)
                   if (assignments.length === 0) return null
                   const isOpen = !!expanded[d.id]
                   const { name, secondary, initial } = donorMeta(d)
                   return (
-                    <tr key={d.id} className="clickable-row" onClick={() => setSelectedId(d.id)}>
+                    <tr key={d.id} className={d.isNewData ? '' : 'clickable-row'} onClick={() => { if (!d.isNewData) setSelectedId(d.id) }}>
                       <td className="donor-cell">
                         <div className="donor-cell-inner">
                           <div className="donor-avatar">{initial}</div>

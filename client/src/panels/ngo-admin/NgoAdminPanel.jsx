@@ -27,7 +27,7 @@ const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
   { id: 'temporary-access', path: '/ngo-admin/temporary-access', label: 'Temporary Access', icon: 'clock' },
-  { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
+  // { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
   { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
