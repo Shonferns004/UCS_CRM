@@ -1624,7 +1624,7 @@ export default function Letters() {
         <div className="card-head">
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
         </div>
-        <div ref={previewRef} className="card-pad" style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 0 }}>
+        <div ref={previewRef} style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 0 }}>
           <div style={{ transform: 'scale(0.73)', transformOrigin: 'center top', width: 900, maxWidth: '100%', marginLeft: -32 }}>
             {out && !sopSel && (
           <div className="letter">
