@@ -38,15 +38,8 @@ export default function AccountCard({
   onFetchTemplates,
   templates,
   onSelectTemplate,
-  agentsOpen,
-  onToggleAgents,
-  agents,
-  agentSearch,
-  onAgentSearchChange,
-  agentResults,
-  assigning,
-  onAssignAgent,
-  onRemoveAgent,
+  agentCount,
+  onOpenAgents,
   onEdit,
   onDelete,
 }) {
@@ -175,11 +168,12 @@ export default function AccountCard({
           <button
             type="button"
             className="wa-btn-outline"
-            onClick={onToggleAgents}
-            aria-expanded={agentsOpen}
+            onClick={onOpenAgents}
+            aria-haspopup="dialog"
+            data-wa-agents-btn={account.id}
           >
             <Users size={15} strokeWidth={1.8} aria-hidden="true" />
-            Agents{agents ? ` (${agents.length})` : ''}
+            Agents{agentCount !== null ? ` (${agentCount})` : ''}
           </button>
           <button
             type="button"
@@ -202,62 +196,6 @@ export default function AccountCard({
           </button>
         </div>
       </div>
-
-      {agentsOpen && (
-        <div className="wa-agents">
-          {agents && agents.length > 0 && (
-            <div className="wa-agent-list">
-              {agents.map(agent => {
-                const w = agent.workers || {};
-                const agentName = w.name || w.email || 'Unknown';
-                return (
-                  <div key={agent.id} className="wa-agent-item">
-                    <span className="wa-agent-name">{agentName}</span>
-                    <button
-                      type="button"
-                      className="wa-agent-action is-danger"
-                      onClick={() => onRemoveAgent(agent.fro_worker_id, agentName)}
-                      aria-label={`Remove agent ${agentName}`}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <label className="wa-sr-only">
-            Search worker to assign
-            <input
-              className="wa-agent-search"
-              type="text"
-              value={agentSearch}
-              onChange={e => onAgentSearchChange(e.target.value)}
-              placeholder="Search worker by name, email, or phone..."
-            />
-          </label>
-          {agentResults && agentResults.length > 0 && (
-            <div className="wa-agent-results">
-              {agentResults.map(w => {
-                const workerName = w.name || w.email || 'Unknown';
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    className="wa-agent-result"
-                    onClick={() => onAssignAgent(w.id)}
-                    disabled={assigning}
-                  >
-                    <span className="wa-agent-name">{workerName}</span>
-                    <span className="wa-agent-meta">{w.phone || w.email || ''}</span>
-                    <span className="wa-assign-tag">+ Assign</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
     </article>
   );
 }

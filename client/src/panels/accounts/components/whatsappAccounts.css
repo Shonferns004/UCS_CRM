@@ -1,7 +1,8 @@
 /* ==========================================================================
    WhatsApp Accounts — card-grid redesign (UI only).
    Scoped under .wa-page / .wa-* so no other Accounts surface is affected.
-   Tokens: bg #f4f7fb, primary #1f6fd1, cards 16px / controls 10px / pills 999px.
+   Tokens: bg #f4f7fb (owned by the app shell, NOT this wrapper), primary
+   #1f6fd1, cards 16px / controls 10px / pills 999px.
    ========================================================================== */
 
 .wa-page {
@@ -21,8 +22,6 @@
   box-sizing: border-box;
   max-width: 1240px;
   margin: 0 auto;
-  padding: 32px;
-  background: #f4f7fb;
   color: var(--wa-text);
   font-family: 'Plus Jakarta Sans', 'Poppins', system-ui, -apple-system, sans-serif;
   font-size: 14px;
@@ -58,6 +57,11 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  padding: 32px 0 0;
+}
+
+@media (max-width: 760px) {
+  .wa-header { padding-top: 16px; }
 }
 
 .wa-h1 {
@@ -622,129 +626,375 @@
   flex-wrap: wrap;
 }
 
-/* ---------- Agents panel ---------- */
+/* ---------- Agents drawer ---------- */
 
-.wa-agents {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  background: #f8fafc;
-  border: 1px solid var(--wa-border);
-  border-radius: 12px;
+.wa-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 26, 48, 0.35);
+  z-index: 2500;
 }
 
-.wa-agent-list {
+.wa-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 440px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
+  background: #fff;
+  box-shadow: -12px 0 40px rgba(15, 28, 51, 0.18);
+  z-index: 2501;
 }
 
-.wa-agent-item {
+.wa-drawer-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--wa-line-soft);
+}
+
+.wa-drawer-header-text { flex: 1; min-width: 0; }
+
+.wa-drawer-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--wa-line-soft);
-  font-size: 13px;
+  flex-wrap: wrap;
 }
 
-.wa-agent-item:last-child { border-bottom: none; }
-
-.wa-agent-name {
-  flex: 1;
+.wa-drawer-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--wa-text);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
 }
 
-.wa-agent-meta {
-  flex-shrink: 0;
-  font-size: 11px;
+.wa-drawer-sub {
+  margin: 4px 0 0;
+  font-size: 12.5px;
   color: var(--wa-muted);
-  white-space: nowrap;
-  max-width: 45%;
+}
+
+.wa-drawer-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--wa-muted);
+  cursor: pointer;
+}
+
+.wa-drawer-close:hover { background: #f0f4fa; color: var(--wa-text); }
+
+.wa-drawer-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--wa-line-soft);
+  background: #fff;
+}
+
+.wa-drawer-count {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 20px 0;
+  font-size: 12px;
+  color: var(--wa-muted);
+}
+
+.wa-drawer-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 20px 8px;
+}
+
+.wa-drawer-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--wa-line-soft);
+  background: #fff;
+}
+
+/* Reusable search box (both drawer searches) */
+.wa-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-search-box-ico {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--wa-muted);
+  pointer-events: none;
+}
+
+.wa-search-box-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 38px 0 36px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--wa-text);
+  background: #fff;
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+}
+
+.wa-search-box-input::placeholder { color: #93a1b5; }
+
+.wa-search-box-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wa-muted);
+  cursor: pointer;
+}
+
+.wa-search-box-clear:hover { background: #eef2f7; color: var(--wa-text); }
+
+.wa-assign-btn { flex-shrink: 0; }
+
+/* Rows */
+.wa-arow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  border-bottom: 1px solid var(--wa-line-soft);
+}
+
+.wa-arow-avatar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #e6f0fd;
+  color: #1558ac;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wa-arow-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--wa-text);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.wa-agent-action {
+.wa-arow-remove {
   flex-shrink: 0;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 12px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
+  color: var(--wa-danger);
   background: #fff;
-  border: 1px solid #d5deeb;
+  border: 1px solid var(--wa-danger-border);
   border-radius: 8px;
+  cursor: pointer;
+}
+
+.wa-arow-remove:hover { background: var(--wa-danger-hover); }
+
+.wa-arow-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  border-bottom: 1px solid var(--wa-line-soft);
+}
+
+.wa-arow-confirm-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--wa-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-arow-confirm-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.wa-btn-xs {
+  height: 32px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--wa-border);
+  background: #fff;
   color: #344054;
   cursor: pointer;
 }
 
-.wa-agent-action:hover { background: #f4f7fb; }
-
-.wa-agent-action.is-danger {
+.wa-btn-xs.is-danger {
   color: var(--wa-danger);
   border-color: var(--wa-danger-border);
 }
 
-.wa-agent-action.is-danger:hover { background: var(--wa-danger-hover); }
+.wa-btn-xs.is-danger:hover:not(:disabled) { background: var(--wa-danger-hover); }
 
-.wa-agent-search {
-  width: 100%;
-  height: 40px;
-  padding: 0 12px;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--wa-text);
-  background: #fff;
-  border: 1px solid var(--wa-border);
-  border-radius: 10px;
-}
+.wa-btn-xs:disabled { opacity: 0.55; cursor: default; }
 
-.wa-agent-search::placeholder { color: #93a1b5; }
+/* Assign panel slides over the list inside the same drawer */
+.wa-assign-host { display: contents; }
 
-.wa-agent-results {
+.wa-assign-panel {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  max-height: 160px;
-  overflow-y: auto;
   background: #fff;
-  border: 1px solid var(--wa-border);
-  border-radius: 10px;
+  z-index: 1;
+  animation: wa-slide-in 0.18s ease;
 }
 
-.wa-agent-result {
+@keyframes wa-slide-in {
+  from { transform: translateX(24px); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+
+.wa-assign-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 40px;
-  padding: 6px 10px;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--wa-text);
-  text-align: left;
-  background: #fff;
-  border: none;
+  gap: 10px;
+  height: 56px;
   border-bottom: 1px solid var(--wa-line-soft);
   cursor: pointer;
 }
 
-.wa-agent-result:last-child { border-bottom: none; }
+.wa-assign-row:hover { background: #f8fafd; }
 
-.wa-agent-result:hover:not(:disabled) { background: #f0fdf4; }
-
-.wa-agent-result:disabled { opacity: 0.55; cursor: default; }
-
-.wa-assign-tag {
+.wa-assign-row input {
   flex-shrink: 0;
-  font-size: 11px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--wa-primary);
+}
+
+.wa-selectall {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px 0;
+  font-size: 12.5px;
   font-weight: 600;
-  color: #12a070;
+  color: var(--wa-text);
+  cursor: pointer;
+}
+
+.wa-selectall input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--wa-primary);
+}
+
+.wa-assign-foot { justify-content: space-between; }
+
+.wa-assign-foot-right {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* Drawer states */
+.wa-drawer-empty {
+  padding: 40px 8px;
+  text-align: center;
+}
+
+.wa-drawer-empty .wa-empty-title { font-size: 14px; }
+
+.wa-drawer-empty .wa-btn { margin-top: 14px; }
+
+.wa-drawer-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--wa-danger);
+}
+
+.wa-skel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  border-bottom: 1px solid var(--wa-line-soft);
+}
+
+.wa-skel-row .wa-skel-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.wa-skel-row .wa-skel-line { flex: 1; }
+
+.wa-drawer :focus-visible {
+  outline: 2px solid var(--wa-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .wa-drawer { width: 100%; border-radius: 0; }
 }
 
 /* ---------- Skeleton, empty and error states ---------- */
@@ -779,6 +1029,8 @@
   height: 46px;
   border-radius: 12px;
 }
+
+.wa-skel-row .wa-skel-avatar { border-radius: 50%; }
 
 .wa-skel-lines {
   flex: 1;
@@ -836,8 +1088,6 @@
 }
 
 @media (max-width: 760px) {
-  .wa-page { padding: 16px; }
-
   .wa-header { flex-direction: column; align-items: stretch; }
 
   .wa-header-actions { width: 100%; }
@@ -861,6 +1111,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wa-card { transition: none; }
+
+  .wa-assign-panel { animation: none; }
 
   .wa-skel-line,
   .wa-skel-avatar,
