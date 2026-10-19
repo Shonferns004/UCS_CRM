@@ -358,6 +358,9 @@ function HistoryRow({ inc, busyId, onEdit, onCancel, onArchive, onDelete, onSent
           <Trophy size={15} weight="fill" color="#B7791F" style={{ flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {inc.winner_name || 'Winner'} · won {money(inc.incentive_amount)}
+            {inc.claim_status === 'verified'
+              ? ` · Prize issued${inc.claimed_at ? ` ${fmtDate(inc.claimed_at)}` : ''}`
+              : ' · Prize pending verification'}
           </div>
         </div>
       )}

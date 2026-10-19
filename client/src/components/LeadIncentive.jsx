@@ -1453,8 +1453,10 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
     return m
   }, [slabs])
   const announcedKeys = useMemo(
-    () => new Set((announcements || []).map(a => `${a.slab_id}|${a.tier_key || ''}`)),
-    [announcements]
+    () => new Set((announcements || [])
+      .filter(a => String(a.announcement_date).slice(0, 10) === String(date).slice(0, 10))
+      .map(a => `${a.slab_id}|${a.tier_key || ''}`)),
+    [announcements, date]
   )
   const dayKey = String(date).slice(0, 10)
   const pending = useMemo(

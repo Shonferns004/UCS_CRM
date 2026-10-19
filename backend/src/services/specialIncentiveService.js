@@ -438,15 +438,16 @@ export const getHistory = async (limit = 60) => {
 };
 
 // Won incentives that still need Accounts to verify/claim the prize.
+// claim_status may be NULL on older rows (the column was added later), so treat
+// NULL the same as 'pending' instead of dropping those winners from the queue.
 export const listPendingClaims = async () => {
   const { data, error } = await db
     .from('special_incentives')
     .select('*, ngos(name)')
     .eq('status', 'won')
-    .eq('claim_status', 'pending')
     .order('winner_claimed_at', { ascending: false });
   if (error) throw error;
-  return data || [];
+  return (data || []).filter((row) => !row.claim_status || row.claim_status === 'pending');
 };
 
 // Won incentives that have been verified (prize paid out) by Accounts.
