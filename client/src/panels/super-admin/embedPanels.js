@@ -68,6 +68,18 @@ export const EMBED_PANELS = {
       { path: 'library', label: 'Library' },
     ],
   },
+  // The developer panel, embedded so Super Admin sees the QA bug tracker —
+  // every bug in the system (super_admin is not filtered by assignee, unlike
+  // a developer who only sees their own + unassigned).
+  developers: {
+    base: '/dev-panel',
+    label: 'Developers',
+    home: 'bugs',
+    items: [
+      { path: 'bugs', label: 'All Bugs' },
+      { path: 'daily-report', label: 'Daily Report' },
+    ],
+  },
 }
 
 // CSS injected into the (same-origin) iframe so the embedded panel shows only

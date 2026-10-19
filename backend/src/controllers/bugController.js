@@ -6,6 +6,7 @@ import {
 import { getBugAssignableMembers } from '../models/developerTicketModel.js';
 import db from '../config/db.js';
 import { getSenderPanel, getSenderName } from '../utils/panel.js';
+import { istDateString } from '../utils/ist.js';
 
 // Resolve a worker's display name for an assignee id, so the board card reads a
 // name without the client having to join anything.
@@ -86,6 +87,108 @@ export const getStats = async (req, res) => {
     });
     return res.json(stats);
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+// Batched display-name lookup for the id-only actor columns (fixed_by_id,
+// closed_by_id — only the reporter's name is denormalised onto the row). Two
+// queries for the whole feed instead of one per bug.
+const resolveActorNames = async (ids) => {
+  const map = new Map();
+  const list = [...new Set(ids.filter(Boolean))];
+  if (list.length === 0) return map;
+  try {
+    const { data } = await db.from('workers').select('id, name, login_id').in('id', list);
+    for (const w of data || []) {
+      const name = w.name || w.login_id;
+      if (name) map.set(String(w.id), name);
+    }
+  } catch { /* workers table may be absent — fall through to users */ }
+  const missing = list.filter((id) => !map.has(String(id)));
+  if (missing.length) {
+    try {
+      const { data } = await db.from('users').select('id, name, email').in('id', missing);
+      for (const u of data || []) {
+        const name = u.name || u.email;
+        if (name) map.set(String(u.id), name);
+      }
+    } catch { /* ignore: the entry falls back to 'Unknown' */ }
+  }
+  return map;
+};
+
+// ── Report feed ────────────────────────────────────────────────────────
+// One entry per bug EVENT inside [from, to] — reported (someone found it),
+// fixed (the dev handed it to test) and verified (the tester closed it). This
+// is what makes QA work count as work: a developer like Omkar, whose days are
+// spent filing bugs, shows activity on the daily/monthly report without typing
+// a word into the prose.
+//
+// The date range is applied to each event's own timestamp, not the bug's
+// created_at: a bug found last month and verified this month credits both
+// months on the right day. Days are IST calendar days (see utils/ist.js) so
+// they agree with the daily_reports rows they sit next to.
+//
+// Visibility: super_admin/admin see every event; anyone else only sees the
+// events they personally performed, so a dev panel can show "my bug work"
+// without leaking who else reported what.
+export const getActivity = async (req, res) => {
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) {
+    return res.status(400).json({ message: 'from and to are required (YYYY-MM-DD)' });
+  }
+  if (to < from) return res.status(400).json({ message: 'to must not be before from' });
+  try {
+    const bugs = await selectBugs({});
+    const role = String(req.user?.role || '').toLowerCase();
+    const seesAll = role === 'super_admin' || role === 'admin';
+    const me = req.user?.id != null ? String(req.user.id) : '';
+
+    const nameIds = [];
+    for (const b of bugs) {
+      if (b.fixed_at && b.fixed_by_id) nameIds.push(String(b.fixed_by_id));
+      if (b.closed_at && b.closed_by_id) nameIds.push(String(b.closed_by_id));
+    }
+    const names = await resolveActorNames(nameIds);
+
+    const activity = [];
+    const push = (bug, kind, at, personId, personName) => {
+      if (!at) return;
+      const day = istDateString(new Date(at));
+      if (day < from || day > to) return;
+      const pid = personId != null && personId !== '' ? String(personId) : '';
+      const name = (pid && names.get(pid)) || personName || null;
+      if (!pid && !name) return;                 // nothing to credit
+      if (!seesAll && pid !== me) return;        // others' work stays private
+      activity.push({
+        id: `${bug.id}:${kind}`,
+        bug_id: bug.id,
+        kind,                                     // reported | fixed | verified
+        day,                                      // IST calendar day
+        at,
+        person_id: pid || null,
+        person_name: name,
+        title: bug.title,
+        module: bug.module,
+        type: bug.type,
+        severity: bug.severity,
+        status: bug.status,
+      });
+    };
+
+    for (const b of bugs) {
+      push(b, 'reported', b.created_at, b.reported_by_id, b.reported_by_name);
+      push(b, 'fixed', b.fixed_at, b.fixed_by_id, null);
+      push(b, 'verified', b.closed_at, b.closed_by_id, null);
+    }
+    activity.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    return res.json({ from, to, activity });
+  } catch (error) {
+    console.error('[bugs] activity feed failed:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

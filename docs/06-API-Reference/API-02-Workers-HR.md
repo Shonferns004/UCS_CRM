@@ -159,13 +159,24 @@
 | --- | --- | --- |
 | POST | `/api/daily-reports/` | `reporters, saveReport` |
 | GET | `/api/daily-reports/mine` | `reporters, getMyReport` |
+| GET | `/api/daily-reports/mine/monthly` | `reporters, getMyMonthlyReport` |
 | GET | `/api/daily-reports/all` | `hod, getAllReports` |
+| GET | `/api/daily-reports/monthly` | `hod, getMonthlyReports` |
 | GET | `/api/daily-reports/summary` | `hod, getSummary` |
 | GET | `/api/daily-reports/roster` | `hod, getRoster` |
 | GET | `/api/daily-reports/reviewed` | `reporters, getReviewedReports` |
 | GET | `/api/daily-reports/` | `reporters, getReports` |
 | PUT | `/api/daily-reports/:id/remark` | `hod, setReportRemark` |
 | PUT | `/api/daily-reports/:id/review` | `reviewers, reviewOnly, setReportReview` |
+
+**Bug tracker — activity feed** (`/api/bugs`, `bugRoutes.js:13`, `getActivity`)
+
+| GET | `/api/bugs/activity?from=YYYY-MM-DD&to=YYYY-MM-DD` | `authenticate` → `getActivity` |
+| --- | --- | --- |
+
+One entry per bug **event** (reported / fixed / verified) inside the range, each carrying the person who did it (`person_id` / `person_name`), the IST `day`, and the bug's `title` / `module` / `severity`. `from`/`to` are required and validated as ISO dates.
+
+Visibility: `super_admin` / `admin` see every event; any other role only sees events they personally performed (so a developer panel can show "my bug work" without leaking who else reported what). This is what makes QA work count as work in the daily and monthly developer reports — a day spent filing bugs shows activity even with nothing typed into the prose.
 
 ## quizRoutes.js
 

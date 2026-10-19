@@ -469,7 +469,7 @@ return (
               stable part of the card rather than appearing only on High Tier days. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, fontWeight: 700, color: collectedHighTier > 0 ? '#8b5cf6' : 'var(--ink-soft)' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: collectedHighTier > 0 ? '#8b5cf6' : 'var(--md-outline-variant)', flexShrink: 0 }} />
-            High Tier se: {currency(collectedHighTier)}
+            High Tier: {currency(collectedHighTier)}
           </div>
         </div>
 
@@ -744,7 +744,7 @@ return (
                   {/* The High Tier slice of that same subtotal (already inside it,
                       never extra), for the same reason the card shows the line. */}
                   {!collectionsLoading && selectedCollectionNgo === 'all' && collectionsMonth === 'current' && Number(collectionsData?.total_high_tier || 0) > 0 && (
-                    <span style={{ color: '#7c3aed', fontWeight: 700 }}> · High Tier se {currency(Number(collectionsData.total_high_tier))}</span>
+                    <span style={{ color: '#7c3aed', fontWeight: 700 }}> · High Tier {currency(Number(collectionsData.total_high_tier))}</span>
                   )}
                 </div>
                 <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all'); setCollectionSearch('') }}

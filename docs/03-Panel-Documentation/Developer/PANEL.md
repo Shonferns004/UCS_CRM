@@ -95,8 +95,11 @@ Supporting endpoints also used by this panel (Verified — mounts in `index.js`)
 | GET | `/api/tickets`, `/api/tickets/my`, `/api/tickets/:id` | `authenticate` (per `ticketRoutes`) | regular support tickets, merged client-side (Partially verified) |
 | POST | `/api/daily-reports` | `authenticateRole` (reporters: super_admin, admin, hr, recruiter, digital, developers, social) | `saveReport` |
 | GET | `/api/daily-reports/mine` | reporters | `getMyReport` |
+| GET | `/api/daily-reports/mine/monthly` | reporters | `getMyMonthlyReport` — own reports for a month (Monthly tab) |
 | GET | `/api/daily-reports` | reporters | `getReports` |
+| GET | `/api/daily-reports/monthly` | super_admin / admin | `getMonthlyReports` — all developers' rows for a month (Super Admin monthly report) |
 | GET/PUT | `/api/daily-reports/all`, `/summary`, `/roster`, `/:id/remark` | super_admin / admin | HOD oversight |
+| GET | `/api/bugs/activity?from=&to=` | `authenticate` → `getActivity` | bug-tracker events (reported / fixed / verified) for a range; other roles only get their own — feeds the Daily and Monthly report bug-work counts |
 
 ## 7. Panel Summary
 
