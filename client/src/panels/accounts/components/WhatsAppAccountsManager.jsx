@@ -308,32 +308,38 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
               <span className="wa-f-label">WABA ID</span>
               <input className="wa-input" value={form.waba_id} onChange={e => setForm(p => ({ ...p, waba_id: e.target.value }))} placeholder="WABA ID" />
             </label>
-            <label className="wa-f">
-              <span className="wa-f-label">Template Language</span>
-              <input className="wa-input" value={form.template_language} onChange={e => setForm(p => ({ ...p, template_language: e.target.value }))} placeholder="en" />
-            </label>
-            <label className="wa-f">
-              <span className="wa-f-label">HR Letter Template</span>
-              <input
-                className="wa-input"
-                list={editing ? `tpl-${editing.id}` : undefined}
-                value={form.hr_letter_template}
-                onChange={e => setForm(p => ({ ...p, hr_letter_template: e.target.value }))}
-                placeholder="e.g. ucs_hr_letter (optional)"
-                title="Approved template used by HR > Letters when the volunteer is outside the 24-hour window. Must declare a DOCUMENT header plus a {{1}} body."
-              />
-            </label>
-            <label className="wa-f">
-              <span className="wa-f-label">HR Warning Template</span>
-              <input
-                className="wa-input"
-                list={editing ? `tpl-${editing.id}` : undefined}
-                value={form.hr_warning_template}
-                onChange={e => setForm(p => ({ ...p, hr_warning_template: e.target.value }))}
-                placeholder="e.g. ucs_hr_warning (optional)"
-                title="Approved template used by HR > Letters for the warning-message templates when the volunteer is outside the 24-hour window. Must declare a single {{1}} body."
-              />
-            </label>
+            {/* Template language and the HR template slots are configured after
+                the account exists; keep the Add form to the essentials. */}
+            {editing && (
+              <>
+                <label className="wa-f">
+                  <span className="wa-f-label">Template Language</span>
+                  <input className="wa-input" value={form.template_language} onChange={e => setForm(p => ({ ...p, template_language: e.target.value }))} placeholder="en" />
+                </label>
+                <label className="wa-f">
+                  <span className="wa-f-label">HR Letter Template</span>
+                  <input
+                    className="wa-input"
+                    list={editing ? `tpl-${editing.id}` : undefined}
+                    value={form.hr_letter_template}
+                    onChange={e => setForm(p => ({ ...p, hr_letter_template: e.target.value }))}
+                    placeholder="e.g. ucs_hr_letter (optional)"
+                    title="Approved template used by HR > Letters when the volunteer is outside the 24-hour window. Must declare a DOCUMENT header plus a {{1}} body."
+                  />
+                </label>
+                <label className="wa-f">
+                  <span className="wa-f-label">HR Warning Template</span>
+                  <input
+                    className="wa-input"
+                    list={editing ? `tpl-${editing.id}` : undefined}
+                    value={form.hr_warning_template}
+                    onChange={e => setForm(p => ({ ...p, hr_warning_template: e.target.value }))}
+                    placeholder="e.g. ucs_hr_warning (optional)"
+                    title="Approved template used by HR > Letters for the warning-message templates when the volunteer is outside the 24-hour window. Must declare a single {{1}} body."
+                  />
+                </label>
+              </>
+            )}
             {/* Suggestions from this WABA's approved templates, so the HR template
                 names can be picked rather than typed from memory. Populated by
                 the Templates button on the card. */}
