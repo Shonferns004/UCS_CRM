@@ -1495,7 +1495,7 @@ export default function Letters() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 340px) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 40fr) minmax(0, 60fr)', gap: 12, alignItems: 'start' }}>
       <div className="card" style={{ minHeight: 0 }}>
         <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
@@ -1598,7 +1598,7 @@ export default function Letters() {
         </div>
       </div>
 
-      <div className="card" style={{ minHeight: 0 }}>
+      <div className="card" style={{ minHeight: 0, border: 'none', boxShadow: 'none' }}>
         <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
