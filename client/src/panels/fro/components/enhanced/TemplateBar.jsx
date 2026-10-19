@@ -92,22 +92,21 @@ function TemplateParamsModal({ template, onClose, onSend }) {
               ))}
             </div>
           )}
-          {headerMediaType && (
+          {needsHeaderFile && (
             <label className="template-params-modal__upload">
               <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                {hasTemplateHeader && !headerFile
-                  ? `Attach a different ${headerMediaType.toLowerCase()} (optional)`
-                  : `Attach header ${headerMediaType.toLowerCase()}`}
+                Attach header {headerMediaType.toLowerCase()}
               </span>
               <input className="template-params-modal__file-input" type="file" accept={acceptedFiles} onChange={event => setHeaderFile(event.target.files?.[0] || null)} />
               <span className="template-params-modal__file-name">
-                {headerFile
-                  ? headerFile.name
-                  : (hasTemplateHeader
-                    ? "The template's own media will be sent as-is."
-                    : `This template requires a ${headerMediaType.toLowerCase()} before it can be sent.`)}
+                {headerFile ? headerFile.name : `This template requires a ${headerMediaType.toLowerCase()} before it can be sent.`}
               </span>
             </label>
+          )}
+          {hasTemplateHeader && (
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>
+              Using the {headerMediaType.toLowerCase()} saved with this template.
+            </div>
           )}
         </div>
         <div className="template-params-modal__footer">
