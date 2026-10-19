@@ -1500,7 +1500,6 @@ export default function Letters() {
         <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
             <h3>Generate a letter</h3>
-            <span className="sub">auto-fills name &amp; role</span>
             <div className="tabs" style={{ marginTop: 8 }}>
               <button className={'tab' + (viewTab === 'letter' ? ' active' : '')} onClick={() => setViewTab('letter')}>Letter</button>
               <button className={'tab' + (viewTab === 'messages' ? ' active' : '')} onClick={() => setViewTab('messages')}>Messages</button>
