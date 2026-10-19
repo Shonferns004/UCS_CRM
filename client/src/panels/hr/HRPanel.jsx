@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate }
 import { useUcs } from '../../store'
 import { useHR } from './store'
 import { Bell } from './icons'
-import { LayoutDashboard, Users, Clock, Palmtree, FileText, Library, Briefcase, BookOpenCheck, Ticket, MessageCircle, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, Users, Clock, Palmtree, FileText, Library, Briefcase, BookOpenCheck, Ticket, MessageCircle } from 'lucide-react'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -18,7 +18,6 @@ import Attendance from './components/Attendance'
 import Leaves from './components/Leaves'
 import LettersForms from './components/LettersForms'
 import Recruiters from './components/Recruiters'
-import Reports from './components/Reports'
 import Tickets from './components/Tickets'
 import Quizzes from './components/Quizzes'
 import SettingsPage from './components/Settings'
@@ -44,7 +43,6 @@ const NAV = [
   { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:BookOpenCheck, eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',     icon:Ticket, eyebrow:'Corrections', sub:'Attendance correction tickets' },
   { id:'chat',       path:'/hr/chat',        label:'UCS Chat',  icon:MessageCircle, eyebrow:'Team', sub:'Company announcements — read only' },
-  { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:BarChart3,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
 ]
 
 const hrSettingsViews = [
@@ -260,7 +258,6 @@ export default function HRPanel() {
         <Route path="letters" element={<LettersForms />} />
         <Route path="hr-forms" element={<Navigate to="/hr/letters" replace />} />
         <Route path="recruiters" element={<Recruiters />} />
-        <Route path="reports" element={<Reports />} />
         <Route path="quizzes" element={<Quizzes />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="to-super-admin" element={<SuperAdminTicketSection panel="hr" />} />
