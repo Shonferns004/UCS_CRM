@@ -1097,6 +1097,7 @@ export default function Letters() {
   const [salaryMap, setSalaryMap] = useState({});
   const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
+  const [zoom, setZoom] = useState(50);
   const [showDownload, setShowDownload] = useState(false);
   const [loading, setLoading] = useState(true);
   const pdfRef = useRef(null);
@@ -1493,9 +1494,10 @@ export default function Letters() {
   };
 
   return (
-    <div className="card">
-      <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
-      <div className="card-pad">
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 340px) minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+      <div className="card" style={{ minHeight: 0 }}>
+        <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
+        <div className="card-pad">
         {loading ? (
           <div className="form-row" aria-hidden="true" style={{ flexDirection:'row', flexWrap:'wrap' }}>
             {Array.from({ length: 6 }).map((_, i) => (
@@ -1577,7 +1579,21 @@ export default function Letters() {
         </div>
         )}
 
-        {out && !sopSel && (
+        </div>
+      </div>
+
+      <div className="card" style={{ minHeight: 0 }}>
+        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button className="btn btn-sm" onClick={() => setZoom(z => Math.max(50, z - 10))} title="Zoom out" style={{ padding: '4px 10px' }}>-</button>
+            <span style={{ fontSize: 12, fontWeight: 600, minWidth: 42, textAlign: 'center' }}>{zoom}%</span>
+            <button className="btn btn-sm" onClick={() => setZoom(z => Math.min(200, z + 10))} title="Zoom in" style={{ padding: '4px 10px' }}>+</button>
+          </div>
+        </div>
+        <div className="card-pad" style={{ overflow: 'auto', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)' }}>
+          <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%' }}>
+            {out && !sopSel && (
           <div className="letter">
             {(type === 'ODAR' || type === 'Doc Submitted') && out.odar ? (
               <ODARDocumentPreview
@@ -1612,7 +1628,15 @@ export default function Letters() {
             </div>
           );
         })()}
+        {!out && !sopSel && (
+          <div style={{ textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13, padding: 40 }}>
+            Fill in the form to see a live preview here.
+          </div>
+        )}
+          </div>
+        </div>
       </div>
+
       <div ref={pdfRef} style={{
         position:'fixed', left:'-9999px', top:0,
         fontFamily:'Arial, sans-serif', fontSize:14, lineHeight:1.6,
