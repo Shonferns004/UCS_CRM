@@ -93,7 +93,7 @@ function renderPanel(t) {
   );
 }
 
-export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false, toSuperAdmin = false, queueDepartment = null, canDelete = false }) {
+export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false, toSuperAdmin = false, queueDepartment = null, canDelete = false, statusTabs = null }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -123,7 +123,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [formErrors, setFormErrors] = useState({});
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(statusTabs && statusTabs.length ? statusTabs[0] : 'all');
   const [panelFilter, setPanelFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [deskLoading, setDeskLoading] = useState(false);
@@ -493,10 +493,17 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 16 }}>
         {[
           { label: 'Total', value: counts.all, color: '#1e40af', bg: '#eff6ff' },
-          { label: 'Open', value: counts.open, color: '#a16207', bg: '#fefce8' },
-          { label: 'In Progress', value: counts.in_progress, color: '#1d4ed8', bg: '#eff6ff' },
-          { label: 'Resolved', value: counts.resolved, color: '#16a34a', bg: '#f0fdf4' },
-          { label: 'Closed', value: counts.closed, color: '#6b7280', bg: '#f3f4f6' },
+          ...(statusTabs ? statusTabs.map(st => ({
+            label: st === 'open' ? 'Open' : st === 'resolved' ? 'Resolved' : st.replace('_', ' '),
+            value: counts[st] || 0,
+            color: st === 'open' ? '#a16207' : st === 'resolved' ? '#16a34a' : '#374151',
+            bg: st === 'open' ? '#fefce8' : st === 'resolved' ? '#f0fdf4' : '#f3f4f6',
+          })) : [
+            { label: 'Open', value: counts.open, color: '#a16207', bg: '#fefce8' },
+            { label: 'In Progress', value: counts.in_progress, color: '#1d4ed8', bg: '#eff6ff' },
+            { label: 'Resolved', value: counts.resolved, color: '#16a34a', bg: '#f0fdf4' },
+            { label: 'Closed', value: counts.closed, color: '#6b7280', bg: '#f3f4f6' },
+          ]),
         ].map(s => (
           <div key={s.label} style={{ padding: '10px 14px', borderRadius: 8, background: s.bg, border: '1px solid ' + s.color + '22' }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -538,7 +545,7 @@ const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category =
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid #d1d5db' }}>
-          {['all', 'open', 'in_progress', 'resolved', 'closed'].map(s => (
+          {(statusTabs || ['all', 'open', 'in_progress', 'resolved', 'closed']).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer',
                 background: statusFilter === s ? '#1e40af' : '#fff',
