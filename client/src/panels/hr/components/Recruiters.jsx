@@ -4,7 +4,7 @@ import { DISPLAY_NAME, isActiveRecruiter } from '../recruiterFilters';
 import { belongsToLead, countConverted, istDateOf } from '../../../utils/leads';
 import { istDayKey } from '../../../utils/istDate';
 import { Pill, Dropdown, DatePicker, cleanField } from './ui';
-import { Users, Clock, Check, X, Cal, Heart, Plus } from '../icons';
+import { Users, Clock, Check, X, Cal, Heart, Plus, WhatsApp } from '../icons';
 
 const calcAge = (dob) => {
   if (!dob) return null;
@@ -358,7 +358,16 @@ export default function Recruiters() {
                     return (
                       <tr key={lead.id} className="rec-lead-row">
                         <td><strong>{lead.name}</strong></td>
-                        <td>{lead.phone || '\u2014'}</td>
+                        <td>
+                          {lead.phone || '\u2014'}
+                          {lead.phone && (
+                            <button type="button" title="Send WhatsApp"
+                              onClick={(e) => { e.stopPropagation(); const num = String(lead.phone).replace(/\D/g, ''); if (num) window.open('https://wa.me/' + num, '_blank', 'noopener'); }}
+                              style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#25D366', padding: 0, verticalAlign: 'middle' }}>
+                              <WhatsApp size={14} />
+                            </button>
+                          )}
+                        </td>
                         <td><Pill label={cleanField(lead.source)} /></td>
                         <td>
                           <span className="status-dot" style={{ background: st.color }} />
