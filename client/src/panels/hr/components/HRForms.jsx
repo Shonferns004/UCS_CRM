@@ -650,7 +650,8 @@ export default function HRForms() {
             ))}
           </div>
 
-          <div className="hrf-detail-body" ref={contentRef} onScroll={onContentScroll}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16, alignItems: 'start' }}>
+            <div className="hrf-detail-body" ref={contentRef} onScroll={onContentScroll}>
             {saveMsg && (
               <div style={{ padding: '10px 14px', marginBottom: 18, borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 600, background: saveMsg.startsWith('Error') ? 'rgba(220,38,38,0.1)' : 'rgba(22,163,74,0.12)', color: saveMsg.startsWith('Error') ? '#b91c1c' : '#166534' }}>
                 {saveMsg}
@@ -848,6 +849,33 @@ export default function HRForms() {
                 </section>
               </>
             ) : null}
+          </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, position: 'sticky', top: 0 }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>Form Progress</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>{f ? formCompletion(f).pct + '%' : '\u2014'}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden', marginBottom: 8 }}>
+                  <div style={{ width: (f ? formCompletion(f).pct : 0) + '%', height: '100%', borderRadius: 99, background: (f && formCompletion(f).pct === 100) ? '#166534' : (f && formCompletion(f).pct >= 60) ? '#2385f5' : '#c08a2e' }} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{f ? formCompletion(f).filled + ' of ' + formCompletion(f).total + ' fields completed' : ''}</div>
+              </div>
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>Quick Actions</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  <button className="btn btn-sm" onClick={() => contentRef.current && contentRef.current.scrollTo({ top: 0, behavior: 'smooth' })} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', fontSize: 11, fontWeight: 600 }}>
+                    <span>View</span>
+                  </button>
+                  <button className="btn btn-sm" onClick={() => setShowPrint(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', fontSize: 11, fontWeight: 600 }}>
+                    <span>Print</span>
+                  </button>
+                  <button className="btn btn-sm" onClick={cancelEdit} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px', fontSize: 11, fontWeight: 600 }}>
+                    <span>Reset</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
