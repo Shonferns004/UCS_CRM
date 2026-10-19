@@ -1098,6 +1098,26 @@ export default function Letters() {
   const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
   const [zoom, setZoom] = useState(50);
+  const [fitZoom, setFitZoom] = useState(50);
+  const [autoFit, setAutoFit] = useState(true);
+  const previewRef = useRef(null);
+  useEffect(() => {
+    if (!autoFit) return;
+    const el = previewRef.current;
+    if (!el) return;
+    const compute = () => {
+      const w = el.clientWidth;
+      if (w > 0) {
+        const f = Math.min(100, Math.max(30, Math.round((w / 900) * 100)));
+        setFitZoom(f);
+        setZoom(f);
+      }
+    };
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [autoFit]);
   const [viewTab, setViewTab] = useState('letter');
   const [showDownload, setShowDownload] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1602,13 +1622,13 @@ export default function Letters() {
         <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button className="btn btn-sm" onClick={() => setZoom(z => Math.max(50, z - 10))} title="Zoom out" style={{ padding: '4px 10px' }}>-</button>
+            <button className="btn btn-sm" onClick={() => { setAutoFit(false); setZoom(z => Math.max(30, z - 10)); }} title="Zoom out" style={{ padding: '4px 10px' }}>-</button>
             <span style={{ fontSize: 12, fontWeight: 600, minWidth: 42, textAlign: 'center' }}>{zoom}%</span>
-            <button className="btn btn-sm" onClick={() => setZoom(z => Math.min(200, z + 10))} title="Zoom in" style={{ padding: '4px 10px' }}>+</button>
+            <button className="btn btn-sm" onClick={() => { setAutoFit(false); setZoom(z => Math.min(200, z + 10)); }} title="Zoom in" style={{ padding: '4px 10px' }}>+</button>
           </div>
         </div>
-        <div className="card-pad" style={{ overflow: 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: '16px 24px 16px 16px' }}>
-          <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%' }}>
+        <div ref={previewRef} className="card-pad" style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: '16px 24px 16px 16px' }}>
+          <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%', margin: '0 auto' }}>
             {out && !sopSel && (
           <div className="letter">
             {(type === 'ODAR' || type === 'Doc Submitted') && out.odar ? (
