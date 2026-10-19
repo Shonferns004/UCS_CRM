@@ -2,6 +2,7 @@ import db from '../config/db.js';
 import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import config from '../config/whatsappConfig.js';
+import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 
 const AI_MODEL = GROQ_CHAT_MODEL;
 const TRANSCRIPT_LIMIT = 12;
@@ -198,25 +199,33 @@ export async function sendAiReply(conversation, contact, text) {
     .single();
   if (msgErr) throw msgErr;
 
-  const response = await fetch(
-    `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+  let result;
+  try {
+    result = await postWhatsAppMessage(
+      `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
+      accessToken,
+      {
         messaging_product: 'whatsapp',
         to: recipientPhone,
         type: 'text',
         text: { body: text },
-      }),
-    }
-  );
-  const result = await response.json();
+      },
+    );
+  } catch (apiErr) {
+    // A rejected send must leave a failure reason behind, not a message
+    // stuck in 'queued' forever.
+    await db
+      .from('messages')
+      .update({
+        status: 'failed',
+        failure_reason: apiErr instanceof Error ? apiErr.message : 'Network error',
+        status_updated_at: new Date().toISOString(),
+      })
+      .eq('id', message.id);
+    throw apiErr;
+  }
 
-  if (response.ok && result.messages?.[0]?.id) {
+  if (result.messages?.[0]?.id) {
     await db
       .from('messages')
       .update({ wa_message_id: result.messages[0].id, status: 'sent', status_updated_at: new Date().toISOString() })

@@ -3,6 +3,7 @@ import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from './temporaryWhatsappScope.js';
 import config from '../config/whatsappConfig.js';
 import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
+import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 
 // Object keys under the shared media bucket. Meta fetches these URLs itself, so
 // only keys with this prefix may be turned into a signed link for it.
@@ -17,6 +18,23 @@ function normalizePhone(phone) {
   if (raw.length === 10) return '91' + raw;
   if (raw.length === 12 && raw.startsWith('91')) return raw;
   return raw;
+}
+
+/**
+ * Map a stored MIME onto the WhatsApp payload kind: image / audio / video /
+ * document. A PDF is `application/pdf`, NOT `document/pdf`, so a naive
+ * top-level match leaves it unrecognised and the caller's fallback reaches
+ * Meta as `type: 'image'` -- Meta answers 200 to that POST, fetches the
+ * object, and minutes later reports 131053 "Media upload error". Every
+ * document WhatsApp accepts lives under application/ or text/.
+ * An unrecognisable mime takes `fallback` (the send path passes 'document',
+ * which is what an unidentified attachment almost always is) -- never a guess.
+ */
+export function mediaPayloadKind(mime, fallback) {
+  const top = String(mime || '').split('/')[0].trim().toLowerCase();
+  if (['image', 'audio', 'video', 'document'].includes(top)) return top;
+  if (top === 'application' || top === 'text') return 'document';
+  return fallback;
 }
 
 export async function getFroConversations(froWorkerId, restrictPairs = null) {
@@ -208,14 +226,8 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     throw new Error(`WhatsApp account not configured for project "${project}"`);
   }
 
-  const mime = String(mediaMimeType || '').toLowerCase();
-  const mediaType = mediaUrl
-    ? (mime.startsWith('image/') ? 'image'
-      : mime.startsWith('video/') ? 'video'
-      : mime.startsWith('audio/') ? 'audio'
-      : 'document')
-    : null;
-  const messageType = mediaUrl ? (mediaType || 'media') : 'text';
+  const mediaKind = mediaUrl ? mediaPayloadKind(mediaMimeType, 'document') : null;
+  const messageType = mediaKind || 'text';
 
   const { data: message, error: msgErr } = await db
     .from('messages')
@@ -240,7 +252,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   try {
     let body;
     if (mediaUrl) {
-      const type = mediaType || 'image';
+      const type = mediaKind;
       // Hand Meta a signed link, not the stored bucket URL: the bucket is private,
       // so the raw URL 403s and Meta reports 131053 "Media upload error".
       const mediaLink = await presignStoredUrl(mediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX });
@@ -265,21 +277,13 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
       };
     }
 
-    const response = await fetch(
+    const result = await postWhatsAppMessage(
       `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      }
+      accessToken,
+      body,
     );
 
-    const result = await response.json();
-
-    if (response.ok && result.messages?.[0]?.id) {
+    if (result.messages?.[0]?.id) {
       await db
         .from('messages')
         .update({
@@ -380,26 +384,18 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   if (msgErr) throw msgErr;
 
   try {
-    const response = await fetch(
+    const result = await postWhatsAppMessage(
       `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
+      accessToken,
       {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: recipientPhone,
-          type: 'text',
-          text: { body: messageText },
-        }),
-      }
+        messaging_product: 'whatsapp',
+        to: recipientPhone,
+        type: 'text',
+        text: { body: messageText },
+      },
     );
 
-    const result = await response.json();
-
-    if (response.ok && result.messages?.[0]?.id) {
+    if (result.messages?.[0]?.id) {
       await db
         .from('messages')
         .update({
@@ -985,28 +981,21 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
   if (msgErr) throw msgErr;
 
   try {
-    const response = await fetch(
+    const result = await postWhatsAppMessage(
       `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
+      accessToken,
       {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
+        messaging_product: 'whatsapp',
+        to: recipientPhone,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: template?.language || 'en' },
+          components: components.length > 0 ? components : undefined,
         },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: recipientPhone,
-          type: 'template',
-          template: {
-            name: templateName,
-            language: { code: template?.language || 'en' },
-            components: components.length > 0 ? components : undefined,
-          },
-        }),
-      }
+      },
     );
-    const result = await response.json();
-    if (response.ok && result.messages?.[0]?.id) {
+    if (result.messages?.[0]?.id) {
       await db.from('messages').update({
         wa_message_id: result.messages[0].id,
         status: 'sent',
