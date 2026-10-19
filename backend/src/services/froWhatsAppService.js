@@ -2,11 +2,15 @@ import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from './temporaryWhatsappScope.js';
 import config from '../config/whatsappConfig.js';
-import { presignStoredUrl } from './mediaProxy.js';
+import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
 
 // Object keys under the shared media bucket. Meta fetches these URLs itself, so
 // only keys with this prefix may be turned into a signed link for it.
 const WHATSAPP_MEDIA_PREFIX = 'whatsapp-media/';
+
+// Shared media bucket: agent uploads and the cached copy of a template's own
+// header both live here, so a link built for one is signable like the other.
+const MEDIA_BUCKET = 'whatsapp-media';
 
 function normalizePhone(phone) {
   const raw = String(phone).replace(/[^0-9]/g, '');
@@ -671,6 +675,120 @@ export async function getQuickReplies() {
   return data || [];
 }
 
+/** The HEADER component of a template, when it carries media. */
+function mediaHeaderOf(components) {
+  if (!Array.isArray(components)) return null;
+  const header = components.find((c) => c && c.type === 'HEADER');
+  if (!header) return null;
+  return ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(header.format) ? header : null;
+}
+
+/**
+ * Deterministic storage key for a template's cached header media.
+ *
+ * Meta only ever hands the header back as a short-lived sample URL
+ * (`components[].example.header_handle`), so the picker's preview 403s once that
+ * link expires and the send has nothing to attach. Copying it under a key derived
+ * from project + template name means a resync can never orphan the object and no
+ * extra lookup is needed to find it again.
+ */
+const TEMPLATE_HEADER_DIR = 'template-headers';
+const cachedHeaderKeys = new Set();
+
+function templateHeaderKey(project, templateName) {
+  const safeProject = String(project || 'unknown').replace(/[^A-Za-z0-9_-]/g, '');
+  const safeName = String(templateName || 'template').replace(/[^A-Za-z0-9_-]/g, '_');
+  return `${TEMPLATE_HEADER_DIR}/${safeProject}/${safeName}`;
+}
+
+/**
+ * Locate a cached header in whichever bucket it was written to and return both
+ * the stored URL (for a media column) and a fresh signed URL (for previews and
+ * Meta). Null when the object is missing.
+ */
+async function cachedHeaderMedia(storageKey) {
+  if (!storageKey) return null;
+  return resolveStoredKey(`${WHATSAPP_MEDIA_PREFIX}${storageKey}`);
+}
+
+/**
+ * Copy a template's header media into our own bucket, once.
+ *
+ * Returns the object key, or null when there is nothing to cache.
+ */
+async function cacheTemplateHeader(project, templateName, headerComponent) {
+  if (!headerComponent) return null;
+  const sampleUrl = headerComponent?.example?.header_handle?.[0];
+  if (!sampleUrl) return null;
+
+  const key = templateHeaderKey(project, templateName);
+  if (cachedHeaderKeys.has(key)) return key;
+
+  try {
+    const response = await fetch(sampleUrl);
+    if (!response.ok) {
+      console.warn(`[templateHeader] ${project}/${templateName}: sample download ${response.status}`);
+      return null;
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length) return null;
+
+    const contentType = headerComponent.format === 'IMAGE' ? 'image/jpeg'
+      : headerComponent.format === 'VIDEO' ? 'video/mp4'
+      : 'application/pdf';
+    const { error } = await db.storage.from(MEDIA_BUCKET).upload(key, buffer, {
+      contentType,
+      upsert: true,
+    });
+    if (error) {
+      console.warn(`[templateHeader] ${project}/${templateName}: upload failed ${error.message}`);
+      return null;
+    }
+
+    cachedHeaderKeys.add(key);
+    // Best effort: keeps the DB useful for debugging, but the deterministic key
+    // means a missing row only costs one re-download.
+    await db.from('whatsapp_templates')
+      .update({ header_storage_key: key, header_mime_type: contentType })
+      .eq('project', project)
+      .eq('name', templateName)
+      .then(({ error: dbErr }) => {
+        if (dbErr) console.warn(`[templateHeader] ${project}/${templateName}: db update ${dbErr.message}`);
+      });
+    return key;
+  } catch (error) {
+    console.warn(`[templateHeader] ${project}/${templateName}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Attach the template's own header asset to a template the picker will show:
+ * `headerMediaUrl` drives the preview image and, at send time, is reused as-is
+ * so the donor always receives the same picture the template was approved with.
+ */
+async function attachHeaderMedia(items, project) {
+  return Promise.all(items.map(async (item) => {
+    const header = mediaHeaderOf(item.components);
+    if (!header) return item;
+    // Prefer the key already recorded on the row; only reach for Meta's sample
+    // URL when this template has never been cached.
+    let key = item.header_storage_key;
+    if (!key) key = await cacheTemplateHeader(item.project || project, item.name, header);
+    if (!key) return item;
+    const media = await cachedHeaderMedia(key);
+    if (!media?.url) return item;
+    return {
+      ...item,
+      headerFormat: header.format,
+      headerMediaUrl: media.url,
+      // True when the header came from the template itself, so the UI can offer
+      // "send as-is" instead of demanding a fresh upload.
+      headerFromTemplate: true,
+    };
+  }));
+}
+
 export async function getTemplates(project) {
   let query = db
     .from('whatsapp_templates')
@@ -684,11 +802,12 @@ export async function getTemplates(project) {
   if (error) throw error;
 
   const account = project ? await getAccountByProject(project) : null;
-  return Promise.all((data || []).map(async template => {
+  const templates = await Promise.all((data || []).map(async template => {
     if (template.components?.length || !account?.waba_id || !account?.access_token) return template;
     const liveTemplate = await getLiveTemplateDefinition(account, template.name);
     return liveTemplate ? { ...template, components: liveTemplate.components, language: liveTemplate.language || template.language } : template;
   }));
+  return attachHeaderMedia(templates, project);
 }
 
 async function getLiveTemplateDefinition(account, templateName) {
@@ -744,6 +863,9 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
   if (!template) throw new Error('Template not found for this WhatsApp account');
 
   const components = [];
+  // Set when the send falls back to the template's own header, so the stored
+  // message carries the same media for the chat view.
+  let cachedHeaderForChat = null;
   if (template.components) {
     for (const comp of template.components) {
       if (comp.type === 'BODY' && paramValues?.length > 0) {
@@ -757,12 +879,24 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
         }
       }
       if (comp.type === 'HEADER' && ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(comp.format)) {
-        if (!headerMediaUrl) throw new Error(`This template requires a ${comp.format.toLowerCase()} header file`);
         const mediaType = comp.format.toLowerCase();
         // Meta fetches the header itself, so the link must be publicly readable.
         // The stored bucket URL is private (403), which Meta reports as 131053
         // "Media upload error", so sign it before sending.
-        const media = { link: await presignStoredUrl(headerMediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX }) };
+        let mediaLink = headerMediaUrl
+          ? await presignStoredUrl(headerMediaUrl, { prefix: WHATSAPP_MEDIA_PREFIX })
+          : null;
+        // No upload from the agent: fall back to the template's own approved
+        // header so the send still carries the picture the template was created
+        // with, instead of failing and forcing a manual attach on every send.
+        if (!mediaLink) {
+          const key = await cacheTemplateHeader(project, templateName, mediaHeaderOf(template.components));
+          const cached = await cachedHeaderMedia(key);
+          mediaLink = cached?.url || null;
+          cachedHeaderForChat = cached?.storedUrl || null;
+        }
+        if (!mediaLink) throw new Error(`This template requires a ${mediaType} header file`);
+        const media = { link: mediaLink };
         if (mediaType === 'document' && headerMediaName) media.filename = headerMediaName;
         components.push({ type: 'header', parameters: [{ type: mediaType, [mediaType]: media }] });
       }
@@ -823,7 +957,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       body_text: renderedBody || templateName,
       template_id: templateName,
       template_params: templateSummary,
-      media_url: headerMediaUrl || null,
+      media_url: headerMediaUrl || cachedHeaderForChat || null,
       media_mime_type: headerMime,
       status: 'queued',
       message_category: 'template',

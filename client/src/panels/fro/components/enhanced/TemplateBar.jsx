@@ -17,6 +17,14 @@ function getHeaderMediaType(template) {
 function TemplateParamsModal({ template, onClose, onSend }) {
   const [values, setValues] = useState({})
   const [headerFile, setHeaderFile] = useState(null)
+  const [filePreviewUrl, setFilePreviewUrl] = useState('')
+
+  useEffect(() => {
+    if (!headerFile) { setFilePreviewUrl(''); return }
+    const url = URL.createObjectURL(headerFile)
+    setFilePreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [headerFile])
 
   const bodyComponent = template.components?.find(c => c.type === 'BODY')
   const headerComponent = template.components?.find(c => c.type === 'HEADER')
@@ -27,8 +35,13 @@ function TemplateParamsModal({ template, onClose, onSend }) {
     .sort((a, b) => a - b)
   const hasMissingValue = placeholders.some(number => !values[number]?.trim())
   const headerMediaType = getHeaderMediaType(template)
-  const needsHeaderFile = !!headerMediaType
-  const canSend = !hasMissingValue && (!needsHeaderFile || !!headerFile)
+  // The backend serves (and at send time re-uses) the header the template was
+  // approved with, so a media header no longer forces a manual upload. Attaching
+  // a file only overrides it.
+  const hasTemplateHeader = !!(template.headerFromTemplate && template.headerMediaUrl)
+  const needsHeaderFile = !!headerMediaType && !hasTemplateHeader
+  const canSend = !hasMissingValue && !needsHeaderFile
+  const previewMediaUrl = filePreviewUrl || template.headerMediaUrl || ''
   const acceptedFiles = headerMediaType === 'IMAGE' ? 'image/*' : headerMediaType === 'VIDEO' ? 'video/*' : 'application/pdf,.pdf,.doc,.docx'
 
   const handleSend = () => {
@@ -54,6 +67,11 @@ function TemplateParamsModal({ template, onClose, onSend }) {
               {headerText}
             </div>
           )}
+          {headerMediaType === 'IMAGE' && previewMediaUrl && (
+            <div style={{ marginBottom: 12 }}>
+              <img src={previewMediaUrl} alt="" style={{ width: '100%', maxWidth: 280, display: 'block', borderRadius: 8 }} />
+            </div>
+          )}
           <div style={{ marginBottom: 16, padding: 10, background: '#f0fdf4', borderRadius: 8, fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap' }}>
             <strong style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#16a34a' }}>Message preview:</strong>
             {bodyText}
@@ -74,14 +92,20 @@ function TemplateParamsModal({ template, onClose, onSend }) {
               ))}
             </div>
           )}
-          {needsHeaderFile && (
+          {headerMediaType && (
             <label className="template-params-modal__upload">
               <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                Attach header {headerMediaType.toLowerCase()}
+                {hasTemplateHeader && !headerFile
+                  ? `Attach a different ${headerMediaType.toLowerCase()} (optional)`
+                  : `Attach header ${headerMediaType.toLowerCase()}`}
               </span>
               <input className="template-params-modal__file-input" type="file" accept={acceptedFiles} onChange={event => setHeaderFile(event.target.files?.[0] || null)} />
               <span className="template-params-modal__file-name">
-                {headerFile ? headerFile.name : `This template requires a ${headerMediaType.toLowerCase()} before it can be sent.`}
+                {headerFile
+                  ? headerFile.name
+                  : (hasTemplateHeader
+                    ? "The template's own media will be sent as-is."
+                    : `This template requires a ${headerMediaType.toLowerCase()} before it can be sent.`)}
               </span>
             </label>
           )}
