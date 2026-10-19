@@ -541,17 +541,19 @@ export default function HRForms() {
                         <div className="hrf-doc-paper">
                           <MiniFormPreview worker={w} />
                         </div>
-                        <span className="hrf-status-pill" style={statusStyle(w)}>{statusOf(w)}</span>
                       </div>
                       <div className="hrf-body">
-                        <div className="hrf-id">
-                          <span className="hrf-avatar" style={{ background: tint(color), color }}>
-                            {w.photo_url ? <img src={w.photo_url} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : initialsFn(name)}
-                          </span>
-                          <div style={{ minWidth: 0 }}>
-                            <div className="hrf-id-name">{name}</div>
-                            <div className="hrf-id-dept">{w.department ? deptLabel(w.department) : 'Team Member'}</div>
+                        <div className="hrf-id" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <span className="hrf-avatar" style={{ background: tint(color), color }}>
+                              {w.photo_url ? <img src={w.photo_url} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : initialsFn(name)}
+                            </span>
+                            <div style={{ minWidth: 0 }}>
+                              <div className="hrf-id-name">{name}</div>
+                              <div className="hrf-id-dept">{w.department ? deptLabel(w.department) : 'Team Member'}</div>
+                            </div>
                           </div>
+                          <span className="hrf-status-pill" style={{ ...statusStyle(w), position: 'static', boxShadow: 'none' }}>{statusOf(w)}</span>
                         </div>
                         <div>
                           <div className="hrf-progress-label">
