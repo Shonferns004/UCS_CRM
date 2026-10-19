@@ -62,8 +62,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   final _formKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _mobileController = TextEditingController();
-  final _occupationController = TextEditingController();
-  final _neededController = TextEditingController();
   final _locationController = TextEditingController();
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
@@ -131,6 +129,44 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   ];
 
   String? _disabilityType;
+
+  // Occupation is a fixed dropdown. The last five options are broad, so the
+  // operator can spell out the specifics in a follow-up text box.
+  static const List<String> _occupationTypes = [
+    'Housewife',
+    'Unemployed',
+    'PCO Booth',
+    'Student',
+    'Massage',
+    'Business',
+    'Professional',
+    'Hawkors',
+    'Local Small Stall',
+    'Service /Job',
+  ];
+
+  static const Set<String> _occupationNeedsDetail = {
+    'Business',
+    'Professional',
+    'Hawkors',
+    'Local Small Stall',
+    'Service /Job',
+  };
+
+  String? _occupation;
+  final _occupationDetailController = TextEditingController();
+
+  bool get _showOccupationDetail =>
+      _occupation != null && _occupationNeedsDetail.contains(_occupation);
+
+  /// What actually lands in the `occupation` column: the chosen label, with
+  /// the operator's specifics appended when they supplied any.
+  String get _occupationValue {
+    final base = (_occupation ?? '').trim();
+    if (base.isEmpty) return '';
+    final detail = _occupationDetailController.text.trim();
+    return detail.isEmpty ? base : '$base - $detail';
+  }
 
   @override
   void initState() {
@@ -259,8 +295,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   void dispose() {
     _fullNameController.dispose();
     _mobileController.dispose();
-    _occupationController.dispose();
-    _neededController.dispose();
+    _occupationDetailController.dispose();
     _locationController.dispose();
     _cityController.dispose();
     _stateController.dispose();
@@ -1913,7 +1948,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       return;
     }
 
-    if (_occupationController.text.trim().isEmpty) {
+    if (_occupationValue.isEmpty) {
       showAppSnackbar(context, 'Occupation is required', error: true);
       return;
     }
@@ -2010,8 +2045,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     try {
       final fullName = _fullNameController.text.trim();
       final mobile = _mobileController.text.trim();
-      final occupation = _occupationController.text.trim();
-      final needed = _neededController.text.trim();
+      final occupation = _occupationValue;
       final address = _locationController.text.trim();
       final city = _cityController.text.trim();
       final state = _stateController.text.trim();
@@ -2054,8 +2088,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         if (pincode.isNotEmpty) 'pincode': pincode,
 
         if (aadhaarNumber.isNotEmpty) 'aadhaar_number': aadhaarNumber,
-
-        if (needed.isNotEmpty) 'needed': needed,
 
         if (_photo != null && _photo!.isNotEmpty) 'photo': _photo,
 
@@ -2745,8 +2777,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             // ------------------------------------------------------------
             // OCCUPATION
             // ------------------------------------------------------------
-            TextFormField(
-              controller: _occupationController,
+            DropdownButtonFormField2<String>(
+              valueListenable: ValueNotifier<String?>(_occupation),
               decoration: InputDecoration(
                 label: Text.rich(
                   TextSpan(
@@ -2770,51 +2802,63 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                   ),
                 ),
               ),
-              textCapitalization: TextCapitalization.words,
+              isExpanded: true,
+              items: _occupationTypes
+                  .map(
+                    (o) => DropdownItem<String>(
+                      value: o,
+                      child: Text(
+                        o,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: created == null
+                  ? (v) => setState(() {
+                        _occupation = v;
+                        // A fresh selection should not keep the previous
+                        // option's specifics around.
+                        _occupationDetailController.clear();
+                      })
+                  : null,
               validator: (v) {
-                final value = (v ?? '').trim();
-
-                if (value.isEmpty) {
+                if (v == null || v.isEmpty) {
                   return 'Occupation is required';
                 }
-
-                if (value.length < 2) {
-                  return 'Enter a valid occupation';
-                }
-
                 return null;
               },
-              enabled: !_loading && created == null,
-            ),
-
-            const SizedBox(height: 16),
-
-            // ------------------------------------------------------------
-            // NEEDED
-            // ------------------------------------------------------------
-            TextFormField(
-              controller: _neededController,
-              decoration: InputDecoration(
-                label: Text.rich(
-                  TextSpan(
-                    children: [
-                      const TextSpan(
-                        text: 'Needed',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                hintText: 'What does the beneficiary need?',
+              buttonStyleData: const FormFieldButtonStyleData(
+                height: 30,
+                padding: EdgeInsets.only(left: 16, right: 8),
               ),
-              textCapitalization: TextCapitalization.sentences,
-              maxLines: 1,
-              validator: (_) => null,
-              enabled: !_loading && created == null,
+              iconStyleData: const IconStyleData(iconSize: 20),
+              dropdownStyleData: const DropdownStyleData(
+                maxHeight: 280,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                ),
+              ),
+              menuItemStyleData: const MenuItemStyleData(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+              ),
             ),
+
+            // The last five options are broad, so the operator can spell out
+            // the specifics (e.g. "Business" → "Kirana shop, Andheri").
+            if (_showOccupationDetail) ...[
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _occupationDetailController,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Occupation Details',
+                  hintText: 'e.g. Kirana shop, Auto driver',
+                ),
+                enabled: !_loading && created == null,
+              ),
+            ],
 
             const SizedBox(height: 16),
 

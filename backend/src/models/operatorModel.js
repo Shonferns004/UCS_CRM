@@ -94,7 +94,7 @@ export const getTodayAssignment = async (operatorId, date) => {
 };
 
 // Upsert the operator's own assignment for one day (no event required).
-export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url, kit_id, organizer_id }) => {
+export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url, kit_id, organizer_id, beneficiary_type }) => {
   const payload = {
     operator_id: operatorId,
     state: state || null,
@@ -104,6 +104,7 @@ export const upsertSelfAssignment = async (operatorId, { state, city, event_id, 
     selfie_url: selfie_url || null,
     kit_id: kit_id || null,
     organizer_id: organizer_id || null,
+    beneficiary_type: beneficiary_type || null,
   };
 
   // One row per operator per day. The table's unique key includes event_id, so

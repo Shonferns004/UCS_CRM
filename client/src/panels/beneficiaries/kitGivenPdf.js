@@ -52,7 +52,8 @@ const HAS_LH = (k) => k === 'BSCT' || k === 'AFLF' || k === 'MANN'
 // Columns before scaling to the letter's content width.
 const BASE_COLS = [
   { key: 'idx', label: '#', width: 7, align: 'right' },
-  { key: 'name', label: 'Name', width: 42 },
+  { key: 'name', label: 'Name', width: 40 },
+  { key: 'type', label: 'Type', width: 34 },
   { key: 'mobile', label: 'Mobile', width: 20 },
   { key: 'ngo', label: 'NGO', width: 14 },
   { key: 'event', label: 'Event', width: 34 },
@@ -290,6 +291,7 @@ export async function downloadKitGivenPdf({ rows, images, eventName }) {
       const values = {
         idx: String(rowNo),
         name: b.full_name || '',
+        type: b.beneficiary_type || '',
         mobile: b.mobile || '',
         ngo: b.ngos?.name || '',
         event: b.kit_event_name || '',

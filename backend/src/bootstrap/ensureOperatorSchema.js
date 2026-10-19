@@ -138,6 +138,7 @@ export async function ensureOperatorSchema() {
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS selfie_url TEXT`);
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS kit_id INT REFERENCES bnf_kits(id) ON DELETE SET NULL`);
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS organizer_id INT REFERENCES bnf_organizers(id) ON DELETE SET NULL`);
+  await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS beneficiary_type TEXT`);
 
   // Default kit catalog seeded for immediate use — the operator app's Kit
   // dropdown is populated from bnf_kits. Same 'WHERE NOT EXISTS' guard as the
