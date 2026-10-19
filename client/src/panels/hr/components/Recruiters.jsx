@@ -53,6 +53,13 @@ const formatDT = (ts) => {
   return d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 };
 
+const fmtDateDMY = (ts) => {
+  if (!ts) return '—';
+  const p = String(ts).slice(0, 10).split('-');
+  if (p.length !== 3) return ts;
+  return `${p[2]}-${p[1]}-${p[0]}`;
+};
+
 export default function Recruiters() {
   const { fetchLeads, addLead, updateLead, fetchRecruiters, user } = useHR();
   const [leads, setLeads] = useState([]);
@@ -233,13 +240,18 @@ export default function Recruiters() {
   return (
     <>
       <div className="stats">
-        <div className="stat"><Users width={16}/> <div className="stat-label">Total</div><div className="stat-value">{stats.total}</div></div>
-        <div className="stat"><Cal width={16}/> <div className="stat-label">Scheduled</div><div className="stat-value" style={{color:'#3b82f6'}}>{stats.scheduled}</div></div>
+        <div className="stat"><Users width={16}/> <div className="stat-label">Total Leads</div><div className="stat-value">{stats.total}</div><div className="stat-sub">All leads assigned to recruiters</div></div>
+        <div className="stat"><Cal width={16}/> <div className="stat-label">Scheduled</div><div className="stat-value" style={{color:'#3b82f6'}}>{stats.scheduled}</div><div className="stat-sub">Leads with scheduled follow-ups</div></div>
+        <div className="stat"><Users width={16}/> <div className="stat-label">Joined</div><div className="stat-value" style={{color:'#16a34a'}}>{leaderboard.reduce((s,r) => s + (r.joined||0), 0)}</div><div className="stat-sub">Successfully joined</div></div>
+        <div className="stat"><Users width={16}/> <div className="stat-label">Success Rate</div><div className="stat-value">{stats.total > 0 ? Math.round(leaderboard.reduce((s,r) => s + (r.joined||0), 0) / stats.total * 100) : 0}%</div><div className="stat-sub">Joined / Total leads</div></div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head">
-          <h3>Recruiters</h3>
+          <div>
+            <h3>Recruiters</h3>
+            <span className="sub">Performance overview of all recruiters</span>
+          </div>
         </div>
         <div className="card-pad">
           {recruitersLoading ? (
@@ -252,7 +264,7 @@ export default function Recruiters() {
             <div className="empty">No recruiters found.</div>
           ) : (
             <div className="ro-leaderboard-grid">
-              {leaderboard.slice(0, 5).map((r, i) => {
+              {leaderboard.slice(0, 4).map((r, i) => {
                 const medals = ['🥇', '🥈', '🥉'];
                 const medal = medals[i] || '';
                 const isTop = i === 0;
@@ -279,12 +291,21 @@ export default function Recruiters() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 8 }}>
         <div className="tabs" style={{marginBottom:0}}>
-          <button className={`tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All</button>
+          <button className={`tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All Leads ({scopedLeads.length})</button>
           <button className={`tab ${tab === 'scheduled' ? 'active' : ''}`} onClick={() => setTab('scheduled')}>
             Scheduled{scheduledLeads.length > 0 && ` (${scheduledLeads.length})`}
           </button>
         </div>
-        <div className="ro-filters" style={{ paddingBottom: 8 }}>
+        <div className="ro-filters" style={{ paddingBottom: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input className="filter-select" placeholder="Search by name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
+          <select className="ro-filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter by status">
+            <option value="">All Statuses</option>
+            {STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+          <select className="ro-filter-select" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} aria-label="Filter by source">
+            <option value="">All Sources</option>
+            {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
           <select
             className="ro-filter-select"
             value={rangeKey}
@@ -293,6 +314,7 @@ export default function Recruiters() {
           >
             {DATE_RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
+          <button className="btn btn-sm" onClick={() => { setSearch(''); setStatusFilter(''); setSourceFilter(''); setRangeKey('all'); setRecruiterFilter(''); }} style={{ padding: '6px 12px' }}>Reset</button>
         </div>
       </div>
 
@@ -300,9 +322,6 @@ export default function Recruiters() {
         <div className="card" style={{marginTop:20}}>
           <div className="card-head">
             <h3>Leads {filteredLeads.length !== scopedLeads.length && <span className="sub">({filteredLeads.length} of {scopedLeads.length})</span>}</h3>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input className="filter-select" placeholder="Search name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
-            </div>
           </div>
           <div className="table-wrap">
             <table>
@@ -310,7 +329,6 @@ export default function Recruiters() {
                 <tr>
                   <th>Name</th>
                   <th>Phone</th>
-                  <th>Age</th>
                   <th>Source</th>
                   <th>Status</th>
                   <th>Created by</th>
@@ -332,7 +350,7 @@ export default function Recruiters() {
                     </tr>
                   ))
                 ) : filteredLeads.length === 0 ? (
-                  <tr><td colSpan={8}><div className="empty">No leads found. <button className="btn btn-sm" onClick={() => openForm(null)}>Add one</button></div></td></tr>
+                  <tr><td colSpan={6}><div className="empty">No leads found. <button className="btn btn-sm" onClick={() => openForm(null)}>Add one</button></div></td></tr>
                 ) : (
                   filteredLeads.slice(0, visibleCount).map(lead => {
                     const st = STATUSES.find(s => s.key === cleanField(lead.status)) || { label: cleanField(lead.status) || '—', color: '#9ca3af' };
@@ -341,14 +359,13 @@ export default function Recruiters() {
                       <tr key={lead.id} className="rec-lead-row">
                         <td><strong>{lead.name}</strong></td>
                         <td>{lead.phone || '\u2014'}</td>
-                        <td>{displayAge || '\u2014'}</td>
                         <td><Pill label={cleanField(lead.source)} /></td>
                         <td>
                           <span className="status-dot" style={{ background: st.color }} />
                           {st.label}
                         </td>
                         <td className="ink-soft">{lead.created_by_name || '\u2014'}</td>
-                        <td className="ink-soft">{lead.created_at?.slice(0, 10)}</td>
+                        <td className="ink-soft">{fmtDateDMY(lead.created_at)}</td>
                       </tr>
                     );
                   })
