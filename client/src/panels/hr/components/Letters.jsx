@@ -1624,10 +1624,10 @@ export default function Letters() {
         <div className="card-head">
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
         </div>
-        <div ref={previewRef} style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 320, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 0 }}>
+        <div ref={previewRef} style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 0, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 0 }}>
           <div style={{ transform: 'scale(0.73)', transformOrigin: 'center top', width: 900, maxWidth: '100%', marginLeft: -32 }}>
             {out && !sopSel && (
-          <div className="letter">
+          <div className="letter" style={{ margin: 0 }}>
             {(type === 'ODAR' || type === 'Doc Submitted') && out.odar ? (
               <ODARDocumentPreview
                 {...out.odar}
@@ -1653,7 +1653,7 @@ export default function Letters() {
           const m = HR_MESSAGES.find(x => x.key === sopSel);
           if (!m) return null;
           return (
-            <div className="letter">
+            <div className="letter" style={{ margin: 0 }}>
               {m.heading && <div style={{ fontSize: 15, fontWeight: 700, color: '#082F5A', marginBottom: 12 }}>{m.heading}</div>}
               <div style={{ fontWeight: 700, color: '#082F5A', marginBottom: 4 }}>{m.label}</div>
               {m.subject && <div style={{ fontStyle: 'italic', marginBottom: 4 }}>{m.subject}</div>}
