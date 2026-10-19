@@ -191,6 +191,7 @@ await db._pool.query(
     ['total_family_members', 'INT'],
     ['monthly_family_income', 'NUMERIC'],
     ['income_category', 'TEXT'],
+    ['beneficiary_type', 'TEXT'],
     ['bpl_available', 'BOOLEAN DEFAULT false'],
     ['ration_card_available', 'BOOLEAN DEFAULT false'],
     ['fingerprint_status', 'TEXT'],

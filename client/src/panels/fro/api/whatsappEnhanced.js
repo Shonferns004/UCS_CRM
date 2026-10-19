@@ -44,10 +44,10 @@ export async function sendDirectMessage(phone, text, agentToken, project) {
   }, agentToken)
 }
 
-export async function createConversation(phone, agentToken, project) {
+export async function createConversation(phone, agentToken, project, name) {
   return agentApi('/fro/whatsapp/create-conversation', {
     method: 'POST',
-    body: JSON.stringify({ phone, project }),
+    body: JSON.stringify({ phone, project, name }),
   }, agentToken)
 }
 
@@ -58,7 +58,16 @@ export async function markRead(conversationId, agentToken) {
 }
 
 export async function searchMessages(query, agentToken) {
-  return agentApi(`/fro/whatsapp/search?q=${encodeURIComponent(query)}`, {}, agentToken)
+  return agentApi('/fro/whatsapp/search?q=' + encodeURIComponent(query), {}, agentToken)
+}
+
+// Favourites live on the conversation's `labels` jsonb; the star toggle in the
+// inbox writes 'favourite' into / out of that array.
+export async function updateConversationLabels(conversationId, labels, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/labels`, {
+    method: 'PUT',
+    body: JSON.stringify({ labels }),
+  }, agentToken)
 }
 
 export async function getQuickReplies(agentToken) {

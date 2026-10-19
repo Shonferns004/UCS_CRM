@@ -1,5 +1,6 @@
 // Renders the real WhatsApp composer subtree to confirm the Quick Reply bar and
-// the emoji picker are both present on screen for an agent with a thread open.
+// the composer's template-library trigger both behave as expected for an agent
+// with a thread open.
 //
 // This is the same technique sidebar-smoke.mjs uses: Vite's SSR pipeline gives us
 // JSX + ESM, while React itself stays a single native instance.
@@ -58,21 +59,58 @@ const check = (name, ok, detail = '') => {
 const qr = renderToString(createElement(QuickReplyBar, { onSend: () => {} }))
 check('QuickReplyBar renders its loading placeholder (null while fetching)', qr === '', `got ${JSON.stringify(qr.slice(0, 40))}`)
 
-// The emoji picker button is inside MessageComposer, which is what an agent sees
-// with a thread open.
+// The template library trigger lives inside MessageComposer, to the right of the
+// mic, which is what an agent sees with a thread open.
 const composer = renderToString(createElement(MessageComposer, {
   onSend: async () => {}, onSendMedia: async () => {},
   templateProps: null,
 }))
 
-// The picker is collapsed initially, so assert the trigger (aria-label="Emoji")
-// and the composer shell are present -- not the panel itself.
-check('MessageComposer renders the emoji picker trigger', composer.includes('aria-label="Emoji"'), 'aria-label="Emoji" missing')
+// With templateProps null the library is omitted entirely, so only the
+// attach/record icons plus the text input and send button should render.
+check('MessageComposer omits the template library without templateProps', !composer.includes('Template library'), 'library leaked without props')
 check('MessageComposer renders the text input', composer.includes('Type a message'), 'placeholder missing')
 check('MessageComposer renders the send button', composer.includes('<svg'), 'send icon missing')
-// TemplateLibrary is omitted when templateProps is null, so the emoji trigger is
-// the only icon button plus attach/record; ensure it is not swallowed.
+// The emoji picker is always present; its trigger is collapsed by default.
+check('MessageComposer renders the emoji picker trigger', composer.includes('aria-label="Emoji"'), 'aria-label="Emoji" missing')
 check('emoji trigger is not disabled by default', !/aria-label="Emoji"[^>]*disabled/.test(composer), 'trigger disabled')
+
+// With templateProps supplied (a conversation open) the library trigger must
+// appear next to the mic.
+const composerWithTemplates = renderToString(createElement(MessageComposer, {
+  onSend: async () => {}, onSendMedia: async () => {},
+  templateProps: {
+    conversationId: 'conv-1', contactId: 'c-1', project: 'bsct',
+    userId: 'u-1', agentToken: 'tok', onSent: () => {},
+  },
+}))
+check('MessageComposer renders the template library trigger with templateProps', composerWithTemplates.includes('Template library'), 'template library trigger missing')
+
+// ConversationList carries the per-row affordances behind the inbox's Groups /
+// Favourites filters: a Group badge (+ people avatar) on group threads and a
+// star (favourite) toggle on every row.
+const { default: ConversationList } = await vite.ssrLoadModule('/src/panels/fro/components/enhanced/ConversationList.jsx')
+
+const nowIso = new Date().toISOString()
+const listHtml = renderToString(createElement(ConversationList, {
+  conversations: [
+    {
+      id: 'g1', is_group: true, group_id: '12036302847@g.us',
+      project: 'bsct', unread_count: 2, last_message_at: nowIso, labels: null,
+      contact: { phone: '919999999999', wa_profile_name: 'Sender' },
+    },
+    {
+      id: 'f1', is_group: false, group_id: null, project: 'bsct',
+      unread_count: 0, last_message_at: nowIso, labels: ['favourite'],
+      contact: { phone: '918888888888', wa_profile_name: 'Donor' },
+    },
+  ],
+  activeId: null, onSelect: () => {}, onToggleFavorite: () => {},
+}))
+check('ConversationList badges group threads', listHtml.includes('Group · ') && listHtml.includes('302847'), 'group badge missing')
+check('ConversationList renders a star toggle on each row', (listHtml.match(/wa-star/g) || []).length === 2, 'star toggle missing')
+check('favourite thread shows a filled active star', listHtml.includes('wa-star is-fav') && listHtml.includes('aria-label="Remove from favourites"'), 'favourite star state missing')
+check('non-favourite thread offers the add-favourite action', listHtml.includes('aria-label="Add to favourites"'), 'add-favourite action missing')
 
 await vite.close()
 

@@ -125,6 +125,7 @@ export const operatorDashboard = async (req, res) => {
     let selfie = null;
     let kitId = null;
     let organizerId = null;
+    let beneficiaryType = null;
 
     const assignment = await getTodayAssignment(worker.id, today);
     if (assignment) {
@@ -134,6 +135,7 @@ export const operatorDashboard = async (req, res) => {
       event = assignment.operator_events || null;
       kitId = assignment.kit_id || null;
       organizerId = assignment.organizer_id || null;
+      beneficiaryType = assignment.beneficiary_type || null;
     }
 
     // Events available for today (dropdown source). Fall back to a demo event
@@ -162,6 +164,7 @@ export const operatorDashboard = async (req, res) => {
       events,
       kit_id: kitId,
       organizer_id: organizerId,
+      beneficiary_type: beneficiaryType,
       kits,
       organizers,
     });
@@ -176,7 +179,7 @@ export const saveSelfAssignment = async (req, res) => {
     const worker = await getBnfOperatorBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Operator not found' });
 
-    const { state, city, event_id, event_name, selfie_url, kit_id, organizer_id } = req.body;
+    const { state, city, event_id, event_name, selfie_url, kit_id, organizer_id, beneficiary_type } = req.body;
     const assignmentDate = req.body.assignment_date || NORMALIZED_DATE();
 
     // The app's Operator Details screen has the operator TYPE the event name
@@ -212,6 +215,7 @@ export const saveSelfAssignment = async (req, res) => {
       selfie_url,
       kit_id: kit_id ? parseInt(kit_id) : null,
       organizer_id: organizer_id ? parseInt(organizer_id) : null,
+      beneficiary_type: beneficiary_type || null,
     });
 
     return res.json({ message: 'Assignment saved', assignment });

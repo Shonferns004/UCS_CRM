@@ -109,12 +109,12 @@ const EventPosterReport = forwardRef(function EventPosterReport({
 
         {/* Date band */}
         <div style={{
-          height: 72, boxSizing: 'border-box', background: NAVY, display: 'flex', alignItems: 'center',
+          height: 90, boxSizing: 'border-box', background: NAVY, display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', padding: '0 14px 0 8px',
           borderTop: `3px solid ${YELLOW_LINE}`, borderBottom: `3px solid ${YELLOW_LINE}`, flexShrink: 0,
         }}>
           <div style={{ color: '#fff', fontWeight: 900, fontSize: 33, letterSpacing: 0.5 }}>{topDate}</div>
-          <Logo url={logoUrl} size={70} />
+          <Logo url={logoUrl} size={84} plain />
         </div>
 
         {/* Blue headline band + white strip */}
@@ -139,12 +139,12 @@ const EventPosterReport = forwardRef(function EventPosterReport({
         {/* Title / description block */}
         <div style={{ flexShrink: 0, padding: '12px 4px 0', position: 'relative', textAlign: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-            <Logo url={logoUrl} size={62} plain />
+            <Logo url={logoUrl} size={76} plain />
             <div style={{
               flex: 1, background: '#fff', boxShadow: `0 0 0 2px ${NAVY}, 0 0 0 4px #222`, margin: '0 6px',
               padding: '6px 10px', color: '#222', fontWeight: 900, fontSize: boxTitle.length > 46 ? 17 : 20, letterSpacing: 0.3,
             }}>{boxTitle}</div>
-            <div style={{ width: 62, height: 62, flexShrink: 0, textAlign: 'center' }}>
+            <div style={{ width: 76, height: 76, flexShrink: 0, textAlign: 'center' }}>
               {partnerLogoUrl && (
                 <>
                   <div style={{ width: 52, height: 48, margin: '0 auto', background: `url("${partnerLogoUrl}") center / contain no-repeat` }} />

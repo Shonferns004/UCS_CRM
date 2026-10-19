@@ -5,6 +5,36 @@ import { applyRouting } from '../services/routingService.js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
 
+// WhatsApp group threads use a `...@g.us` JID. Cloud API puts the group id in
+// `to` on most payloads and in `from` on others, so check both. The group id
+// is what keys one conversation per WhatsApp group instead of one per sender.
+const groupIdFromJid = (v) => (typeof v === 'string' && v.endsWith('@g.us') ? v : null);
+
+// Delivery-status ranks. Meta delivers and redelivers status frames out of
+// order; a read receipt walked back to "sent" is lost permanently, so every
+// status write below is gated on this decision. `accepted` shares rank 1
+// with `queued`. `failed` is terminal, and `deleted`/future statuses are
+// intentionally absent from the ranks so they apply optimistically instead
+// of being dropped when Meta adds one.
+const STATUS_RANK = { accepted: 1, queued: 1, sent: 2, delivered: 3, read: 4 };
+
+export function shouldApplyStatus(current, incoming) {
+  if (current == null) return true;                 // pre-default row: treat as queued
+  if (incoming === current) return true;            // redelivered frame: harmless no-op
+  if (current === 'failed') return false;           // terminal: keeps failure_reason intact
+  if (incoming === 'failed') {
+    // A failure only lands on a message that has not proven delivery. After
+    // "read" a failed frame is stale: honouring it would show the agent a red
+    // bubble for a message the donor demonstrably received.
+    return (STATUS_RANK[current] ?? Infinity) <= STATUS_RANK.delivered;
+  }
+  const to = STATUS_RANK[incoming];
+  if (to === undefined) return true;                // future Meta status: record it
+  const from = STATUS_RANK[current];
+  if (from === undefined) return false;
+  return to >= from;
+}
+
 export function verifyWhatsAppWebhook(req, res) {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -40,7 +70,12 @@ export async function whatsappWebhookEntry(req, res) {
 
     if (changes?.field === 'messages' && value?.messages) {
       for (const message of value.messages) {
-        const from = message.from;
+        const groupId = groupIdFromJid(message.to) || groupIdFromJid(message.from);
+        // When `from` itself is the group JID, the actual sender sits in
+        // value.contacts[0].wa_id; fall back to `from` if Meta omits it.
+        const from = groupId && message.from === groupId
+          ? (value.contacts?.[0]?.wa_id || message.from)
+          : message.from;
         let bodyText = message.text?.body || null;
 
         if (message.type === 'image') bodyText = message.image?.caption || '[Image]';
@@ -80,8 +115,11 @@ export async function whatsappWebhookEntry(req, res) {
         let query = db
           .from('conversations')
           .select('*')
-          .eq('contact_id', contact.id)
           .eq('status', 'open');
+        // A group message keys its thread by the group id so every participant
+        // posts into the same conversation; DMs keep the per-contact key.
+        if (groupId) query = query.eq('group_id', groupId);
+        else query = query.eq('contact_id', contact.id);
         if (projectFilter) query = query.eq('project', projectFilter);
         else query = query.is('project', null);
         const { data: conversation } = await query.maybeSingle();
@@ -96,6 +134,8 @@ export async function whatsappWebhookEntry(req, res) {
               last_message_at: new Date().toISOString(),
               last_inbound_at: new Date().toISOString(),
               project: accountProject !== 'unknown' ? accountProject : null,
+              is_group: !!groupId,
+              group_id: groupId,
             })
             .select()
             .single();
@@ -165,9 +205,9 @@ export async function whatsappWebhookEntry(req, res) {
           .update({
             last_message_at: new Date().toISOString(),
             last_inbound_at: new Date().toISOString(),
-            // Raise the unread chip for this thread. markConversationRead resets
-            // it to 0 when the FRO actually opens the conversation, so the badge
-            // only reflects messages the agent has not looked at yet.
+            // Raise the unread chip for this thread. markConversationRead resets it
+            // to 0 when the FRO actually opens the conversation, so the badge only
+            // reflects messages the agent has not looked at yet.
             unread_count: (activeConversation.unread_count || 0) + 1,
           })
           .eq('id', activeConversation.id);
@@ -191,6 +231,15 @@ export async function whatsappWebhookEntry(req, res) {
 
     if ((changes?.field === 'messages' || changes?.field === 'message_status') && value?.statuses) {
       for (const status of value.statuses) {
+        // Each row type tracks this wamid on its own state, so each is
+        // guarded separately: a redelivered or out-of-order frame must not
+        // walk a read receipt back to "sent" or erase a failure_reason.
+        const [{ data: msgRows }, { data: bcRows }, { data: rcRows }] = await Promise.all([
+          db.from('messages').select('status').eq('wa_message_id', status.id).limit(1),
+          db.from('whatsapp_broadcast_recipients').select('status').eq('wa_message_id', status.id).limit(1),
+          db.from('receipts').select('wa_status').eq('wa_message_id', status.id).limit(1),
+        ]);
+
         const update = {
           status: status.status,
           status_updated_at: new Date().toISOString(),
@@ -198,19 +247,24 @@ export async function whatsappWebhookEntry(req, res) {
         if (status.status === 'failed' && status.errors?.length > 0) {
           update.failure_reason = `(${status.errors[0].code}) ${status.errors[0].message}`;
         }
-        await db
-          .from('messages')
-          .update(update)
-          .eq('wa_message_id', status.id);
 
-        await db
-          .from('whatsapp_broadcast_recipients')
-          .update({
-            status: status.status,
-            failure_reason: update.failure_reason || null,
-            status_updated_at: new Date().toISOString(),
-          })
-          .eq('wa_message_id', status.id);
+        if (shouldApplyStatus(msgRows?.[0]?.status, status.status)) {
+          await db
+            .from('messages')
+            .update(update)
+            .eq('wa_message_id', status.id);
+        }
+
+        if (shouldApplyStatus(bcRows?.[0]?.status, status.status)) {
+          await db
+            .from('whatsapp_broadcast_recipients')
+            .update({
+              status: status.status,
+              failure_reason: update.failure_reason || null,
+              status_updated_at: new Date().toISOString(),
+            })
+            .eq('wa_message_id', status.id);
+        }
 
         // Receipts are sent straight to a donor's phone, often to someone who
         // has never messaged the NGO, so there may be no `messages` row above for
@@ -221,19 +275,21 @@ export async function whatsappWebhookEntry(req, res) {
         // sent=false on failure is load-bearing: getPendingReceipts() keys off
         // it, so a failed receipt walks itself back into the pending queue for a
         // retry instead of disappearing into history with no explanation.
-        const receiptPatch = {
-          wa_status: status.status,
-          wa_status_at: new Date().toISOString(),
-          wa_failure_reason: status.status === 'failed' ? (update.failure_reason || null) : null,
-        };
-        if (status.status === 'failed') {
-          receiptPatch.sent = false;
-          receiptPatch.sent_at = null;
+        if (shouldApplyStatus(rcRows?.[0]?.wa_status, status.status)) {
+          const receiptPatch = {
+            wa_status: status.status,
+            wa_status_at: new Date().toISOString(),
+            wa_failure_reason: status.status === 'failed' ? (update.failure_reason || null) : null,
+          };
+          if (status.status === 'failed') {
+            receiptPatch.sent = false;
+            receiptPatch.sent_at = null;
+          }
+          await db
+            .from('receipts')
+            .update(receiptPatch)
+            .eq('wa_message_id', status.id);
         }
-        await db
-          .from('receipts')
-          .update(receiptPatch)
-          .eq('wa_message_id', status.id);
       }
     }
 

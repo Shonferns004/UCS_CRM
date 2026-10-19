@@ -42,6 +42,28 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
   int? _selectedOrganizerId;
   String? _selfieBase64;
   String? _selfieUrl;
+  String? _beneficiaryType;
+
+  // Same set as the Add Beneficiary form, so the operator's saved category
+  // lines up with what they later pick on a beneficiary record.
+  static const List<String> _beneficiaryTypes = [
+    'Visually Impaired Individuals',
+    'Persons with Disabilities (PwD)',
+    'Specially Abled Individuals',
+    'Underprivileged Children',
+    'Underprivileged Women',
+    'Senior Citizens',
+    'Orphaned Children',
+    'Slum-Dwelling Families',
+    'Rural and Tribal Communities',
+    'Widows and Single Mothers',
+    'Homeless Individuals',
+    'Needy Families',
+    'Students from Low-Income Families',
+    'Unemployed Youth',
+    'Flood-Affected Families',
+    'Daily Wage Workers',
+  ];
 
   @override
   void initState() {
@@ -81,6 +103,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
         _selectedOrganizerId = body['organizer_id'] != null
             ? (body['organizer_id'] as num).toInt()
             : null;
+        _beneficiaryType = body['beneficiary_type']?.toString();
         _selfieUrl =
             body['selfie_url']?.toString() ?? body['selfie']?.toString();
         _selfieBase64 = null;
@@ -211,6 +234,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
           'event_name': _eventController.text.trim(),
           'kit_id': _selectedKitId,
           'organizer_id': _selectedOrganizerId,
+          'beneficiary_type': _beneficiaryType,
           'selfie_url': selfieUrl,
         },
       );
@@ -358,6 +382,29 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                         isExpanded: true,
                         onChanged: (v) =>
                             setState(() => _selectedOrganizerId = v),
+                      ),
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        initialValue: _beneficiaryType,
+                        decoration: const InputDecoration(
+                          labelText: 'Beneficiary Type',
+                        ),
+                        hint: const Text('Select beneficiary type'),
+                        items: _beneficiaryTypes
+                            .map(
+                              (t) => DropdownMenuItem<String>(
+                                value: t,
+                                child: Text(
+                                  t,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        isExpanded: true,
+                        onChanged: (v) =>
+                            setState(() => _beneficiaryType = v),
                       ),
 
                       const SizedBox(height: 28),

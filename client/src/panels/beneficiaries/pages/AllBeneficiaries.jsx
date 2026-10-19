@@ -199,7 +199,7 @@ export default function AllBeneficiaries() {
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No beneficiaries found</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ ...styles.table, minWidth: 1600 }}>
+            <table style={{ ...styles.table, minWidth: 1800 }}>
               <thead>
                 <tr>
                   <th style={{ ...styles.th, width: 36 }}>
@@ -210,6 +210,7 @@ export default function AllBeneficiaries() {
                   <th style={styles.th}>Mobile</th>
                   <th style={styles.th}>NGO</th>
                   <th style={styles.th}>Gender</th>
+                  <th style={styles.th}>Beneficiary Type</th>
                   <th style={styles.th}>DOB</th>
                   <th style={styles.th}>Occupation</th>
                   <th style={styles.th}>Address</th>
@@ -238,6 +239,7 @@ export default function AllBeneficiaries() {
                       <td style={styles.td}>{b.mobile || '-'}</td>
                       <td style={styles.td}>{b.ngos?.name || '-'}</td>
                       <td style={styles.td}>{b.gender || '-'}</td>
+                      <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.beneficiary_type || '-'}</td>
                       <td style={styles.td}>{b.date_of_birth || '-'}</td>
                       <td style={styles.td}>{b.occupation || '-'}</td>
                       <td style={{ ...styles.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.address_line_1 || '-'}</td>

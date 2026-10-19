@@ -125,7 +125,7 @@ const monthlyTargetFor = (n) => NGO_MONTHLY_TARGET[ngoCodeKey(n)] ?? DEFAULT_MON
    Logos live in /public/logo (same files Event Reports uses); the colours match
    each NGO's letter-head so the printed page reads as that NGO's report. */
 const NGO_BRAND = {
-  bsct: { name: 'BSCT', fullName: 'Being Sevak Charitable Trust', displayName: 'Being Sevak', sub: 'Charitable Trust', brandImage: '/logo/bsct-logo.png', logo: '/logo/beingsevak-logo.png', color: '#204E8C', headingColor: '#204E8C', accent: '#FFC72C', colorLight: '#EAF1FB' },
+  bsct: { name: 'BSCT', fullName: 'Being Sevak Charitable Trust', displayName: 'Being Sevak', sub: 'Charitable Trust', brandImage: '/logo/bsct-logo.png', logo: '/logo/beingsevak-logo.png', logoPlain: '/logo/beingsevak-logo-plain.png', color: '#204E8C', headingColor: '#204E8C', accent: '#FFC72C', colorLight: '#EAF1FB' },
   mann: { name: 'MANN', fullName: 'Mann Care Foundation', logo: '/logo/mann-logo.png', color: '#F42D92', headingColor: '#C23875', accent: '#F42D92', colorLight: '#FDE7F3' },
   aflf: { name: 'AFLF', fullName: 'Ashray For Life Foundation', logo: '/logo/aflf-logo.png', color: '#0E6BA8', headingColor: '#DC2626', accent: '#22D3EE', colorLight: '#E6F4FB' },
 }
@@ -4262,13 +4262,13 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                   ref={(el) => { ngoPageRefs.current[String(p.ngo.id)] = el }}
                   style={{ width: 1122, boxSizing: 'border-box', background: '#fff', padding: 22, margin: '0 0 24px', color: '#1F2430' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `3px solid ${b.color}`, paddingBottom: 12, marginBottom: 12 }}>
-                    {b.logo && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingBottom: 12, marginBottom: 12 }}>
+                    {(b.logoPlain || b.logo) && (
                       <img
-                        src={b.logo}
+                        src={b.logoPlain || b.logo}
                         alt=""
                         crossOrigin="anonymous"
-                        style={{ height: 60, maxWidth: 150, objectFit: 'contain', flexShrink: 0 }}
+                        style={{ height: 88, maxWidth: 210, objectFit: 'contain', flexShrink: 0 }}
                         onError={(e) => { e.currentTarget.style.display = 'none' }}
                       />
                     )}

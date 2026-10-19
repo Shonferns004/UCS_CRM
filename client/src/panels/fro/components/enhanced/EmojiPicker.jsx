@@ -141,7 +141,7 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
         disabled={disabled}
         aria-label="Emoji"
         title="Emoji"
-        style={{ border: 'none', background: 'transparent', cursor: disabled ? 'not-allowed' : 'pointer', padding: '6px 4px', color: '#6b7280', opacity: disabled ? 0.5 : 1 }}
+        className="wa-icon-btn"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10" />
@@ -160,15 +160,15 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
             marginBottom: 6,
             width: 268,
             background: '#fff',
-            border: '1px solid #e5e7eb',
+            border: '1px solid #e9edef',
             borderRadius: 10,
-            boxShadow: '0 8px 24px rgba(0,0,0,.14)',
+            boxShadow: '0 8px 24px rgba(11,20,26,.16)',
             zIndex: 40,
             overflow: 'hidden',
             fontSize: 13,
           }}
         >
-          <div style={{ padding: 8, borderBottom: '1px solid #f1f5f9' }}>
+          <div style={{ padding: 8, borderBottom: '1px solid #f5f6f6' }}>
             <input
               autoFocus
               value={query}
@@ -179,16 +179,19 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
                 boxSizing: 'border-box',
                 padding: '6px 10px',
                 fontSize: 13,
-                border: '1px solid #d1d5db',
+                border: '1px solid #e9edef',
                 borderRadius: 8,
                 outline: 'none',
                 fontFamily: 'inherit',
+                background: '#f0f2f5',
               }}
+              onFocus={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#00a884' }}
+              onBlur={e => { e.currentTarget.style.background = '#f0f2f5'; e.currentTarget.style.borderColor = '#e9edef' }}
             />
           </div>
 
           {!query && (
-            <div style={{ display: 'flex', gap: 4, padding: '6px 8px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 4, padding: '6px 8px', borderBottom: '1px solid #f5f6f6', flexWrap: 'wrap' }}>
               {EMOJI_GROUPS.map((g, i) => (
                 <button
                   key={g.name}
@@ -199,9 +202,10 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
                     padding: '3px 8px',
                     borderRadius: 10,
                     cursor: 'pointer',
-                    border: `1px solid ${tab === i ? '#25D366' : '#e5e7eb'}`,
-                    background: tab === i ? '#dcfce7' : '#fff',
-                    color: tab === i ? '#15803d' : '#6b7280',
+                    border: `1px solid ${tab === i ? '#00a884' : '#e9edef'}`,
+                    background: tab === i ? '#e2f5ef' : '#fff',
+                    color: tab === i ? '#00796b' : '#667781',
+                    transition: 'all .12s',
                   }}
                 >
                   {g.name.split(' ')[0]}
@@ -210,15 +214,15 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
             </div>
           )}
 
-          <div style={{ maxHeight: 180, overflowY: 'auto', padding: 6 }}>
+          <div className="wa-scroll" style={{ maxHeight: 180, overflowY: 'auto', padding: 6 }}>
             {visibleGroups.length === 0 ? (
-              <div style={{ padding: '14px 8px', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+              <div style={{ padding: '14px 8px', textAlign: 'center', color: '#8696a0', fontSize: 12 }}>
                 No emoji match “{query}”
               </div>
             ) : visibleGroups.map(g => (
               <div key={g.name}>
                 {!query && (
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: .4, padding: '4px 4px 2px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#8696a0', textTransform: 'uppercase', letterSpacing: .4, padding: '4px 4px 2px' }}>
                     {g.name}
                   </div>
                 )}
@@ -237,7 +241,7 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
                         borderRadius: 6,
                         padding: 0,
                       }}
-                      onMouseEnter={e2 => { e2.currentTarget.style.background = '#f3f4f6' }}
+                      onMouseEnter={e2 => { e2.currentTarget.style.background = '#f0f2f5' }}
                       onMouseLeave={e2 => { e2.currentTarget.style.background = 'transparent' }}
                     >
                       {e}
@@ -248,7 +252,7 @@ export default function EmojiPicker({ textareaRef, onInsert, disabled }) {
             ))}
           </div>
 
-          <div style={{ padding: '5px 8px', borderTop: '1px solid #f1f5f9', fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
+          <div style={{ padding: '5px 8px', borderTop: '1px solid #f5f6f6', fontSize: 10, color: '#8696a0', textAlign: 'center' }}>
             {ALL_EMOJI.length} emoji · type <b>:</b> to search · Esc to close
           </div>
         </div>

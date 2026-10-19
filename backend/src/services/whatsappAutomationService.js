@@ -16,6 +16,7 @@ import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import { isRoutableProject } from './whatsappOrgRouting.js';
+import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 
 const DEFAULT_WINDOW_HOURS = 24;
 
@@ -285,19 +286,13 @@ async function sendViaMeta({ to, project, text, template }) {
         text: { body: text },
       };
 
-  const res = await fetch(
+  const data = await postWhatsAppMessage(
     `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/messages`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
+    accessToken,
+    body,
   );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.messages?.[0]?.id) {
-    const code = data?.error?.code;
-    const msg = data?.error?.message || 'Meta API error';
-    throw Object.assign(new Error(code ? `(${code}) ${msg}` : msg), { metaCode: code || null });
+  if (!data?.messages?.[0]?.id) {
+    throw Object.assign(new Error('Meta API error'), { metaCode: null });
   }
   return data.messages[0].id;
 }

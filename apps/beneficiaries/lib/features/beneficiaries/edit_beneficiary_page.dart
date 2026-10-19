@@ -118,6 +118,27 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     'Transgender',
   ];
 
+  static const List<String> _beneficiaryTypes = [
+    'Visually Impaired Individuals',
+    'Persons with Disabilities (PwD)',
+    'Specially Abled Individuals',
+    'Underprivileged Children',
+    'Underprivileged Women',
+    'Senior Citizens',
+    'Orphaned Children',
+    'Slum-Dwelling Families',
+    'Rural and Tribal Communities',
+    'Widows and Single Mothers',
+    'Homeless Individuals',
+    'Needy Families',
+    'Students from Low-Income Families',
+    'Unemployed Youth',
+    'Flood-Affected Families',
+    'Daily Wage Workers',
+  ];
+
+  String? _beneficiaryType;
+
   /// Maps a stored value onto one of [options] case-insensitively. Imports
   /// write 'FEMALE'/'TRANSGENDER' while the app writes 'Female', so the raw
   /// value is matched to the option spelling. A value with no match (the
@@ -146,6 +167,9 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
 
   List<String> _disabilityItems() => _optionList(_disabilityTypes, _disabilityType);
 
+  List<String> _beneficiaryTypeItems() =>
+      _optionList(_beneficiaryTypes, _beneficiaryType);
+
   String get _code => widget.beneficiary['beneficiary_code']?.toString() ?? '';
 
   @override
@@ -163,6 +187,7 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     _aadhaarController.text = b['aadhaar_number']?.toString() ?? '';
     _photo = b['photo']?.toString();
     _gender = _normalize(_genders, b['gender']);
+    _beneficiaryType = _normalize(_beneficiaryTypes, b['beneficiary_type']);
     _dob = _parseDob(b['date_of_birth']?.toString());
     if (_dob != null) {
       _dobController.text = _formatDob(_dob!);
@@ -516,6 +541,7 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
           '${_dob!.year.toString().padLeft(4, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.day.toString().padLeft(2, '0')}';
     }
     if (_gender != null) body['gender'] = _gender;
+    if (_beneficiaryType != null) body['beneficiary_type'] = _beneficiaryType;
     if (_occupationController.text.trim().isNotEmpty) {
       body['occupation'] = _occupationController.text.trim();
     }
@@ -723,6 +749,34 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
                   ],
                 );
               },
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField2<String>(
+              valueListenable: ValueNotifier<String?>(_beneficiaryType),
+              decoration: const InputDecoration(labelText: 'Beneficiary Type'),
+              isExpanded: true,
+              items: _beneficiaryTypeItems()
+                  .map((t) => DropdownItem<String>(
+                        value: t,
+                        child: Text(t, overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(),
+              onChanged:
+                  _loading ? null : (v) => setState(() => _beneficiaryType = v),
+              buttonStyleData: const FormFieldButtonStyleData(
+                height: 52,
+                padding: EdgeInsets.only(left: 16, right: 8),
+              ),
+              iconStyleData: const IconStyleData(iconSize: 20),
+              dropdownStyleData: const DropdownStyleData(
+                maxHeight: 280,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                ),
+              ),
+              menuItemStyleData: const MenuItemStyleData(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+              ),
             ),
             const SizedBox(height: 16),
             TextFormField(

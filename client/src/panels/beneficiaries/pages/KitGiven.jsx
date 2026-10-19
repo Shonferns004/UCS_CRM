@@ -198,13 +198,14 @@ export default function KitGiven() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ ...styles.table, minWidth: 1200 }}>
+            <table style={{ ...styles.table, minWidth: 1400 }}>
               <thead>
                 <tr>
                   <th style={styles.th}>Code</th>
                   <th style={styles.th}>Name</th>
                   <th style={styles.th}>Mobile</th>
                   <th style={styles.th}>NGO</th>
+                  <th style={styles.th}>Beneficiary Type</th>
                   {/* <th style={styles.th}>City</th> */}
                   {/* <th style={styles.th}>Given On</th> */}
                   {/* <th style={styles.th}>Given By</th> */}
@@ -221,6 +222,7 @@ export default function KitGiven() {
                     <td style={styles.td}><span style={styles.link}>{b.full_name}</span></td>
                     <td style={styles.td}>{b.mobile || '-'}</td>
                     <td style={styles.td}>{b.ngos?.name || '-'}</td>
+                    <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.beneficiary_type || <span style={styles.muted}>-</span>}</td>
                     {/* <td style={styles.td}>{b.city || '-'}</td> */}
                     {/* <td style={styles.td}>
                       {b.kit_given_at
