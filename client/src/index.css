@@ -1668,7 +1668,7 @@
 .ro-section-sub { font-size:12px; color:var(--ink-soft); margin-top:2px; }
 .ro-filters { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .ro-filter-select { padding:7px 10px; font-size:12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--paper); color:var(--ink); outline:none; font-family:inherit; cursor:pointer; }
-.ro-filter-select:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.ro-filter-select:focus { border-color:#1677ff; box-shadow:0 0 0 3px #e8f2ff; }
 .ro-search-wrap { display:flex; align-items:center; gap:6px; padding:7px 10px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--paper); }
 .ro-search-wrap svg { color:var(--ink-soft); flex-shrink:0; }
 .ro-search-input { border:none; background:none; outline:none; font-size:12px; font-family:inherit; color:var(--ink); width:120px; }
@@ -1703,8 +1703,8 @@
 .ro-perf-footer { display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--line); padding-top:8px; font-size:10px; }
 .ro-perf-success { color:var(--sage); font-weight:600; }
 .ro-perf-time { color:var(--ink-soft); }
-.ro-leaderboard-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
-.ro-lb-card { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); padding:14px 16px; text-align:center; box-shadow:var(--shadow); position:relative; transition:transform .2s,box-shadow .2s; }
+.ro-leaderboard-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.ro-lb-card { background:var(--paper); border:1px solid #d4e4fa; border-radius:var(--radius-sm); padding:14px 16px; text-align:center; box-shadow:var(--shadow); position:relative; transition:transform .2s,box-shadow .2s; }
 .ro-lb-card:hover { transform:translateY(-2px); box-shadow:0 4px 16px rgba(35,32,25,.08); }
 .ro-lb-top { border-color:#C08A2E; background:linear-gradient(135deg,#FFFBEB 0%,var(--paper) 100%); }
 .ro-lb-trophy { position:absolute; top:8px; right:8px; font-size:16px; }

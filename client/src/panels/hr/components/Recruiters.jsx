@@ -373,10 +373,19 @@ export default function Recruiters() {
               </tbody>
             </table>
             {visibleCount < filteredLeads.length && (
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12, marginBottom: 6 }}>
-                <button className="btn btn-outline" onClick={() => setVisibleCount(c => c + 8)}
-                  style={{ gap: 10, padding: '9px 24px', borderRadius: 8, fontWeight: 600, fontSize: 13, border: '1px solid var(--line)', boxShadow: '0 1px 3px rgba(16,24,40,.06)' }}>
-                  Load more <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 700 }}>({filteredLeads.length - visibleCount} more)</span>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  onClick={() => setVisibleCount(c => c + 8)}
+                  disabled={leadsLoading}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                    border: '1px solid #bfd7f7', background: '#e8f2ff', color: '#1677ff',
+                    cursor: leadsLoading ? 'default' : 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>↓</span> Load More
+                  <span style={{ fontSize: 11, color: '#4e6899', fontWeight: 700 }}>({filteredLeads.length - visibleCount} more)</span>
                 </button>
               </div>
             )}
