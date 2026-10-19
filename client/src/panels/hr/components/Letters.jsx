@@ -4,7 +4,8 @@ import { api } from '../../../api/auth';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Dropdown } from './ui';
 import { safeImgSrc, isSignatureSigned, SIG_LINE_FALLBACK } from '../signatureUtils';
-import { FileTxt, WhatsApp, Send } from '../icons';
+import { WhatsApp } from '../icons';
+import { Printer, Send } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { deptLabel, DOC_OPTIONS, OTHER_DOC } from '../../../lib/labels';
@@ -1603,8 +1604,28 @@ export default function Letters() {
       </div>
 
       <div className="card" style={{ minHeight: 0, border: 'none', boxShadow: 'none' }}>
-        <div className="card-head">
+        <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div><h3>Letter Preview</h3><span className="sub">Live preview of the generated letter.</span></div>
+          <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {showDownload && viewTab === 'letter' && (
+              <>
+                <button className="btn btn-primary" onClick={downloadPdf} disabled={!!sending} title="Download PDF (Print)" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><Printer size={18}/></button>
+                {sopSel ? (
+                  <button className="btn btn-primary" onClick={sendWarningText} disabled={!!sending} title="Send the selected message" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
+                ) : (
+                  <button className="btn btn-primary" onClick={sendLetterPdf} disabled={!!sending} title={`Send the ${type} as a PDF`} style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><Send size={18}/></button>
+                )}
+                <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
+              </>
+            )}
+            {showDownload && viewTab === 'messages' && (
+              <>
+                <button className="btn btn-primary" onClick={sendWarningText} disabled={!!sending || !sopSel} title="Send the selected message" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
+                <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
+              </>
+            )}
+            {sending && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sending…</span>}
+          </div>
         </div>
         <div ref={previewRef} style={{ overflow: zoom > fitZoom ? 'auto' : 'hidden', minHeight: 0, display: 'flex', justifyContent: 'center', background: 'var(--surface-muted, #f7faff)', padding: 0 }}>
           <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', width: 900, maxWidth: '100%', marginLeft: previewMargin }}>
@@ -1652,27 +1673,6 @@ export default function Letters() {
         </div>
       </div>
 
-      <div style={{ padding: '10px 12px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {showDownload && viewTab === 'letter' && (
-          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={downloadPdf} disabled={!!sending} title="Download PDF" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><FileTxt size={18}/></button>
-            {sopSel ? (
-              <button className="btn btn-primary" onClick={sendWarningText} disabled={!!sending} title="Send the selected message" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
-            ) : (
-              <button className="btn btn-primary" onClick={sendLetterPdf} disabled={!!sending} title={`Send the ${type} as a PDF`} style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><Send size={18}/></button>
-            )}
-            <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
-            {sending && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sending…</span>}
-          </span>
-        )}
-        {showDownload && viewTab === 'messages' && (
-          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={sendWarningText} disabled={!!sending || !sopSel} title="Send the selected message" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
-            <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
-            {sending && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sending…</span>}
-          </span>
-        )}
-      </div>
       <div ref={pdfRef} style={{
         position:'fixed', left:'-9999px', top:0,
         fontFamily:'Arial, sans-serif', fontSize:14, lineHeight:1.6,
