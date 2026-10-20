@@ -579,26 +579,31 @@ export async function revokeTemporaryAccess(req, res) {
 // the admin confirms (the same checks create runs, minus the insert).
 export async function validateTemporaryAccess(req, res) {
   try {
-    const { station, working_fro_worker_id } = req.query;
-    if (!station || !working_fro_worker_id) {
-      return badRequest(res, 'station and working_fro_worker_id are required');
+    const { station, working_fro_worker_id, ngo_id } = req.query;
+    if (!station) {
+      return badRequest(res, 'station is required');
     }
-    const { data: dup, error: dupErr } = await db
-      .from('temporary_data_assignments')
-      .select('id, expires_at, status, scope_type')
-      .eq('station', station)
-      .eq('working_fro_worker_id', working_fro_worker_id)
-      .in('status', ['SCHEDULED', 'ACTIVE'])
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
-    console.log('[validateTemporaryAccess] dup check: dup=', dup, 'err=', dupErr?.message);
-    const { data: overlaps } = await db
-      .from('temporary_data_assignments')
-      .select('id, working_fro_worker_id, expires_at, scope_type')
-      .eq('station', station)
-      .neq('working_fro_worker_id', working_fro_worker_id)
-      .in('status', ['SCHEDULED', 'ACTIVE'])
-      .gt('expires_at', new Date().toISOString());
+    let dup = null;
+    let overlaps = [];
+    if (working_fro_worker_id) {
+      const { data: dupData, error: dupErr } = await db
+        .from('temporary_data_assignments')
+        .select('id, expires_at, status, scope_type')
+        .eq('station', station)
+        .eq('working_fro_worker_id', working_fro_worker_id)
+        .in('status', ['SCHEDULED', 'ACTIVE'])
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+      dup = dupData;
+      const { data: overlapData } = await db
+        .from('temporary_data_assignments')
+        .select('id, working_fro_worker_id, expires_at, scope_type')
+        .eq('station', station)
+        .neq('working_fro_worker_id', working_fro_worker_id)
+        .in('status', ['SCHEDULED', 'ACTIVE'])
+        .gt('expires_at', new Date().toISOString());
+      overlaps = overlapData || [];
+    }
 
     // Check if station has high-tier data.
     let hasHighTier = false;
@@ -622,7 +627,7 @@ export async function validateTemporaryAccess(req, res) {
 
     return res.json({
       duplicate: dup ? { id: dup.id, expires_at: dup.expires_at, scope_type: dup.scope_type } : null,
-      conflicts: (overlaps || []),
+      conflicts: overlaps,
       has_high_tier: hasHighTier,
     });
   } catch (error) {
