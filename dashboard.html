@@ -83,8 +83,8 @@
     <h2><span class="dot wait" id="d4"></span> Backend Tunnel (cloudflared) — port 5000</h2>
     <div class="info" id="s4">Checking…</div>
     <div class="links">
-      <a href="https://karma-graduated-films-kathy.trycloudflare.com" target="_blank">Backend public URL</a>
-      <a href="https://karma-graduated-films-kathy.trycloudflare.com/api/health" target="_blank">Health JSON</a>
+      <a href="https://registrar-alex-findarticles-poison.trycloudflare.com" target="_blank">Backend public URL</a>
+      <a href="https://registrar-alex-findarticles-poison.trycloudflare.com/api/health" target="_blank">Health JSON</a>
     </div>
     <div class="cmd"><code>cloudflared tunnel --url http://localhost:5000</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
   </div>
@@ -118,7 +118,7 @@
 <iframe id="p1" style="display:none" src="http://127.0.0.1:5000/api/health"></iframe>
 <iframe id="p2" style="display:none" src="http://127.0.0.1:5173"></iframe>
 <iframe id="p3" style="display:none" src="http://127.0.0.1:9000/webhook"></iframe>
-<iframe id="p4" style="display:none" src="https://karma-graduated-films-kathy.trycloudflare.com/api/health"></iframe>
+<iframe id="p4" style="display:none" src="https://registrar-alex-findarticles-poison.trycloudflare.com/api/health"></iframe>
 
 <script>
 function copy(t){ navigator.clipboard.writeText(t.trim()).then(()=>flash('Copied!')); }
@@ -127,19 +127,20 @@ function flash(m){ const n=document.createElement('div'); n.textContent=m; n.sty
 function setDot(id,state){ const e=document.getElementById(id); if(e) e.className='dot '+state; }
 function setInfo(id,html){ const e=document.getElementById(id); if(e) e.innerHTML=html; }
 
-function probe(iframeId, dotId, infoId, label, okMsg){
-  const iframe = document.getElementById(iframeId);
-  let done = false;
-  const timer = setTimeout(()=>{ if(!done){ done=true; setDot(dotId,'bad'); setInfo(infoId,'❌ Not reachable (timeout)'); } }, 6000);
-  iframe.onload = ()=>{ if(!done){ done=true; clearTimeout(timer); setDot(dotId,'ok'); setInfo(infoId,'✅ '+okMsg); } };
-  iframe.onerror = ()=>{ if(!done){ done=true; clearTimeout(timer); setDot(dotId,'bad'); setInfo(infoId,'❌ Not reachable'); } };
+function probe(url, dotId, infoId, label, okMsg){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 4000);
+  fetch(url, {mode:'no-cors', cache:'no-store', signal:controller.signal})
+    .then(()=>{ clearTimeout(timer); setDot(dotId,'ok'); setInfo(infoId,'✅ '+okMsg); })
+    .catch(()=>{ clearTimeout(timer); setDot(dotId,'bad'); setInfo(infoId,'❌ Not reachable'); });
+  setDot(dotId,'wait'); setInfo(infoId,'⏳ Checking…');
 }
 
 function checkAll(){
-  probe('p1','d1','s1','Backend','Reachable');
-  probe('p2','d2','s2','Frontend','Reachable');
-  probe('p3','d3','s3','Webhook','Reachable (rejected unsigned request = alive)');
-  probe('p4','d4','s4','ngrok','Reachable');
+  probe('http://127.0.0.1:5000/api/health','d1','s1','Backend','Reachable');
+  probe('http://127.0.0.1:5173','d2','s2','Frontend','Reachable');
+  probe('http://127.0.0.1:9000/webhook','d3','s3','Webhook','Reachable');
+  probe('http://127.0.0.1:5000/api/health','d4','s4','Backend Tunnel','Reachable (localhost:5000)');
   document.getElementById('lastCheck').textContent = new Date().toLocaleTimeString();
 }
 
@@ -148,3 +149,4 @@ setInterval(checkAll, 15000);
 </script>
 </body>
 </html>
+
