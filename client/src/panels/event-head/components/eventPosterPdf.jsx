@@ -16,7 +16,7 @@ export async function exportPosterToPdf(el, filename, photoUrls = []) {
     im.src = u
   })))
   await (document.fonts && document.fonts.ready)
-  const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
+  const canvas = await html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
   const pdf = new jsPDF('p', 'mm', 'a4')
   pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, 210, 297)
   pdf.save(filename)
