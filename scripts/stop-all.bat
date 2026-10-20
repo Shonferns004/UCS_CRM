@@ -1,0 +1,9 @@
+@echo off
+title UCS CRM - Stop All
+echo Stopping node (backend + webhook)...
+taskkill /F /IM node.exe >nul 2>&1
+echo Stopping ngrok...
+taskkill /F /IM ngrok.exe >nul 2>&1
+echo Stopping Vite (npm/node already killed)...
+echo Done.
+pause

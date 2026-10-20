@@ -1,0 +1,1 @@
+UPDATE app_config SET data = '{"api_base_url":"https://karma-graduated-films-kathy.trycloudflare.com/api","socket_url":"https://karma-graduated-films-kathy.trycloudflare.com","minimum_version":"1.0.0","update_url":"","announcement":null,"feature_flags":{},"ui_text":{}}' WHERE id=1;
