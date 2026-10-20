@@ -120,7 +120,7 @@ export const getExistingMobilesForNgo = async (mobiles, ngoName) => {
         .select('donor_id')
         .in('donor_id', idChunk)
         .eq('ngo_id', ngoId)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       if (error) throw error;
       for (const a of asgn || []) {
         const m = donorIdToMobile.get(a.donor_id);

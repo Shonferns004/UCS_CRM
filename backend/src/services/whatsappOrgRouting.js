@@ -154,7 +154,7 @@ export async function resolveDonorProject(phone, { preferDonorIds = null } = {})
       .from('fro_assignments')
       .select('ngo_id, status')
       .eq('donor_id', donor.id)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     for (const a of assignments || []) {
       let code = null;

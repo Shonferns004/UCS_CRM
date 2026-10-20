@@ -733,7 +733,7 @@ export const findLogsByDonorAndWorker = async (donorId, workerId) => {
       .select('id')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .maybeSingle();
     if (asgnErr) {
       console.error('findLogsByDonorAndWorker fallback also failed:', asgnErr.message);
@@ -761,7 +761,7 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
       .select('id')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .maybeSingle();
     if (asgnErr) {
       console.error('getTotalCollectedByDonorAndWorker fallback also failed:', asgnErr.message);

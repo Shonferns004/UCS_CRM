@@ -983,9 +983,9 @@ export const getDashboard = async (req, res) => {
     const assignmentAgg = ngoIds.length > 0
       ? await sql(
           `SELECT donor_id,
-                  BOOL_OR(status <> 'reassigned') AS has_active,
+                  BOOL_OR((status IS NULL OR status <> 'reassigned')) AS has_active,
                   BOOL_OR(status = 'donation_collected') AS has_collected,
-                  BOOL_OR(status <> 'reassigned' AND status = ANY($2)) AS connected,
+                  BOOL_OR((status IS NULL OR status <> 'reassigned') AND status = ANY($2)) AS connected,
                   array_agg(DISTINCT fro_worker_id) FILTER (WHERE fro_worker_id IS NOT NULL) AS worker_ids
            FROM fro_assignments
            WHERE ngo_id = ANY($1)
@@ -1848,7 +1848,7 @@ export const getStations = async (req, res) => {
       .select('donor_id, station, ngo_id, fro_worker_id, assigned_at')
       .in('ngo_id', targetNgoIds)
       .not('station', 'is', null)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .order('assigned_at', { ascending: false });
 
     if (faErr) throw faErr;
@@ -2139,7 +2139,7 @@ const syncStationAgentToFro = async (client, ngoId, station, agentId) => {
       .select('id, fro_worker_id')
       .eq('ngo_id', ngoId)
       .eq('station', station)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .is('original_fro_worker_id', null)
       .not('fro_worker_id', 'is', null)
       .limit(PAGE);
@@ -2164,7 +2164,7 @@ const syncStationAgentToFro = async (client, ngoId, station, agentId) => {
     .update({ fro_worker_id: agentId })
     .eq('ngo_id', ngoId)
     .eq('station', station)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
   if (error) throw error;
 };
 
@@ -2302,7 +2302,7 @@ export const getStationStats = async (req, res) => {
 
     const summaryRows = await sql(
       `SELECT status, COUNT(*) AS c
-       FROM (SELECT DISTINCT donor_id, status FROM fro_assignments WHERE ngo_id = ANY($1) AND station IS NOT NULL AND status <> 'reassigned') t
+       FROM (SELECT DISTINCT donor_id, status FROM fro_assignments WHERE ngo_id = ANY($1) AND station IS NOT NULL AND (status IS NULL OR status <> 'reassigned')) t
        GROUP BY status`,
       [ngoIds]
     );
@@ -2541,7 +2541,7 @@ export const getDonorsByFro = async (req, res) => {
       .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
       .in('ngo_id', ngoIds)
       .eq('fro_worker_id', fro_worker_id)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     if (status) query = query.eq('status', status);
 
@@ -3478,7 +3478,7 @@ export const deleteStationDonors = async (req, res) => {
         ) c ON TRUE
        WHERE fa.id = ANY($1)
          AND fa.ngo_id = ANY($2)
-         AND (fa.status IS NULL OR fa.status <> 'reassigned')
+         AND (fa.status IS NULL OR fa.(status IS NULL OR status <> 'reassigned'))
     `, [ids, ngoIds]);
 
     const notFound = ids.length - targets.length;
@@ -3824,7 +3824,7 @@ export const addStationDonor = async (req, res) => {
         .select('station, status')
         .eq('donor_id', donorId)
         .eq('ngo_id', target.ngoId)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .maybeSingle();
       return res.status(409).json({
         message: `${name || mobile} is already assigned in ${target.ngoName}`
@@ -4264,7 +4264,7 @@ async function buildDonationFunnelCounts(ngoIds, { combinedOnly = false }) {
        SELECT ngo_id, count(*) AS assigned
          FROM (SELECT DISTINCT ON (ngo_id, donor_id) ngo_id, donor_id
                  FROM fro_assignments
-                WHERE status <> 'reassigned'
+                WHERE (status IS NULL OR status <> 'reassigned')
                   AND donor_id IS NOT NULL
                   AND ngo_id = ANY($1::uuid[])) d
         GROUP BY ngo_id
@@ -4314,7 +4314,7 @@ async function buildDonationFunnelCounts(ngoIds, { combinedOnly = false }) {
        -- per-NGO rows.
        SELECT NULL::uuid AS ngo_id,
               (SELECT count(*) FROM (SELECT DISTINCT donor_id FROM fro_assignments
-                                       WHERE status <> 'reassigned'
+                                       WHERE (status IS NULL OR status <> 'reassigned')
                                          AND donor_id IS NOT NULL
                                          AND ngo_id = ANY($1::uuid[])) x) AS assigned,
               count(*) AS called,
@@ -4404,7 +4404,7 @@ export const masterSearch = async (req, res) => {
             .from('fro_assignments')
             .select('donor_id')
             .in('ngo_id', ngoFilter)
-            .not('status', 'eq', 'reassigned');
+            .or('status.is.null,status.neq.reassigned');
           const ids = [...new Set((ngoDonors || []).map(d => d.donor_id).filter(Boolean))];
           if (ids.length > 0) query = query.in('id', ids);
           else return [];
@@ -4468,7 +4468,7 @@ export const masterSearch = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id, ngo_id, station, status, workers!left(name, login_id)')
         .in('donor_id', donorIds)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       const asgnMap = {};
       for (const a of assignments || []) {
         if (!asgnMap[a.donor_id]) asgnMap[a.donor_id] = [];
@@ -4488,7 +4488,7 @@ export const masterSearch = async (req, res) => {
         .from('fro_assignments')
         .select('station, id', { count: 'exact', head: false })
         .in('station', stationNames)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       const countMap = {};
       for (const c of counts || []) {
         countMap[c.station] = (countMap[c.station] || 0) + 1;
@@ -4703,7 +4703,7 @@ export const highTierDistribute = async (req, res) => {
       .select('id, donor_id, ngo_id, batch_type, high_tier_batch_id, fro_worker_id')
       .eq('station', sourceStation)
       .in('ngo_id', scopeNgoIds)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
     if (srcErr) throw srcErr;
 
     const allRows = sourceRows || [];
@@ -5841,7 +5841,7 @@ export const getFullDonorDetail = async (req, res) => {
       .select('id')
       .eq('donor_id', profile.id)
       .in('ngo_id', ngoIds)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .limit(1);
     if (!accessCheck || accessCheck.length === 0) {
       return res.status(403).json({ message: 'Access denied' });
@@ -5999,7 +5999,7 @@ export const getFroSummary = async (req, res) => {
         .from('fro_assignments')
         .select('status')
         .eq('fro_worker_id', froId)
-        .not('status', 'eq', 'reassigned'),
+        .or('status.is.null,status.neq.reassigned'),
     ]);
 
     const logs = logsRes.data || [];
@@ -6226,7 +6226,7 @@ export const uploadOldData = async (req, res) => {
           .select('id')
           .eq('donor_id', donorId)
           .eq('ngo_id', ngoId)
-          .not('status', 'eq', 'reassigned')
+          .or('status.is.null,status.neq.reassigned')
           .maybeSingle();
 
         if (existingAsgn) {
@@ -6487,7 +6487,7 @@ export const getDataOverview = async (req, res) => {
         db.from('fro_assignments')
           .select('id, donor_id, station, fro_worker_id, status, batch_type, is_new, assigned_at, ngo_id')
           .eq('ngo_id', ngoId)
-          .not('status', 'eq', 'reassigned'),
+          .or('status.is.null,status.neq.reassigned'),
       ]);
       if (stationAssignsRes.error) throw stationAssignsRes.error;
 
@@ -6921,7 +6921,7 @@ export const getTLDashboard = async (req, res) => {
       .from('fro_assignments')
       .select('id, next_follow_up, fro_worker_id, status')
       .in('ngo_id', ngoIds)
-      .not('status', 'in', '("reassigned", "donation_collected")')
+      .or('status.is.null,status.not.in.("reassigned","donation_collected")')
       .not('next_follow_up', 'is', null);
     if (fro_id) followupsQuery = followupsQuery.eq('fro_worker_id', fro_id);
     const { data: followups } = await followupsQuery;
@@ -7001,7 +7001,7 @@ export const getTLDashboard = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds)
-      .neq('status', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     const workerAssignments = {};
     for (const a of faRows || []) {
@@ -7640,7 +7640,7 @@ export const getFollowups = async (req, res) => {
         donor_profiles!inner(name, mobile_number)
       `)
       .in('ngo_id', ngoIds)
-      .not('status', 'in', '("reassigned", "donation_collected")')
+      .or('status.is.null,status.not.in.("reassigned","donation_collected")')
       .not('next_follow_up', 'is', null)
       .order('next_follow_up', { ascending: true });
 
@@ -8030,7 +8030,7 @@ export const getTopPerformers = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds)
-      .neq('status', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
     const workerAssignments = {};
@@ -8113,7 +8113,7 @@ export const getBottomPerformers = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds)
-      .neq('status', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
     const workerAssignments = {};
@@ -8209,7 +8209,7 @@ export const getAssignedData = async (req, res) => {
       .select('donor_id, station, ngo_id, fro_worker_id')
       .in('ngo_id', targetNgoIds)
       .not('station', 'is', null)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
     const nonConnectedStatuses = new Set(['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail']);
@@ -8286,7 +8286,7 @@ export const restoreWrongAssignments = async (req, res) => {
       .from('fro_assignments')
       .select('id, donor_id, fro_worker_id, ngo_id, station, status')
       .is('station', null)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
 
     if (!nullStationAsns || nullStationAsns.length === 0) {
       return res.json({ restored: 0, details: [] });
@@ -8303,7 +8303,7 @@ export const restoreWrongAssignments = async (req, res) => {
         .eq('donor_id', asn.donor_id)
         .eq('ngo_id', asn.ngo_id)
         .not('id', 'eq', asn.id)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .not('station', 'is', null);
 
       if (correctAsns && correctAsns.length > 0) {

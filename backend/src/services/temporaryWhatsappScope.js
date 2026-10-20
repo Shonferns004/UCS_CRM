@@ -218,7 +218,7 @@ export async function loadTempAllotment(workerId) {
       .from('fro_assignments')
       .select('donor_id, ngo_id, station, batch_type, donor_profiles!inner(mobile_number)')
       .in('ngo_id', ngoIds)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
     if (error) throw error;
     assignments = data || [];
   } catch (e) {

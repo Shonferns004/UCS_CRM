@@ -228,7 +228,7 @@ export async function loadAllotment(workerId, restrictPairs = null) {
     .from('fro_assignments')
     .select('donor_id, ngo_id, station, donor_profiles!inner(mobile_number)')
     .eq('fro_worker_id', workerId)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
 
   if (error) {
     if (error.code === '42P01' || /does not exist/.test(error.message || '')) return empty;
