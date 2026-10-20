@@ -41,6 +41,7 @@ class FroApi {
     String? ngoId,
     bool? newOnly,
     bool? oldOnly,
+    bool? highTierOnly,
     bool verifiedOnly = false,
     String? period,
     bool? activeOnly,
@@ -57,6 +58,7 @@ class FroApi {
     if (inactiveOnly == true) q['inactive_only'] = 'true';
     if (newOnly == true) q['new_only'] = 'true';
     if (oldOnly == true) q['old_only'] = 'true';
+    if (highTierOnly == true) q['high_tier_only'] = 'true';
     if (station != null && station.isNotEmpty && station != 'all') q['station'] = station;
     if (ngoId != null && ngoId.isNotEmpty) q['ngo_id'] = ngoId;
     if (limit != null) q['limit'] = '$limit';

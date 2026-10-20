@@ -42,8 +42,8 @@ class _DashboardPageState extends State<DashboardPage> {
       ]);
       if (!mounted) return;
       setState(() {
-        _dash = results[0];
-        _target = results[1];
+        _dash = _flattenDashboard((results[0] as Map<String, dynamic>?) ?? <String, dynamic>{});
+        _target = (results[1] as Map<String, dynamic>?) ?? <String, dynamic>{};
         _loading = false;
       });
     } catch (e) {
@@ -52,6 +52,44 @@ class _DashboardPageState extends State<DashboardPage> {
         _loading = false;
       });
     }
+  }
+
+  Map<String, dynamic> _flattenDashboard(Map<String, dynamic> raw) {
+    // Backend returns a nested payload (worker/target/connected/donations/...).
+    // Flatten it to the keys the UI reads, mirroring the web Dashboard mapping.
+    if (raw['worker'] is Map || raw['target'] is Map || raw['connected'] is Map || raw['donations'] is Map) {
+      final worker = raw['worker'] is Map ? raw['worker'] as Map<String, dynamic> : <String, dynamic>{};
+      final target = raw['target'] is Map ? raw['target'] as Map<String, dynamic> : <String, dynamic>{};
+      final connected = raw['connected'] is Map ? raw['connected'] as Map<String, dynamic> : <String, dynamic>{};
+      final donations = raw['donations'] is Map ? raw['donations'] as Map<String, dynamic> : <String, dynamic>{};
+      final donors = raw['donors'] is Map ? raw['donors'] as Map<String, dynamic> : <String, dynamic>{};
+      final verification = raw['verification'] is Map ? raw['verification'] as Map<String, dynamic> : <String, dynamic>{};
+      final data = raw['data'] is Map ? raw['data'] as Map<String, dynamic> : <String, dynamic>{};
+      final vToday = verification['today'] is Map ? verification['today'] as Map<String, dynamic> : <String, dynamic>{};
+      final vUnverified = vToday['unverified'] is Map ? vToday['unverified'] as Map<String, dynamic> : <String, dynamic>{};
+      final vMonth = verification['month'] is Map ? verification['month'] as Map<String, dynamic> : <String, dynamic>{};
+      final vMonthUnverified = vMonth['unverified'] is Map ? vMonth['unverified'] as Map<String, dynamic> : <String, dynamic>{};
+      return <String, dynamic>{
+        'is_active': worker['is_active'],
+        'is_punched_in': worker['is_punched_in'],
+        'target': target['amount'],
+        'collected': target['collected'],
+        'collected_high_tier': target['collected_high_tier'],
+        'achieved_target': target['achieved'],
+        'monthly_connected': connected['monthly'],
+        'daily_connected': connected['daily'],
+        'daily_donations': donations['daily'],
+        'daily_donor_count': donations['daily_donors'],
+        'monthly_donor_count': donations['monthly_donors'],
+        'data_used': data['used'],
+        'active_donors': donors['active'],
+        'inactive_donors': donors['inactive'],
+        'verification': vUnverified['count'] ?? vMonthUnverified['count'],
+        'stats': raw['stats'],
+        'assignedData': raw['assignedData'],
+      };
+    }
+    return raw;
   }
 
   @override
@@ -136,9 +174,9 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _statCard('Connected', dash['connected']?.toString() ?? '—', Icons.phone_in_talk, AppColors.sage)),
+              Expanded(child: _statCard('Connected', dash['daily_connected']?.toString() ?? '—', Icons.phone_in_talk, AppColors.sage)),
               const SizedBox(width: 10),
-              Expanded(child: _statCard('Donations', dash['donations']?.toString() ?? '—', Icons.card_giftcard, const Color(0xFF2563eb))),
+              Expanded(child: _statCard('Donations', dash['daily_donations']?.toString() ?? '—', Icons.card_giftcard, const Color(0xFF2563eb))),
             ],
           ),
           const SizedBox(height: 10),
