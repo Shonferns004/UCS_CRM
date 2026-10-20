@@ -47,7 +47,7 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
     .from('fro_assignments')
     .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
     .eq('fro_worker_id', froWorkerId)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
 
   if (assignErr) throw assignErr;
   let scoped = assignments || [];

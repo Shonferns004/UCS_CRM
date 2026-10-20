@@ -1069,6 +1069,16 @@ export default function Dashboard() {
   // divided by the number of months (monthly) or years (yearly) in it.
   const [stationMode, setStationMode] = useState('total');
   const [stationLoading, setStationLoading] = useState(false);
+  // Sort state for the Station-wise Collection amount column. null = station-code
+  // order (the default that keeps the three sections aligned by station number).
+  // Otherwise the rows are reordered by the chosen key's amount, asc or desc.
+  const [stationSortKey, setStationSortKey] = useState(null);
+  const [stationSortDir, setStationSortDir] = useState('desc');
+  const toggleStationSort = (key) => {
+    if (stationSortKey !== key) { setStationSortKey(key); setStationSortDir('desc'); return; }
+    if (stationSortDir === 'desc') { setStationSortDir('asc'); return; }
+    setStationSortKey(null);
+  };
   // Entering Avg starts the range at the month/year already on screen, so the
   // figures do not jump on the click.
   const changeStationMode = (next) => {
@@ -3404,6 +3414,16 @@ idle: {
                   </span>
                 </h3>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {stationSortKey && (
+                    <button
+                      type="button"
+                      onClick={() => setStationSortKey(null)}
+                      title="Clear amount sort and return to station-code order"
+                      style={{ height: 34, padding: '0 10px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', border: '1px solid #fde68a', borderRadius: 8, background: '#fffbeb', color: '#92400E', cursor: 'pointer' }}
+                    >
+                      Sorted by {stationSortKey === 'total' ? 'Row Total' : stationSortKey} ({stationSortDir}) ✕
+                    </button>
+                  )}
                   {/* Period switch: Monthly (month pickers) vs Yearly (year pickers,
                       each year = a whole Jan-Dec block). Both feed the same
                       Total/Avg switch below. */}
@@ -3623,11 +3643,26 @@ idle: {
                           ...numbers.map(n => ({ key: `n${n}`, label: String(n), cells: byNumber.map(ix => ix.map.get(n) || null) })),
                           ...stray.map((s, i) => ({ key: `s${i}`, label: '', cells: byNumber.map((_, si) => (si === s.si ? s.r : null)) })),
                         ];
-                        const depth = rows.length;
-                        const rowTotal = (i) => rows[i].cells.reduce((sum, c) => sum + (Number(c?.amount) || 0), 0);
+                        // Optional reordering by the amount column. null keeps the
+                        // station-code order that keeps the three sections aligned.
+                        const sortSectionIndex = stationSortKey && stationSortKey !== 'total'
+                          ? STATION_SECTIONS.findIndex(s => panel.pick(s) === stationSortKey)
+                          : -1;
+                        const rowAmount = (row, key) => key === 'total'
+                          ? row.cells.reduce((s, c) => s + (Number(c?.amount) || 0), 0)
+                          : (Number(row.cells[sortSectionIndex]?.amount) || 0);
+                        const displayRows = stationSortKey
+                          ? [...rows].sort((a, b) => {
+                              const va = rowAmount(a, stationSortKey);
+                              const vb = rowAmount(b, stationSortKey);
+                              return stationSortDir === 'asc' ? va - vb : vb - va;
+                            })
+                          : rows;
+                        const depth = displayRows.length;
+                        const rowTotal = (row) => row.cells.reduce((sum, c) => sum + (Number(c?.amount) || 0), 0);
                         // Sum of the row totals, so the grand total is the same
                         // arithmetic as the column beneath it and cannot disagree.
-                        const panelTotal = rows.reduce((acc, _, i) => acc + rowTotal(i), 0);
+                        const panelTotal = displayRows.reduce((acc, row) => acc + rowTotal(row), 0);
                         return (
                         <div key={panel.key} className="performance-card station-card station-card-old" style={{ height: 460 }}>
                           <div className="performance-header">
@@ -3681,11 +3716,29 @@ idle: {
                                           </th>
                                         </tr>
                                         <tr>
-                                          <th colSpan={2} className="station-family-a" style={{ ...familyCell }}>{family}</th>
+                                          <th colSpan={2} className="station-family-a" style={{ ...familyCell }}>
+                                            {family}
+                                            <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.75, marginLeft: 6 }} title={`${list.reduce((s, r) => s + (Number(r.receipts) || 0), 0)} receipts`}>
+                                              ({list.reduce((s, r) => s + (Number(r.receipts) || 0), 0)})
+                                            </span>
+                                          </th>
                                         </tr>
                                         <tr>
                                           <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
-                                          <th className="station-rule-right" style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`${stationMode === 'avg' ? 'Average monthly collection' : 'Total collected'} by ${family} ${stationPeriodNote}`}>{formatRupees(sum)}</th>
+                                          <th
+                                            className="station-rule-right"
+                                            style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right', cursor: 'pointer', userSelect: 'none' }}
+                                            title={`Sort by ${family} amount (${stationSortKey === family ? (stationSortDir === 'asc' ? 'ascending' : 'descending') : 'click to sort'})`}
+                                            onClick={() => toggleStationSort(family)}
+                                          >
+                                            {formatRupees(sum)}
+                                            <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 600, opacity: 0.8 }}>
+                                              ({list.reduce((s, r) => s + (Number(r.receipts) || 0), 0)})
+                                            </span>
+                                            <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.7 }}>
+                                              {stationSortKey === family ? (stationSortDir === 'asc' ? '▲' : '▼') : '↕'}
+                                            </span>
+                                          </th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -3698,7 +3751,7 @@ idle: {
                                             sections. A section that has no station for
                                             that number renders a blank cell, so a gap
                                             in one column never shifts the others. */}
-                                        {rows.map(row => {
+                                        {displayRows.map(row => {
                                           const r = row.cells[si];
                                           // A visible rule on every cell, blank or
                                           // not, so a station number missing from
@@ -3713,6 +3766,15 @@ idle: {
                                           );
                                         })}
                                       </tbody>
+                                      <tfoot>
+                                        <tr>
+                                          <td style={{ padding: '8px 10px', fontSize: 12, fontWeight: 800, color: hue.head, background: '#f8fafc', borderTop: '2px solid #cbd5e1' }}>Total</td>
+                                          <td className="station-rule-right" style={{ padding: '8px 10px', fontSize: 12, fontWeight: 800, textAlign: 'right', color: hue.head, background: '#f8fafc', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }}>
+                                            {formatRupees(sum)}
+                                            <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 600, opacity: 0.8 }}>({list.reduce((s, r) => s + (Number(r.receipts) || 0), 0)})</span>
+                                          </td>
+                                        </tr>
+                                      </tfoot>
                                     </table>
                                   </div>
                                 );
@@ -3741,10 +3803,18 @@ idle: {
                                     <tr>
                                       <th className="station-family-a" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', height: 28, padding: '0 10px', textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>
                                         All
+                                        <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.75, marginLeft: 6 }}>
+                                          ({displayRows.reduce((acc, row) => acc + row.cells.reduce((s, c) => s + (Number(c?.receipts) || 0), 0), 0)})
+                                        </span>
                                       </th>
                                     </tr>
                                     <tr>
-                                      <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title="Sum of the three sections on this row">Row Total</th>
+                                      <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right', cursor: 'pointer', userSelect: 'none' }} title="Sort by row total (sum of the three sections)" onClick={() => toggleStationSort('total')}>
+                                          Row Total
+                                          <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.7 }}>
+                                            {stationSortKey === 'total' ? (stationSortDir === 'asc' ? '▲' : '▼') : '↕'}
+                                          </span>
+                                        </th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -3753,8 +3823,8 @@ idle: {
                                         <td style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>Nothing to add</td>
                                       </tr>
                                     )}
-                                    {rows.map((row, i) => {
-                                      const t = rowTotal(i);
+                                    {displayRows.map((row) => {
+                                      const t = rowTotal(row);
                                       // A row where every section is blank adds to
                                       // nothing, so it stays blank rather than
                                       // showing a misleading ₹0. A partial row still

@@ -4023,7 +4023,7 @@ export const getDonorsList = async (req, res) => {
       const { data: msRows, error: msErr } = await db
         .from('fro_assignments')
         .select('donor_id, fro_worker_id, station')
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       if (msErr) throw msErr;
       const missingIds = [...new Set((msRows || [])
         .filter(a => a.fro_worker_id && !(a.station && String(a.station).trim() !== ''))
@@ -4054,7 +4054,7 @@ export const getDonorsList = async (req, res) => {
           .from('fro_assignments')
           .select('donor_id')
           .in('fro_worker_id', [...agentIds])
-          .not('status', 'eq', 'reassigned');
+          .or('status.is.null,status.neq.reassigned');
         if (aaErr) throw aaErr;
         agentDonorIds = [...new Set((agentAssigns || []).map(a => a.donor_id).filter(Boolean))];
       }
@@ -4070,7 +4070,7 @@ export const getDonorsList = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id')
         .eq('station', st)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       if (stationErr) throw stationErr;
       const stationDonorIds = [...new Set((stationRows || []).map(a => a.donor_id).filter(Boolean))];
       if (stationDonorIds.length === 0) return res.json({ data: [], total: 0, page: pageNum, limit: limitNum });
@@ -4092,7 +4092,7 @@ export const getDonorsList = async (req, res) => {
           .from('fro_assignments')
           .select('donor_id')
           .eq('ngo_id', ngoRow.id)
-          .not('status', 'eq', 'reassigned');
+          .or('status.is.null,status.neq.reassigned');
         for (const a of assigned || []) if (a.donor_id) ids.add(a.donor_id);
       }
       const { data: byProfile } = await db
@@ -4118,7 +4118,7 @@ export const getDonorsList = async (req, res) => {
         .from('fro_assignments')
         .select('id, donor_id, fro_worker_id, station, ngo_id')
         .in('donor_id', donorIds)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
 
       const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
       const ngoMap = {};
@@ -4207,7 +4207,7 @@ export const exportDonors = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id, fro_worker_id, station, ngo_id, assigned_at')
         .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       if (asgnErr) throw asgnErr;
       for (const a of assignments || []) {
         const cur = latestByDonor.get(a.donor_id);
@@ -4332,13 +4332,13 @@ export const exportDuplicateDonorAssignments = async (req, res) => {
   try {
     // Overlap pairs: one donor assigned to 2+ DIFFERENT FROs within the SAME
     // NGO among active assignments. Active matches the guards' semantics:
-    // status IS NULL OR status <> 'reassigned'.
+    // status IS NULL OR (status IS NULL OR status <> 'reassigned').
     const { rows: pairs } = await db._pool.query(`
       SELECT a.donor_id, a.ngo_id,
              COUNT(DISTINCT a.fro_worker_id)::int AS fro_count,
              COUNT(*)::int AS assignment_rows
       FROM fro_assignments a
-      WHERE (a.status IS NULL OR a.status <> 'reassigned')
+      WHERE (a.status IS NULL OR a.(status IS NULL OR status <> 'reassigned'))
         AND a.donor_id IS NOT NULL
         AND a.ngo_id IS NOT NULL
         AND a.fro_worker_id IS NOT NULL
@@ -4371,7 +4371,7 @@ export const exportDuplicateDonorAssignments = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id, ngo_id, fro_worker_id, station, status, assigned_at')
         .in('donor_id', donorIds.slice(i, i + 500))
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       if (aErr) throw aErr;
       for (const a of rows || []) {
         if (pairSet.has(pairKey(a.donor_id, a.ngo_id))) assignmentRows.push(a);
@@ -4480,7 +4480,7 @@ export const getDonorDetail = async (req, res) => {
         .from('fro_assignments')
         .select('id, fro_worker_id, station, ngo_id, status')
         .eq('donor_id', id)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .order('assigned_at', { ascending: false });
 
       const workerIds = [...new Set((assignmentRows || []).map(a => a.fro_worker_id).filter(Boolean))];
@@ -4596,7 +4596,7 @@ export const backfillReceiptAssignments = async (req, res) => {
         FROM fro_assignments fa
         WHERE fa.donor_id = r.donor_id
           AND fa.ngo_id = n.id
-          AND (fa.status IS NULL OR fa.status <> 'reassigned')
+          AND (fa.status IS NULL OR fa.(status IS NULL OR status <> 'reassigned'))
         LIMIT 1
       ) a ON true
       WHERE r.voided_at IS NULL
@@ -4944,7 +4944,7 @@ export const deleteAssignment = async (req, res) => {
         .from('fro_assignments')
         .select('ngo_id, station')
         .eq('donor_id', row.donor_id)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .order('assigned_at', { ascending: false })
         .maybeSingle();
       let ngoVal = null;
@@ -5056,7 +5056,7 @@ export const replaceAssignment = async (req, res) => {
 
 // ─── Donor Sync Repair ─────────────────────────────────────
 // Backfill donor_profiles.ngo / station from the donor's latest ACTIVE
-// fro_assignment (status <> 'reassigned', ordered by assigned_at DESC). This
+// fro_assignment ((status IS NULL OR status <> 'reassigned'), ordered by assigned_at DESC). This
 // repairs profiles that were never kept in sync (e.g. created with NULL
 // ngo/station while a valid assignment exists). Scopeable via ?ngo=name.
 export const repairDonorSync = async (req, res) => {
@@ -5081,7 +5081,7 @@ export const repairDonorSync = async (req, res) => {
       let q = db
         .from('fro_assignments')
         .select('donor_id, ngo_id, station, assigned_at')
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .range(offset, offset + BATCH - 1);
       if (scopeNgoId) q = q.eq('ngo_id', scopeNgoId);
       const { data, error } = await q;

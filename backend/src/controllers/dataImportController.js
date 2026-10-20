@@ -900,7 +900,7 @@ export const copyDonorsToNgos = async (req, res) => {
           .from('fro_assignments')
           .select('donor_id')
           .eq('ngo_id', source_ngo_id)
-          .not('status', 'eq', 'reassigned');
+          .or('status.is.null,status.neq.reassigned');
 
         const assignedDonorIds = new Set((sourceAssignments || []).map(a => a.donor_id));
         const { data: assignedProfiles } = await db
@@ -914,7 +914,7 @@ export const copyDonorsToNgos = async (req, res) => {
           .from('fro_assignments')
           .select('donor_id')
           .eq('ngo_id', source_ngo_id)
-          .not('status', 'eq', 'reassigned');
+          .or('status.is.null,status.neq.reassigned');
 
         const assignedDonorIds = new Set((sourceAssignments || []).map(a => a.donor_id));
         const { data: unassignedProfiles } = await db

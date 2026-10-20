@@ -138,7 +138,7 @@ router.put('/donors/:id/mark-seen', async (req, res) => {
       .update({ is_new: false })
       .eq('donor_id', donorId)
       .eq('fro_worker_id', req.user.id)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
     if (ngo_id) query = query.eq('ngo_id', ngo_id);
     const { error } = await query;
     if (error) throw error;

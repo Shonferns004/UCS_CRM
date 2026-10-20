@@ -659,7 +659,7 @@ export const searchDonorsForSuspense = async (searchTerm, ngoIds) => {
     .from('fro_assignments')
     .select('donor_id, fro_worker_id, workers!left(name, login_id)')
     .in('donor_id', donorIds)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
 
   const froMap = {};
   for (const a of assignments || []) {

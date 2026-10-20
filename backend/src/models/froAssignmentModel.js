@@ -164,7 +164,7 @@ export const getUnassignedDonorIdsByStation = async (ngoName, stations) => {
     .from('fro_assignments')
     .select('donor_id')
     .in('donor_id', allIds)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
   if (aErr) throw aErr;
 
   const assignedSet = new Set(assigned.map(a => a.donor_id));
@@ -178,7 +178,7 @@ export const reassignStationDonors = async (ngoId, station, newFroWorkerId, assi
     .select('donor_id, station, batch_id, batch_type')
     .eq('ngo_id', ngoId)
     .eq('station', station)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
   if (fErr) throw fErr;
   if (!oldRows || oldRows.length === 0) return [];
 
@@ -193,7 +193,7 @@ export const reassignStationDonors = async (ngoId, station, newFroWorkerId, assi
     .update({ status: 'reassigned', updated_at: new Date().toISOString() })
     .in('donor_id', donorIds)
     .eq('ngo_id', ngoId)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
   if (updErr) throw updErr;
 
   // Create new assignments with station, batch_id, batch_type preserved
@@ -228,7 +228,7 @@ export const getAssignmentCountByWorker = async (ngoId) => {
     .from('fro_assignments')
     .select('fro_worker_id')
     .eq('ngo_id', ngoId)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
   if (error) throw error;
 
   const counts = {};
@@ -275,7 +275,7 @@ export const getDonorsByStationAndStatus = async (ngoId, station, status) => {
     .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
     .eq('ngo_id', ngoId)
     .eq('station', station)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
 
   if (status) {
     query = query.eq('status', status);
@@ -321,7 +321,7 @@ export const createTemporaryTransfer = async (sourceFroId, ngoIds, sourceStation
     .select('id, donor_id, status, station')
     .eq('station', sourceStation)
     .in('ngo_id', Array.isArray(ngoIds) ? ngoIds : [ngoIds])
-    .not('status', 'eq', 'reassigned')
+    .or('status.is.null,status.neq.reassigned')
     .order('assigned_at', { ascending: true })
     .limit(count);
 
@@ -339,7 +339,7 @@ export const createTemporaryTransfer = async (sourceFroId, ngoIds, sourceStation
     .from('fro_assignments')
     .update({ status: 'reassigned', updated_at: new Date().toISOString() })
     .in('id', ids)
-    .not('status', 'eq', 'reassigned')
+    .or('status.is.null,status.neq.reassigned')
     .select('id');
   const actuallyReassigned = new Set((updated || []).map(r => r.id));
   const newAssignments = assignments
@@ -375,7 +375,7 @@ export const reverseTransfer = async (transferId) => {
     .eq('ngo_id', transfer.ngo_id)
     .is('fro_worker_id', null)
     .gte('assigned_at', createdAt)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
 
   if (!assignments || assignments.length === 0) {
     await db.from('fro_transfers').update({ returned: true, returned_at: new Date().toISOString() }).eq('id', transferId);
