@@ -221,10 +221,35 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
       setHasHighTier(!!w?.has_high_tier);
       // Reset scope if station doesn't have high-tier data.
       if (!w?.has_high_tier) setScopeType('STATION_ALL');
+      // When granting a tiered grant alongside an existing complementary
+      // tiered grant (high + normal), do NOT auto-revoke the other — both
+      // should coexist. Only default to revoke for full-access reassignments.
+      const otherScopes = (w?.conflicts || []).map(c => c.scope_type);
+      const isTiered = scopeType === 'STATION_HIGH_TIER' || scopeType === 'STATION_NORMAL';
+      const hasComplementary = otherScopes.some(s =>
+        (scopeType === 'STATION_HIGH_TIER' && s === 'STATION_NORMAL') ||
+        (scopeType === 'STATION_NORMAL' && s === 'STATION_HIGH_TIER')
+      );
+      if (isTiered && hasComplementary) setAlsoRevoke(false);
+      else setAlsoRevoke(true);
     } catch {
       setWarnings(null); // pre-check is advisory; server enforces for real
     }
   }
+
+  // Keep alsoRevoke in sync when scope changes (so switching from Full to
+  // High-tier doesn't leave a stale revoke default).
+  useEffect(() => {
+    if (!warnings) return;
+    const otherScopes = (warnings.conflicts || []).map(c => c.scope_type);
+    const isTiered = scopeType === 'STATION_HIGH_TIER' || scopeType === 'STATION_NORMAL';
+    const hasComplementary = otherScopes.some(s =>
+      (scopeType === 'STATION_HIGH_TIER' && s === 'STATION_NORMAL') ||
+      (scopeType === 'STATION_NORMAL' && s === 'STATION_HIGH_TIER')
+    );
+    if (isTiered && hasComplementary) setAlsoRevoke(false);
+    else setAlsoRevoke(true);
+  }, [scopeType, warnings]);
 
   async function submit() {
     setError(null);
@@ -429,7 +454,7 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
           )}
 
           {/* ── Reassignment: revoke the other FROs' grants in the same step ── */}
-          {!isExtendMode && otherLiveGrants.length > 0 && (
+          {!isExtendMode && otherLiveGrants.length > 0 && !((scopeType === 'STATION_HIGH_TIER' || scopeType === 'STATION_NORMAL') && otherLiveGrants.some(g => (scopeType === 'STATION_HIGH_TIER' && g.scope_type === 'STATION_NORMAL') || (scopeType === 'STATION_NORMAL' && g.scope_type === 'STATION_HIGH_TIER'))) && (
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '9px 11px', cursor: 'pointer' }}>
               <input type="checkbox" checked={alsoRevoke} onChange={e => setAlsoRevoke(e.target.checked)} style={{ marginTop: 2 }} />
               <span>

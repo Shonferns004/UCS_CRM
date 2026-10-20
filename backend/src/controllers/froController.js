@@ -249,12 +249,23 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     const grantKeys = new Set(tempGrants.map(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}`));
     const { data: liveRows } = await db
       .from('fro_assignments')
-      .select('id, station, ngo_id, fro_worker_id')
+      .select('id, station, ngo_id, fro_worker_id, batch_type')
       .eq('donor_id', donorId)
       .eq('ngo_id', ngoId)
       .or('status.neq.reassigned,status.is.null')
       .limit(20);
-    const covered = (liveRows || []).find(r => grantKeys.has(`${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`));
+    const covered = (liveRows || []).find(r => {
+      const key = `${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`;
+      if (!grantKeys.has(key)) return false;
+      const grant = tempGrants.find(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}` === key);
+      if (!grant) return false;
+      const scope = grant.scope_type || 'STATION_ALL';
+      if (scope === 'STATION_ALL') return true;
+      const isHighTier = r.batch_type === 'high_tier';
+      if (scope === 'STATION_HIGH_TIER') return isHighTier;
+      if (scope === 'STATION_NORMAL') return !isHighTier;
+      return false;
+    });
     if (covered) return { id: covered.id, station: covered.station, via_temporary_access: true };
     // Grant exists but none of this donor's live rows are covered: deny ONLY
     // when the rows also sit outside the worker's permanent station scope —
@@ -400,7 +411,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
 async function getFroAssignment(donorId, workerId, ngoId) {
   let query = db
     .from('fro_assignments')
-    .select('id, ngo_id, station, fro_worker_id')
+    .select('id, ngo_id, station, fro_worker_id, batch_type')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
     .not('status', 'eq', 'reassigned')
@@ -419,13 +430,24 @@ async function getFroAssignment(donorId, workerId, ngoId) {
   const grantKeys = new Set(tempGrants.map(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}`));
   let rowsQuery = db
     .from('fro_assignments')
-    .select('id, ngo_id, station, fro_worker_id')
+    .select('id, ngo_id, station, fro_worker_id, batch_type')
     .eq('donor_id', donorId)
     .or('status.neq.reassigned,status.is.null')
     .limit(20);
   if (ngoId) rowsQuery = rowsQuery.eq('ngo_id', ngoId);
   const { data: rows } = await rowsQuery;
-  const covered = (rows || []).find(r => grantKeys.has(`${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`));
+  const covered = (rows || []).find(r => {
+    const key = `${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`;
+    if (!grantKeys.has(key)) return false;
+    const grant = tempGrants.find(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}` === key);
+    if (!grant) return false;
+    const scope = grant.scope_type || 'STATION_ALL';
+    if (scope === 'STATION_ALL') return true;
+    const isHighTier = r.batch_type === 'high_tier';
+    if (scope === 'STATION_HIGH_TIER') return isHighTier;
+    if (scope === 'STATION_NORMAL') return !isHighTier;
+    return false;
+  });
   return covered || null;
 }
 
@@ -501,16 +523,19 @@ async function getMyStationScope(workerId, restrictPairs = null) {
   // the read paths. getActiveGrantPairs re-validates the start/expiry window
   // on every call (a cached row can never outlive expires_at) and fails closed
   // when the lookup errors.
+  let tempStationScopes = {};  // station -> scope_type for temp stations
   try {
-    const tempPairs = await getActiveGrantPairs(workerId);
-    if (tempPairs.length > 0) {
+    const tempGrants = await getActiveGrants(workerId);
+    if (tempGrants.length > 0) {
       const seen = new Set(scope.map(s => `${s.ngo_id ?? ''}|${String(s.station).trim()}`));
-      for (const p of tempPairs) {
+      for (const p of tempGrants) {
         const key = `${p.ngo_id ?? ''}|${String(p.station).trim()}`;
         if (!seen.has(key)) {
           seen.add(key);
           scope.push({ station: p.station, ngo_id: p.ngo_id, via_temporary_access: true });
         }
+        // Track the scope for tier filtering (even if station already in scope).
+        tempStationScopes[p.station] = p.scope_type || 'STATION_ALL';
       }
     }
   } catch (e) {
@@ -525,7 +550,7 @@ async function getMyStationScope(workerId, restrictPairs = null) {
   }
   const stationNames = scope.map(s => s.station);
   const allowedNgoIds = [...new Set(scope.map(s => s.ngo_id).filter(Boolean))];
-  return { scope, stationNames, allowedNgoIds };
+  return { scope, stationNames, allowedNgoIds, tempStationScopes };
 }
 
 function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol = 'ngo_id') {
@@ -2874,7 +2899,7 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds, tempStationScopes } = await getMyStationScope(workerId, froActPairs(req));
 
     let effectiveScope = myScope;
     let effectiveStations = stationNames;
@@ -2949,6 +2974,19 @@ export const getMyDonors = async (req, res) => {
         }
       }
       assignments = data || [];
+    // Temporary Data Access: if a station was added via a tier-scoped grant
+    // (high-tier only or normal only), filter out donors that don't match
+    // the grant's scope so the FRO only sees what she's authorized for.
+    if (tempStationScopes && Object.keys(tempStationScopes).length > 0) {
+      assignments = assignments.filter(a => {
+        const scope = tempStationScopes[a.station];
+        if (!scope || scope === 'STATION_ALL') return true;
+        const isHighTier = a.batch_type === 'high_tier';
+        if (scope === 'STATION_HIGH_TIER') return isHighTier;
+        if (scope === 'STATION_NORMAL') return !isHighTier;
+        return true;
+      });
+    }
       // Reflects the whole allotment in this scope, not just the tab being asked
       // for: high-tier rows are present in `data` regardless of new/old filters
       // (those are applied in memory just below).
@@ -3905,13 +3943,24 @@ export const getDonorLogs = async (req, res) => {
         const grantKeys = new Set(tempGrants.map(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}`));
         let tq = db
           .from('fro_assignments')
-          .select(ASSIGN_COLS + ', station, fro_worker_id')
+          .select(ASSIGN_COLS + ', station, fro_worker_id, batch_type')
           .eq('donor_id', donorId)
           .or('status.neq.reassigned,status.is.null')
           .limit(20);
         if (ngo_id) tq = tq.eq('ngo_id', ngo_id);
         const { data: rows } = await tq;
-        assignment = (rows || []).find(r => grantKeys.has(`${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`)) || null;
+        assignment = (rows || []).find(r => {
+          const key = `${r.ngo_id ?? ''}|${String(r.station ?? '').trim()}`;
+          if (!grantKeys.has(key)) return false;
+          const grant = tempGrants.find(g => `${g.ngo_id ?? ''}|${String(g.station ?? '').trim()}` === key);
+          if (!grant) return false;
+          const scope = grant.scope_type || 'STATION_ALL';
+          if (scope === 'STATION_ALL') return true;
+          const isHighTier = r.batch_type === 'high_tier';
+          if (scope === 'STATION_HIGH_TIER') return isHighTier;
+          if (scope === 'STATION_NORMAL') return !isHighTier;
+          return false;
+        }) || null;
       }
     }
 
