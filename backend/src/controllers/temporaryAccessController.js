@@ -603,14 +603,22 @@ export async function validateTemporaryAccess(req, res) {
     // Check if station has high-tier data.
     let hasHighTier = false;
     try {
-      const { data: htRows } = await db
+      console.log('[validateTemporaryAccess] checking high-tier for station=', JSON.stringify(station));
+      const { data: htRows, error: htErr } = await db
+        .from('fro_assignments')
+        .select('id, batch_type, station')
+        .eq('station', station)
+        .limit(5);
+      console.log('[validateTemporaryAccess] sample rows for station:', JSON.stringify(htRows), 'err=', htErr?.message);
+      const { data: htRows2 } = await db
         .from('fro_assignments')
         .select('id')
         .eq('station', station)
         .eq('batch_type', 'high_tier')
         .limit(1);
-      hasHighTier = (htRows || []).length > 0;
-    } catch (e) { /* ignore */ }
+      hasHighTier = (htRows2 || []).length > 0;
+      console.log('[validateTemporaryAccess] hasHighTier=', hasHighTier, 'htRows2=', JSON.stringify(htRows2));
+    } catch (e) { console.error('[validateTemporaryAccess] high-tier check failed:', e?.message); }
 
     return res.json({
       duplicate: dup ? { id: dup.id, expires_at: dup.expires_at, scope_type: dup.scope_type } : null,
