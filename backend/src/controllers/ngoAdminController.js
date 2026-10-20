@@ -2063,6 +2063,23 @@ export const removeStationByName = async (req, res) => {
     const { error } = await delQuery;
     if (error) throw error;
 
+    // Also detach the station from any donor assignments so it stops
+    // reappearing in the stations list (which is derived from fro_assignments).
+    try {
+      let faQuery = db
+        .from('fro_assignments')
+        .update({ station: null })
+        .eq('station', station.trim());
+      if (delNgoId) {
+        faQuery = faQuery.eq('ngo_id', delNgoId);
+      } else if (ngoIds.length > 0) {
+        faQuery = faQuery.in('ngo_id', ngoIds);
+      }
+      await faQuery;
+    } catch (e) {
+      // Non-fatal: station assignment deletion above is the primary action.
+    }
+
     bustStationCache();
     return res.json({ message: 'Station deleted' });
   } catch (error) {

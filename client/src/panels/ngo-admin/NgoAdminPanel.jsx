@@ -19,16 +19,12 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const StationManagement = lazy(() => import('./pages/StationManagement'))
 const NgoAttendance = lazy(() => import('./pages/Attendance'))
 const SearchResults = lazy(() => import('./pages/SearchResults'))
-const Codes = lazy(() => import('./pages/Codes'))
-const TemporaryAccess = lazy(() => import('./pages/TemporaryAccess'))
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
-  { id: 'temporary-access', path: '/ngo-admin/temporary-access', label: 'Temporary Access', icon: 'clock' },
   // { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
-  { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
   { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
 ]
@@ -527,10 +523,8 @@ return (
             <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="station-mgmt" element={<StationManagement />} />
-        <Route path="temporary-access" element={<TemporaryAccess />} />
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="search" element={<SearchResults />} />
-            <Route path="codes" element={<Codes />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="ngo_admin" />} />
             <Route path="to-super-admin" element={<TechnicalTickets panel="ngo_admin" toSuperAdmin canResolve canRaise={false} />} />
             <Route path="chat" element={<ChatWorkspace />} />
