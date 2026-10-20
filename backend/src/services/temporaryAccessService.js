@@ -99,7 +99,7 @@ export async function getDonorActiveAssignments(donorId) {
       `SELECT id, station, ngo_id, status, fro_worker_id
          FROM fro_assignments
         WHERE donor_id = $1
-          AND (status IS NULL OR status <> 'reassigned')`,
+          AND (status IS NULL OR (status IS NULL OR status <> 'reassigned'))`,
       [donorId],
     );
     if (error) throw new Error(error.message);
