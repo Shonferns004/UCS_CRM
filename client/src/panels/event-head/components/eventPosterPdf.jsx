@@ -11,13 +11,14 @@ export async function exportPosterToPdf(el, filename, photoUrls = []) {
   const { default: jsPDF } = await import('jspdf')
   await Promise.all(photoUrls.filter(Boolean).map(u => new Promise(resolve => {
     const im = new Image()
+    im.crossOrigin = 'anonymous'
     im.onload = () => resolve(); im.onerror = () => resolve()
     im.src = u
   })))
   await (document.fonts && document.fonts.ready)
   const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
   const pdf = new jsPDF('p', 'mm', 'a4')
-  pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297)
+  pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, 210, 297)
   pdf.save(filename)
 }
 

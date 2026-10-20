@@ -1517,7 +1517,7 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 export default function ActivityPlanner({ taskAssignment = false }) {
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
-  const [ngoId, setNgoId] = useState('')
+  const [ngoId, setNgoId] = useState('1')
   const [month, setMonth] = useState(currentMonthYmd)
   const [sectorFilter, setSectorFilter] = useState('')
   const [beneficiaryFilter, setBeneficiaryFilter] = useState('')
@@ -3545,7 +3545,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       <PageHeader
         title="Monthly Planner"
         subtitle={`Plan activities NGO-wise, month-wise · ${monthLabel(month)}`}
-        actions={
+         actions={
           <>
             {taskAssignment && (
               <button
@@ -3557,6 +3557,22 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 Assign Task
               </button>
             )}
+            <button
+              className="eh-btn"
+              onClick={downloadExcel}
+              disabled={downloading === 'excel'}
+              title={`Selected festival programmes for ${reportMeta.ngoName}, ${monthLabel(month)} — as Excel`}
+            >
+              {downloading === 'excel' ? 'Building…' : 'Download Excel'}
+            </button>
+            <button
+              className="eh-btn"
+              onClick={downloadPdf}
+              disabled={downloading === 'pdf'}
+              title={`Selected festival programmes for ${reportMeta.ngoName}, ${monthLabel(month)} — as PDF`}
+            >
+              {downloading === 'pdf' ? 'Building…' : 'Download PDF'}
+            </button>
           </>
         }
       />
@@ -3568,15 +3584,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
               through the shared ngoId. */}
           {ngos.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
-              <button
-                type="button"
-                className="eh-btn eh-btn-sm"
-                aria-pressed={!ngoId}
-                onClick={() => { setNgoId(''); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }}
-                style={!ngoId ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
-              >
-                All NGOs
-              </button>
               {ngos.map((n) => {
                 const on = String(n.id) === String(ngoId)
                 return (
@@ -3610,38 +3617,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         </div>
       </div>
 
-      {/* Slim bar: what the download will contain, and the buttons themselves.
-          There used to be a row of NGO chips here too, but that put a second
-          set of event counts on screen — next to the NGO dropdown and the
-          cards — and the three could disagree while a month was still loading.
-          Counts now live in one place only: the cards, for the NGO in scope. */}
       <div className="card" style={{ marginBottom: 0 }}>
-        <div
-          className="card-pad"
-          style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}
-        >
-          <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>
-            {reportMeta.ngoName} · {monthLabel(month)} · {selectedFestivalCount} programme{selectedFestivalCount === 1 ? '' : 's'} selected for download
-          </span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              className="eh-btn"
-              onClick={downloadExcel}
-              disabled={downloading === 'excel'}
-              title={`Selected festival programmes for ${reportMeta.ngoName}, ${monthLabel(month)} — as Excel`}
-            >
-              {downloading === 'excel' ? 'Building…' : 'Download Excel'}
-            </button>
-            <button
-              className="eh-btn"
-              onClick={downloadPdf}
-              disabled={downloading === 'pdf'}
-              title={`Selected festival programmes for ${reportMeta.ngoName}, ${monthLabel(month)} — as PDF`}
-            >
-              {downloading === 'pdf' ? 'Building…' : 'Download PDF'}
-            </button>
-          </div>
-        </div>
       </div>
 
       {toast && (

@@ -19,9 +19,8 @@ const YELLOW_LINE = '#d8c93c'
 function Photo({ src }) {
   return (
     <div style={{
-      width: '100%', height: '100%', boxSizing: 'border-box',
-      border: '1.5px solid #fff',
-      background: src ? `#222 url("${src}") center / cover no-repeat` : '#4a4890',
+       width: '100%', height: '100%', boxSizing: 'border-box',
+       background: src ? `#222 url("${src}") center / cover no-repeat` : '#4a4890',
     }} />
   )
 }
@@ -123,15 +122,14 @@ const EventPosterReport = forwardRef(function EventPosterReport({
             height: 48, background: 'linear-gradient(180deg, #3d9be0, #1b78c4)', display: 'flex',
             alignItems: 'center', justifyContent: 'center', padding: '0 12px', overflow: 'hidden',
           }}>
-            <div style={{ color: GOLD, fontWeight: 900, fontSize: bandText.length > 46 ? 21 : 25, letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{bandText}</div>
-          </div>
-          <div style={{ height: 36 }} />
-        </div>
+           <div style={{ color: GOLD, fontWeight: 900, fontSize: bandText.length > 46 ? 21 : 25, letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{bandText}</div>
+           </div>
+         </div>
 
         {/* Photo collage 3 × 2 */}
         <div style={{
-          flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: '1fr 1fr',
-          margin: 0, background: '#fff',
+           flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: '1fr 1fr',
+           margin: 0, background: 'transparent',
         }}>
           {slots.map((s, i) => <Photo key={i} src={s} />)}
         </div>
