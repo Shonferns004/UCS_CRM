@@ -2880,7 +2880,13 @@ export const getMyDonors = async (req, res) => {
     // Caching it would hand back an already-worked donor and let a lead reappear,
     // which is the specific thing that path exists to prevent. It also WRITES, so
     // a cached copy would skip those writes.
-    const cacheable = req.query.queue_current !== 'true';
+    let hasTempGrant = false;
+    try {
+      const { getActiveGrants } = await import('../services/temporaryAccessService.js');
+      const g = await getActiveGrants(workerId);
+      hasTempGrant = (g || []).length > 0;
+    } catch { /* ignore */ }
+    const cacheable = req.query.queue_current !== 'true' && !hasTempGrant;
     const { l1: l1Key, l2: l2Key } = cacheable
       ? froDonorsCacheKeys(req, workerId)
       : { l1: null, l2: null };
@@ -2903,6 +2909,19 @@ export const getMyDonors = async (req, res) => {
 
     let effectiveScope = myScope;
     let effectiveStations = stationNames;
+    // Compute temp-station view early so tab filters below can be bypassed.
+    const tempScopeKeysEarly = new Set(Object.keys(tempStationScopes || {}).map(k => String(k).trim()));
+    let isTempStationView = (effectiveStations || []).some(st =>
+      tempScopeKeysEarly.has(String(st).trim()),
+    );
+    if (!isTempStationView) {
+      try {
+        const { getActiveGrants } = await import('../services/temporaryAccessService.js');
+        const grants = await getActiveGrants(workerId);
+        const grantStations = new Set((grants || []).map(g => String(g.station || '').trim()));
+        isTempStationView = (effectiveStations || []).some(st => grantStations.has(String(st).trim()));
+      } catch { /* ignore */ }
+    }
     if (req.query.ngo_id) {
       // A requested NGO outside this FRO's scope must yield an empty queue —
       // never fall back to the full scope (that would leak other NGOs' leads
@@ -2996,7 +3015,10 @@ export const getMyDonors = async (req, res) => {
       // High Tier = batch_type high_tier (the dedicated third tab). High-tier rows
       // are deliberately excluded from New/Old: their batch_type matches neither
       // branch, so they only surface when the High Tier tab asks for them.
-      if (req.query.new_only === 'true') {
+      if (isTempStationView) {
+        // Temp access: show the whole station dataset regardless of the New/Old/
+        // High-Tier tab filter — the covering FRO needs all data at once.
+      } else if (req.query.new_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
       } else if (req.query.old_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && (a.is_new === false || a.is_new == null)));
@@ -3479,7 +3501,13 @@ export const getMyDonors = async (req, res) => {
     // dispositioned today (kept visible, badged "DONE TODAY").
     let highTierCompleted = 0;
     let highTierDisposedToday = 0;
-    if (req.query.verified_only !== 'true') {
+    // Temporary Data Access: a FRO covering a station (not its permanent owner)
+    // gets the FULL station dataset in Leads, not just the pending queue — so
+    // callbacks, completed, DND and donated rows are visible without tab-hopping.
+    // isTempStationView already computed above (early) so tab filters can use it.
+
+    console.log('[getMyDonors] worker=', workerId, 'effectiveStations=', effectiveStations, 'tempStationScopes=', tempStationScopes, 'isTempStationView=', isTempStationView);
+    if (req.query.verified_only !== 'true' && !isTempStationView) {
       if (isHighTierView) {
         // The tab shows the batch, not a work queue, so NOTHING is deleted:
         //   • a row the FRO dispositioned TODAY keeps its place — it is part of
@@ -3650,6 +3678,7 @@ export const getMyDonors = async (req, res) => {
       // allotment somewhere in scope. Same response as the list, so the flag can
       // never disagree with the data on screen.
       has_high_tier: hasHighTier,
+
       counts: {
         // Raw allotment for this scope (what the dashboard reports).
         allotted: result.length,

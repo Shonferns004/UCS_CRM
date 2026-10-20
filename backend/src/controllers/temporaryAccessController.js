@@ -381,6 +381,12 @@ export async function createTemporaryAccess(req, res) {
     // grant cache itself is keyed per worker and is cold for a new grantee,
     // but invalidate anyway for the extend/duplicate paths that share this).
     invalidateGrantCache(working_fro_worker_id);
+    try {
+      const { invalidateFroCaches } = await import('../controllers/froController.js');
+      invalidateFroCaches(working_fro_worker_id);
+    } catch (e) {
+      console.warn('[temp access] fro cache invalidation skipped:', e?.message || String(e));
+    }
 
     return res.status(201).json({
       assignment: { ...result, computed_status: deriveStatus(result) },
@@ -435,6 +441,12 @@ export async function createTemporaryAccess(req, res) {
         return row;
       });
       invalidateGrantCache(working_fro_worker_id);
+      try {
+        const { invalidateFroCaches } = await import('../controllers/froController.js');
+        invalidateFroCaches(working_fro_worker_id);
+      } catch (e) {
+        console.warn('[temp access] fro cache invalidation skipped:', e?.message || String(e));
+      }
       return res.status(201).json({
         assignment: { ...retryResult, computed_status: deriveStatus(retryResult) },
         conflicts,
@@ -500,6 +512,12 @@ export async function extendTemporaryAccess(req, res) {
     if (!updated) return res.status(404).json({ message: 'Assignment not found' });
 
     invalidateGrantCache(updated.working_fro_worker_id);
+    try {
+      const { invalidateFroCaches } = await import('../controllers/froController.js');
+      invalidateFroCaches(updated.working_fro_worker_id);
+    } catch (e) {
+      console.warn('[temp access] fro cache invalidation skipped:', e?.message || String(e));
+    }
     return res.json({ assignment: { ...updated, computed_status: deriveStatus(updated) } });
   } catch (error) {
     console.error('extendTemporaryAccess error:', error.message);
