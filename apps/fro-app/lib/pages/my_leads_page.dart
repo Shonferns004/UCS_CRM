@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 import '../widgets/perf_strip.dart';
+import 'leads_list_page.dart';
 import 'queue_page.dart';
 import 'suspense_page.dart';
 
@@ -26,8 +27,9 @@ class _MyLeadsPageState extends State<MyLeadsPage> {
           ),
           child: Row(
             children: [
-              _tabBtn('My Leads', 0, 60),
-              _tabBtn('Suspense', 1, 40),
+              _tabBtn('My Leads', 0, 50),
+              _tabBtn('All Leads', 1, 25),
+              _tabBtn('Suspense', 2, 25),
             ],
           ),
         ),
@@ -36,6 +38,7 @@ class _MyLeadsPageState extends State<MyLeadsPage> {
             index: _tab,
             children: const [
               QueuePane(),
+              LeadsListPage(),
               SuspensePane(),
             ],
           ),
