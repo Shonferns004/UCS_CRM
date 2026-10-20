@@ -309,7 +309,8 @@ app.use('/api/accounts/scraper', scraperRoutes);
 app.use('/api/accounts', accountsRoutes);
 app.use('/api/loans', loanRoutes);
 app.use('/api/advances', loanRoutes);
-app.use('/api/attendance-corrections', attendanceCorrectionRoutes);
+// attendance_corrections table removed - route disabled
+// app.use('/api/attendance-corrections', attendanceCorrectionRoutes);
 app.use('/api/accounts/bank-audit', bankAuditRoutes);
 app.use('/api/accounts/email-import', emailImportRoutes);
 app.use('/api/webhooks', webhookRoutes);

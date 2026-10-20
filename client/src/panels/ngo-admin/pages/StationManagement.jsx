@@ -1,9 +1,8 @@
-﻿import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle, Clock, UserPlus } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
-import '../temporaryAccess.css';
 import { isFreshStation } from '../../../lib/stations';
 import { istMonthKey } from '../../../utils/istDate';
 import { dispositionGroupOf, dispositionLabelOf } from '../../../lib/dispositions';
@@ -28,6 +27,74 @@ const NGO_NAME_COLORS = {
   aflf: '#16a34a',
   mann: '#ec4899',
 };
+
+function groupOfNameLocal(name) {
+  const k = String(name || '').trim().toLowerCase();
+  if (NGO_NAME_COLORS[k]) return k;
+  if (k.includes('bsct')) return 'bsct';
+  if (k.includes('aflf')) return 'aflf';
+  if (k.includes('mann')) return 'mann';
+  return 'other';
+}
+
+function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, renderRow }) {
+  const term = String(searchTerm || '').trim().toLowerCase();
+  const base = (stations || []).filter(s => fresh ? isFreshStation(s.station) : !isFreshStation(s.station));
+  const searched = term ? base.filter(s => String(s.station || '').toLowerCase().includes(term)) : base;
+
+  // One representative NGO per known group (BSCT / AFLF / MANN).
+  const groupNgo = {};
+  for (const n of (allNgos || [])) {
+    const g = groupOfNameLocal(n.name);
+    if ((g === 'bsct' || g === 'aflf' || g === 'mann') && !groupNgo[g]) groupNgo[g] = n;
+  }
+
+  const froNameOf = (id) => (froWorkers || []).find(f => String(f.id) === String(id))?.name || null;
+
+  return (
+    <>
+    <style>{`.sm-no-scrollbar::-webkit-scrollbar{display:none}.sm-no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}`}</style>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, alignItems: 'start' }}>
+      {['bsct', 'aflf', 'mann'].map(g => {
+        const ngo = groupNgo[g];
+        const color = NGO_NAME_COLORS[g];
+        const label = g.toUpperCase();
+        const rows = searched
+          .filter(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g))
+          .sort((a, b) => {
+                const pa = String(a.station || ''); const pb = String(b.station || '');
+                return pa.localeCompare(pb, undefined, { numeric: true });
+              });
+        return (
+          <div key={g} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 0, overflow: 'hidden', background: '#fff' }}>
+            <div style={{ background: color, color: '#fff', padding: '8px 12px', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>{label}</span>
+              <span style={{ opacity: 0.85, fontSize: 11, fontWeight: 600 }}>{rows.length} station{rows.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="sm-no-scrollbar" style={{ maxHeight: 420, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: 'var(--ink-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px' }}>Station</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: 'var(--ink-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px' }}>FRO Name</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={2} style={{ padding: '14px 10px', textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>No stations</td>
+                    </tr>
+                  ) : rows.map(s => (renderRow ? renderRow(s, (allNgos || []).find(n => String(n.id) === String((groupNgo && groupNgo[g])?.id)) || null) : null))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    </>
+  );
+}
 
 // Planned station-code mapping (station-rename-mapping.xlsx): old code ->
 // new code per NGO. Drives the green auto-suggestion in the bulk-rename modal.
@@ -143,7 +210,7 @@ function OldDataUploadModal({ station, ngoId, onClose, onUploaded }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
         <div className="modal-head">
-          <h3>Upload Old Data â€” {station}</h3>
+          <h3>Upload Old Data — {station}</h3>
           <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body">
@@ -244,7 +311,7 @@ function groupRows(list) {
 
 // Colored mini-badges showing what a rename touches (from the dry-run counts).
 function ImpactBadges({ c }) {
-  if (!c) return <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>â€”</span>;
+  if (!c) return <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>—</span>;
   const badges = [
     { label: 'donors', value: c.fro_assignments ?? 0, bg: '#eff6ff', color: '#1e40af' },
     { label: 'transfers', value: c.fro_transfers ?? 0, bg: '#f5f3ff', color: '#6d28d9' },
@@ -349,19 +416,19 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%' }}>
       <div onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 13, cursor: 'pointer', background: '#fff', minHeight: 26, boxSizing: 'border-box', width: '100%' }}>
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 8px', borderRadius: 6, fontSize: 13, cursor: 'pointer', background: '#fff', minHeight: 26, boxSizing: 'border-box', width: '100%' }}>
         <span style={{ color: value ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: value ? 600 : 400 }}>
-          {value || 'Pick stationâ€¦'}
+          {value || 'Pick station…'}
         </span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
       </div>
 
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, marginTop: 2, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, marginTop: 2, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search stationâ€¦"
+              placeholder="Search station…"
               style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent' }}
               autoFocus />
           </div>
@@ -388,8 +455,8 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
                         ? <span className="pill" style={{ background: '#f3f4f6', color: 'var(--ink-soft)', fontSize: 9, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={9} /> Queued</span>
                         : <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {it.donorCount > 0 && <>{it.donorCount.toLocaleString('en-IN')} donor{it.donorCount === 1 ? '' : 's'}</>}
-                            {it.fro && <span> Â· {it.fro}</span>}
-                            {it.donorCount === 0 && !it.fro && 'â€”'}
+                            {it.fro && <span> · {it.fro}</span>}
+                            {it.donorCount === 0 && !it.fro && '—'}
                           </span>}
                     </div>
                   );
@@ -397,7 +464,7 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
               </div>
             ))}
             {visibleEntries === 0 && (
-              <div style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>No stations match â€œ{search}â€</div>
+              <div style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>No stations match “{search}”</div>
             )}
           </div>
           <div style={{ padding: '4px 8px', borderTop: '1px solid var(--line, #e5e7eb)', fontSize: 10, color: 'var(--ink-soft)', textAlign: 'right' }}>
@@ -544,7 +611,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
     setRows(reversed);
     setRowFilter('');
     setStep('input');
-    toast(`Loaded ${reversed.length} reverse rename(s) â€” review the queue, then Preview`, 'success');
+    toast(`Loaded ${reversed.length} reverse rename(s) — review the queue, then Preview`, 'success');
   };
 
   const removeFlagged = (r) => {
@@ -579,7 +646,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
     : rows;
 
   const title = step === 'input' ? 'Bulk Rename Stations'
-    : step === 'preview' ? 'Bulk Rename â€” Preview'
+    : step === 'preview' ? 'Bulk Rename — Preview'
     : step === 'history' ? 'Revert a Rename'
     : step === 'confirm' ? 'Confirm Bulk Rename'
     : 'Rename Complete';
@@ -597,7 +664,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
           {step === 'input' && (
             <>
               <div style={{ fontSize: 12, color: '#6b7280', background: '#f9fafb', padding: '10px 12px', borderRadius: 6, marginBottom: 12 }}>
-                Renames a station code <strong>in place</strong> across all data â€” donors, FRO assignments, transfers,
+                Renames a station code <strong>in place</strong> across all data — donors, FRO assignments, transfers,
                 queue and sessions keep their links; only the code changes. Scoped per NGO (M-2 can become
                 BOD-1 / AOD-1 / MOD-1). Always run the preview first.
               </div>
@@ -639,11 +706,11 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                       style={suggestion && mNew === suggestion ? { borderColor: '#86efac', background: '#f0fdf4', color: '#166534', fontWeight: 600 } : undefined} />
                     {suggestion && (
                       mNew === suggestion ? (
-                        <span style={{ fontSize: 10, color: '#15803d', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={11} /> Planned code â€” {mOld} â†’ {suggestion} for {ngoNameById(mNgoId)}</span>
+                        <span style={{ fontSize: 10, color: '#15803d', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={11} /> Planned code — {mOld} → {suggestion} for {ngoNameById(mNgoId)}</span>
                       ) : (
                         <button type="button" onClick={() => setMNew(suggestion)}
                           style={{ marginTop: 3, width: 'fit-content', fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', fontFamily: 'inherit' }}>
-                          â†» Use planned code: {suggestion}
+                          ↻ Use planned code: {suggestion}
                         </button>
                       )
                     )}
@@ -674,11 +741,11 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 12, fontWeight: 600 }}>
                       {rows.length} rename{rows.length > 1 ? 's' : ''} queued
-                      {filterTerm && <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}> Â· {filteredRows.length} shown</span>}
+                      {filterTerm && <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}> · {filteredRows.length} shown</span>}
                     </span>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       {rows.length > 10 && (
-                        <input value={rowFilter} onChange={e => setRowFilter(e.target.value)} placeholder="Filter stationâ€¦"
+                        <input value={rowFilter} onChange={e => setRowFilter(e.target.value)} placeholder="Filter station…"
                           style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', width: 150 }} />
                       )}
                       <button className="btn btn-sm btn-outline" onClick={() => { setRows([]); setRowFilter(''); }}
@@ -699,7 +766,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 10px', borderTop: i > 0 ? '1px solid var(--line)' : 'none' }}>
                               <span style={{ fontSize: 13 }}>
                                 <strong>{r.old_station}</strong>
-                                <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>â†’</span>
+                                <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>→</span>
                                 <strong style={{ color: 'var(--sage)' }}>{r.new_station}</strong>
                                 {STATION_RENAME_MAP[r.old_station]?.[r.ngo_name] === r.new_station && (
                                   <span className="pill" style={{ background: '#f0fdf4', color: '#15803d', fontSize: 9, marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={9} /> planned</span>
@@ -713,7 +780,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                     ))}
                     {filteredRows.length === 0 && (
                       <div style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', border: '1px dashed var(--line)', borderRadius: 8 }}>
-                        No rows match â€œ{rowFilter}â€
+                        No rows match “{rowFilter}”
                       </div>
                     )}
                   </div>
@@ -724,10 +791,10 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                 <button className="btn btn-outline" onClick={onClose}>Cancel</button>
                 <button className="btn btn-outline" onClick={loadHistory} disabled={busy}
                   style={{ fontSize: 12, color: '#b45309', borderColor: '#fdba74' }}>
-                  â†© Revert a renameâ€¦
+                  ↩ Revert a rename…
                 </button>
                 <button className="btn btn-primary" onClick={runPreview} disabled={busy || rows.length === 0}>
-                  {busy ? 'Checkingâ€¦' : 'Preview Rename'}
+                  {busy ? 'Checking…' : 'Preview Rename'}
                 </button>
               </div>
             </>
@@ -738,7 +805,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
             <>
               <div style={{ fontSize: 12, color: '#6b7280', background: '#f9fafb', padding: '10px 12px', borderRadius: 6, marginBottom: 12 }}>
                 Every applied rename is logged below (newest first). Loading a run queues its
-                <strong> reverse mapping</strong> (new code â†’ old code) â€” it then goes through the same
+                <strong> reverse mapping</strong> (new code → old code) — it then goes through the same
                 preview and confirmation as a normal rename, so nothing can be undone by accident.
               </div>
               <div style={{ maxHeight: 380, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -751,16 +818,16 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                   <div key={b.batch_id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, fontWeight: 600 }}>
-                        {b.performed_at ? new Date(b.performed_at).toLocaleString('en-IN') : 'â€”'}
+                        {b.performed_at ? new Date(b.performed_at).toLocaleString('en-IN') : '—'}
                         <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}>
-                          {' '}Â· {b.entries.length} mapping{b.entries.length > 1 ? 's' : ''}
-                          {b.donor_assignments ? ` Â· ${b.donor_assignments.toLocaleString('en-IN')} donor rows` : ''}
-                          {b.performed_by?.includes('@') ? ` Â· by ${b.performed_by}` : ''}
+                          {' '}· {b.entries.length} mapping{b.entries.length > 1 ? 's' : ''}
+                          {b.donor_assignments ? ` · ${b.donor_assignments.toLocaleString('en-IN')} donor rows` : ''}
+                          {b.performed_by?.includes('@') ? ` · by ${b.performed_by}` : ''}
                         </span>
                       </span>
                       <button className="btn btn-sm btn-outline" onClick={() => loadRevert(b)}
                         style={{ fontSize: 11, color: '#b45309', borderColor: '#fdba74', whiteSpace: 'nowrap' }}>
-                        â†© Load reverse mapping
+                        ↩ Load reverse mapping
                       </button>
                     </div>
                     {groupRows(b.entries).map(g => (
@@ -773,8 +840,8 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                         <div style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.8 }}>
                           {g.items.map((e, i) => (
                             <span key={`${e.old_station}-${e.new_station}-${i}`}>
-                              {e.old_station}â†’<strong style={{ color: 'var(--sage)' }}>{e.new_station}</strong>
-                              {i < g.items.length - 1 ? ' Â· ' : ''}
+                              {e.old_station}→<strong style={{ color: 'var(--sage)' }}>{e.new_station}</strong>
+                              {i < g.items.length - 1 ? ' · ' : ''}
                             </span>
                           ))}
                         </div>
@@ -824,7 +891,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                         style={{ padding: '8px 10px', borderTop: i > 0 ? '1px solid var(--line)' : 'none', display: 'flex', flexDirection: 'column', gap: 5 }}>
                         <div style={{ fontSize: 13 }}>
                           <strong>{r.old_station}</strong>
-                          <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>â†’</span>
+                          <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>→</span>
                           <strong style={{ color: 'var(--sage)' }}>{r.new_station}</strong>
                         </div>
                         <ImpactBadges c={r.counts} />
@@ -837,7 +904,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                   <div style={{ border: '1px solid #fde68a', borderRadius: 8, overflow: 'hidden', background: '#fffbeb' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#fef3c7', borderBottom: '1px solid #fde68a' }}>
                       <span style={{ display: 'inline-flex' }}><TriangleAlert size={14} color="#d97706" /></span>
-                      <strong style={{ fontSize: 12, color: '#92400e' }}>Needs attention â€” remove these rows to apply</strong>
+                      <strong style={{ fontSize: 12, color: '#92400e' }}>Needs attention — remove these rows to apply</strong>
                     </div>
                     {previewBad.map((r, i) => (
                       <div key={`${r.ngo_name}-${r.old_station}-${i}`}
@@ -846,14 +913,14 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                           <span style={{ fontSize: 12 }}>
                             <span className="pill" style={{ background: ngoColor(r.ngo_name), color: '#fff', fontSize: 9, marginRight: 6 }}>{r.ngo_name}</span>
                             <strong>{r.old_station}</strong>
-                            <span style={{ color: 'var(--ink-soft)', margin: '0 4px' }}>â†’</span>
+                            <span style={{ color: 'var(--ink-soft)', margin: '0 4px' }}>→</span>
                             <strong>{r.new_station}</strong>
                           </span>
                           <span style={{ fontSize: 11, color: '#b45309' }}>{r.reason}</span>
                         </div>
                         <button className="btn btn-sm btn-outline" onClick={() => removeFlagged(r)}
                           disabled={busy} style={{ fontSize: 10, padding: '2px 8px', color: '#b45309', borderColor: '#fdba74', whiteSpace: 'nowrap' }}>
-                          {busy ? 'â€¦' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Remove</span>}
+                          {busy ? '…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Remove</span>}
                         </button>
                       </div>
                     ))}
@@ -862,7 +929,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
               </div>
 
               <div style={{ fontSize: 11, color: '#6b7280', background: '#f9fafb', padding: '8px 12px', borderRadius: 6, marginTop: 12 }}>
-                Old codes are replaced everywhere â€” assignments, transfer history, queue cycles, active sessions and
+                Old codes are replaced everywhere — assignments, transfer history, queue cycles, active sessions and
                 donor profiles. Ambiguous donor profiles are skipped and listed in the result. The mapping is kept in
                 station_rename_log.
               </div>
@@ -870,11 +937,11 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
               <div className="modal-actions" style={{ marginTop: 14 }}>
                 <button className="btn btn-outline" onClick={() => { setStep('input'); setPreview(null); }}>Back</button>
                 <button className="btn btn-outline" onClick={runPreview} disabled={busy || rows.length === 0}>
-                  {busy ? 'Checkingâ€¦' : 'Re-preview'}
+                  {busy ? 'Checking…' : 'Re-preview'}
                 </button>
                 <button className="btn btn-primary" onClick={() => { setConfirmText(''); setStep('confirm'); }}
                   disabled={busy || previewBad.length > 0 || previewOk.length === 0}>
-                  Apply {previewOk.length} Rename{previewOk.length > 1 ? 's' : ''} âŸ¶
+                  Apply {previewOk.length} Rename{previewOk.length > 1 ? 's' : ''} ⟶
                 </button>
               </div>
             </>
@@ -886,7 +953,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
               <div style={{ padding: '12px 14px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', fontSize: 13, color: '#991b1b' }}>
                 <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><TriangleAlert size={14} /> You are about to rename {rows.length} station{rows.length > 1 ? 's' : ''} on live data.</strong><br />
                 This rewrites station codes across 6 tables ({totalDonors.toLocaleString('en-IN')} donor assignments).
-                Old codes will no longer exist anywhere â€” the mapping is preserved in station_rename_log.
+                Old codes will no longer exist anywhere — the mapping is preserved in station_rename_log.
                 Everything runs in one transaction: if any check fails, nothing changes.
               </div>
               <label className="field" style={{ marginTop: 14 }}>
@@ -897,7 +964,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                 <button className="btn btn-outline" onClick={() => setStep('preview')}>Back</button>
                 <button className="btn btn-primary" onClick={applyRenames}
                   disabled={busy || confirmText !== 'RENAME'}>
-                  {busy ? 'Renamingâ€¦ this may take a minute' : 'Rename Stations'}
+                  {busy ? 'Renaming… this may take a minute' : 'Rename Stations'}
                 </button>
               </div>
             </>
@@ -907,7 +974,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
           {step === 'result' && result && (
             <>
               <div style={{ padding: '12px 14px', borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
-                <strong style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Check size={14} /> {result.applied} station{result.applied > 1 ? 's' : ''} renamed Â· old codes remaining: {result.post_verify?.old_codes_remaining ?? 0}</strong><br />
+                <strong style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Check size={14} /> {result.applied} station{result.applied > 1 ? 's' : ''} renamed · old codes remaining: {result.post_verify?.old_codes_remaining ?? 0}</strong><br />
                 <div style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                   <span><strong>{result.totals?.fro_assignments ?? 0}</strong> donor assignments</span>
                   <span><strong>{result.totals?.fro_transfers ?? 0}</strong> transfers</span>
@@ -930,7 +997,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                         <span>
                           <Check size={13} color="#16a34a" />{' '}
                           <strong>{r.old_station}</strong>
-                          <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>â†’</span>
+                          <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>→</span>
                           <strong style={{ color: 'var(--sage)' }}>{r.new_station}</strong>
                         </span>
                         <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
@@ -945,13 +1012,13 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
               {(result.skipped_donors || []).length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <button className="btn btn-sm btn-outline" onClick={() => setShowSkipped(!showSkipped)}>
-                    â–¸ {result.skipped_donors.length} donor profile{result.skipped_donors.length > 1 ? 's' : ''} skipped (ambiguous NGO)
+                    ▸ {result.skipped_donors.length} donor profile{result.skipped_donors.length > 1 ? 's' : ''} skipped (ambiguous NGO)
                   </button>
                   {showSkipped && (
                     <div style={{ marginTop: 8, maxHeight: 180, overflowY: 'auto', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 8, padding: '8px 12px', fontSize: 11 }}>
                       {(result.skipped_donors || []).map(d => (
                         <div key={d.donor_id} style={{ padding: '3px 0', color: '#92400e' }}>
-                          #{d.donor_id} {d.name} â€” {d.station} ({d.reason})
+                          #{d.donor_id} {d.name} — {d.station} ({d.reason})
                         </div>
                       ))}
                     </div>
@@ -991,7 +1058,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
   return (
     <div ref={ref} className="searchable-select" style={{ position: 'relative', maxWidth: 200 }}>
       <div onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
         <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {selected ? selected.name : (placeholder || '-- Select --')}
         </span>
@@ -999,7 +1066,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
       </div>
 
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 300, marginTop: 2, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 300, marginTop: 2, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -1056,7 +1123,7 @@ function SourcePill({ source, monthsEmployed, sourceMonth }) {
   return <span className="pill pill-gray">Not Set</span>;
 }
 
-// Per-row â‹® kebab menu (absolute overlay; does not affect column widths).
+// Per-row ⋮ kebab menu (absolute overlay; does not affect column widths).
 function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onAddDonor, onDownload, onTarget, onGrantTempAccess, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -1077,16 +1144,16 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewL
       <button className="btn btn-sm btn-outline" onClick={() => setOpen(o => !o)}
         aria-label="Station actions"
         style={{ width: 30, height: 30, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, lineHeight: 1 }}>
-        â‹®
+        ⋮
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 190 }}>
+        <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 190 }}>
           {activeTransfer && onReturn && (
             <button onClick={run(() => onReturn(activeTransfer.id))} style={{ ...itemStyle, color: '#92400e', fontWeight: 600 }}>
-              {returningId === activeTransfer.id ? 'Returningâ€¦' : 'â†© Return leads'}
+              {returningId === activeTransfer.id ? 'Returning…' : '↩ Return leads'}
             </button>
           )}
-          <button onClick={run(onUpload)} style={itemStyle}>â‡§ Upload old data</button>
+          <button onClick={run(onUpload)} style={itemStyle}>⇧ Upload old data</button>
           {onViewList && (
             <button onClick={run(onViewList)} style={{ ...itemStyle, fontWeight: 600 }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={14} /> View donor list</span>
@@ -1097,7 +1164,7 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewL
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><UserPlus size={14} /> Add donor</span>
             </button>
           )}
-          {onDownload && <button onClick={run(onDownload)} style={itemStyle}>â¤“ Download Excel</button>}
+          {onDownload && <button onClick={run(onDownload)} style={itemStyle}>⤓ Download Excel</button>}
           {onGrantTempAccess && (
             <button onClick={run(onGrantTempAccess)} style={{ ...itemStyle, fontWeight: 600, color: '#1d4ed8' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Clock size={14} /> Grant temporary access</span>
@@ -1157,7 +1224,7 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
 // Compact summary tile used inside the Non-Connected Fresh modal.
 function NcfSummaryTile({ label, value, color }) {
   return (
-    <div style={{ minWidth: 82, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 12px', textAlign: 'center', flex: '0 0 auto' }}>
+    <div style={{ minWidth: 82, background: '#fff', borderRadius: 8, padding: '8px 12px', textAlign: 'center', flex: '0 0 auto' }}>
       <div style={{ fontSize: 18, fontWeight: 800, color: color || 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>{label}</div>
     </div>
@@ -1165,10 +1232,10 @@ function NcfSummaryTile({ label, value, color }) {
 }
 
 function ncfTimeSince(iso) {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   const ms = Date.now() - new Date(iso).getTime();
   const days = Math.floor(ms / 86400000);
-  if (isNaN(days)) return 'â€”';
+  if (isNaN(days)) return '—';
   if (days <= 0) return 'today';
   if (days === 1) return '1d ago';
   return `${days}d ago`;
@@ -1176,7 +1243,7 @@ function ncfTimeSince(iso) {
 
 // Pulls non-connected donors from fresh (FD) stations and lets the admin
 // review & delete their fresh-data (new_data) records. Disposition history
-// (assignments, donor logs, receipts) is preserved â€” only new_data is removed.
+// (assignments, donor logs, receipts) is preserved — only new_data is removed.
 function NonConnectedFreshModal({ ngoId, onClose }) {
   const [loading, setLoading] = useState(true);
   const [donors, setDonors] = useState([]);
@@ -1290,22 +1357,22 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
           {/* Filters */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' }}>
               <option value="">All Categories</option>
               {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterStation} onChange={e => setFilterStation(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' }}>
               <option value="">All Stations</option>
               {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' }}>
               <option value="">All Statuses</option>
               {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
-              {loading ? 'Loadingâ€¦' : `${donors.length} non-connected donor${donors.length === 1 ? '' : 's'}`}
+              {loading ? 'Loading…' : `${donors.length} non-connected donor${donors.length === 1 ? '' : 's'}`}
             </span>
           </div>
 
@@ -1316,7 +1383,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
               <NcfSummaryTile key={k} label={k.length > 10 ? k.slice(0, 10) : k} value={v} color="#6366f1" />
             ))}
             {(Object.keys(summary.by_fro || {}).length > 0) && (
-              <div style={{ flex: '1 1 200px', minWidth: 170, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 12px' }}>
+              <div style={{ flex: '1 1 200px', minWidth: 170, background: '#fff', borderRadius: 8, padding: '8px 12px' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 2 }}>Per FRO</div>
                 {Object.entries(summary.by_fro).map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '1px 0' }}>
@@ -1333,13 +1400,13 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
             <div style={{ background: '#fff7ed', border: '1px solid #fb923c', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
-                  {preview?.loading ? 'Fetching recordsâ€¦' : preview ? `Review: ${preview.matched} new_data record${preview.matched === 1 ? '' : 's'} to delete` : 'Confirm deletion'}
+                  {preview?.loading ? 'Fetching records…' : preview ? `Review: ${preview.matched} new_data record${preview.matched === 1 ? '' : 's'} to delete` : 'Confirm deletion'}
                 </div>
                 <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
               </div>
 
               {preview?.loading && (
-                <div style={{ padding: 16, textAlign: 'center', color: '#9a3412' }}>Matching fresh-data recordsâ€¦</div>
+                <div style={{ padding: 16, textAlign: 'center', color: '#9a3412' }}>Matching fresh-data records…</div>
               )}
 
               {preview?.error && (
@@ -1350,13 +1417,13 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
                 <>
                   {preview.matched === 0 ? (
                     <p style={{ margin: 0, color: '#166534', padding: '4px 0' }}>
-                      No <code>new_data</code> rows found for the selection â€” nothing will be deleted.
+                      No <code>new_data</code> rows found for the selection — nothing will be deleted.
                     </p>
                   ) : (
                     <>
                       <p style={{ margin: '0 0 10px', color: '#78350f', lineHeight: 1.5 }}>
                         {preview.truncated
-                          ? <>Showing first <strong>{preview.rows.length}</strong> of <strong>{preview.matched}</strong> â€” <strong>ALL {preview.matched}</strong> fresh-data record{preview.matched === 1 ? '' : 's'} will be deleted.</>
+                          ? <>Showing first <strong>{preview.rows.length}</strong> of <strong>{preview.matched}</strong> — <strong>ALL {preview.matched}</strong> fresh-data record{preview.matched === 1 ? '' : 's'} will be deleted.</>
                           : <>Exactly <strong>{preview.matched}</strong> fresh-data record{preview.matched === 1 ? '' : 's'} matched for deletion.</>
                         }
                         {' '}Disposition history (donor logs, FRO assignments, receipts, follow-ups) is <strong>preserved</strong>.
@@ -1370,7 +1437,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
                         </div>
                       )}
 
-                      <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+                      <div style={{ maxHeight: 280, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
                         <table className="nga-st" style={{ fontSize: 11.5 }}>
                           <thead>
                             <tr>
@@ -1388,14 +1455,14 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
                             {preview.rows.map(r => (
                               <tr key={r.id}>
                                 <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
-                                <td style={{ fontWeight: 600 }}>{r.name || 'â€”'}</td>
+                                <td style={{ fontWeight: 600 }}>{r.name || '—'}</td>
                                 <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.mobile_number}</td>
-                                <td><span className="pill" style={{ fontSize: 10 }}>{String(r.data_category || r.category || '').trim() || 'â€”'}</span></td>
-                                <td style={{ fontWeight: 600 }}>{r.station || 'â€”'}</td>
+                                <td><span className="pill" style={{ fontSize: 10 }}>{String(r.data_category || r.category || '').trim() || '—'}</span></td>
+                                <td style={{ fontWeight: 600 }}>{r.station || '—'}</td>
                                 <td>{r.status || 'pending'}</td>
-                                <td style={{ fontSize: 11, color: '#6b7280' }}>{r.ngo || 'â€”'}</td>
+                                <td style={{ fontSize: 11, color: '#6b7280' }}>{r.ngo || '—'}</td>
                                 <td style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
-                                  {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'â€”'}
+                                  {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}
                                 </td>
                               </tr>
                             ))}
@@ -1406,7 +1473,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
                       <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
                         <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
                         <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }} onClick={handleDelete} disabled={deleting}>
-                          {deleting ? 'Deletingâ€¦' : `Confirm Delete ${preview.matched} Record${preview.matched === 1 ? '' : 's'}`}
+                          {deleting ? 'Deleting…' : `Confirm Delete ${preview.matched} Record${preview.matched === 1 ? '' : 's'}`}
                         </button>
                       </div>
                     </>
@@ -1444,13 +1511,13 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
 
           {/* Donor table */}
           {loading ? (
-            <div className="loading" style={{ padding: 24 }}>Loading non-connected donorsâ€¦</div>
+            <div className="loading" style={{ padding: 24 }}>Loading non-connected donors…</div>
           ) : donors.length === 0 ? (
             <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
               <p style={{ color: '#16a34a', margin: 0 }}>No non-connected fresh-data donors found for the current filters.</p>
             </div>
           ) : (
-            <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+            <div style={{ maxHeight: 380, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
               <table className="nga-st" style={{ fontSize: 12 }}>
                 <thead>
                   <tr>
@@ -1477,7 +1544,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
                         <td style={{ fontVariantNumeric: 'tabular-nums' }}>{d.mobile_number}</td>
                         <td>
                           <span className="pill" style={{ fontSize: 10, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {d.category || 'â€”'}
+                            {d.category || '—'}
                           </span>
                         </td>
                         <td style={{ fontWeight: 600 }}>{d.station}</td>
@@ -1506,22 +1573,22 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
 }
 
 // Rows per page in the donor list. A station can hold 400+ donors, so the table is
-// paged rather than rendered whole â€” the same bound the dashboard station popup uses.
+// paged rather than rendered whole — the same bound the dashboard station popup uses.
 const DONOR_ROWS_PER_PAGE = 50;
 
 // Relative "time since" for a donor's last contact, reusing the NCF modal's
 // phrasing so both station dialogs read the same way.
 function donorTimeSince(iso) {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return 'â€”';
+  if (Number.isNaN(then)) return '—';
   const days = Math.floor((Date.now() - then) / 86400000);
   if (days <= 0) return 'today';
   if (days === 1) return '1d ago';
   return `${days}d ago`;
 }
 
-// Manually add ONE donor to a station (station row kebab â†’ "Add donor").
+// Manually add ONE donor to a station (station row kebab → "Add donor").
 // Hand-entered name + mobile instead of a spreadsheet; the backend reuses the
 // profile if the number is known and creates the same single ACTIVE assignment
 // the old-data upload would, on the station's FRO.
@@ -1563,14 +1630,14 @@ function AddDonorModal({ station, ngoList, defaultNgoId, onClose, onAdded }) {
     }
   };
 
-  const fieldStyle = { fontSize: 13, padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
+  const fieldStyle = { fontSize: 13, padding: '7px 10px', borderRadius: 6, background: '#fff' };
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
         <div className="modal-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0 }}>Add Donor â€” {station}</h3>
+            <h3 style={{ margin: 0 }}>Add Donor — {station}</h3>
             {activeNgoName && <span className="pill pill-green">{activeNgoName}</span>}
           </div>
           <button className="btn btn-sm btn-outline" onClick={onClose} disabled={saving} aria-label="Close"><X size={14} /></button>
@@ -1587,7 +1654,7 @@ function AddDonorModal({ station, ngoList, defaultNgoId, onClose, onAdded }) {
               <select value={activeNgo} onChange={e => setActiveNgo(e.target.value)} style={fieldStyle} disabled={saving}>
                 {ngoOptions.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
               </select>
-              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>The station name is shared across NGOs â€” pick which one this donor belongs to.</span>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>The station name is shared across NGOs — pick which one this donor belongs to.</span>
             </label>
           )}
           <label className="field">
@@ -1614,13 +1681,13 @@ function AddDonorModal({ station, ngoList, defaultNgoId, onClose, onAdded }) {
 
           <p style={{ fontSize: 11, color: 'var(--ink-soft)', margin: 0, lineHeight: 1.5 }}>
             The donor is added to <strong>{station}</strong> and assigned to the station's FRO. A number already active in
-            {' '}{activeNgoName || 'this NGO'} is refused â€” one active assignment per donor per NGO.
+            {' '}{activeNgoName || 'this NGO'} is refused — one active assignment per donor per NGO.
           </p>
 
           <div className="modal-actions">
             <button className="btn btn-outline" onClick={onClose} disabled={saving}>Cancel</button>
             <button className="btn btn-primary" onClick={submit} disabled={!canSubmit}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><UserPlus size={14} /> {saving ? 'Addingâ€¦' : 'Add Donor'}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><UserPlus size={14} /> {saving ? 'Adding…' : 'Add Donor'}</span>
             </button>
           </div>
         </div>
@@ -1663,7 +1730,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
   const [blocked, setBlocked] = useState([]);
   const [result, setResult] = useState(null);
 
-  // â”€â”€ NGO scope â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── NGO scope ────────────────────────────────────────────────────────────
   //
   // A station NAME is shared across NGOs - 'DH-5' is BOD-15 for BSCT, AOD-15 for
   // AFLF and MOD-15 for MANN - so one name can hold a completely separate set of
@@ -1826,7 +1893,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
 
   // Offered when the guard refuses part of the selection: re-run over just the
   // rows it allows, so the admin is not forced to untick the blocked donors by
-  // hand. Derived from pendingIds, not the selection â€” the two differ when the
+  // hand. Derived from pendingIds, not the selection — the two differ when the
   // admin deleted a single row from its trash icon.
   const deleteRemainder = () => {
     const blockedSet = new Set(blocked.map(b => b.assignment_id));
@@ -1841,7 +1908,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
     onClose();
   };
 
-  const fieldStyle = { fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
+  const fieldStyle = { fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' };
   const totalSelected = selected.length;
   const scopeIsUnion = !activeNgo;
   const activeNgoName = ngoOptions.find(n => n.id === activeNgo)?.name || '';
@@ -1851,7 +1918,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 1080 }}>
         <div className="modal-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0 }}>Assigned Donors â€” {station}</h3>
+            <h3 style={{ margin: 0 }}>Assigned Donors — {station}</h3>
             {activeNgoName && <span className="pill pill-green">{activeNgoName}</span>}
             {scopeIsUnion && <span className="pill pill-yellow">All NGOs combined</span>}
             <span className="pill pill-blue">{donors.length} donor{donors.length === 1 ? '' : 's'}</span>
@@ -1909,7 +1976,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
               <Download size={13} /> Download Excel
             </button>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
-              {loading ? 'Loadingâ€¦' : `${filtered.length} of ${donors.length} shown`}
+              {loading ? 'Loading…' : `${filtered.length} of ${donors.length} shown`}
             </span>
           </div>
 
@@ -1948,7 +2015,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
             <div style={{ background: '#fff7ed', border: '1px solid #fb923c', borderRadius: 8, padding: 12, marginBottom: 10, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
-                  {preview?.loading ? 'Fetching recordsâ€¦'
+                  {preview?.loading ? 'Fetching records…'
                     : preview?.error ? 'Could not load preview'
                     : blocked.length > 0 ? `Blocked: ${blocked.length} of ${pendingIds.length} cannot be deleted`
                     : `Review: ${preview?.deletable?.length ?? 0} donor(s) will be removed`}
@@ -1956,7 +2023,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                 <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
               </div>
 
-              {preview?.loading && <div style={{ padding: 14, textAlign: 'center', color: '#9a3412' }}>Matching recordsâ€¦</div>}
+              {preview?.loading && <div style={{ padding: 14, textAlign: 'center', color: '#9a3412' }}>Matching records…</div>}
               {preview?.error && <p style={{ color: '#b91c1c', margin: 0 }}>Error: {preview.error}</p>}
 
               {/* Money guard refused part or all of the selection. */}
@@ -1970,8 +2037,8 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                       <div key={b.assignment_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#7f1d1d', padding: '2px 0' }}>
                         <XCircle size={13} />
                         <span style={{ fontWeight: 600 }}>{b.donor_name || 'Unknown'}</span>
-                        {b.mobile_number ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>Â· {b.mobile_number}</span> : null}
-                        <span style={{ opacity: .85 }}>â€” {b.reason}</span>
+                        {b.mobile_number ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>· {b.mobile_number}</span> : null}
+                        <span style={{ opacity: .85 }}>— {b.reason}</span>
                       </div>
                     ))}
                     <p style={{ margin: '8px 0 0', fontSize: 11.5, color: '#991b1b' }}>
@@ -1990,16 +2057,16 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                 </>
               )}
 
-              {/* Clean preview â€” nothing blocked. */}
+              {/* Clean preview — nothing blocked. */}
               {blocked.length === 0 && preview && !preview.loading && !preview.error && (
                 <>
                   {preview.deletable.length === 0 ? (
                     <p style={{ margin: 0, color: '#166534', padding: '4px 0' }}>
-                      None of the selected assignments are still active on this station â€” nothing to delete.
+                      None of the selected assignments are still active on this station — nothing to delete.
                     </p>
                   ) : (
                     <>
-                      <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+                      <div style={{ maxHeight: 220, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
                         <table className="nga-st" style={{ fontSize: 11.5 }}>
                           <thead>
                             <tr>
@@ -2016,12 +2083,12 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                             {preview.deletable.map(r => (
                               <tr key={r.assignment_id}>
                                 <td style={{ fontWeight: 600 }}>
-                                  {r.donor_name || 'â€”'}
+                                  {r.donor_name || '—'}
                                   {r.had_dnd_mark && (
-                                    <span className="pill pill-yellow" style={{ fontSize: 9, marginLeft: 5 }} title="Active DND mark for this NGO â€” still suppressed after removal">DND</span>
+                                    <span className="pill pill-yellow" style={{ fontSize: 9, marginLeft: 5 }} title="Active DND mark for this NGO — still suppressed after removal">DND</span>
                                   )}
                                 </td>
-                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.mobile_number || 'â€”'}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.mobile_number || '—'}</td>
                                 <td>{dispositionLabelOf(r.status)}</td>
                                 <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.log_count}</td>
                                 <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.schedule_count}</td>
@@ -2040,7 +2107,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                       <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
                         <button className="btn btn-sm btn-outline" onClick={() => { setConfirmOpen(false); setPreview(null); }}>Cancel</button>
                         <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff' }} onClick={handleDelete} disabled={deleting}>
-                          {deleting ? 'Deletingâ€¦' : `Confirm Delete ${preview.deletable.length} Donor${preview.deletable.length === 1 ? '' : 's'}`}
+                          {deleting ? 'Deleting…' : `Confirm Delete ${preview.deletable.length} Donor${preview.deletable.length === 1 ? '' : 's'}`}
                         </button>
                       </div>
                     </>
@@ -2052,7 +2119,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
 
           {/* Donor table */}
           {loading ? (
-            <div className="loading" style={{ padding: 24 }}>Loading donorsâ€¦</div>
+            <div className="loading" style={{ padding: 24 }}>Loading donors…</div>
           ) : donors.length === 0 ? (
             <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
               <p style={{ color: 'var(--ink-soft)', margin: 0 }}>
@@ -2064,7 +2131,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
               <p style={{ color: 'var(--ink-soft)', margin: 0 }}>No donors match the current filters.</p>
             </div>
           ) : (
-            <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+            <div style={{ maxHeight: 400, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
               <table className="nga-st" style={{ fontSize: 12 }}>
                 <thead>
                   <tr>
@@ -2096,20 +2163,20 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                         </td>
                         {scopeIsUnion && (
                           <td style={{ fontSize: 11 }}>
-                            <span className="pill" style={{ fontSize: 10 }}>{d.ngo_name || 'â€”'}</span>
+                            <span className="pill" style={{ fontSize: 10 }}>{d.ngo_name || '—'}</span>
                           </td>
                         )}
-                        <td style={{ fontWeight: 600 }}>{d.donor_name || 'â€”'}</td>
+                        <td style={{ fontWeight: 600 }}>{d.donor_name || '—'}</td>
                         <td style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {d.donor_mobile || 'â€”'}
+                          {d.donor_mobile || '—'}
                           {d.donor_mobile_2 ? <div style={{ fontSize: 10.5, opacity: .7 }}>{d.donor_mobile_2}</div> : null}
                         </td>
                         <td>
                           <span className="pill" style={{ fontSize: 10, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {String(d.data_category || '').trim() || 'â€”'}
+                            {String(d.data_category || '').trim() || '—'}
                           </span>
                         </td>
-                        <td style={{ fontSize: 11.5 }}>{d.donor_city || 'â€”'}</td>
+                        <td style={{ fontSize: 11.5 }}>{d.donor_city || '—'}</td>
                         <td style={{ fontSize: 11.5 }}>{d.fro_name || 'Unassigned'}</td>
                         <td>
                           <span className="pill" style={{
@@ -2157,7 +2224,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
   );
 }
 
-// â”€â”€â”€ High Tier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── High Tier ────────────────────────────────────────────────────────────
 //
 // High Tier is a third data bucket on the FRO panel's My Leads (alongside New
 // and Old). This panel moves ONE source station's entire allotment into that
@@ -2185,13 +2252,15 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
   const [restoreBatch, setRestoreBatch] = useState(null);
   const [restoring, setRestoring] = useState(false);
   // Wrong-station fix-up: re-point ONE target station's slice of a live batch to
-  // another station (D's 50 â†’ E) without restoring the whole batch.
+  // another station (D's 50 → E) without restoring the whole batch.
   const [moveBatch, setMoveBatch] = useState(null);
   const [moveFrom, setMoveFrom] = useState('');
   const [moveTo, setMoveTo] = useState('');
   const [moving, setMoving] = useState(false);
 
-  const ngoId = selectedNgoId && selectedNgoId !== 'all' ? selectedNgoId : null;
+  const [localNgoId, setLocalNgoId] = useState(selectedNgoId);
+  useEffect(() => { setLocalNgoId(selectedNgoId); }, [selectedNgoId]);
+  const ngoId = localNgoId && localNgoId !== 'all' ? localNgoId : null;
   const ngo = allNgos.find(n => String(n.id) === String(ngoId));
   const ngoName = ngo?.name || 'this NGO';
 
@@ -2382,12 +2451,12 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
           )}
           {result.source_fro_assigned === false && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#92400e' }}>
-              {result.source_station} has no FRO assigned right now â€” the data is back on the station and will reach an FRO as soon as one is assigned.
+              {result.source_station} has no FRO assigned right now — the data is back on the station and will reach an FRO as soon as one is assigned.
             </div>
           )}
           {result.to_fro_assigned === false && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#92400e' }}>
-              {result.to_station} has no FRO assigned right now â€” the data sits on the station and will reach an FRO as soon as one is assigned.
+              {result.to_station} has no FRO assigned right now — the data sits on the station and will reach an FRO as soon as one is assigned.
             </div>
           )}
         </div>
@@ -2400,12 +2469,20 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
       )}
 
       <div style={{ background: '#f8fafc', border: '1px solid var(--line, #e2e8f0)', borderRadius: 10, padding: '12px 16px', fontSize: 12.5, color: 'var(--ink-soft)', lineHeight: 1.6 }}>
-        High Tier lives in its own bucket on the FRO panel â€” it never mixes with New or Old data.
+        High Tier lives in its own bucket on the FRO panel — it never mixes with New or Old data.
         Pick a source station of <strong style={{ color: 'var(--ink)' }}>{ngoName}</strong>, choose how to split its
         full data, then distribute. The source station is emptied and its FRO is unassigned in one step.
       </div>
 
-      {/* Step 1 â€” source */}
+      {/* NGO selector (moved here so no top filter) */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>NGO</label>
+        <select value={localNgoId || ''} onChange={e => setLocalNgoId(e.target.value)} style={{ width: '100%', maxWidth: 320, fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}>
+          {allNgos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+        </select>
+      </div>
+
+      {/* Step 1 — source */}
       <div>
         <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
           1. Source station ({ngoName})
@@ -2418,8 +2495,8 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
           <option value="">-- Select source station --</option>
           {stations.filter(s => countFor(s) > 0).map(s => (
             <option key={s.station} value={s.station}>
-              {s.station} â€” {countFor(s).toLocaleString('en-IN')} leads
-              {s.fro_worker_id ? ` Â· FRO ${froNameOf(s.fro_worker_id) || 'â€”'}` : ' Â· no FRO'}
+              {s.station} — {countFor(s).toLocaleString('en-IN')} leads
+              {s.fro_worker_id ? ` · FRO ${froNameOf(s.fro_worker_id) || '—'}` : ' · no FRO'}
             </option>
           ))}
         </select>
@@ -2432,7 +2509,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
 
       {sourceStation && total > 0 && (
         <>
-          {/* Step 2 â€” mode */}
+          {/* Step 2 — mode */}
           <div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
               2. Split mode
@@ -2443,7 +2520,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
             </div>
           </div>
 
-          {/* Step 3 â€” targets */}
+          {/* Step 3 — targets */}
           <div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>
               3. Target stations ({n} selected)
@@ -2456,7 +2533,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 8 }}>
                 {targetCandidates.map(s => {
                   const on = selected.includes(s.station);
-                  const targetFro = s.fro_worker_id ? (froNameOf(s.fro_worker_id) || 'â€”') : null;
+                  const targetFro = s.fro_worker_id ? (froNameOf(s.fro_worker_id) || '—') : null;
                   return (
                     <div
                       key={s.station}
@@ -2499,7 +2576,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
             )}
           </div>
 
-          {/* Step 4 â€” summary + confirm */}
+          {/* Step 4 — summary + confirm */}
           {n > 0 && (
             <div style={{ border: '1px solid var(--line, #e2e8f0)', borderRadius: 10, padding: '12px 16px', background: '#fff' }}>
               <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13 }}>
@@ -2523,7 +2600,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                   </p>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary btn-sm" onClick={distribute} disabled={busy}>
-                      {busy ? 'Distributingâ€¦' : 'Yes, distribute'}
+                      {busy ? 'Distributing…' : 'Yes, distribute'}
                     </button>
                     <button className="btn btn-outline btn-sm" onClick={() => setConfirming(false)} disabled={busy}>Cancel</button>
                   </div>
@@ -2536,7 +2613,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                   <button className="btn btn-outline" onClick={reset} disabled={busy}>Reset</button>
                   {mode === 'manual' && remaining !== 0 && (
                     <span style={{ fontSize: 12, color: '#dc2626' }}>
-                      Counts must add up to {total.toLocaleString('en-IN')} â€” {remaining.toLocaleString('en-IN')} left.
+                      Counts must add up to {total.toLocaleString('en-IN')} — {remaining.toLocaleString('en-IN')} left.
                     </span>
                   )}
                 </div>
@@ -2546,7 +2623,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
         </>
       )}
 
-      {/* High Tier management â€” every live batch for this NGO, grouped by source.
+      {/* High Tier management — every live batch for this NGO, grouped by source.
           Two sources can live in the same target station; each batch restores
           independently. */}
       <div>
@@ -2554,7 +2631,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
           Active High Tier batches ({batches.length})
         </label>
         {batchesLoading ? (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)' }}>Loadingâ€¦</p>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)' }}>Loading…</p>
         ) : batches.length === 0 ? (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-soft)' }}>
             No High Tier data is currently distributed for {ngoName}.
@@ -2571,9 +2648,9 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                     </span>
                     {/* This batch's own yield for the current month, split per
                         target station in the pills below. Independent of the
-                        Collected card â€” it is scoped to the batch, not the FRO. */}
+                        Collected card — it is scoped to the batch, not the FRO. */}
                     <span style={{ fontSize: 11, fontWeight: 700, color: Number(b.collected_amount || 0) > 0 ? '#7c3aed' : 'var(--ink-soft)', marginLeft: 8 }}>
-                      â‚¹{Number(b.collected_amount || 0).toLocaleString('en-IN')} collected (this month)
+                      ₹{Number(b.collected_amount || 0).toLocaleString('en-IN')} collected (this month)
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
@@ -2585,7 +2662,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                     <span key={t.station} className="pill pill-blue" title="This month's collection from these leads">
                       {t.station}: {Number(t.count || 0).toLocaleString('en-IN')}
                       {Number(t.amount || 0) > 0 && (
-                        <strong style={{ marginLeft: 5, color: '#7c3aed' }}>â‚¹{Number(t.amount).toLocaleString('en-IN')}</strong>
+                        <strong style={{ marginLeft: 5, color: '#7c3aed' }}>₹{Number(t.amount).toLocaleString('en-IN')}</strong>
                       )}
                     </span>
                   ))}
@@ -2600,7 +2677,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                     </p>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button className="btn btn-primary btn-sm" onClick={() => doRestore(b)} disabled={restoring}>
-                        {restoring ? 'Restoringâ€¦' : 'Yes, restore'}
+                        {restoring ? 'Restoring…' : 'Yes, restore'}
                       </button>
                       <button className="btn btn-outline btn-sm" onClick={() => setRestoreBatch(null)} disabled={restoring}>Cancel</button>
                     </div>
@@ -2609,7 +2686,7 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                   <div style={{ marginTop: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px' }}>
                     <p style={{ margin: '0 0 8px', fontSize: 12.5, color: '#1e40af', lineHeight: 1.6 }}>
                       Move ONE station's whole share of this batch to another station. The rest of the batch stays
-                      exactly where it is â€” no restore needed.
+                      exactly where it is — no restore needed.
                     </p>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       <select
@@ -2617,27 +2694,27 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
                         onChange={e => { setMoveFrom(e.target.value); setMoveTo(''); }}
                         style={{ fontSize: 12.5, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}
                       >
-                        <option value="">From stationâ€¦</option>
+                        <option value="">From station…</option>
                         {(b.targets || []).map(t => (
                           <option key={t.station} value={t.station}>
-                            {t.station} â€” {Number(t.count || 0).toLocaleString('en-IN')} leads
+                            {t.station} — {Number(t.count || 0).toLocaleString('en-IN')} leads
                           </option>
                         ))}
                       </select>
-                      <span style={{ color: 'var(--ink-soft)' }}>â†’</span>
+                      <span style={{ color: 'var(--ink-soft)' }}>→</span>
                       <select
                         value={moveTo}
                         onChange={e => setMoveTo(e.target.value)}
                         disabled={!moveFrom}
                         style={{ fontSize: 12.5, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}
                       >
-                        <option value="">To stationâ€¦</option>
+                        <option value="">To station…</option>
                         {moveTargetOptions(b, moveFrom).map(st => (
                           <option key={st} value={st}>{st}</option>
                         ))}
                       </select>
                       <button className="btn btn-primary btn-sm" onClick={() => doMove(b)} disabled={moving || !moveFrom || !moveTo}>
-                        {moving ? 'Movingâ€¦' : 'Move'}
+                        {moving ? 'Moving…' : 'Move'}
                       </button>
                       <button className="btn btn-outline btn-sm" onClick={() => { setMoveBatch(null); setMoveFrom(''); setMoveTo(''); }} disabled={moving}>Cancel</button>
                     </div>
@@ -2688,7 +2765,7 @@ export default function StationManagement() {
   const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [ngoGroup, setNgoGroup] = useState(null);      // 'bsct' | 'aflf' | 'mann' | 'other' | null
   const [uploadStation, setUploadStation] = useState(null);
-  const [stationTab, setStationTab] = useState('all');
+  const [stationTab, setStationTab] = useState('old');
   const [bulkRenameOpen, setBulkRenameOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -2701,10 +2778,11 @@ export default function StationManagement() {
   // admin clicked - without it the list unions them all and the count disagrees
   // with the per-NGO pill on the row.
   const [donorListTarget, setDonorListTarget] = useState(null);
+  const [stationDetailTarget, setStationDetailTarget] = useState(null);
   const [addDonorTarget, setAddDonorTarget] = useState(null);
   // Temporary Data Access: which station's "Grant temporary access" modal is
   // open ({ station, ngoId, permanentFroId, permanentFroName, donorCount }).
-  // Separate from editNgoStation/permanent-assignment state on purpose â€” the
+  // Separate from editNgoStation/permanent-assignment state on purpose — the
   // grant flow must never route through the permanent FRO dropdown.
   const [tempAccessTarget, setTempAccessTarget] = useState(null);
   // Live grants for the whole table: rendered as a per-station badge so the
@@ -2717,11 +2795,11 @@ export default function StationManagement() {
   const loadTempGrants = () => {
     listTemporaryAccess()
       .then(rows => setTempGrants(Array.isArray(rows) ? rows : []))
-      .catch(() => setTempGrants([])); // feature off (503) â†’ simply no badges
+      .catch(() => setTempGrants([])); // feature off (503) → simply no badges
   };
 
   // Live (ACTIVE or SCHEDULED) grants covering this station row's (station,
-  // NGO) pair â€” what the badge shows and what revoke acts on. A row can
+  // NGO) pair — what the badge shows and what revoke acts on. A row can
   // theoretically hold grants from multiple NGOs' scopes, so it returns a list.
   const liveGrantsFor = (s) => {
     const ngoId = ngoScopeForRow(s);
@@ -2737,7 +2815,7 @@ export default function StationManagement() {
     setRevokingGrant(true);
     try {
       await revokeTemporaryAccess(revokeGrantTarget.grant.id, { reason: 'Revoked from station management' });
-      setMsg(`Temporary access to ${revokeGrantTarget.station} revoked. ${revokeGrantTarget.grant.working_fro_name || 'The FRO'} no longer sees this station â€” completed work is untouched.`);
+      setMsg(`Temporary access to ${revokeGrantTarget.station} revoked. ${revokeGrantTarget.grant.working_fro_name || 'The FRO'} no longer sees this station — completed work is untouched.`);
       setRevokeGrantTarget(null);
       loadTempGrants();
     } catch (e) {
@@ -2820,7 +2898,7 @@ export default function StationManagement() {
 
   const fetchData = (successMsg, month) => {
     const m = month || selectedMonth;
-    const url = selectedNgoId === 'all' ? '/ngo-admin/stations' : `/ngo-admin/stations?ngo_id=${selectedNgoId}`;
+    const url = '/ngo-admin/stations';
     apiGet(url).then(s => {
       if (Array.isArray(s)) setStations(s);
     }).catch(err => console.error('fetchData error:', err));
@@ -2880,18 +2958,64 @@ export default function StationManagement() {
   });
 
   const stationCounts = {
-    all: groupBase.length,
-    old: groupBase.filter(s => !isFreshStation(s.station)).length,
-    fresh: groupBase.filter(s => isFreshStation(s.station)).length,
+    old: stations.filter(s => !isFreshStation(s.station)).length,
+    new: stations.filter(s => isFreshStation(s.station)).length,
   };
 
-  const filteredStations = groupBase.filter(s => {
-    if (stationTab === 'fresh' && !isFreshStation(s.station)) return false;
+  const filteredStations = stations.filter(s => {
+    if (stationTab === 'new' && !isFreshStation(s.station)) return false;
     if (stationTab === 'old' && isFreshStation(s.station)) return false;
     const term = searchTerm.trim().toLowerCase();
     if (term && !String(s.station).toLowerCase().includes(term)) return false;
     return true;
   });
+
+  const renderStationRow = (s, ngo) => {
+    const ngoName = ngo?.name || s.ngos?.[0]?.ngo_name;
+    const ngoCol = ngoColor(ngoName);
+    const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
+    const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+    return (
+      <tr key={`${ngo?.id || 'x'}-${s.station}`} style={{ borderBottom: '1px solid var(--line, #f1f5f9)' }}>
+        <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 14, letterSpacing: '.2px', cursor: 'pointer', color: 'var(--sage)' }} onClick={() => setStationDetailTarget(s)}>{s.station}</strong>
+            {liveGrantsFor(s).map(g => (
+              <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
+                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                  {g.working_fro_name || 'FRO'}
+                </span>
+                <button
+                  onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                >✕</button>
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
+            {Number(s.donor_count?.[ngo?.id] || 0).toLocaleString('en-IN')} donor{Number(s.donor_count?.[ngo?.id] || 0) === 1 ? '' : 's'}
+          </div>
+          {at && (
+            <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+              → {at.target_station}
+            </div>
+          )}
+        </td>
+        <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
+          <SearchableSelect
+            options={froWorkers}
+            value={s.fro_worker_id || ''}
+            onChange={(val) => handleFroChange(s.station, val)}
+            placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
+          />
+        </td>
+
+      </tr>
+    );
+  };
 
   // ngoId scopes the export to one NGO. Omitted, the endpoint unions every NGO
   // that uses this station NAME - which is a different number from the per-NGO
@@ -3049,11 +3173,11 @@ export default function StationManagement() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 205 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, flexWrap: 'wrap' }}>
-          <span>Target <strong>â‚¹{Number(targetAmt || 0).toLocaleString('en-IN')}</strong></span>
+          <span>Target <strong>₹{Number(targetAmt || 0).toLocaleString('en-IN')}</strong></span>
           <SourcePill source={source} monthsEmployed={t?.months_employed} sourceMonth={t?.target_source_month} />
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-soft)', display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span>Salary <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{salary != null ? 'â‚¹' + Number(salary).toLocaleString('en-IN') : 'â€”'}</strong></span>
+          <span>Salary <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{salary != null ? '₹' + Number(salary).toLocaleString('en-IN') : '—'}</strong></span>
         </div>
       </div>
     );
@@ -3095,7 +3219,8 @@ export default function StationManagement() {
         </div>
       )}
 
-      {/* NGO selector bar */}
+      {/* NGO selector bar removed (moved into High Tier panel) */}
+      {false && (
       <div className="card" style={{ marginBottom: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>NGO</span>
         <select value={selectedNgoId} onChange={e => {
@@ -3108,6 +3233,7 @@ export default function StationManagement() {
           <span className="pill pill-blue">All NGOs</span>
         )}
       </div>
+      )}
 
       <div className="card">
         <div className="card-head" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
@@ -3123,7 +3249,7 @@ export default function StationManagement() {
                   <Settings size={14} /> Tools <ChevronDown size={12} />
                 </button>
                 {toolsOpen && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 200 }}>
+                  <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 200 }}>
                     <button onClick={async () => { setToolsOpen(false); try { const res = await apiPost('/ngo-admin/stations/seed', { ngo_id: selectedNgoId }); setMsg(res.message || 'Stations seeded'); fetchData(); } catch (err) { setMsg('Error: ' + err.message); } }}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'left', color: 'var(--ink)', fontFamily: 'inherit' }}>
                       Seed Default Stations
@@ -3148,12 +3274,12 @@ export default function StationManagement() {
                 )}
               </div>
               <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
-                style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', width: 150 }} />
+                style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, width: 150 }} />
             </div>
           </div>
 
           {/* NGO tabs */}
-          {ngoGroupList.size > 0 && (
+          {false && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2, flexWrap: 'wrap' }}>
               {ngoTabs.map(tab => (
                 <button key={tab.key}
@@ -3178,10 +3304,9 @@ export default function StationManagement() {
           {/* Station tabs */}
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2, flexWrap: 'wrap' }}>
             {[
-              { key: 'all', label: 'All Stations' },
-              { key: 'old', label: 'Old Stations' },
-              { key: 'fresh', label: 'Fresh Stations (FD)' },
-              { key: 'high-tier', label: 'High Tier' },
+              { key: 'old', label: 'Old' },
+              { key: 'new', label: 'New' },
+              { key: 'high-tier', label: 'High' },
             ].map(tab => (
               <button key={tab.key} onClick={() => setStationTab(tab.key)}
                 style={{
@@ -3225,8 +3350,17 @@ export default function StationManagement() {
             />
           ) : loading ? (
             <div className="loading">Loading stations...</div>
+          ) : (stationTab === 'old' || stationTab === 'new') ? (
+            <StationNgoColumns
+              stations={filteredStations}
+              froWorkers={froWorkers}
+              allNgos={allNgos}
+              searchTerm={searchTerm}
+              fresh={stationTab === 'new'}
+              renderRow={renderStationRow}
+            />
           ) : filteredStations.length === 0 ? (
-            <div className="empty-state"><p>No {stationTab === 'fresh' ? 'FRESH (FD)' : stationTab === 'old' ? 'OLD' : ''} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
+            <div className="empty-state"><p>No {stationTab === 'new' ? 'NEW' : stationTab === 'old' ? 'OLD' : ''} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table className="nga-st">
@@ -3251,32 +3385,30 @@ export default function StationManagement() {
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <strong style={{ fontSize: 15, letterSpacing: '.2px' }}>{s.station}</strong>
-                            {isFreshStation(s.station) && (
-                              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#dbeafe', color: '#1e40af' }}>FRESH</span>
-                            )}
+
                           </div>
                           <span className="nga-ngo-sub" style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: ngoCol, marginTop: 2, textTransform: 'uppercase', letterSpacing: '.3px' }}>
                             {ngoName || 'No NGO'}
                           </span>
                           {at && (
                             <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
-                              â†’ {at.target_station}
+                              → {at.target_station}
                             </div>
                           )}
                           {liveGrantsFor(s).map(g => (
                             <div key={g.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                               <span
-                                title={`Temporary access${g.working_fro_name ? ` â€” ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST. Ownership unchanged: ${(froWorkers.find(fw => fw.id === s.fro_worker_id) || {}).name || 'the permanent FRO'} remains the permanent FRO.`}
-                                className="ta-station-badge"
+                                title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST. Ownership unchanged: ${(froWorkers.find(fw => fw.id === s.fro_worker_id) || {}).name || 'the permanent FRO'} remains the permanent FRO.`}
+                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                               >
-                                <Clock size={10} />
-                                TEMP: {g.working_fro_name || 'FRO'} till {fmtIstShort(g.expires_at)}
+                                {g.working_fro_name || 'FRO'}
                               </span>
                               <button
                                 onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
                                 title="Revoke this temporary access now"
                                 aria-label="Revoke temporary access"
-                              >✕ Revoke</button>
+                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                              >✕</button>
                             </div>
                           ))}
                         </td>
@@ -3341,12 +3473,12 @@ export default function StationManagement() {
         <div className="modal-overlay" onClick={() => setEditTarget(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head">
-              <h3>Set Target â€” {editTarget.name}</h3>
+              <h3>Set Target — {editTarget.name}</h3>
               <button className="btn btn-sm btn-outline" onClick={() => setEditTarget(null)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <div className="field">
-                <label>Monthly Target Amount (â‚¹)</label>
+                <label>Monthly Target Amount (₹)</label>
                 <input type="number" value={targetAmount} onChange={e => setTargetAmount(e.target.value)} min="0" />
               </div>
               <div className="modal-actions">
@@ -3375,7 +3507,7 @@ export default function StationManagement() {
         <div className="modal-overlay" onClick={() => setEditNgoStation(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
-              <h3>Edit Station â€” {editNgoStation}</h3>
+              <h3>Edit Station — {editNgoStation}</h3>
               <button className="btn btn-sm btn-outline" onClick={() => setEditNgoStation(null)}><X size={14} /></button>
             </div>
             <div className="modal-body">
@@ -3436,6 +3568,54 @@ export default function StationManagement() {
         />
       )}
 
+      {stationDetailTarget && (() => {
+        const s = stationDetailTarget;
+        const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
+        const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+        return (
+          <div className="modal-overlay" onClick={() => setStationDetailTarget(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+              <div className="modal-head">
+                <h3 style={{ margin: 0 }}>{s.station}</h3>
+                <button className="btn btn-sm btn-outline" onClick={() => setStationDetailTarget(null)}>✕</button>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 13 }}>
+                  <strong>Active FRO:</strong> {s.fro_worker_name || w?.name || '—'}
+                </div>
+                {liveGrantsFor(s).map(g => (
+                  <div key={g.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Temp access:</span>
+                    <span>{g.working_fro_name || 'FRO'} till {fmtIstShort(g.expires_at)}</span>
+                    <button
+                      onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                      style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                    >✕</button>
+                  </div>
+                ))}
+                <div style={{ fontSize: 13 }}>
+                  <strong>Donors:</strong> {renderDonorPills(s)}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 8 }}>
+                  <StationKebab
+                    activeTransfer={at}
+                    returningId={returningId}
+                    onReturn={at ? handleReturnEarly : null}
+                    onUpload={() => setUploadStation(s.station)}
+                    onViewList={() => { setStationDetailTarget(null); setDonorListTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) }); }}
+                    onAddDonor={() => setAddDonorTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) })}
+                    onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
+                    onTarget={() => openTarget(s)}
+                    onGrantTempAccess={() => setTempAccessTarget({ station: s.station, ngoId: ngoScopeForRow(s), permanentFroId: s.fro_worker_id || null, permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null, donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0 })}
+                    onDelete={() => { setStationDetailTarget(null); handleDeleteStation(s.station); }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {donorListTarget && (
         <StationDonorsModal
           station={donorListTarget.station}
@@ -3471,18 +3651,18 @@ export default function StationManagement() {
         />
       )}
 
-      {/* â”€â”€ Revoke temporary access confirmation â”€â”€ */}
+      {/* ── Revoke temporary access confirmation ── */}
       {revokeGrantTarget && (
         <div className="modal-overlay" onClick={() => !revokingGrant && setRevokeGrantTarget(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 430 }}>
             <div className="modal-head">
-              <h3>Revoke temporary access â€” {revokeGrantTarget.station}</h3>
+              <h3>Revoke temporary access — {revokeGrantTarget.station}</h3>
               <button className="icon-btn" onClick={() => setRevokeGrantTarget(null)} aria-label="Close" disabled={revokingGrant}><X size={16} /></button>
             </div>
             <div style={{ padding: 16, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 10px' }}>
                 <b>{revokeGrantTarget.grant.working_fro_name || 'The FRO'}</b> immediately loses access to <b>{revokeGrantTarget.station}</b> on
-                their next request â€” the station disappears from their list and open pages will show a notice.
+                their next request — the station disappears from their list and open pages will show a notice.
               </div>
               <div style={{ color: 'var(--ink-soft)' }}>
                 Completed calls, dispositions, donations and receipts stay exactly where they are, and{' '}
@@ -3497,7 +3677,7 @@ export default function StationManagement() {
                 style={{ background: '#dc2626', borderColor: '#dc2626' }}
                 disabled={revokingGrant}
                 onClick={handleRevokeGrant}
-              >{revokingGrant ? 'Revokingâ€¦' : 'Revoke now'}</button>
+              >{revokingGrant ? 'Revoking…' : 'Revoke now'}</button>
             </div>
           </div>
         </div>
@@ -3505,4 +3685,3 @@ export default function StationManagement() {
     </div>
   );
 }
-

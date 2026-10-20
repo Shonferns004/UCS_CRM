@@ -357,9 +357,8 @@ export default function Recruiters() {
                     const displayAge = lead.dob ? calcAge(lead.dob) : lead.age;
                     return (
                       <tr key={lead.id} className="rec-lead-row">
-                        <td><strong>{lead.name}</strong></td>
                         <td>
-                          {lead.phone || '\u2014'}
+                          <strong>{lead.name}</strong>
                           {lead.phone && (
                             <button type="button" title="Send WhatsApp"
                               onClick={(e) => { e.stopPropagation(); const num = String(lead.phone).replace(/\D/g, ''); if (num) window.open('https://wa.me/' + num, '_blank', 'noopener'); }}
@@ -368,6 +367,7 @@ export default function Recruiters() {
                             </button>
                           )}
                         </td>
+                        <td>{lead.phone || '\u2014'}</td>
                         <td><Pill label={cleanField(lead.source)} /></td>
                         <td>
                           <span className="status-dot" style={{ background: st.color }} />

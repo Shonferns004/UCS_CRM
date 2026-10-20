@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock, Wallet } from 'lucide-react';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
@@ -25,9 +26,9 @@ function Arrow({ good }) {
   );
 }
 
-function Metric({ label, value, good, accent, icon, valueColor, className }) {
+function Metric({ label, value, good, accent, icon, valueColor, className, innerRef }) {
   return (
-    <div className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+    <div ref={innerRef} className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <span style={{ color: accent || '#94a3b8', display: 'inline-flex' }}>{icon}</span>
         <span style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.8px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
@@ -37,6 +38,77 @@ function Metric({ label, value, good, accent, icon, valueColor, className }) {
         {good != null && <Arrow good={good} />}
       </span>
     </div>
+  );
+}
+
+function IdleMetric({ value, idleSeconds, isIdle }) {
+  const ref = useRef(null);
+  const [rect, setRect] = useState(null);
+  const danger = (idleSeconds ?? 0) > 3600;
+  useEffect(() => {
+    if (!danger) { setRect(null); return; }
+    const update = () => {
+      if (ref.current) setRect(ref.current.getBoundingClientRect());
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    let ro;
+    if (typeof ResizeObserver !== 'undefined' && ref.current) {
+      ro = new ResizeObserver(update);
+      ro.observe(ref.current);
+    }
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+      if (ro) ro.disconnect();
+    };
+  }, [danger]);
+  return (
+    <>
+      <Metric
+        label="Idle"
+        value={value}
+        good={!(isIdle)}
+        accent={(idleSeconds ?? 0) > 0 ? '#7f1d1d' : '#64748b'}
+        valueColor={danger ? '#7f1d1d' : undefined}
+        className={danger ? 'idle-danger' : ''}
+        icon={<Clock size={16} />}
+        innerRef={ref}
+      />
+      {danger && rect && createPortal(
+        <>
+          <div style={{
+            position: 'fixed',
+            left: rect.left - 3,
+            top: rect.top - 3,
+            width: rect.width + 6,
+            height: rect.height + 6,
+            border: '2px solid rgba(127, 29, 29, .75)',
+            borderRadius: 0,
+            pointerEvents: 'none',
+            zIndex: 99999,
+            transformOrigin: 'center center',
+            animation: 'idle-ripple 1.6s ease-out infinite',
+          }} />
+          <div style={{
+            position: 'fixed',
+            left: rect.left - 3,
+            top: rect.top - 3,
+            width: rect.width + 6,
+            height: rect.height + 6,
+            border: '2px solid rgba(127, 29, 29, .75)',
+            borderRadius: 0,
+            pointerEvents: 'none',
+            zIndex: 99999,
+            transformOrigin: 'center center',
+            animation: 'idle-ripple 1.6s ease-out infinite',
+            animationDelay: '.8s',
+          }} />
+        </>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -77,7 +149,7 @@ return (
           {/* Idle today, including a period still running. The timer in the top
               bar is what produces it, so this is the FRO's own answer to "how
               much of my day was actually productive". */}
-          <Metric label="Idle" value={formatDuration(data?.idle_seconds)} good={!(data?.is_idle)} accent={(data?.idle_seconds ?? 0) > 0 ? '#dc2626' : '#64748b'} valueColor={(data?.idle_seconds ?? 0) > 3600 ? '#dc2626' : undefined} className={(data?.idle_seconds ?? 0) > 3600 ? 'idle-danger' : ''} icon={<Clock size={16} />} />
+          <IdleMetric value={formatDuration(data?.idle_seconds)} idleSeconds={data?.idle_seconds} isIdle={data?.is_idle} />
 <Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
           <Metric label="Collections" value={`₹${Number(data?.today_collected ?? 0).toLocaleString('en-IN')}`} accent="#16a34a" valueColor="#16a34a" icon={<Wallet size={16} />} />
           {/* Live call timer, parked after Performance so it reads as the last
@@ -115,9 +187,10 @@ export default function MyLeadsSuspense() {
         height: stripH,
         minWidth: 0,
         position: 'relative',
+        zIndex: 9999,
         background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
         borderBottom: '1px solid #e6eaf2',
-        overflow: 'hidden',
+        overflow: 'visible',
         display: 'flex',
       }}>
         <PersonalPerformance />
@@ -169,27 +242,17 @@ export default function MyLeadsSuspense() {
         }
         /* Idle tile turns red + ripples + heartbeat once idle crosses 1 hour. */
         .metric-cell.idle-danger {
-          background: #fef2f2;
+          background: #fecaca;
           position: relative;
           overflow: visible;
           animation: idle-heartbeat 1.1s ease-in-out infinite;
+          z-index: 9999;
         }
-        .metric-cell.idle-danger::before,
-        .metric-cell.idle-danger::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          border: 2px solid rgba(220, 38, 38, .45);
-          border-radius: 0;
-          pointer-events: none;
-          animation: idle-ripple 1.8s ease-out infinite;
-        }
-        .metric-cell.idle-danger::after {
-          animation-delay: .9s;
-        }
+        /* Ripple is portaled to document.body so it can render above the sticky
+           header; keep only the red tile + heartbeat here. */
         @keyframes idle-ripple {
-          0% { transform: scale(1); opacity: .7; }
-          100% { transform: scale(1.5); opacity: 0; }
+          0% { transform: scale(1); opacity: .9; }
+          100% { transform: scale(1.3); opacity: 0; }
         }
         @keyframes idle-heartbeat {
           0%, 100% { transform: scale(1); }
