@@ -1604,9 +1604,11 @@ export const generateNgoMonthlyReport = async (req, res) => {
 
     // Photos for the planner rows. A programme shows the photo of the event it
     // was turned into, resolved (in order) through suggested_event_id, the
-    // durable planner link (date + festival), then a name+date+NGO match — with
-    // the uploaded banner first and the event's ★ default photo (images[0])
-    // after it. Rows with no linked event simply carry no photo.
+    // durable planner link (date + festival + NGO), then a name+date+NGO match —
+    // with the uploaded banner first and the event's ★ default photo (images[0])
+    // after it. Rows with no linked event simply carry no photo. Every step is
+    // scoped to the row's own NGO, so a row is never credited with another
+    // NGO's event — the report's "Completed" badge is exactly this photo.
     const events = await EventHead.getAllEventHeadEvents({ ngo_id, month, year }).catch(() => []);
     const eventById = new Map(events.map(e => [String(e.id), e]));
     const eventByNameDate = new Map();
@@ -1628,13 +1630,19 @@ export const generateNgoMonthlyReport = async (req, res) => {
       start: `${year}-${mm}-01`,
       end: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`,
     }).catch(() => []);
+    // Keyed by NGO as well as date + festival: BSCT and MANN may both plan the
+    // same festival on the same date, and one NGO's event must never resolve
+    // onto the other's row (which is what showed a MANN programme as completed
+    // under BSCT). A link with no NGO is stored as '' and only ever matches a
+    // row that also has none.
     const linkMap = new Map(links.map(l => [
-      `${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
+      `${String(l.ngo_id ?? '')}|${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
       l.event_id,
     ]));
     const imageFor = (ngoId, date, festival, suggestedId) => {
       const f = String(festival || '').trim();
-      const evId = suggestedId != null ? suggestedId : linkMap.get(`${date}|${f}`);
+      const ngoKey = ngoId != null && ngoId !== '' ? String(ngoId) : '';
+      const evId = suggestedId != null ? suggestedId : linkMap.get(`${ngoKey}|${date}|${f}`);
       let linked = evId != null ? eventById.get(String(evId)) : null;
       if (!linked) linked = eventByNameDate.get(`${ngoId != null ? String(ngoId) : ''}|${date}|${f.toLowerCase()}`);
       if (!linked) return { url: null };

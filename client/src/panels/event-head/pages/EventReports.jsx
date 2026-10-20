@@ -643,7 +643,7 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
    a programme is never dropped by event de-duplication and test / duplicate
    events never appear here. */
 function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef }) {
-  const rows = n.events || []
+  const rows = (n.events || []).filter(ev => ev.image)
   const headerBg = theme.color
   const bannerSrc = n.banner || theme.banner
   const rounded = theme.name === 'AFLF'
@@ -660,7 +660,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef }) {
 
       <div style={{ padding: '14px 16px' }}>
         {rows.length === 0 ? (
-          <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No programmes planned this month.</div>
+          <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No completed programmes this month.</div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
             {rows.map((ev, i) => (

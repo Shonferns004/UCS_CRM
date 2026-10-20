@@ -1039,10 +1039,12 @@ export const setFestivalSuggestionSelected = async (id, is_selected, suggested_e
 };
 
 // ─── MONTHLY PLANNER: durable row → created-event link ───
-/* A planner row is identified by (observance_date, festival). This is the
-   row-level record written when the head creates the event, so the row's
-   Download button survives a reload and shows on every device — including rows
-   that carry no AI suggestion to hang the link on. */
+/* A planner row is identified by (observance_date, festival, ngo_id): the row
+   is assigned to an NGO, and two NGOs may plan the same festival on the same
+   date. This is the row-level record written when the head creates the event,
+   so the row's Download button survives a reload and shows on every device —
+   including rows that carry no AI suggestion to hang the link on. A link's
+   ngo_id is '' when no NGO could be resolved. */
 
 export const getPlannerEventLinks = async ({ start, end, ngo_id } = {}) => {
   let query = db.from('event_head_planner_event_links')
@@ -1059,13 +1061,18 @@ export const upsertPlannerEventLink = async ({ observance_date, festival, ngo_id
   const row = {
     observance_date: String(observance_date || '').slice(0, 10),
     festival: String(festival ?? ''),
-    ngo_id: ngo_id != null && ngo_id !== '' ? String(ngo_id) : null,
+    // Keyed per NGO. BSCT and MANN may both plan the same festival on the same
+    // date, so each keeps its own link — otherwise the second save overwrites
+    // the first and both rows resolve to whichever event was written last.
+    // Never NULL: Postgres treats NULLs as distinct, so a NULL would slip past
+    // the unique index and reintroduce that overwrite.
+    ngo_id: ngo_id != null && ngo_id !== '' ? String(ngo_id) : '',
     event_id: Number(event_id),
     created_by: created_by != null && created_by !== '' ? String(created_by) : null,
     updated_at: new Date(),
   };
   const { data, error } = await db.from('event_head_planner_event_links')
-    .upsert(row, { onConflict: 'observance_date,festival' })
+    .upsert(row, { onConflict: 'observance_date,festival,ngo_id' })
     .select().single();
   if (error) throw error;
   return data;
