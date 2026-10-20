@@ -217,15 +217,15 @@ export default function TemplateBar({ conversationId, contactId, project, userId
                       handleSend(tpl, [])
                     }
                   }}
-                  disabled={sending || tpl.status !== 'approved'}
+                  disabled={sending || String(tpl.status || '').toUpperCase() !== 'APPROVED'}
                   style={{
                     padding: '4px 10px',
                     fontSize: 11,
                     fontWeight: 600,
                     border: '1px solid #e5e7eb',
                     borderRadius: 14,
-                    background: tpl.status === 'approved' ? '#fff' : '#f3f4f6',
-                    color: tpl.status === 'approved' ? '#374151' : '#9ca3af',
+background: String(tpl.status || '').toUpperCase() === 'APPROVED' ? '#fff' : '#f3f4f6',
+color: String(tpl.status || '').toUpperCase() === 'APPROVED' ? '#374151' : '#9ca3af',
                     cursor: sending || tpl.status !== 'approved' ? 'not-allowed' : 'pointer',
                   }}
                 >

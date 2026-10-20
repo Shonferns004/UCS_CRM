@@ -12,7 +12,7 @@ const PROJECT_OPTIONS = [
   { value: 'bsct2', label: 'Being Sevak 2' },
   { value: 'mann', label: 'Mann Care' },
   { value: 'aflf', label: 'Ashray' },
-  { value: 'ucs', label: 'Ultimate Consultancy Services' },
+  { value: 'aflf2', label: 'Ashray 2' },
 ];
 
 const emptyForm = {
@@ -39,6 +39,22 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [showToken, setShowToken] = useState(false);
   const [search, setSearch] = useState('');
   const [loadError, setLoadError] = useState(null);
+
+  // `project` is UNIQUE in whatsapp_accounts (one number per project, and
+  // send-time routing picks the number from the donor's project). So a project
+  // that already has an account must not be selectable again — otherwise the
+  // save fails with a bare "already exists" from the 23505 constraint.
+  const occupiedProjects = new Set(accounts.map(a => String(a.project || '').toLowerCase()));
+  const isTaken = (project) => {
+    const code = String(project || '').toLowerCase();
+    if (!occupiedProjects.has(code)) return false;
+    // When editing, an account's own project is not "taken" by itself.
+    return !editing || String(editing.project || '').toLowerCase() !== code;
+  };
+  const firstFreeProject = () => (PROJECT_OPTIONS.find(o => !occupiedProjects.has(o.value)) || PROJECT_OPTIONS[0]).value;
+  // Every known project already has a number: adding is impossible until one
+  // is deleted (the UNIQUE index on `project` allows exactly one row each).
+  const allProjectsTaken = PROJECT_OPTIONS.every(o => occupiedProjects.has(o.value));
 
   async function loadAccounts() {
     setLoading(true);
@@ -74,6 +90,11 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const handleSave = async () => {
     if (!form.name || !form.phone_number_id || !form.access_token || !form.waba_id) {
       alert('Name, Phone Number ID, Access Token, and WABA ID are required');
+      return;
+    }
+    if (isTaken(form.project)) {
+      const label = PROJECT_OPTIONS.find(o => o.value === form.project)?.label || form.project;
+      alert(`${label} already has a WhatsApp account. Each project can have only one number — edit the existing account or pick another project.`);
       return;
     }
     setSaving(true);
@@ -238,12 +259,24 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
           <button
             type="button"
             className="wa-btn wa-btn-primary"
-            onClick={() => { resetForm(); setShowForm(!showForm); }}
+            disabled={allProjectsTaken && !showForm}
+            title={allProjectsTaken && !showForm ? 'All projects already have an account' : undefined}
+            onClick={() => {
+              if (showForm) { resetForm(); return; }
+              resetForm();
+              setForm({ ...emptyForm, project: firstFreeProject() });
+              setShowForm(true);
+            }}
           >
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
             {showForm ? 'Cancel' : 'Add Account'}
           </button>
         </div>
+        {allProjectsTaken && !showForm && (
+          <p className="wa-form-hint">
+            All five projects already have a WhatsApp account. Delete one to add another, or edit an existing account.
+          </p>
+        )}
       </header>
 
       <div className="wa-stats">
@@ -275,7 +308,10 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
             <label className="wa-f">
               <span className="wa-f-label">Project</span>
               <select className="wa-select" value={form.project} onChange={e => setForm(p => ({ ...p, project: e.target.value }))}>
-                {PROJECT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {PROJECT_OPTIONS.map(o => {
+                  const taken = isTaken(o.value);
+                  return <option key={o.value} value={o.value} disabled={taken}>{taken ? `${o.label} (already added)` : o.label}</option>;
+                })}
               </select>
             </label>
             <label className="wa-f">
@@ -352,7 +388,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
           <button
             type="button"
             className="wa-btn wa-btn-primary"
-            onClick={() => { resetForm(); setShowForm(true); }}
+            onClick={() => { resetForm(); setForm({ ...emptyForm, project: firstFreeProject() }); setShowForm(true); }}
           >
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
             Add Account

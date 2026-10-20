@@ -4,6 +4,15 @@ import db, { getTableColumns } from '../config/db.js';
 // A row is one task one manager handed to one Social team member for a date.
 
 const TABLE = 'task_assignments';
+
+// Exclusive end bound for a YYYY-MM month. `${month}-31` used to be the bound
+// and it breaks on every 30-day month and February ("date/time field value out
+// of range"), which failed the whole list — so assignments looked deleted on a
+// refresh while the rows were still in the table.
+const monthEndExclusive = (month) => {
+  const [y, m] = String(month).split('-').map(Number);
+  return `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+};
 const BASE_COLUMNS = [
   'id', 'panel', 'task_date', 'title', 'description', 'content_type',
   'assignee_id', 'assignee_name', 'assigned_by_id', 'assigned_by_name', 'status', 'created_at',
@@ -36,7 +45,7 @@ export const createAssignment = async (row) => {
 export const listAssignments = async (panel, { date, month } = {}) => {
   let query = db.from(TABLE).select(await selectCols()).eq('panel', panel);
   if (date) query = query.eq('task_date', date);
-  if (month) query = query.gte('task_date', `${month}-01`).lte('task_date', `${month}-31`);
+  if (month) query = query.gte('task_date', `${month}-01`).lt('task_date', monthEndExclusive(month));
   const { data, error } = await query.order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];

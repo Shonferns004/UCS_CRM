@@ -24,6 +24,15 @@ const REVIEW_COLUMNS = ['review_status', 'reviewed_by', 'reviewed_at'];
 // missing column.
 const REVIEW_NOTE_COLUMN = 'review_note';
 
+// Exclusive end bound for a YYYY-MM month. `${month}-31` breaks on every 30-day
+// month and February ("date/time field value out of range"), which failed the
+// whole list — e.g. the planner's accepted-days lookup returned nothing and
+// assignments looked deleted after a month change / refresh.
+const monthEndExclusive = (month) => {
+  const [y, m] = String(month).split('-').map(Number);
+  return `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+};
+
 // db.js caches information_schema with a short TTL, so this is cheap and picks
 // the new columns up ~30s after the migration lands without a restart.
 const colsWithReview = async () => {
@@ -100,7 +109,7 @@ export const listAllForMonth = async (month, { panel, department, reporter_id } 
     .from('daily_reports')
     .select(await selectCols())
     .gte('report_date', `${month}-01`)
-    .lte('report_date', `${month}-31`);
+    .lt('report_date', monthEndExclusive(month));
   if (panel) q = q.eq('panel', panel);
   if (department) q = q.eq('department', department);
   if (reporter_id) q = q.eq('reporter_id', reporter_id);
@@ -121,7 +130,7 @@ export const listMineForMonth = async (panel, month, reporter_name) => {
     .eq('panel', panel)
     .eq('reporter_name', reporter_name)
     .gte('report_date', `${month}-01`)
-    .lte('report_date', `${month}-31`)
+    .lt('report_date', monthEndExclusive(month))
     .order('report_date', { ascending: true });
   if (error) throw error;
   return data || [];
@@ -140,7 +149,7 @@ export const listAcceptedForMonth = async (panel, month) => {
     .eq('panel', panel)
     .eq('review_status', 'accepted')
     .gte('report_date', `${month}-01`)
-    .lte('report_date', `${month}-31`)
+    .lt('report_date', monthEndExclusive(month))
     .order('report_date', { ascending: true });
   if (error) throw error;
   return data || [];

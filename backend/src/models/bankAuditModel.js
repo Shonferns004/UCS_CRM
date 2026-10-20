@@ -164,9 +164,9 @@ export const getReceiptNumbers = async (projectIds = ['bsct', 'mann', 'aflf']) =
 // donation assigned to any NGO resolves to the project code its receipts are
 // numbered under.
 const NGO_PROJECT_ALIASES = {
-  bsct: ['bsct', 'beingsevak', 'being sevak', 'sevak'],
+  bsct: ['bsct', 'bsct2', 'beingsevak', 'being sevak', 'sevak'],
   mann: ['mann', 'manncar', 'mann care', 'manncare', 'maan'],
-  aflf: ['aflf', 'ashray', 'ashray life'],
+  aflf: ['aflf', 'aflf2', 'ashray', 'ashray life'],
   library: ['library'],
   pg: ['pg'],
 };

@@ -1259,6 +1259,10 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
     import('./services/froMonthlyRollover.js').then((m) => m.start?.());
     import('./services/froIdleReconcileScheduler.js').then((m) => m.start?.());
+    // Re-sends outbound WhatsApp messages Meta failed after accepting them
+    // (130429 and other transient codes), with a 1m/5m/15m ladder — see
+    // services/messageRetryScheduler.js.
+    import('./services/messageRetryScheduler.js').then((m) => m.startAutoRetrySweep?.());
     // Hard ceiling on resident memory: restart (via PM2) if RSS stays over
     // MEM_WATCHDOG_MB (default 900) for 20s, so the 2 GB box can never OOM.
     startMemoryWatchdog();

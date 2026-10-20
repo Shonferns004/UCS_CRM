@@ -494,8 +494,19 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
 
 /* ── Step 3 · Add Activity (NGO-wise) ────────────────────────────────────── */
 
-function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
+function AddActivityModal({ ngos, ngo, sectors, month, onClose, onSaved }) {
   const [name, setName] = useState('')
+  // The NGO this activity is added under, chosen from the tab row at the top of
+  // the modal. Starts on the NGO already in scope on the page (or the first
+  // known NGO), so the common case needs no click.
+  const [pickedNgoId, setPickedNgoId] = useState(() => {
+    if (ngo?.id) return String(ngo.id)
+    return Array.isArray(ngos) && ngos.length ? String(ngos[0].id) : ''
+  })
+  const pickedNgo = useMemo(
+    () => ngos.find((n) => String(n.id) === String(pickedNgoId)) || null,
+    [ngos, pickedNgoId]
+  )
   const [sectorId, setSectorId] = useState('')
   const [description, setDescription] = useState('')
   // Which category this activity serves, picked from the closed dropdown. Empty
@@ -520,7 +531,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   const days = useMemo(() => daysInMonth(month), [month])
 
   const submit = async () => {
-    if (!ngo) return setError('Choose an NGO first.')
+    if (!pickedNgo) return setError('Choose an NGO first.')
     if (!name.trim()) return setError('Activity name is required.')
     if (!sectorId) return setError('Choose a sector for the activity.')
     setBusy(true); setError('')
@@ -533,7 +544,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
       const payload = {
         name: activityName,
         sector_id: Number(sectorId),
-        ngo_id: ngo.id,
+        ngo_id: pickedNgo.id,
         description: desc,
         // The group this activity serves. The backend drops the field when
         // migration 168 has not been applied, so this can never block the save.
@@ -559,7 +570,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
     try {
       const programme = await createEvent({
         name: activityName,
-        ngo_id: ngo.id,
+        ngo_id: pickedNgo.id,
         sector_id: Number(sectorId),
         activity_ids: created?.id ? [created.id] : [],
         date,
@@ -582,7 +593,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   return (
     <ModalShell
       title="Add Activity"
-      subtitle={ngo ? `New activity for ${ngo.name}` : 'New activity'}
+      subtitle={pickedNgo ? `New activity for ${pickedNgo.name}` : 'New activity'}
       onClose={onClose}
       footer={
         <>
@@ -594,15 +605,35 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {!ngo && (
+        {/* NGO tabs: one tab per NGO. Clicking a tab is what selects the NGO —
+            there is no separate dropdown, so "which NGO" is answered in one
+            place. */}
+        <Field label="NGO">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {ngos.map((n) => {
+              const on = String(n.id) === String(pickedNgoId)
+              return (
+                <button
+                  key={n.id}
+                  type="button"
+                  className="eh-btn eh-btn-sm"
+                  aria-pressed={on}
+                  disabled={busy}
+                  onClick={() => { setPickedNgoId(String(n.id)); setSectorId('') }}
+                  style={on ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
+                >
+                  {ngoShortLabel(n)}
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+
+        {!pickedNgo && (
           <div style={{ padding: '11px 14px', borderRadius: 12, background: 'var(--eh-warn-soft, #fff8e1)', color: 'var(--eh-ink)', fontSize: 13 }}>
-            Pick a single NGO above before adding an activity.
+            Pick an NGO above before adding an activity.
           </div>
         )}
-
-        <Field label="NGO">
-          <input className="eh-select" value={ngo ? ngo.name : ''} disabled placeholder="Selected above" readOnly />
-        </Field>
 
         <Field label="Sector" hint="Every activity must belong to exactly one sector.">
           <Select value={sectorId} onChange={setSectorId}>
@@ -680,7 +711,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
             </span>
             <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>
               Only ticked activities are listed in the downloaded file. Leave this on if this is part of
-              what {ngo?.name || 'the NGO'} reports every month.
+              what {pickedNgo?.name || 'the NGO'} reports every month.
             </span>
           </span>
         </label>
@@ -2224,18 +2255,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return list
   }, [activities, sectorFilter, beneficiaryFilter, search])
 
-  /* The full closed category list, always — not a set derived from whatever
-     happens to be in scope. Every category is offered whether or not an activity
-     carries it yet, so a filter can be set up before the first activity of that
-     kind exists (it simply shows none), and the options never reshuffle. */
-  const beneficiaryOptions = useMemo(() => BENEFICIARY_GROUPS, [])
-
-  /* A filter still pointing at a category the vocabulary no longer contains
-     (list edited between sessions) would show an empty list with no way back. */
-  useEffect(() => {
-    if (beneficiaryFilter && !beneficiaryOptions.includes(beneficiaryFilter)) setBeneficiaryFilter('')
-  }, [beneficiaryFilter, beneficiaryOptions])
-
   /* Grouped through a Map rather than by comparing against the previous row:
      activities arrive in created_at order, so one sector used to be split into
      two headers. Sectors and the activities inside them are both sorted, so the
@@ -2987,7 +3006,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
        silently override the month. */
     const landed = String(date || programme?.date || '').slice(0, 10)
     setLastScheduled(landed.startsWith(`${month}-`) ? landed : '')
-    if (ngo && activity?.id) {
+    // The NGO the activity was actually filed under. The modal's tab row owns
+    // NGO selection now, so this follows the saved record rather than the page's
+    // page-wide NGO pick (which may be "All NGOs").
+    const addedNgo = ngos.find((n) => String(n.id) === String(activity?.ngo_id)) || ngo
+    if (addedNgo && activity?.id) {
       setJustAddedId(activity.id)
       setSuggestFor({
         ...activity,
@@ -3534,29 +3557,43 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 Assign Task
               </button>
             )}
-            <button
-              className="eh-btn eh-btn-primary"
-              onClick={() => setAddOpen(true)}
-              disabled={!ngo}
-              title={ngo ? `Add an activity to ${ngo.name}` : 'Pick a single NGO to add an activity to it'}
-            >
-              + Add Activity
-            </button>
           </>
         }
       />
 
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-            <Field label="NGO">
-            
-              <Select value={ngoId} onChange={(v) => { setNgoId(v); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }} style={{ minWidth: 210 }}>
-                <option value="">All NGOs</option>
-                {ngos.map((n) => (
-                  <option key={n.id} value={n.id}>{ngoShortLabel(n)}</option>
-                ))}
-              </Select>
-            </Field>
+          {/* NGO tabs: one tab per NGO plus a leading "All NGOs". Picking a tab is
+              the same choice the NGO dropdown used to carry; the two stay in sync
+              through the shared ngoId. */}
+          {ngos.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
+              <button
+                type="button"
+                className="eh-btn eh-btn-sm"
+                aria-pressed={!ngoId}
+                onClick={() => { setNgoId(''); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }}
+                style={!ngoId ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
+              >
+                All NGOs
+              </button>
+              {ngos.map((n) => {
+                const on = String(n.id) === String(ngoId)
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className="eh-btn eh-btn-sm"
+                    aria-pressed={on}
+                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }}
+                    style={on ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
+                  >
+                    {ngoShortLabel(n)}
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
           <Field label="Month">
             <div style={{ display: 'flex', gap: 8 }}>
@@ -3569,34 +3606,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             </div>
           </Field>
 
-          <Field label="Sector">
-            <Select value={sectorFilter} onChange={setSectorFilter} style={{ minWidth: 190 }}>
-              <option value="">All sectors</option>
-              {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </Field>
-
-          <Field label="Beneficiary">
-            <Select value={beneficiaryFilter} onChange={setBeneficiaryFilter} style={{ minWidth: 190 }}>
-              {/* The full closed category list, in its fixed order. */}
-              <option value="">All beneficiaries</option>
-              {beneficiaryOptions.map((g) => <option key={g} value={g}>{g}</option>)}
-            </Select>
-          </Field>
-
           <SearchInput value={search} onChange={setSearch} placeholder="Search activities…" style={{ flex: '1 1 180px', minWidth: 160 }} />
-
-          {/* Opens the month calendar in place (its own overlay) on the month
-              being planned here — the planner never leaves for the separate
-              Calendar section. After scheduling a programme it opens on that
-              exact day. */}
-          <button
-            className="eh-btn"
-            onClick={() => setCalendarOpen(true)}
-            title={`View ${monthLabel(month)} as a calendar`}
-          >
-            View in Calendar
-          </button>
         </div>
       </div>
 
@@ -4332,20 +4342,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         )
       })()}
 
-      {calendarOpen && (
-        <MonthlyCalendarView
-          month={month}
-          ngoLabel={ngo ? ngoShortLabel(ngo) : 'All NGOs'}
-          observancesByDate={observancesByDate}
-          programmeRows={calendarProgrammeRows}
-          initialDate={lastScheduled}
-          onClose={() => setCalendarOpen(false)}
-          onChangeMonth={(ym) => { setMonth(ym); setYear(Number(ym.split('-')[0])) }}
-        />
-      )}
-
       {addOpen && (
         <AddActivityModal
+          ngos={ngos}
           ngo={ngo}
           sectors={sectors}
           month={month}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts, updateConversationLabels } from '../../api/whatsappEnhanced'
+import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts, updateConversationLabels, retryMessage } from '../../api/whatsappEnhanced'
 import { parseFilter } from '../../../../hooks/useRealtime'
 import { onDbChange } from '../../../../lib/socket'
 import { useIsMobile } from '../../../../hooks/useIsMobile'
@@ -410,6 +410,20 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser, agentToken, queryClient])
 
+  // Manual Retry on a failed bubble. The endpoint blocks until the re-send
+  // settles, so an invalidate after it shows the real outcome (sent or
+  // failed-again) instead of a hopeful optimistic flip.
+  const handleRetryMessage = useCallback(async (m) => {
+    if (!m?.id) return
+    try {
+      await retryMessage(m.id, agentToken)
+    } catch (err) {
+      console.error('[WhatsAppInbox] retry failed:', err?.message || err)
+    }
+    if (activeConv?.id) queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+  }, [activeConv?.id, agentToken, queryClient])
+
   const justCreatedRef = useRef(null)
 
   const handleNewConv = useCallback(async () => {
@@ -554,7 +568,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
               </div>
             </div>
             <div className="wa-wallpaper" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <MessageList messages={messages} messagesContainerRef={messagesContainerRef} />
+              <MessageList messages={messages} messagesContainerRef={messagesContainerRef} onRetry={handleRetryMessage} />
             </div>
             {mediaFile && (
               <div style={{ padding: '6px 12px', borderTop: '1px solid #e9edef', background: '#fff' }}>
