@@ -78,6 +78,7 @@ class _PerfStripState extends State<PerfStrip> with TickerProviderStateMixin {
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Row(
           children: [
@@ -110,16 +111,17 @@ class _PerfStripState extends State<PerfStrip> with TickerProviderStateMixin {
                 label: 'Idle',
                 value: formatDuration(d?.idleSeconds),
                 good: !(d?.isIdle ?? false),
-                accent: (d?.idleSeconds ?? 0) > 0 ? AppColors.danger : AppColors.inkSoft,
+                accent: (d?.idleSeconds ?? 0) > 0 ? const Color(0xFF7F1D1D) : AppColors.inkSoft,
                 icon: Icons.access_time,
-                valueColor: idleDanger ? AppColors.danger : null,
-                backgroundColor: idleDanger ? AppColors.idleBg : null,
+                valueColor: idleDanger ? const Color(0xFF7F1D1D) : null,
+                backgroundColor: idleDanger ? const Color(0xFFFECACA) : null,
               );
               if (idleDanger) {
                 idleTile = AnimatedBuilder(
                   animation: _heartbeatCtrl,
                   builder: (_, child) => Transform.scale(
                     scale: _heartbeatAnim.value,
+                    alignment: Alignment.center,
                     child: child,
                   ),
                   child: Stack(
@@ -258,19 +260,20 @@ class _PerfStripState extends State<PerfStrip> with TickerProviderStateMixin {
   }
 
   Widget _rippleRing(double t) {
-    final scale = 1.0 + 0.5 * t;
+    final scale = 1.0 + 0.3 * t;
     final opacity = (1.0 - t).clamp(0.0, 1.0);
     return Positioned.fill(
       child: IgnorePointer(
         child: Transform.scale(
           scale: scale,
+          alignment: Alignment.center,
           child: Container(
             decoration: BoxDecoration(
               border: Border.all(
-                color: AppColors.danger.withValues(alpha: (opacity * 0.6).clamp(0.0, 1.0)),
-                width: 2,
+                color: const Color(0xFF7F1D1D).withValues(alpha: (opacity * 0.6).clamp(0.0, 1.0)),
+                width: 1.5,
               ),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.zero,
             ),
           ),
         ),
