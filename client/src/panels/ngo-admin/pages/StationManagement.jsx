@@ -28,6 +28,74 @@ const NGO_NAME_COLORS = {
   mann: '#ec4899',
 };
 
+function groupOfNameLocal(name) {
+  const k = String(name || '').trim().toLowerCase();
+  if (NGO_NAME_COLORS[k]) return k;
+  if (k.includes('bsct')) return 'bsct';
+  if (k.includes('aflf')) return 'aflf';
+  if (k.includes('mann')) return 'mann';
+  return 'other';
+}
+
+function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, renderRow }) {
+  const term = String(searchTerm || '').trim().toLowerCase();
+  const base = (stations || []).filter(s => fresh ? isFreshStation(s.station) : !isFreshStation(s.station));
+  const searched = term ? base.filter(s => String(s.station || '').toLowerCase().includes(term)) : base;
+
+  // One representative NGO per known group (BSCT / AFLF / MANN).
+  const groupNgo = {};
+  for (const n of (allNgos || [])) {
+    const g = groupOfNameLocal(n.name);
+    if ((g === 'bsct' || g === 'aflf' || g === 'mann') && !groupNgo[g]) groupNgo[g] = n;
+  }
+
+  const froNameOf = (id) => (froWorkers || []).find(f => String(f.id) === String(id))?.name || null;
+
+  return (
+    <>
+    <style>{`.sm-no-scrollbar::-webkit-scrollbar{display:none}.sm-no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}`}</style>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, alignItems: 'start' }}>
+      {['bsct', 'aflf', 'mann'].map(g => {
+        const ngo = groupNgo[g];
+        const color = NGO_NAME_COLORS[g];
+        const label = g.toUpperCase();
+        const rows = searched
+          .filter(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g))
+          .sort((a, b) => {
+                const pa = String(a.station || ''); const pb = String(b.station || '');
+                return pa.localeCompare(pb, undefined, { numeric: true });
+              });
+        return (
+          <div key={g} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 0, overflow: 'hidden', background: '#fff' }}>
+            <div style={{ background: color, color: '#fff', padding: '8px 12px', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>{label}</span>
+              <span style={{ opacity: 0.85, fontSize: 11, fontWeight: 600 }}>{rows.length} station{rows.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="sm-no-scrollbar" style={{ maxHeight: 420, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: 'var(--ink-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px' }}>Station</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: 'var(--ink-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px' }}>FRO Name</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={2} style={{ padding: '14px 10px', textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>No stations</td>
+                    </tr>
+                  ) : rows.map(s => (renderRow ? renderRow(s, (allNgos || []).find(n => String(n.id) === String((groupNgo && groupNgo[g])?.id)) || null) : null))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    </>
+  );
+}
+
 // Planned station-code mapping (station-rename-mapping.xlsx): old code ->
 // new code per NGO. Drives the green auto-suggestion in the bulk-rename modal.
 const STATION_RENAME_MAP = {
@@ -348,7 +416,7 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%' }}>
       <div onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 13, cursor: 'pointer', background: '#fff', minHeight: 26, boxSizing: 'border-box', width: '100%' }}>
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 8px', borderRadius: 6, fontSize: 13, cursor: 'pointer', background: '#fff', minHeight: 26, boxSizing: 'border-box', width: '100%' }}>
         <span style={{ color: value ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: value ? 600 : 400 }}>
           {value || 'Pick station…'}
         </span>
@@ -356,7 +424,7 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
       </div>
 
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, marginTop: 2, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, marginTop: 2, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -990,7 +1058,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
   return (
     <div ref={ref} className="searchable-select" style={{ position: 'relative', maxWidth: 200 }}>
       <div onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '5px 8px', borderRadius: 6, fontSize: 12.5, cursor: 'pointer', background: '#fff', minHeight: 28 }}>
         <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {selected ? selected.name : (placeholder || '-- Select --')}
         </span>
@@ -998,7 +1066,7 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
       </div>
 
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 300, marginTop: 2, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 300, marginTop: 2, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -1079,7 +1147,7 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewL
         ⋮
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 190 }}>
+        <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 190 }}>
           {activeTransfer && onReturn && (
             <button onClick={run(() => onReturn(activeTransfer.id))} style={{ ...itemStyle, color: '#92400e', fontWeight: 600 }}>
               {returningId === activeTransfer.id ? 'Returning…' : '↩ Return leads'}
@@ -1156,7 +1224,7 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
 // Compact summary tile used inside the Non-Connected Fresh modal.
 function NcfSummaryTile({ label, value, color }) {
   return (
-    <div style={{ minWidth: 82, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 12px', textAlign: 'center', flex: '0 0 auto' }}>
+    <div style={{ minWidth: 82, background: '#fff', borderRadius: 8, padding: '8px 12px', textAlign: 'center', flex: '0 0 auto' }}>
       <div style={{ fontSize: 18, fontWeight: 800, color: color || 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>{label}</div>
     </div>
@@ -1289,17 +1357,17 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
           {/* Filters */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' }}>
               <option value="">All Categories</option>
               {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={filterStation} onChange={e => setFilterStation(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' }}>
               <option value="">All Stations</option>
               {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' }}>
               <option value="">All Statuses</option>
               {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -1315,7 +1383,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
               <NcfSummaryTile key={k} label={k.length > 10 ? k.slice(0, 10) : k} value={v} color="#6366f1" />
             ))}
             {(Object.keys(summary.by_fro || {}).length > 0) && (
-              <div style={{ flex: '1 1 200px', minWidth: 170, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 12px' }}>
+              <div style={{ flex: '1 1 200px', minWidth: 170, background: '#fff', borderRadius: 8, padding: '8px 12px' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 2 }}>Per FRO</div>
                 {Object.entries(summary.by_fro).map(([k, v]) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '1px 0' }}>
@@ -1369,7 +1437,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
                         </div>
                       )}
 
-                      <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+                      <div style={{ maxHeight: 280, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
                         <table className="nga-st" style={{ fontSize: 11.5 }}>
                           <thead>
                             <tr>
@@ -1449,7 +1517,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
               <p style={{ color: '#16a34a', margin: 0 }}>No non-connected fresh-data donors found for the current filters.</p>
             </div>
           ) : (
-            <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+            <div style={{ maxHeight: 380, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
               <table className="nga-st" style={{ fontSize: 12 }}>
                 <thead>
                   <tr>
@@ -1562,7 +1630,7 @@ function AddDonorModal({ station, ngoList, defaultNgoId, onClose, onAdded }) {
     }
   };
 
-  const fieldStyle = { fontSize: 13, padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
+  const fieldStyle = { fontSize: 13, padding: '7px 10px', borderRadius: 6, background: '#fff' };
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
@@ -1840,7 +1908,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
     onClose();
   };
 
-  const fieldStyle = { fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
+  const fieldStyle = { fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#fff' };
   const totalSelected = selected.length;
   const scopeIsUnion = !activeNgo;
   const activeNgoName = ngoOptions.find(n => n.id === activeNgo)?.name || '';
@@ -1998,7 +2066,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                     </p>
                   ) : (
                     <>
-                      <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+                      <div style={{ maxHeight: 220, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
                         <table className="nga-st" style={{ fontSize: 11.5 }}>
                           <thead>
                             <tr>
@@ -2063,7 +2131,7 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
               <p style={{ color: 'var(--ink-soft)', margin: 0 }}>No donors match the current filters.</p>
             </div>
           ) : (
-            <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: '#fff' }}>
+            <div style={{ maxHeight: 400, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
               <table className="nga-st" style={{ fontSize: 12 }}>
                 <thead>
                   <tr>
@@ -2190,7 +2258,9 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
   const [moveTo, setMoveTo] = useState('');
   const [moving, setMoving] = useState(false);
 
-  const ngoId = selectedNgoId && selectedNgoId !== 'all' ? selectedNgoId : null;
+  const [localNgoId, setLocalNgoId] = useState(selectedNgoId);
+  useEffect(() => { setLocalNgoId(selectedNgoId); }, [selectedNgoId]);
+  const ngoId = localNgoId && localNgoId !== 'all' ? localNgoId : null;
   const ngo = allNgos.find(n => String(n.id) === String(ngoId));
   const ngoName = ngo?.name || 'this NGO';
 
@@ -2402,6 +2472,14 @@ function HighTierPanel({ stations, froWorkers, selectedNgoId, allNgos, onDistrib
         High Tier lives in its own bucket on the FRO panel — it never mixes with New or Old data.
         Pick a source station of <strong style={{ color: 'var(--ink)' }}>{ngoName}</strong>, choose how to split its
         full data, then distribute. The source station is emptied and its FRO is unassigned in one step.
+      </div>
+
+      {/* NGO selector (moved here so no top filter) */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)', marginBottom: 6 }}>NGO</label>
+        <select value={localNgoId || ''} onChange={e => setLocalNgoId(e.target.value)} style={{ width: '100%', maxWidth: 320, fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line, #e2e8f0)', fontFamily: 'inherit', background: '#fff' }}>
+          {allNgos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+        </select>
       </div>
 
       {/* Step 1 — source */}
@@ -2687,7 +2765,7 @@ export default function StationManagement() {
   const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [ngoGroup, setNgoGroup] = useState(null);      // 'bsct' | 'aflf' | 'mann' | 'other' | null
   const [uploadStation, setUploadStation] = useState(null);
-  const [stationTab, setStationTab] = useState('all');
+  const [stationTab, setStationTab] = useState('old');
   const [bulkRenameOpen, setBulkRenameOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -2700,6 +2778,7 @@ export default function StationManagement() {
   // admin clicked - without it the list unions them all and the count disagrees
   // with the per-NGO pill on the row.
   const [donorListTarget, setDonorListTarget] = useState(null);
+  const [stationDetailTarget, setStationDetailTarget] = useState(null);
   const [addDonorTarget, setAddDonorTarget] = useState(null);
   // Temporary Data Access: which station's "Grant temporary access" modal is
   // open ({ station, ngoId, permanentFroId, permanentFroName, donorCount }).
@@ -2819,7 +2898,7 @@ export default function StationManagement() {
 
   const fetchData = (successMsg, month) => {
     const m = month || selectedMonth;
-    const url = selectedNgoId === 'all' ? '/ngo-admin/stations' : `/ngo-admin/stations?ngo_id=${selectedNgoId}`;
+    const url = '/ngo-admin/stations';
     apiGet(url).then(s => {
       if (Array.isArray(s)) setStations(s);
     }).catch(err => console.error('fetchData error:', err));
@@ -2879,18 +2958,64 @@ export default function StationManagement() {
   });
 
   const stationCounts = {
-    all: groupBase.length,
-    old: groupBase.filter(s => !isFreshStation(s.station)).length,
-    fresh: groupBase.filter(s => isFreshStation(s.station)).length,
+    old: stations.filter(s => !isFreshStation(s.station)).length,
+    new: stations.filter(s => isFreshStation(s.station)).length,
   };
 
-  const filteredStations = groupBase.filter(s => {
-    if (stationTab === 'fresh' && !isFreshStation(s.station)) return false;
+  const filteredStations = stations.filter(s => {
+    if (stationTab === 'new' && !isFreshStation(s.station)) return false;
     if (stationTab === 'old' && isFreshStation(s.station)) return false;
     const term = searchTerm.trim().toLowerCase();
     if (term && !String(s.station).toLowerCase().includes(term)) return false;
     return true;
   });
+
+  const renderStationRow = (s, ngo) => {
+    const ngoName = ngo?.name || s.ngos?.[0]?.ngo_name;
+    const ngoCol = ngoColor(ngoName);
+    const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
+    const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+    return (
+      <tr key={`${ngo?.id || 'x'}-${s.station}`} style={{ borderBottom: '1px solid var(--line, #f1f5f9)' }}>
+        <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 14, letterSpacing: '.2px', cursor: 'pointer', color: 'var(--sage)' }} onClick={() => setStationDetailTarget(s)}>{s.station}</strong>
+            {liveGrantsFor(s).map(g => (
+              <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span
+                  title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
+                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                  {g.working_fro_name || 'FRO'}
+                </span>
+                <button
+                  onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                >✕</button>
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
+            {Number(s.donor_count?.[ngo?.id] || 0).toLocaleString('en-IN')} donor{Number(s.donor_count?.[ngo?.id] || 0) === 1 ? '' : 's'}
+          </div>
+          {at && (
+            <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+              → {at.target_station}
+            </div>
+          )}
+        </td>
+        <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
+          <SearchableSelect
+            options={froWorkers}
+            value={s.fro_worker_id || ''}
+            onChange={(val) => handleFroChange(s.station, val)}
+            placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
+          />
+        </td>
+
+      </tr>
+    );
+  };
 
   // ngoId scopes the export to one NGO. Omitted, the endpoint unions every NGO
   // that uses this station NAME - which is a different number from the per-NGO
@@ -3094,7 +3219,8 @@ export default function StationManagement() {
         </div>
       )}
 
-      {/* NGO selector bar */}
+      {/* NGO selector bar removed (moved into High Tier panel) */}
+      {false && (
       <div className="card" style={{ marginBottom: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>NGO</span>
         <select value={selectedNgoId} onChange={e => {
@@ -3107,6 +3233,7 @@ export default function StationManagement() {
           <span className="pill pill-blue">All NGOs</span>
         )}
       </div>
+      )}
 
       <div className="card">
         <div className="card-head" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
@@ -3122,7 +3249,7 @@ export default function StationManagement() {
                   <Settings size={14} /> Tools <ChevronDown size={12} />
                 </button>
                 {toolsOpen && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 200 }}>
+                  <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 200 }}>
                     <button onClick={async () => { setToolsOpen(false); try { const res = await apiPost('/ngo-admin/stations/seed', { ngo_id: selectedNgoId }); setMsg(res.message || 'Stations seeded'); fetchData(); } catch (err) { setMsg('Error: ' + err.message); } }}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'left', color: 'var(--ink)', fontFamily: 'inherit' }}>
                       Seed Default Stations
@@ -3147,12 +3274,12 @@ export default function StationManagement() {
                 )}
               </div>
               <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
-                style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', width: 150 }} />
+                style={{ fontSize: 13, padding: '4px 8px', borderRadius: 6, width: 150 }} />
             </div>
           </div>
 
           {/* NGO tabs */}
-          {ngoGroupList.size > 0 && (
+          {false && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2, flexWrap: 'wrap' }}>
               {ngoTabs.map(tab => (
                 <button key={tab.key}
@@ -3177,10 +3304,9 @@ export default function StationManagement() {
           {/* Station tabs */}
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2, flexWrap: 'wrap' }}>
             {[
-              { key: 'all', label: 'All Stations' },
-              { key: 'old', label: 'Old Stations' },
-              { key: 'fresh', label: 'Fresh Stations (FD)' },
-              { key: 'high-tier', label: 'High Tier' },
+              { key: 'old', label: 'Old' },
+              { key: 'new', label: 'New' },
+              { key: 'high-tier', label: 'High' },
             ].map(tab => (
               <button key={tab.key} onClick={() => setStationTab(tab.key)}
                 style={{
@@ -3224,8 +3350,17 @@ export default function StationManagement() {
             />
           ) : loading ? (
             <div className="loading">Loading stations...</div>
+          ) : (stationTab === 'old' || stationTab === 'new') ? (
+            <StationNgoColumns
+              stations={filteredStations}
+              froWorkers={froWorkers}
+              allNgos={allNgos}
+              searchTerm={searchTerm}
+              fresh={stationTab === 'new'}
+              renderRow={renderStationRow}
+            />
           ) : filteredStations.length === 0 ? (
-            <div className="empty-state"><p>No {stationTab === 'fresh' ? 'FRESH (FD)' : stationTab === 'old' ? 'OLD' : ''} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
+            <div className="empty-state"><p>No {stationTab === 'new' ? 'NEW' : stationTab === 'old' ? 'OLD' : ''} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table className="nga-st">
@@ -3250,9 +3385,7 @@ export default function StationManagement() {
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <strong style={{ fontSize: 15, letterSpacing: '.2px' }}>{s.station}</strong>
-                            {isFreshStation(s.station) && (
-                              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#dbeafe', color: '#1e40af' }}>FRESH</span>
-                            )}
+
                           </div>
                           <span className="nga-ngo-sub" style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: ngoCol, marginTop: 2, textTransform: 'uppercase', letterSpacing: '.3px' }}>
                             {ngoName || 'No NGO'}
@@ -3268,15 +3401,14 @@ export default function StationManagement() {
                                 title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST. Ownership unchanged: ${(froWorkers.find(fw => fw.id === s.fro_worker_id) || {}).name || 'the permanent FRO'} remains the permanent FRO.`}
                                 style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                               >
-                                <Clock size={10} />
-                                TEMP: {g.working_fro_name || 'FRO'} till {fmtIstShort(g.expires_at)}
+                                {g.working_fro_name || 'FRO'}
                               </span>
                               <button
                                 onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
                                 title="Revoke this temporary access now"
                                 aria-label="Revoke temporary access"
                                 style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
-                              >✕ Revoke</button>
+                              >✕</button>
                             </div>
                           ))}
                         </td>
@@ -3435,6 +3567,54 @@ export default function StationManagement() {
           onClose={() => { setNcfOpen(false); fetchData(); }}
         />
       )}
+
+      {stationDetailTarget && (() => {
+        const s = stationDetailTarget;
+        const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
+        const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+        return (
+          <div className="modal-overlay" onClick={() => setStationDetailTarget(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+              <div className="modal-head">
+                <h3 style={{ margin: 0 }}>{s.station}</h3>
+                <button className="btn btn-sm btn-outline" onClick={() => setStationDetailTarget(null)}>✕</button>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 13 }}>
+                  <strong>Active FRO:</strong> {s.fro_worker_name || w?.name || '—'}
+                </div>
+                {liveGrantsFor(s).map(g => (
+                  <div key={g.id} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Temp access:</span>
+                    <span>{g.working_fro_name || 'FRO'} till {fmtIstShort(g.expires_at)}</span>
+                    <button
+                      onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                      style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                    >✕</button>
+                  </div>
+                ))}
+                <div style={{ fontSize: 13 }}>
+                  <strong>Donors:</strong> {renderDonorPills(s)}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 8 }}>
+                  <StationKebab
+                    activeTransfer={at}
+                    returningId={returningId}
+                    onReturn={at ? handleReturnEarly : null}
+                    onUpload={() => setUploadStation(s.station)}
+                    onViewList={() => { setStationDetailTarget(null); setDonorListTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) }); }}
+                    onAddDonor={() => setAddDonorTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) })}
+                    onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
+                    onTarget={() => openTarget(s)}
+                    onGrantTempAccess={() => setTempAccessTarget({ station: s.station, ngoId: ngoScopeForRow(s), permanentFroId: s.fro_worker_id || null, permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null, donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0 })}
+                    onDelete={() => { setStationDetailTarget(null); handleDeleteStation(s.station); }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {donorListTarget && (
         <StationDonorsModal
