@@ -1252,7 +1252,7 @@ export const manualVerifyEntry = async (req, res) => {
             .from('fro_assignments')
             .select('workers(name)')
             .eq('donor_id', donorForEntry)
-            .not('status', 'eq', 'reassigned')
+            .or('status.is.null,status.neq.reassigned')
             .order('updated_at', { ascending: false })
             .limit(1);
           entryCollector = asgRows?.[0]?.workers?.name || null;
@@ -1697,7 +1697,7 @@ export const checkDonorAssignment = async (req, res) => {
       .from('fro_assignments')
       .select('id, donor_id, fro_worker_id, ngo_id, station, status, assigned_at')
       .in('donor_id', donorIds)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .order('assigned_at', { ascending: false });
 
     if (!assignments || assignments.length === 0) return res.json({ assigned: false, assignments: [] });
@@ -1759,7 +1759,7 @@ export const linkSuspenseToDonor = async (req, res) => {
       .from('fro_assignments')
       .select('id, fro_worker_id')
       .eq('donor_id', donor_id)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .maybeSingle();
 
     if (assignment?.fro_worker_id) {

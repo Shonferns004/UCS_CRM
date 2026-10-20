@@ -28,14 +28,14 @@ const PARK_OUTGOING = `
      SET original_fro_worker_id = fro_worker_id
    WHERE %SCOPE%
      AND original_fro_worker_id IS NULL
-     AND status <> 'reassigned'
+     AND (status IS NULL OR (status IS NULL OR status <> 'reassigned'))
      AND fro_worker_id IS NOT NULL`;
 
 const REPOINT = `
   UPDATE fro_assignments
      SET fro_worker_id = $1::uuid
    WHERE %SCOPE%
-     AND status <> 'reassigned'`;
+     AND (status IS NULL OR (status IS NULL OR status <> 'reassigned'))`;
 
 // ngo_id is nullable on a station row, so "same NGO" is a real branch rather than
 // something a plain equality can express: `ngo_id = NULL` is never true. Both

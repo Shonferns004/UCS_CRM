@@ -205,7 +205,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     .select('id, station')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
-    .not('status', 'eq', 'reassigned');
+    .or('status.is.null,status.neq.reassigned');
   if (ngoId) query = query.eq('ngo_id', ngoId);
   const { data: existing } = await query.maybeSingle();
   if (existing) return existing;
@@ -401,7 +401,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     .select('id, station')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
-    .not('status', 'eq', 'reassigned')
+    .or('status.is.null,status.neq.reassigned')
     .maybeSingle();
   return retry;
 }
@@ -414,7 +414,7 @@ async function getFroAssignment(donorId, workerId, ngoId) {
     .select('id, ngo_id, station, fro_worker_id, batch_type')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
-    .not('status', 'eq', 'reassigned')
+    .or('status.is.null,status.neq.reassigned')
     .limit(1);
   if (ngoId) query = query.eq('ngo_id', ngoId);
   const { data: owned } = await query.maybeSingle();
@@ -462,7 +462,7 @@ async function denyWithTempAccessCode(res, workerId, donorId, fallbackStatus, fa
   try {
     const { rows: donorRows } = await db._pool.query(
       `SELECT station, ngo_id FROM fro_assignments
-        WHERE donor_id = $1 AND (status IS NULL OR status <> 'reassigned')
+        WHERE donor_id = $1 AND (status IS NULL OR (status IS NULL OR status <> 'reassigned'))
         LIMIT 20`,
       [donorId],
     );
@@ -947,7 +947,7 @@ export const getDashboard = async (req, res) => {
           .from('fro_assignments')
           .select('donor_id, ngo_id, station, batch_type')
           .in('station', stationNames)
-          .not('status', 'eq', 'reassigned'),
+          .or('status.is.null,status.neq.reassigned'),
         myScope
       );
       const rows = assignedRows || [];
@@ -1053,7 +1053,7 @@ export const getDashboard = async (req, res) => {
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, amount_collected, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'), myScope),
+          withStationNgoPairs(db.from('fro_assignments').select('status, donor_id').in('station', stationNames).or('status.is.null,status.neq.reassigned'), myScope),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
@@ -1297,7 +1297,7 @@ export const getDonorSplitList = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id')
         .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
+        .or('status.is.null,status.neq.reassigned'),
       myScope
     );
     const assignedIds = [...new Set((assignedRows || []).map(a => a.donor_id).filter(Boolean))];
@@ -2523,7 +2523,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           .from('fro_assignments')
           .select('id, station, ngo_id')
           .eq('donor_id', donorId)
-          .not('status', 'eq', 'reassigned');
+          .or('status.is.null,status.neq.reassigned');
         const hasScoped = (donorAssignments || []).some(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
         if (!hasScoped) throw Object.assign(new Error('You can only claim receipts for your allotted donors'), { status: 403 });
       }
@@ -2598,7 +2598,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .eq('ngo_id', receiptNgoId)
-      .neq('status', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .limit(1)
       .maybeSingle();
 
@@ -2609,7 +2609,7 @@ export const claimSuspenseReceipt = async (req, res) => {
         .select('id, fro_worker_id, status')
         .eq('donor_id', donorId)
         .eq('ngo_id', receiptNgoId)
-        .neq('status', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .order('id', { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -2940,7 +2940,7 @@ export const getMyDonors = async (req, res) => {
         .from('fro_assignments')
         .select(ASSIGNMENT_COLS)
         .in('station', effectiveStations)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
       query = withStationNgoPairs(query, effectiveScope);
 
       if (req.query.station) {
@@ -2961,7 +2961,7 @@ export const getMyDonors = async (req, res) => {
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
-          query = db.from('fro_assignments').select(ASSIGNMENT_COLS).in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = db.from('fro_assignments').select(ASSIGNMENT_COLS).in('station', effectiveStations).or('status.is.null,status.neq.reassigned');
           query = withStationNgoPairs(query, effectiveScope);
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
@@ -3715,7 +3715,7 @@ export const getTransferredLeads = async (req, res) => {
       .select('*, ngos(name)')
       .in('station', effectiveStations)
       .is('fro_worker_id', null)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .limit(200);
     txQuery = withStationNgoPairs(txQuery, effectiveScope);
     const { data: assignments } = await txQuery;
@@ -3917,7 +3917,7 @@ export const getDonorLogs = async (req, res) => {
         .eq('donor_id', donorId)
         .eq('fro_worker_id', workerId)
         .eq('ngo_id', ngo_id)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .maybeSingle();
       assignment = data;
     }
@@ -3927,7 +3927,7 @@ export const getDonorLogs = async (req, res) => {
         .select(ASSIGN_COLS)
         .eq('donor_id', donorId)
         .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .maybeSingle();
       assignment = data;
     }
@@ -5354,7 +5354,7 @@ export const getMyAllotmentSummary = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id, batch_type, is_new, station, ngo_id')
         .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned'),
+        .or('status.is.null,status.neq.reassigned'),
       myScope
     );
     if (allotErr) throw allotErr;
@@ -5525,7 +5525,7 @@ export const getMonthlyDonors = async (req, res) => {
         .from('fro_assignments')
         .select('*, donor_profiles!inner(id, name, mobile_number, amount, total_amount, donation_count, city), ngos(name)')
         .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
+        .or('status.is.null,status.neq.reassigned'),
       myScope
     );
 
@@ -5621,7 +5621,7 @@ export const getDonorHistory = async (req, res) => {
         .select('id, ngo_id, ngos(name)')
         .eq('donor_id', donorId)
         .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
+        .or('status.is.null,status.neq.reassigned'),
       myScope
     );
     if (!checkAccess || checkAccess.length === 0) {
@@ -6979,7 +6979,7 @@ export const searchDonors = async (req, res) => {
         .select('*, ngos!inner(name)')
         .in('donor_id', matchedIds)
         .in('station', dStations)
-        .not('status', 'eq', 'reassigned')
+        .or('status.is.null,status.neq.reassigned')
         .order('station', { ascending: true });
 
       const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
@@ -7075,7 +7075,7 @@ export const searchDonors = async (req, res) => {
         .from('fro_assignments')
         .select('donor_id, ngo_id, station')
         .in('station', effStations)
-        .not('status', 'eq', 'reassigned');
+        .or('status.is.null,status.neq.reassigned');
 
       donorIdsInScope = [...new Set(
         (donorIdsFromStation || [])
@@ -7107,7 +7107,7 @@ export const searchDonors = async (req, res) => {
       .select('*, ngos!inner(name)')
       .in('donor_id', matchedIds)
       .in('station', effStations)
-      .not('status', 'eq', 'reassigned')
+      .or('status.is.null,status.neq.reassigned')
       .order('station', { ascending: true });
     if (asgnError) throw asgnError;
 
@@ -7239,7 +7239,7 @@ export const getMyDisposedLeads = async (req, res) => {
       .select('*, ngos!inner(name)')
       .in('donor_id', matchedIds)
       .in('station', effectiveStations.length > 0 ? effectiveStations : stationNames)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
     assignmentQuery = withStationNgoPairs(assignmentQuery, effectiveScope.length > 0 ? effectiveScope : myScope);
     const { data: assignments } = await assignmentQuery;
     const scopedAssignments = (assignments || []).filter(a => {
@@ -7338,7 +7338,7 @@ export const getFullDonorHistory = async (req, res) => {
       .select('id, ngo_id, ngos(name)')
       .eq('donor_id', donorId)
       .in('station', stationNames)
-      .not('status', 'eq', 'reassigned');
+      .or('status.is.null,status.neq.reassigned');
     query = withStationNgoPairs(query, myScope);
     if (ngoId) query = query.eq('ngo_id', ngoId);
 
