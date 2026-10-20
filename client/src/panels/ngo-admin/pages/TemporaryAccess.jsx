@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock, RefreshCw, Ban, History, X, Lock, Search, PlusCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Avatar } from '../../../components/ui';
 import {
@@ -9,16 +9,16 @@ import {
 } from '../api/auth';
 import '../temporaryAccess.css';
 
-// â”€â”€â”€ Temporary Access â€” admin management page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Temporary Access — admin management page ────────────────────────────────
 // Redesigned surface. Reads permanent ownership (read-only) and mutates only
 // temporary_data_assignments via the existing API. All business logic unchanged.
 
 const FILTERS = ['ALL', 'ACTIVE', 'SCHEDULED', 'EXPIRED', 'REVOKED'];
 
 function fmtIst(value, opts = {}) {
-  if (!value) return 'â€”';
+  if (!value) return '—';
   const d = new Date(value);
-  if (isNaN(d.getTime())) return 'â€”';
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
     day: '2-digit', month: 'short',
@@ -60,7 +60,7 @@ function scopeLabel(scope) {
   if (scope === 'STATION_ALL') return 'Entire station';
   if (scope === 'STATION_HIGH_TIER') return 'High-tier only';
   if (scope === 'STATION_NORMAL') return 'Normal only';
-  return scope || 'â€”';
+  return scope || '—';
 }
 
 export default function TemporaryAccess() {
@@ -137,7 +137,7 @@ export default function TemporaryAccess() {
     setActionMsg(null);
     try {
       await revokeTemporaryAccess(revokeRow.row.id, { reason: revokeRow.reason || 'Revoked from management page' });
-      setActionMsg('Access revoked â€” the FRO loses this station on their next request. Completed work is untouched.');
+      setActionMsg('Access revoked — the FRO loses this station on their next request. Completed work is untouched.');
       setRevokeRow(null);
       load();
     } catch (e) {
@@ -152,7 +152,7 @@ export default function TemporaryAccess() {
           <h2 className="ta-page-head__title"><Clock size={22} /> Temporary Data Access</h2>
           <p className="ta-page-head__sub">
             Time-boxed, admin-granted permission for an FRO to work on another station's donors.
-            Permanent station ownership never changes â€” the owner column is read-only, and completed
+            Permanent station ownership never changes — the owner column is read-only, and completed
             calls, donations and receipts are never moved or rewritten when a grant starts, extends,
             expires or is revoked.
           </p>
@@ -179,7 +179,7 @@ export default function TemporaryAccess() {
           <input
             className="ta-search"
             style={{ paddingLeft: 30 }}
-            placeholder="Search station / FRO / reasonâ€¦"
+            placeholder="Search station / FRO / reason⬦"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -195,7 +195,7 @@ export default function TemporaryAccess() {
 
       {loading ? (
         <div className="ta-card" style={{ padding: 20 }}>
-          <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>Loadingâ€¦</p>
+          <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>Loading⬦</p>
         </div>
       ) : visible.length === 0 ? (
         <div className="ta-card">
@@ -203,7 +203,7 @@ export default function TemporaryAccess() {
             <div className="ta-empty__icon"><Clock size={24} /></div>
             <h3 className="ta-empty__title">No temporary grants{filter !== 'ALL' ? ` with status ${filter}` : ''}</h3>
             <p className="ta-empty__sub">
-              Create one from the â€œGrant temporary accessâ€ button on any row in <b>Stations &amp; FROs</b>.
+              Create one from the “Grant temporary access” button on any row in <b>Stations &amp; FROs</b>.
             </p>
             <button className="btn btn-primary ta-btn-sm" onClick={() => window.location.assign('/ngo-admin/stations')}>
               <PlusCircle size={13} style={{ marginRight: 4 }} /> Go to Stations
@@ -232,7 +232,7 @@ export default function TemporaryAccess() {
                       </td>
                       <td>
                         <div className="ta-owner">
-                          <span className="ta-owner__name">{r.permanent_fro_name || 'â€”'}</span>
+                          <span className="ta-owner__name">{r.permanent_fro_name || '—'}</span>
                           <span className="ta-owner__lock"><Lock size={10} /> read-only owner</span>
                         </div>
                       </td>
@@ -246,7 +246,7 @@ export default function TemporaryAccess() {
                         </div>
                       </td>
                       <td><span className="ta-chip ta-chip--scope">{scopeLabel(r.scope_type)}</span></td>
-                      <td style={{ fontSize: 12.5 }}>{r.granted_by_name || 'â€”'}</td>
+                      <td style={{ fontSize: 12.5 }}>{r.granted_by_name || '—'}</td>
                       <td className="ta-time">{fmtIst(r.starts_at)}</td>
                       <td className="ta-time">
                         <span className={soon ? 'ta-chip ta-chip--soon' : ''} style={soon ? { padding: '2px 8px' } : {}}>
@@ -293,10 +293,10 @@ export default function TemporaryAccess() {
                     <span className="ta-mobile-card__station">{r.station}</span>
                     <StatusPill status={r.computed_status} />
                   </div>
-                  <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Permanent FRO</span><span className="ta-mobile-card__value">{r.permanent_fro_name || 'â€”'} <Lock size={10} /></span></div>
+                  <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Permanent FRO</span><span className="ta-mobile-card__value">{r.permanent_fro_name || '—'} <Lock size={10} /></span></div>
                   <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Working FRO</span><span className="ta-mobile-card__value">{r.working_fro_name || r.working_fro_worker_id}</span></div>
                   <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Scope</span><span className="ta-mobile-card__value">{scopeLabel(r.scope_type)}</span></div>
-                  <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Granted by</span><span className="ta-mobile-card__value">{r.granted_by_name || 'â€”'}</span></div>
+                  <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Granted by</span><span className="ta-mobile-card__value">{r.granted_by_name || '—'}</span></div>
                   <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Starts</span><span className="ta-mobile-card__value">{fmtIst(r.starts_at)}</span></div>
                   <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Expires</span><span className="ta-mobile-card__value">{fmtIst(r.expires_at)}{soon ? ' âš ' : ''}</span></div>
                   <div className="ta-mobile-card__row"><span className="ta-mobile-card__label">Reason</span><span className="ta-mobile-card__value">{String(r.reason_code || '').replace(/_/g, ' ').toLowerCase()}</span></div>
@@ -321,12 +321,12 @@ export default function TemporaryAccess() {
         <div className="modal-overlay" onClick={() => setExtendRow(null)}>
           <div className="modal ta-modal" onClick={e => e.stopPropagation()}>
             <div className="ta-modal-head">
-              <h3><Clock size={16} /> Extend expiry â€” {extendRow.row.station}</h3>
+              <h3><Clock size={16} /> Extend expiry — {extendRow.row.station}</h3>
               <button className="icon-btn" onClick={() => setExtendRow(null)} aria-label="Close"><X size={16} /></button>
             </div>
             <div className="ta-modal-body">
               <div className="ta-banner ta-banner--info">
-                Current expiry: <b>{fmtIst(extendRow.row.expires_at)} IST</b>. Only the expiry moves â€” start time, scope and ownership stay as they are.
+                Current expiry: <b>{fmtIst(extendRow.row.expires_at)} IST</b>. Only the expiry moves — start time, scope and ownership stay as they are.
               </div>
               <div className="ta-field">
                 <label className="ta-field__label">New expiry</label>
@@ -337,7 +337,7 @@ export default function TemporaryAccess() {
             <div className="ta-modal-foot">
               <button className="btn btn-outline" onClick={() => setExtendRow(null)}>Cancel</button>
               <button className="btn btn-primary" disabled={busyId === extendRow.row.id} onClick={confirmExtend}>
-                {busyId === extendRow.row.id ? 'Extendingâ€¦' : 'Extend'}
+                {busyId === extendRow.row.id ? 'Extending⬦' : 'Extend'}
               </button>
             </div>
           </div>
@@ -349,7 +349,7 @@ export default function TemporaryAccess() {
         <div className="modal-overlay" onClick={() => setRevokeRow(null)}>
           <div className="modal ta-modal" onClick={e => e.stopPropagation()}>
             <div className="ta-modal-head">
-              <h3><Ban size={16} /> Revoke temporary access â€” {revokeRow.row.station}</h3>
+              <h3><Ban size={16} /> Revoke temporary access — {revokeRow.row.station}</h3>
               <button className="icon-btn" onClick={() => setRevokeRow(null)} aria-label="Close"><X size={16} /></button>
             </div>
             <div className="ta-modal-body">
@@ -360,7 +360,7 @@ export default function TemporaryAccess() {
               </div>
               <div className="ta-field">
                 <label className="ta-field__label">Reason (optional, recorded in audit trail)</label>
-                <textarea className="ta-input ta-textarea" placeholder="Reasonâ€¦"
+                <textarea className="ta-input ta-textarea" placeholder="Reason⬦"
                   value={revokeRow.reason} onChange={e => setRevokeRow(v => ({ ...v, reason: e.target.value }))} />
               </div>
             </div>
@@ -368,7 +368,7 @@ export default function TemporaryAccess() {
               <button className="btn btn-outline" onClick={() => setRevokeRow(null)}>Cancel</button>
               <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }}
                 disabled={busyId === revokeRow.row.id} onClick={confirmRevoke}>
-                {busyId === revokeRow.row.id ? 'Revokingâ€¦' : 'Revoke now'}
+                {busyId === revokeRow.row.id ? 'Revoking⬦' : 'Revoke now'}
               </button>
             </div>
           </div>
@@ -380,7 +380,7 @@ export default function TemporaryAccess() {
         <div className="modal-overlay" onClick={() => setAuditRow(null)}>
           <div className="modal ta-modal ta-modal--wide" onClick={e => e.stopPropagation()}>
             <div className="ta-modal-head">
-              <h3><History size={16} /> Audit â€” {auditRow.station} â†’ {auditRow.working_fro_name || auditRow.working_fro_worker_id}</h3>
+              <h3><History size={16} /> Audit — {auditRow.station} → {auditRow.working_fro_name || auditRow.working_fro_worker_id}</h3>
               <button className="icon-btn" onClick={() => setAuditRow(null)} aria-label="Close"><X size={16} /></button>
             </div>
             <div className="ta-modal-body">
@@ -396,7 +396,7 @@ export default function TemporaryAccess() {
                         <span className="ta-timeline__time">{fmtIst(ev.created_at)} IST</span>
                       </div>
                       {ev.actor_admin_id && (
-                        <div className="ta-timeline__meta">by admin {ev.actor_admin_id} ({ev.actor_role || 'â€”'})</div>
+                        <div className="ta-timeline__meta">by admin {ev.actor_admin_id} ({ev.actor_role || '—'})</div>
                       )}
                       {ev.reason && <div className="ta-timeline__meta">Reason: {ev.reason}</div>}
                       {ev.previous_state && (
