@@ -22,6 +22,7 @@ import {
   uploadMedia,
   listMyAccounts,
   getMedia,
+  retryMessage,
 } from '../controllers/froWhatsAppController.js';
 import { sendInteractive } from '../controllers/whatsappEnhancementsController.js';
 
@@ -56,6 +57,7 @@ router.get('/search', searchMessages);
 router.get('/media/:mediaId', getMedia);
 router.post('/upload-media', upload.single('file'), uploadMedia);
 router.post('/send-template', sendTemplate);
+router.post('/messages/:id/retry', retryMessage);
 router.get('/quick-replies', listQuickReplies);
 router.get('/templates', listTemplates);
 

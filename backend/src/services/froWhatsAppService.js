@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { syncTemplatesForProject } from './templateSyncService.js';
 import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from './temporaryWhatsappScope.js';
 import config from '../config/whatsappConfig.js';
 import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
@@ -147,8 +148,12 @@ export async function getConversationMessages(conversationId) {
   )));
 }
 
-export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null) {
+export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null, opts = {}) {
   console.log('[sendFroReply] conversationId=', conversationId, 'froWorkerId=', froWorkerId);
+  // Auto/manual retry (messageRetryScheduler): the failed row has already
+  // been claimed back to 'queued' by the scheduler — reuse it instead of
+  // inserting a second bubble for the same content.
+  const existingMessageId = opts.existingMessageId || null;
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -229,25 +234,30 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   const mediaKind = mediaUrl ? mediaPayloadKind(mediaMimeType, 'document') : null;
   const messageType = mediaKind || 'text';
 
-  const { data: message, error: msgErr } = await db
-    .from('messages')
-    .insert({
-      tenant_id: conversation.tenant_id,
-      conversation_id: conversation.id,
-      contact_id: conversation.contact_id,
-      user_id: String(froWorkerId),
-      direction: 'outbound',
-      message_type: messageType,
-      body_text: messageText || '',
-      media_url: mediaUrl || null,
-      media_mime_type: mediaUrl ? (mediaMimeType || null) : null,
-      status: 'queued',
-      message_category: 'fro_reply',
-    })
-    .select()
-    .single();
-
-  if (msgErr) throw msgErr;
+  let message;
+  if (existingMessageId) {
+    message = { id: existingMessageId };
+  } else {
+    const { data: inserted, error: msgErr } = await db
+      .from('messages')
+      .insert({
+        tenant_id: conversation.tenant_id,
+        conversation_id: conversation.id,
+        contact_id: conversation.contact_id,
+        user_id: String(froWorkerId),
+        direction: 'outbound',
+        message_type: messageType,
+        body_text: messageText || '',
+        media_url: mediaUrl || null,
+        media_mime_type: mediaUrl ? (mediaMimeType || null) : null,
+        status: 'queued',
+        message_category: 'fro_reply',
+      })
+      .select()
+      .single();
+    if (msgErr) throw msgErr;
+    message = inserted;
+  }
 
   try {
     let body;
@@ -804,6 +814,18 @@ async function attachHeaderMedia(items, project) {
 }
 
 export async function getTemplates(project) {
+  // Keep the local template cache in sync with Meta so templates added in the
+  // WhatsApp Manager show up here without a separate manual sync step.
+  if (project) {
+    try {
+      const account = await getAccountByProject(project);
+      if (account?.waba_id && account?.access_token) {
+        await syncTemplatesForProject(project);
+      }
+    } catch (err) {
+      console.error('[getTemplates] auto-sync failed:', err?.message || err);
+    }
+  }
   let query = db
     .from('whatsapp_templates')
     .select('*')
@@ -839,7 +861,10 @@ async function getLiveTemplateDefinition(account, templateName) {
   }
 }
 
-export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues, headerMediaUrl, headerMediaName) {
+export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues, headerMediaUrl, headerMediaName, opts = {}) {
+  // Auto/manual retry (messageRetryScheduler): the failed row was claimed
+  // back to 'queued' by the scheduler — reuse it, never insert a duplicate.
+  const existingMessageId = opts.existingMessageId || null;
   const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -948,6 +973,11 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       label: b.text,
       url: b.url ? fillPlaceholders(b.url) : null,
     })),
+    // Raw variables and header filename, kept so a retry can rebuild the
+    // exact Graph payload — the rendered body above cannot be split back
+    // into variables (blank fields would go to the donor otherwise).
+    params: Array.isArray(paramValues) ? paramValues : [],
+    headerMediaName: headerMediaName || null,
   };
 
   // Claim the conversation for the sending agent, otherwise the FRO inbox's
@@ -959,26 +989,32 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       .eq('id', conversationId);
   }
 
-  const { data: message, error: msgErr } = await db
-    .from('messages')
-    .insert({
-      tenant_id: conversation.tenant_id,
-      conversation_id: conversation.id,
-      contact_id: conversation.contact_id,
-      user_id: String(froWorkerId),
-      direction: 'outbound',
-      message_type: 'template',
-      body_text: renderedBody || templateName,
-      template_id: templateName,
-      template_params: templateSummary,
-      media_url: headerMediaUrl || cachedHeaderForChat || null,
-      media_mime_type: headerMime,
-      status: 'queued',
-      message_category: 'template',
-    })
-    .select()
-    .single();
-  if (msgErr) throw msgErr;
+  let message;
+  if (existingMessageId) {
+    message = { id: existingMessageId };
+  } else {
+    const { data: inserted, error: msgErr } = await db
+      .from('messages')
+      .insert({
+        tenant_id: conversation.tenant_id,
+        conversation_id: conversation.id,
+        contact_id: conversation.contact_id,
+        user_id: String(froWorkerId),
+        direction: 'outbound',
+        message_type: 'template',
+        body_text: renderedBody || templateName,
+        template_id: templateName,
+        template_params: templateSummary,
+        media_url: headerMediaUrl || cachedHeaderForChat || null,
+        media_mime_type: headerMime,
+        status: 'queued',
+        message_category: 'template',
+      })
+      .select()
+      .single();
+    if (msgErr) throw msgErr;
+    message = inserted;
+  }
 
   try {
     const result = await postWhatsAppMessage(

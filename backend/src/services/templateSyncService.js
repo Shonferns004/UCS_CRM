@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { ngoIdFromProjectId } from '../models/bankAuditModel.js';
 
 export async function syncTemplatesForProject(accountProject) {
   const account = await getAccountByProject(accountProject);
@@ -30,6 +31,11 @@ export async function syncTemplatesForProject(accountProject) {
       .eq('language', tpl.language || 'en')
       .maybeSingle();
 
+    let ngoId = await ngoIdFromProjectId(accountProject);
+    if (!ngoId) {
+      const { data: ngos } = await db.from('ngos').select('id').limit(1);
+      ngoId = ngos?.[0]?.id || null;
+    }
     const row = {
       name: tpl.name,
       language: tpl.language || 'en',
@@ -38,14 +44,17 @@ export async function syncTemplatesForProject(accountProject) {
       meta_template_id: tpl.id ? String(tpl.id) : null,
       components: tpl.components || null,
       project: accountProject,
+      ngo_id: ngoId,
       updated_at: new Date().toISOString(),
     };
 
     if (existing) {
-      await db.from('whatsapp_templates').update(row).eq('id', existing.id);
+      const { error: updErr } = await db.from('whatsapp_templates').update(row).eq('id', existing.id);
+      if (updErr) throw updErr;
       updated++;
     } else {
-      await db.from('whatsapp_templates').insert(row);
+      const { error: insErr } = await db.from('whatsapp_templates').insert(row);
+      if (insErr) throw insErr;
       inserted++;
     }
   }

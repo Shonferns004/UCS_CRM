@@ -17,6 +17,7 @@ import {
 } from '../services/froWhatsAppService.js';
 import { froActPairs } from './froController.js';
 import { getTempWhatsappAccess } from '../services/temporaryWhatsappScope.js';
+import { retryMessageNow } from '../services/messageRetryScheduler.js';
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 
@@ -311,6 +312,35 @@ export async function listMyAccounts(req, res) {
       console.error('[listMyAccounts] temp accounts load failed:', e?.message || e, e?.stack);
     }
     return res.json(Array.from(seen.values()));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+/**
+ * Manual Retry button on a failed bubble. Reuses the scheduler's claim path
+ * (single bubble, old wamid dropped, attempt counter kept) but ignores the
+ * automatic ladder's cap and freshness window — the agent clicked, so the
+ * decision is theirs. Non-retryable failures (131047 and friends) are
+ * refused the same way the button hides itself.
+ */
+export async function retryMessage(req, res) {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ message: 'message id is required' });
+
+    const result = await retryMessageNow(id);
+    if (!result || result.outcome === 'missing' || result.outcome === 'skipped') {
+      return res.status(409).json({ message: 'This message cannot be retried' });
+    }
+
+    const { data: fresh } = await db.from('messages').select('*').eq('id', id).maybeSingle();
+    return res.json({
+      success: true,
+      outcome: result.outcome,
+      message: fresh || null,
+      error: result.error || undefined,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

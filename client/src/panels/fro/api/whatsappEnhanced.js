@@ -86,6 +86,15 @@ export async function sendTemplateMessage(conversationId, templateName, paramVal
   }, agentToken)
 }
 
+// Manual Retry on a failed bubble. The server re-sends through the same
+// claim path the automatic backoff uses; blocks until the send settles so
+// the caller can refresh the thread with the final state.
+export async function retryMessage(messageId, agentToken) {
+  return agentApi(`/fro/whatsapp/messages/${messageId}/retry`, {
+    method: 'POST',
+  }, agentToken)
+}
+
 export async function uploadMedia(file, agentToken) {
   const formData = new FormData()
   formData.append('file', file)

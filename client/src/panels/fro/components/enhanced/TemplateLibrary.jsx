@@ -255,6 +255,13 @@ export default function TemplateLibrary({ conversationId, contactId, project, us
   }
 
   useEffect(() => { load() }, [project, agentToken])
+  useEffect(() => {
+    if (!project) return
+    const id = setInterval(() => { load() }, 30000)
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
+  }, [project, agentToken])
 
   // Close when clicking away, but not when the click lands inside the library
   // or in the params modal that opens from it.

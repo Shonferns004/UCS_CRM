@@ -2,6 +2,7 @@ import db from '../config/db.js';
 import { getAccountByPhoneNumberId } from '../models/whatsappAccountModel.js';
 import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
+import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
 
@@ -235,7 +236,7 @@ export async function whatsappWebhookEntry(req, res) {
         // guarded separately: a redelivered or out-of-order frame must not
         // walk a read receipt back to "sent" or erase a failure_reason.
         const [{ data: msgRows }, { data: bcRows }, { data: rcRows }] = await Promise.all([
-          db.from('messages').select('status').eq('wa_message_id', status.id).limit(1),
+          db.from('messages').select('id, status').eq('wa_message_id', status.id).limit(1),
           db.from('whatsapp_broadcast_recipients').select('status').eq('wa_message_id', status.id).limit(1),
           db.from('receipts').select('wa_status').eq('wa_message_id', status.id).limit(1),
         ]);
@@ -253,6 +254,13 @@ export async function whatsappWebhookEntry(req, res) {
             .from('messages')
             .update(update)
             .eq('wa_message_id', status.id);
+          // Meta accepted this message and then failed it from the status
+          // callback (130429 throughput etc.) — the send-time helper never
+          // sees that. Arm the backoff retry; the scheduler re-checks
+          // retryability, attempt cap and freshness before doing anything.
+          if (status.status === 'failed' && msgRows?.[0]?.id) {
+            scheduleAutoRetry(msgRows[0].id);
+          }
         }
 
         if (shouldApplyStatus(bcRows?.[0]?.status, status.status)) {
