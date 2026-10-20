@@ -258,9 +258,7 @@ export async function whatsappWebhookEntry(req, res) {
           // callback (130429 throughput etc.) — the send-time helper never
           // sees that. Arm the backoff retry; the scheduler re-checks
           // retryability, attempt cap and freshness before doing anything.
-          if (status.status === 'failed' && msgRows?.[0]?.id) {
-            scheduleAutoRetry(msgRows[0].id);
-          }
+          // Auto-retry disabled: retries happen only via manual "Retry" click.
         }
 
         if (shouldApplyStatus(bcRows?.[0]?.status, status.status)) {
