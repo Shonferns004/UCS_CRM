@@ -314,11 +314,28 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
       throw new Error(result.error?.message || 'Failed to send');
     }
   } catch (apiErr) {
+    const errMsg = apiErr instanceof Error ? apiErr.message : 'Network error';
+    const isRateLimited = apiErr?.metaCode === 130429 || /130429|rate limit/i.test(errMsg);
+    // When this send is a retry (existingMessageId reused by messageRetryScheduler),
+    // a 130429 means the number is still throttled — do NOT mark the row failed
+    // or the bubble will flash "Not delivered" while we wait out the cooldown.
+    if (existingMessageId && isRateLimited) {
+      await db
+        .from('messages')
+        .update({
+          failure_reason: errMsg,
+          status_updated_at: new Date().toISOString(),
+        })
+        .eq('id', message.id)
+        .eq('status', 'queued')
+        .is('wa_message_id', null);
+      throw apiErr;
+    }
     await db
       .from('messages')
       .update({
         status: 'failed',
-        failure_reason: apiErr instanceof Error ? apiErr.message : 'Network error',
+        failure_reason: errMsg,
         status_updated_at: new Date().toISOString(),
       })
       .eq('id', message.id);
@@ -1046,11 +1063,30 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       throw new Error(result.error?.message || 'Failed to send template');
     }
   } catch (apiErr) {
-    await db.from('messages').update({
-      status: 'failed',
-      failure_reason: apiErr instanceof Error ? apiErr.message : 'Network error',
-      status_updated_at: new Date().toISOString(),
-    }).eq('id', message.id);
+    const errMsg = apiErr instanceof Error ? apiErr.message : 'Network error';
+    const isRateLimited = apiErr?.metaCode === 130429 || /130429|rate limit/i.test(errMsg);
+    // Auto/manual retry reuses the existing failed row — don't flip to 'failed'
+    // on 130429 or the bubble shows "Not delivered" mid-cooldown.
+    if (existingMessageId && isRateLimited) {
+      await db
+        .from('messages')
+        .update({
+          failure_reason: errMsg,
+          status_updated_at: new Date().toISOString(),
+        })
+        .eq('id', message.id)
+        .eq('status', 'queued')
+        .is('wa_message_id', null);
+      throw apiErr;
+    }
+    await db
+      .from('messages')
+      .update({
+        status: 'failed',
+        failure_reason: errMsg,
+        status_updated_at: new Date().toISOString(),
+      })
+      .eq('id', message.id);
     throw apiErr;
   }
 
