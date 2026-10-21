@@ -278,6 +278,8 @@ const FEST_GRID_CSS = `
 .eh-fest-grid td.plain { color: var(--eh-ink-faint, #a09db4); font-size: 12.5px; }
 .eh-fest-grid .ff-name { display: block; font-weight: 700; font-size: 14px; color: var(--eh-ink, #1f2430); }
 .eh-fest-grid .ff-type { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--eh-ink-soft, #6f6c86); }
+.eh-fest-grid .ff-event { display: flex; align-items: baseline; gap: 6px; margin-top: 7px; padding: 5px 8px; border-radius: 8px; background: var(--eh-tint-1, #f0eefb); font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--eh-ink, #1f2430); overflow-wrap: anywhere; }
+.eh-fest-grid .ff-event-lbl { flex: none; font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--eh-primary, #6c5ce7); }
 .eh-fest-grid .ff-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--eh-primary, #6c5ce7); }
 .eh-fest-grid .ng-pill { display: inline-flex; padding: 3px 10px; border-radius: 999px; background: var(--eh-tint-1, #f0eefb); border: 1px solid var(--eh-line-strong, #ddd9f0); font-size: 11.5px; font-weight: 700; color: var(--eh-ink, #1f2430); white-space: nowrap; }
 .eh-fest-grid td.bn { font-size: 13px; }
@@ -1633,6 +1635,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // from the server, so a completed row's "Download" button survives a reload and
   // shows on every device — not just the tab that created it.
   const [plannerLinkMap, setPlannerLinkMap] = useState({})
+  // The event each planner row produced, with the name it was saved under. The
+  // Festival / Day column shows it, so a name changed in the Create / Edit form
+  // is visible on the row that owns it. Keyed like the row → event links
+  // ("ngo::date::festival") — two NGOs may plan the same festival on one date.
+  const [rowEventNames, setRowEventNames] = useState({})
 
   const [year, setYear] = useState(() => new Date().getFullYear())
   const yearOptions = useMemo(() => {
@@ -3260,6 +3267,32 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return findExistingPlannedEvent(key, date, label)
   }
 
+  /* Is this row one of the month's FESTIVAL rows (its Festival / Day cell shows
+     a festival) rather than a manual row (the cell holds an editable event
+     name)? The two are told apart by the festival list of that date. */
+  const isFestivalRow = (key) => {
+    if (!key) return false
+    const sep = key.indexOf('::')
+    if (sep < 0) return false
+    const name = key.slice(sep + 2)
+    if (!name) return false
+    return (observancesByDate[key.slice(0, sep)] || []).some((o) => String(o?.name) === name)
+  }
+
+  /* The name of the event a planner row produced. The map written the moment the
+     event was created or renamed wins — so a name changed in the Create / Edit
+     form shows on the row right away — and the month's event feed is the
+     fallback for an event made on another device or in an earlier session.
+     The calendar feed carries the name inside the title ("name · NGO"), so the
+     title is split the same way the rest of the planner does it. */
+  const rowEventName = (key, date, label) => {
+    if (!key) return ''
+    const stored = rowEventNames[linkMapKey(key, rowNgoId(key))]
+    if (stored?.name) return stored.name
+    const ev = findScheduledEvent(key, date, label)
+    return String(ev?.title || '').split(' · ')[0].trim()
+  }
+
   /* Open the "Create Event" confirm modal for a programme whose five
      deliverables are all Done. Prefills the programme's name (its selected AI
      suggestion, or the typed programme, or the festival name), its date and its
@@ -3343,7 +3376,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         <td className="ff divider" style={{ whiteSpace: 'normal' }}>
           <input
             className="eh-input"
-            value={manual?.name || ''}
+            value={manual?.name || rowEventName(key, date, '') || ''}
             disabled={festBusy}
             placeholder="Event name (e.g. Community kitchen drive)…"
             title="Name this programme — it is what the downloads call it"
@@ -3429,6 +3462,22 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         const sep = key.indexOf('::')
         const observance_date = (sep >= 0 ? key.slice(0, sep) : key).slice(0, 10)
         const festival = sep >= 0 ? key.slice(sep + 2) : ''
+        /* The name the event was SAVED under — a name changed in the Create /
+           Edit form is the one the Festival / Day column has to show. It is
+           written under the row's own NGO as well, so the row still finds it
+           when the event was created for an NGO the row had not stored yet. */
+        const savedName = String(event?.name || '').trim()
+        if (savedName) {
+          setRowEventNames((cur) => {
+            const next = { ...cur, [rowKey]: { id: event.id, name: savedName } }
+            const ownKey = linkMapKey(key, rowNgoId(key))
+            if (ownKey !== rowKey) next[ownKey] = { id: event.id, name: savedName }
+            return next
+          })
+          /* A manual row carries its event name in the Festival / Day cell —
+             keep that cell in step with the name the event was saved under. */
+          if (!isFestivalRow(key)) updateFestivalManual(key, { name: savedName })
+        }
         const link = {
           observance_date,
           festival,
@@ -3919,7 +3968,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                         <div className="sug-sec-label">No important day</div>
                         <input
                           className="eh-input"
-                          value={manual?.name || ''}
+                          value={manual?.name || rowEventName(key, date, '') || ''}
                           disabled={festBusy}
                           placeholder="Event name (e.g. Community kitchen drive)…"
                           title="Name the event you are planning for this date — it is what the downloads call it"
@@ -3994,12 +4043,25 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 //   · one chosen → SELECTED SUGGESTION (✓), the OTHER
                 //     SUGGESTIONS block (until it is cleared), Write Manually;
                 //   · collapsed → one action row.
-                const festivalCell = (o) => (
-                  <>
-                    <span className="ff-name">{o.name}</span>
-                    {o.type && <span className="ff-type"><span className="ff-dot" />{capFirst(o.type)}</span>}
-                  </>
-                )
+                /* The festival, and — once the row owns an event — the name that
+                   event was saved under. A name changed in the Create / Edit
+                   form therefore shows up here, in the Festival / Day column,
+                   right below the festival it belongs to. */
+                const festivalCell = (o, key) => {
+                  const evName = rowEventName(key, date, o.name)
+                  return (
+                    <>
+                      <span className="ff-name">{o.name}</span>
+                      {o.type && <span className="ff-type"><span className="ff-dot" />{capFirst(o.type)}</span>}
+                      {evName && evName !== o.name && (
+                        <span className="ff-event" title={`Event name — “${evName}”`}>
+                          <span className="ff-event-lbl">Event</span>
+                          {evName}
+                        </span>
+                      )}
+                    </>
+                  )
+                }
                 rows.push(...obs.map((o) => {
                   const key = `${date}::${o.name}`
                   // Only THIS row's NGO's stored ideas — the editable NGO column
@@ -4032,7 +4094,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     trs.push(
                       <tr key={`${key}-g`}>
                         <td className="dd divider">{shortDate(date)}</td>
-                        <td className="ff divider">{festivalCell(o)}</td>
+                        <td className="ff divider">{festivalCell(o, key)}</td>
                         <td className="ng divider">
                           <FestivalNgoSelect
                             ngos={ngos}
@@ -4095,7 +4157,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     const cells = []
                     cells.push(
                       <td key="d" className="dd divider" rowSpan={rowCount}>{shortDate(date)}</td>,
-                      <td key="f" className="ff divider" rowSpan={rowCount}>{festivalCell(o)}</td>,
+                      <td key="f" className="ff divider" rowSpan={rowCount}>{festivalCell(o, key)}</td>,
                       <td key="n" className="ng divider" rowSpan={rowCount}>
                         <FestivalNgoSelect
                           ngos={ngos}

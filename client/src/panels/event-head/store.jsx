@@ -878,6 +878,20 @@ export const generateNgoMonthlyReport = (params = {}) => apiGet('/event-head/rep
 export const generateEventPdf = (eventId) => api('/event-head/reports/event/' + eventId + '/pdf', { _prefix: 'ucs' })
 export const generateEventExcel = (eventId) => api('/event-head/reports/event/' + eventId + '/excel', { _prefix: 'ucs' })
 
+/* The order of the Monthly Report's programme cards inside an NGO's card, as
+   arranged by drag and drop. The order lives in the database, so it survives a
+   reload and is the same for everyone who opens the report. The report itself
+   comes back in this order, so there is no separate read for it. */
+export const setMonthlyReportCardOrder = async (payload = {}) => {
+  const res = await apiPut('/event-head/reports/monthly/card-order', {
+    month: payload.month,
+    year: payload.year,
+    ngo_id: payload.ngo_id,
+    order: Array.isArray(payload.order) ? payload.order : [],
+  })
+  return res?.order || null
+}
+
 /* ── Approval ── */
 export const fetchApprovals = () => apiGet('/event-head/approvals')
 export const submitApproval = (eventId) => apiPost('/event-head/events/' + eventId + '/submit')

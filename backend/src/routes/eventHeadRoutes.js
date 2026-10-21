@@ -141,6 +141,10 @@ router.put('/events/:eventId/checklist/:itemId', eh, ctrl.updateChecklistItem);
 // Reports
 router.get('/reports/all', eh, ctrl.generateAllEventsReport);
 router.get('/reports/monthly', eh, ctrl.generateNgoMonthlyReport);
+// Monthly Report: the order of the programme cards inside an NGO's card, as
+// arranged by drag and drop. The report itself comes back in this order, so
+// there is no separate read for it.
+router.put('/reports/monthly/card-order', eh, ctrl.setMonthlyReportCardOrder);
 router.get('/reports/event/:eventId', eh, ctrl.generateEventReport);
 
 // Approvals

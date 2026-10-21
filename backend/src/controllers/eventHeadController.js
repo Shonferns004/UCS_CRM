@@ -1639,12 +1639,21 @@ export const generateNgoMonthlyReport = async (req, res) => {
       `${String(l.ngo_id ?? '')}|${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
       l.event_id,
     ]));
-    const imageFor = (ngoId, date, festival, suggestedId) => {
+    // The event a planner row was turned into. Resolved in the same order the
+    // photo is: the suggestion's own link, then the durable planner link
+    // (date + festival + NGO), then a name+date+NGO match for events that
+    // predate the link feature. Every step is scoped to the row's own NGO, so
+    // a row is never credited with another NGO's event.
+    const linkedEventFor = (ngoId, date, festival, suggestedId) => {
       const f = String(festival || '').trim();
       const ngoKey = ngoId != null && ngoId !== '' ? String(ngoId) : '';
       const evId = suggestedId != null ? suggestedId : linkMap.get(`${ngoKey}|${date}|${f}`);
       let linked = evId != null ? eventById.get(String(evId)) : null;
       if (!linked) linked = eventByNameDate.get(`${ngoId != null ? String(ngoId) : ''}|${date}|${f.toLowerCase()}`);
+      return linked || null;
+    };
+    const imageFor = (ngoId, date, festival, suggestedId) => {
+      const linked = linkedEventFor(ngoId, date, festival, suggestedId);
       if (!linked) return { url: null };
       // The caller needs to know WHICH event photo this is, because the event
       // head's bucket is private: the browser must read it back through the
@@ -1695,11 +1704,19 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const row = byNgo.get(id);
       const d = f.observance_date ? String(f.observance_date).slice(0, 10) : null;
       const img = imageFor(f.ngo_id, d, f.festival, f.suggested_event_id);
+      // The name the event was SAVED under — the Social head can rename it in
+      // the Create / Edit form, and that is the name the report must carry.
+      // A row whose event has no name (or no event at all) keeps the festival
+      // it was planned for, so the report never shows an empty slot.
+      const linked = linkedEventFor(f.ngo_id, d, f.festival, f.suggested_event_id);
+      const eventName = String(linked?.name || '').trim();
       row.events_count += 1;
       row.events.push({
         id: f.id,
-        name: f.festival || null,
-        festival: f.festival || null,
+        name: eventName || f.festival || null,
+        festival: eventName || f.festival || null,
+        event_name: eventName || null,
+        festival_name: f.festival || null,
         programme: f.title || f.activity_name || null,
         beneficiary: f.beneficiary || null,
         date: d,
@@ -1726,6 +1743,39 @@ export const generateNgoMonthlyReport = async (req, res) => {
     const totalBudget = ngos.reduce((s, n) => s + n.budget, 0);
     const totalBeneficiaries = ngos.reduce((s, n) => s + n.beneficiaries, 0);
 
+    // The order the Social head arranged the programme cards in (drag and
+    // drop). It is a presentation choice, but it is stored in the database so
+    // it survives a reload and is the same for everyone who opens the report.
+    // A card without a stored position keeps its default order and sits after
+    // the arranged ones, so a programme added after the last drag is still
+    // listed.
+    let savedOrder = [];
+    try {
+      savedOrder = await EventHead.getReportCardOrder({ month, year });
+    } catch {
+      /* The order table may not exist yet (a database that was never migrated
+         for it). The report must still load - it just falls back to the
+         default order. */
+    }
+    const orderByNgo = new Map();
+    for (const o of savedOrder) {
+      const ngoKey = String(o.ngo_id ?? '');
+      if (!orderByNgo.has(ngoKey)) orderByNgo.set(ngoKey, new Map());
+      orderByNgo.get(ngoKey).set(String(o.card_key), Number(o.position));
+    }
+    for (const n of ngos) {
+      const pos = orderByNgo.get(String(n.ngo_id ?? ''));
+      if (!pos || !pos.size) continue;
+      n.events = n.events
+        .map((ev, i) => ({ ev, i, p: pos.has(String(ev.id)) ? pos.get(String(ev.id)) : null }))
+        .sort((a, b) => {
+          const pa = a.p == null ? Number.MAX_SAFE_INTEGER : a.p;
+          const pb = b.p == null ? Number.MAX_SAFE_INTEGER : b.p;
+          return pa - pb || a.i - b.i;
+        })
+        .map(x => x.ev);
+    }
+
     return res.json({
       month: Number(month),
       year: Number(year),
@@ -1736,6 +1786,45 @@ export const generateNgoMonthlyReport = async (req, res) => {
     });
   } catch (error) {
     console.error('generateNgoMonthlyReport error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/* Saves the order the programme cards were dragged into, for one month and one
+   NGO. The whole order of that NGO is replaced, so a card that left the report
+   cannot leave a stale position behind. The report itself comes back in the
+   saved order, so there is no separate read for it. */
+export const setMonthlyReportCardOrder = async (req, res) => {
+  try {
+    const month = Number(req.body?.month);
+    const year = Number(req.body?.year);
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(400).json({ message: 'month (1-12) is required' });
+    }
+    if (!Number.isInteger(year) || year < 2000) {
+      return res.status(400).json({ message: 'year is required' });
+    }
+    if (!Array.isArray(req.body?.order)) {
+      return res.status(400).json({ message: 'order (array of card keys) is required' });
+    }
+    if (req.body.order.length > 500) {
+      return res.status(400).json({ message: 'order has too many cards' });
+    }
+    const order = req.body.order.map(k => String(k ?? '').trim());
+    if (order.some(k => !k)) {
+      return res.status(400).json({ message: 'order contains an empty card key' });
+    }
+    const ngoId = req.body?.ngo_id != null && req.body.ngo_id !== '' ? String(req.body.ngo_id) : '';
+    const saved = await EventHead.setReportCardOrder({
+      month,
+      year,
+      ngo_id: ngoId,
+      order,
+      updated_by: req.user?.id ?? req.user?.email ?? null,
+    });
+    return res.json({ order: saved });
+  } catch (error) {
+    console.error('setMonthlyReportCardOrder error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

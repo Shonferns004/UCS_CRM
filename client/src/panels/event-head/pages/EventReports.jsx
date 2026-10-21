@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl } from '../store'
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl } from '../store'
 import EventPosterReport from '../components/EventPosterReport'
 import { exportPosterToPdf } from '../components/eventPosterPdf.jsx'
 
@@ -641,12 +641,64 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
    one line per programme (Date | Festival / Day | Programme | Beneficiary |
    Location). The report is driven by the planner, not by the events listing, so
    a programme is never dropped by event de-duplication and test / duplicate
-   events never appear here. */
-function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef }) {
+   events never appear here.
+
+   The programme cards can be dragged into a different order (the handle on the
+   photo). The order is not kept in the browser - it is handed to the parent,
+   which saves it in the database, so it survives a reload and is the same for
+   everyone who opens the report. */
+function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReorder }) {
   const rows = (n.events || []).filter(ev => ev.image)
   const headerBg = theme.color
   const bannerSrc = n.banner || theme.banner
   const rounded = theme.name === 'AFLF'
+  // The card being dragged, and the card it is currently hovering over.
+  const [dragKey, setDragKey] = useState(null)
+  const [overKey, setOverKey] = useState(null)
+
+  const startDrag = (key) => (e) => {
+    setDragKey(key)
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData('text/plain', '') } catch { /* some browsers throw */ }
+  }
+  const endDrag = () => { setDragKey(null); setOverKey(null) }
+  const dragOverCard = (key) => (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (overKey !== key) setOverKey(key)
+  }
+  // Dropping a card on another one puts it in that card's place.
+  const dropOnCard = (key) => (e) => {
+    e.preventDefault()
+    // The grid around the cards drops a card at its end, so a drop on a card
+    // must not also travel up to the grid.
+    e.stopPropagation()
+    const from = dragKey
+    setDragKey(null)
+    setOverKey(null)
+    if (!from || from === key) return
+    const keys = rows.map(r => String(r.id))
+    const a = keys.indexOf(from)
+    const b = keys.indexOf(key)
+    if (a < 0 || b < 0) return
+    const next = [...keys]
+    next.splice(b, 0, next.splice(a, 1)[0])
+    onReorder?.(next)
+  }
+  // Dropping on the empty space of the grid moves the card to the end.
+  const dropAtEnd = (e) => {
+    e.preventDefault()
+    const from = dragKey
+    setDragKey(null)
+    setOverKey(null)
+    if (!from) return
+    const keys = rows.map(r => String(r.id))
+    const a = keys.indexOf(from)
+    if (a < 0 || a === keys.length - 1) return
+    const next = [...keys]
+    next.push(next.splice(a, 1)[0])
+    onReorder?.(next)
+  }
   return (
     <div ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
       <ReportCardHeader logo={n.logo || theme.logo} theme={theme} ngoName={n.ngo_name} monthLabel={monthLabel} yearLabel={yearLabel} eventCount={n.events_count} />
@@ -662,31 +714,57 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef }) {
         {rows.length === 0 ? (
           <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No completed programmes this month.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
-            {rows.map((ev, i) => (
-              <div key={ev.id ?? i} className="eh-activity-card" style={{ border: `1.5px solid ${theme.accent || theme.colorLight}`, borderRadius: rounded ? 12 : 10, background: '#fff', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-                <div style={{ position: 'relative', height: 130, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
-                  <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} />
-                  <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: ev.image ? STATUS_COLOR.Completed : STATUS_COLOR.Draft, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{ev.image ? 'Completed' : 'Pending'}</span>
-                </div>
-                <div style={{ padding: '10px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ background: headerBg, color: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                      {ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>{ev.day || ''}</span>
+          <div
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+            onDrop={dropAtEnd}
+          >
+            {rows.map((ev, i) => {
+              const key = String(ev.id)
+              return (
+                <div
+                  key={ev.id ?? i}
+                  className={`eh-activity-card eh-report-card${dragKey === key ? ' dragging' : ''}${overKey === key ? ' drag-over' : ''}`}
+                  style={{ border: `1.5px solid ${theme.accent || theme.colorLight}`, borderRadius: rounded ? 12 : 10, background: '#fff', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+                  onDragOver={(e) => dragOverCard(key)(e)}
+                  onDrop={(e) => dropOnCard(key)(e)}
+                >
+                  <div style={{ position: 'relative', height: 130, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
+                    <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} />
+                    <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: ev.image ? STATUS_COLOR.Completed : STATUS_COLOR.Draft, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{ev.image ? 'Completed' : 'Pending'}</span>
+                    {/* The drag handle is for the screen only - it must not end up
+                        in the PDF, which is a picture of this very card. */}
+                    <span
+                      className="eh-drag-handle no-print"
+                      data-html2canvas-ignore="true"
+                      draggable
+                      onDragStart={startDrag(key)}
+                      onDragEnd={endDrag}
+                      title="Drag to reorder"
+                      aria-label="Drag to reorder"
+                    >⠿</span>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: theme.headingColor, marginBottom: 4 }}>{ev.festival || '—'}</div>
-                  {ev.programme && <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>{ev.programme}</div>}
-                  {ev.beneficiary && (
-                    <div style={{ marginTop: 6 }}>
-                      <span style={{ background: theme.colorLight, color: theme.colorDark, borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>{ev.beneficiary}</span>
+                  <div style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ background: headerBg, color: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                        {ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>{ev.day || ''}</span>
                     </div>
-                  )}
-                  {ev.venue && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>📍 {ev.venue}</div>}
+                    {/* The event's own full name is the card title — the festival
+                        it was planned on only stays as a small note underneath,
+                        and only when the two are actually different. */}
+                    <div style={{ fontSize: 13, fontWeight: 700, color: theme.headingColor, marginBottom: 4, overflowWrap: 'anywhere' }}>
+                      {ev.event_name || ev.festival || '—'}
+                    </div>
+                    {/* {ev.event_name && ev.festival_name && ev.event_name !== ev.festival_name && (
+                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>{ev.festival_name}</div>
+                    )} */}
+                    {ev.venue && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>📍 {ev.venue}</div>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -843,6 +921,10 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const [monthlyData, setMonthlyData] = useState(null)
   const [monthlyLoading, setMonthlyLoading] = useState(false)
   const [ngos, setNgos] = useState([])
+  // The order the programme cards were dragged into, per NGO. The saved order
+  // lives in the database; this is only the arrangement the user has just
+  // made, so the cards, the PDF and the Excel / CSV all follow it at once.
+  const [cardOrder, setCardOrder] = useState({})
 
   const loadEvents = () => {
     setRefreshing(true)
@@ -928,11 +1010,62 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const generateMonthly = async () => {
     setMonthlyLoading(true)
     setMonthlyData(null)
+    // A new month is a new set of cards: the arrangement made in the previous
+    // month must not leak into this one. The saved order comes back with the
+    // report itself.
+    setCardOrder({})
     try {
       const data = await generateNgoMonthlyReport({ month: monthlyMonth, year: monthlyYear, ngo_id: monthlyNgo || undefined })
       setMonthlyData(data)
     } catch (err) { alert('Failed to load monthly report') }
     finally { setMonthlyLoading(false) }
+  }
+
+  // The NGOs of the monthly report, with their programme cards in the order
+  // they are arranged in. A card that is not in the saved order (a programme
+  // added after the last drag) keeps its place at the end.
+  const orderedNgos = useMemo(() => {
+    const list = monthlyData?.ngos || []
+    if (!list.length) return list
+    return list.map(n => {
+      const keys = cardOrder[String(n.ngo_id ?? '')]
+      if (!keys || !keys.length) return n
+      const events = n.events || []
+      const byKey = new Map(events.map(ev => [String(ev.id), ev]))
+      const wanted = keys.map(k => byKey.get(k)).filter(Boolean)
+      if (!wanted.length) return n
+      const used = new Set(wanted.map(ev => String(ev.id)))
+      const rest = events.filter(ev => !used.has(String(ev.id)))
+      return { ...n, events: [...wanted, ...rest] }
+    })
+  }, [monthlyData, cardOrder])
+
+  // A programme card was dragged into a new place. The whole order of that
+  // NGO is written to the database, so the arrangement is the same for
+  // everyone who opens the report, and it survives a reload.
+  const handleCardReorder = (ngoKey, visibleKeys) => {
+    const ngo = (monthlyData?.ngos || []).find(n => String(n.ngo_id ?? '') === ngoKey)
+    if (!ngo) return
+    const all = ngo.events || []
+    const byKey = new Map(all.filter(ev => ev.image).map(ev => [String(ev.id), ev]))
+    const moved = visibleKeys.map(k => byKey.get(k)).filter(Boolean)
+    // The dragged cards take the cards' own places in their new order; a card
+    // without a photo (there is nothing to drag on it) keeps the place it had.
+    const slots = all.map((ev, i) => (ev.image ? i : -1)).filter(i => i >= 0)
+    const next = [...all]
+    slots.forEach((slot, k) => { if (moved[k]) next[slot] = moved[k] })
+    const keys = next.map(ev => String(ev.id))
+    setCardOrder(prev => ({ ...prev, [ngoKey]: keys }))
+    setMonthlyReportCardOrder({
+      month: Number(monthlyMonth),
+      year: Number(monthlyYear),
+      ngo_id: ngoKey,
+      order: keys,
+    }).catch(e => {
+      console.error('EventReports save card order:', e)
+      setToast('Could not save the new card order.')
+      setTimeout(() => setToast(''), 4000)
+    })
   }
 
   // Load the monthly report when the Monthly tab is opened, so its cards appear
@@ -943,7 +1076,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   }, [mode])
 
   const exportMonthlyCSV = () => {
-    const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
+    const rows = orderedNgos.flatMap(n => n.events.map(e => ({
       ngo: n.ngo_name, date: e.date, festival: e.festival, programme: e.programme, beneficiary: e.beneficiary, location: e.venue,
     })))
     const cols = [
@@ -964,7 +1097,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
 
   const exportMonthlyExcel = async () => {
     const XLSX = await import('xlsx-js-style')
-    const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
+    const rows = orderedNgos.flatMap(n => n.events.map(e => ({
       ngo: n.ngo_name, date: e.date || '', festival: e.festival || '', programme: e.programme || '',
       beneficiary: e.beneficiary || '', location: e.venue || '',
     })))
@@ -984,7 +1117,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const monthlyReportElRef = useRef(null)
   const ngoCardRefs = useRef({})
   const exportMonthlyPDF = async () => {
-    const ngos = monthlyData?.ngos || []
+    const ngos = orderedNgos
     if (!ngos.length) return
     try {
       const { default: html2canvas } = await import('html2canvas')
@@ -1424,13 +1557,14 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
               {monthlyData.ngos.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 12 }}>No programmes planned for this month.</div>}
 
               <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
-                {monthlyData.ngos.map(n => {
+                {orderedNgos.map(n => {
                   const nameCode = codeForName(n.ngo_name)
                   const rawCode = String(n.code || '').toLowerCase()
                   const code = nameCode || (['aflf', 'bsct', 'mann'].includes(rawCode) ? rawCode : '')
                   const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: nameCode || rawCode })
                   const cardRef = el => { ngoCardRefs.current[String(n.ngo_id)] = el }
-                  return <FestivalProgrammeCard key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} code={code} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
+                  const ngoKey = String(n.ngo_id ?? '')
+                  return <FestivalProgrammeCard key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} code={code} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} onReorder={(keys) => handleCardReorder(ngoKey, keys)} />
                 })}
               </div>
             </div>
@@ -1596,6 +1730,19 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         @media screen {
           .eh-print-brand { border-bottom: 3px solid #2036bd; padding-bottom: 10px; margin-bottom: 16px; }
           .eh-print-footer { margin-top: 20px; border-top: 1px solid #d1d5db; padding-top: 8px; text-align: right; color: #6b7280; font-size: 10px; }
+          /* The Monthly Report's programme cards can be dragged into a new
+             order. The handle sits on the photo, so it never shifts the card,
+             and it is hidden from the PDF (data-html2canvas-ignore) and from
+             the browser's own print (no-print). */
+          .eh-drag-handle {
+            position: absolute; top: 8px; left: 8px; z-index: 2;
+            cursor: grab; user-select: none; -webkit-user-select: none;
+            background: rgba(15, 23, 42, 0.55); color: #fff;
+            border-radius: 6px; padding: 2px 6px; font-size: 12px; line-height: 1.1;
+          }
+          .eh-drag-handle:active { cursor: grabbing; }
+          .eh-report-card.dragging { opacity: 0.45; }
+          .eh-report-card.drag-over { outline: 2px dashed #2563eb; outline-offset: -3px; }
         }
         @media print {
           html, body { background:#fff !important; }

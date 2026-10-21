@@ -1078,6 +1078,58 @@ export const upsertPlannerEventLink = async ({ observance_date, festival, ngo_id
   return data;
 };
 
+// ─── MONTHLY REPORT: the order of the programme cards ───
+/* The Monthly Report prints one card per planned programme, grouped per NGO.
+   The Social head drags those cards into the order they want the report to
+   read in; that arrangement is stored here so it survives a reload and is the
+   same for everyone who opens the report.
+
+   One row per card. The card is the festival suggestion (the planner row) the
+   programme came from, identified by its id - so the order survives a rename
+   of the event. ngo_id scopes the order to the NGO whose card the programme
+   sits in, because every NGO's grid is arranged on its own. */
+
+export const getReportCardOrder = async ({ month, year, ngo_id } = {}) => {
+  let query = db.from('event_head_report_card_order')
+    .select('ngo_id, card_key, position')
+    .eq('report_month', Number(month))
+    .eq('report_year', Number(year));
+  if (ngo_id != null && ngo_id !== '') query = query.eq('ngo_id', String(ngo_id));
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+/* Replaces the whole order of one month + NGO. The card keys are the ones the
+   client currently shows, so a card that disappeared from the report cannot
+   leave a stale position behind. Done in one transaction, so a reader never
+   sees the month without an order half way through the swap. */
+export const setReportCardOrder = async ({ month, year, ngo_id, order, updated_by } = {}) => {
+  const m = Number(month);
+  const y = Number(year);
+  const ngoKey = ngo_id != null && ngo_id !== '' ? String(ngo_id) : '';
+  const keys = (Array.isArray(order) ? order : []).map(k => String(k ?? '')).filter(k => k !== '');
+  await db.transaction(async ({ from }) => {
+    await from('event_head_report_card_order')
+      .delete()
+      .eq('report_month', m)
+      .eq('report_year', y)
+      .eq('ngo_id', ngoKey);
+    if (!keys.length) return;
+    const rows = keys.map((card_key, i) => ({
+      report_month: m,
+      report_year: y,
+      ngo_id: ngoKey,
+      card_key,
+      position: i,
+      updated_by: updated_by != null && updated_by !== '' ? String(updated_by) : null,
+    }));
+    const { error } = await from('event_head_report_card_order').insert(rows);
+    if (error) throw error;
+  });
+  return { month: m, year: y, ngo_id: ngoKey, count: keys.length };
+};
+
 export const getAllActivities = async ({ ngo_id, sector_id } = {}) => {
   let query = db.from('event_head_activities').select('*').order('created_at', { ascending: false });
   if (ngo_id) query = query.eq('ngo_id', ngo_id);

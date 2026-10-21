@@ -137,6 +137,7 @@ import { ensureSevakSignatureSchema } from './bootstrap/ensureSevakSignatureSche
 import { ensureTaskAssignmentSchema } from './bootstrap/ensureTaskAssignmentSchema.js';
 import { ensureAssetSchema } from './bootstrap/ensureAssetSchema.js';
 import { ensureEventHeadPlannerEventLinkSchema } from './bootstrap/ensureEventHeadPlannerEventLinkSchema.js';
+import { ensureEventHeadReportCardOrderSchema } from './bootstrap/ensureEventHeadReportCardOrderSchema.js';
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { ensureTemporaryDataAccessSchema } from './bootstrap/ensureTemporaryDataAccessSchema.js';
 import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSchema.js';
@@ -1249,6 +1250,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureTaskAssignmentSchema().catch(e => console.error('ensureTaskAssignmentSchema failed:', e?.message || e));
     await ensureAssetSchema().catch(e => console.error('ensureAssetSchema failed:', e?.message || e));
     await ensureEventHeadPlannerEventLinkSchema().catch(e => console.error('ensureEventHeadPlannerEventLinkSchema failed:', e?.message || e));
+    await ensureEventHeadReportCardOrderSchema().catch(e => console.error('ensureEventHeadReportCardOrderSchema failed:', e?.message || e));
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     await ensureTemporaryDataAccessSchema().catch(e => console.error('ensureTemporaryDataAccessSchema failed:', e?.message || e));
     await ensureWhatsAppAccountSchema().catch(e => console.error('ensureWhatsAppAccountSchema failed:', e?.message || e));
