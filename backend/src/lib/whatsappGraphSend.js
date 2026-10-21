@@ -26,12 +26,41 @@ const DEFAULT_MAX_ATTEMPTS = 4;
 const DEFAULT_BASE_DELAY_MS = 1200;
 const MAX_RETRY_AFTER_MS = 30000;
 
+// How long a number (paceKey, i.e. one phone_number_id) is parked after Meta
+// answers 130429. Meta's throughput window is minutes, not the seconds the
+// in-process backoff above covers, so without this a manual "Retry" a second
+// after the failure re-POSTs into the same wall and 130429s again. Measured in
+// one place so tests and callers can read it.
+export const RATE_LIMIT_COOLDOWN_MS = 60_000;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** paceKey -> tail of that account's serial send queue */
 const queues = new Map();
 /** paceKey -> epoch ms when the last attempt started */
 const lastAttemptAt = new Map();
+/** paceKey -> epoch ms until which the number is rate-limited (130429) */
+const rateLimitedUntil = new Map();
+
+/**
+ * Remaining cooldown for a paceKey, 0 when the number may send now. Read by
+ * the retry scheduler so a manual retry can wait the window out instead of
+ * firing instantly and hitting 130429 again.
+ */
+export function rateLimitCooldownRemaining(paceKey) {
+  const until = rateLimitedUntil.get(paceKey) || 0;
+  return Math.max(0, until - Date.now());
+}
+
+/** Park a paceKey until `until` epoch ms; never shortens an existing cooldown. */
+function noteRateLimit(paceKey, ms) {
+  const until = Date.now() + ms;
+  if (until > (rateLimitedUntil.get(paceKey) || 0)) rateLimitedUntil.set(paceKey, until);
+}
+
+function isRateLimit(status, data) {
+  return status === 429 || data?.error?.code === 130429 || /rate limit/i.test(String(data?.error?.message || ''));
+}
 
 function isTransient(status, data) {
   if (status === 429 || status >= 500) return true;
@@ -54,9 +83,16 @@ export function postWhatsAppMessage(url, accessToken, body, options = {}) {
     maxAttempts = DEFAULT_MAX_ATTEMPTS,
     minGapMs = DEFAULT_MIN_GAP_MS,
     baseDelayMs = DEFAULT_BASE_DELAY_MS,
+    cooldownMs = RATE_LIMIT_COOLDOWN_MS,
   } = options;
 
   const run = async () => {
+    // Wait out any active cooldown first (a previous 130429 parked this
+    // number). This is what makes a manual retry "just work": it sleeps the
+    // window out and then sends, instead of erroring again.
+    const cooldown = rateLimitCooldownRemaining(paceKey);
+    if (cooldown > 0) await sleep(cooldown);
+
     let attempt = 0;
     while (attempt < maxAttempts) {
       attempt += 1;
@@ -76,6 +112,20 @@ export function postWhatsAppMessage(url, accessToken, body, options = {}) {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) return data;
+
+      const rateLimited = isRateLimit(res.status, data);
+      if (rateLimited) {
+        // Park the whole number, and make THIS attempt wait the full cooldown
+        // (not the seconds-long backoff below) before trying again — Meta's
+        // window is minutes, so a short retry just wastes a call and 130429s
+        // again.
+        noteRateLimit(paceKey, cooldownMs);
+        if (attempt < maxAttempts) {
+          await sleep(cooldownMs);
+          continue;
+        }
+        throw metaError(data, res.status);
+      }
 
       if (isTransient(res.status, data) && attempt < maxAttempts) {
         const retryAfterSec = Number(res.headers.get('retry-after'));

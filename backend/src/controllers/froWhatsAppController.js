@@ -334,6 +334,14 @@ export async function retryMessage(req, res) {
       return res.status(409).json({ message: 'This message cannot be retried' });
     }
 
+    // A rate-limited retry is parked, not failed: the scheduler re-armed the
+    // row and will send once Meta's window clears. Returning the current row
+    // (still 'failed') would make the bubble flash the old error again, so the
+    // caller is told the send is deferred and must poll for the outcome.
+    if (result.outcome === 'deferred') {
+      return res.status(202).json({ success: true, outcome: 'deferred', message: null });
+    }
+
     const { data: fresh } = await db.from('messages').select('*').eq('id', id).maybeSingle();
     return res.json({
       success: true,

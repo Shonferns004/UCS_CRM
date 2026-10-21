@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { postWhatsAppMessage } from './whatsappGraphSend.js';
+import { postWhatsAppMessage, rateLimitCooldownRemaining } from './whatsappGraphSend.js';
 
 const URL = 'https://graph.facebook.com/v23.0/111/messages';
 
@@ -32,6 +32,7 @@ test('retries a rate-limited send and returns the eventual success', async () =>
     paceKey: 'ok-retry',
     baseDelayMs: 1,
     minGapMs: 0,
+    cooldownMs: 1,
   });
 
   assert.equal(data.messages[0].id, 'wamid.1');
@@ -50,6 +51,7 @@ test('treats HTTP 200 payloads carrying 130429 as retryable', async () => {
     paceKey: 'code-retry',
     baseDelayMs: 1,
     minGapMs: 0,
+    cooldownMs: 1,
   });
 
   assert.equal(data.messages[0].id, 'wamid.2');
@@ -64,7 +66,7 @@ test('rejects with the webhook-style "(code) message" once retries are exhausted
   };
 
   await assert.rejects(
-    postWhatsAppMessage(URL, 'tok', {}, { paceKey: 'exhausted', maxAttempts: 3, baseDelayMs: 1, minGapMs: 0 }),
+    postWhatsAppMessage(URL, 'tok', {}, { paceKey: 'exhausted', maxAttempts: 3, baseDelayMs: 1, minGapMs: 0, cooldownMs: 1 }),
     (err) => {
       assert.equal(err.message, '(130429) Rate limit hit');
       assert.equal(err.metaCode, 130429);
@@ -140,4 +142,26 @@ test('a rejected send does not poison the queue for the next caller', async () =
   const data = await second;
   assert.equal(data.messages[0].id, 'wamid.4');
   assert.equal(calls, 2);
+});
+
+test('a 130429 parks the number so the next send waits out the cooldown', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls <= 2) return mockRes(429, { error: { code: 130429, message: 'Rate limit hit' } });
+    return mockRes(200, { messages: [{ id: 'wamid.5' }] });
+  };
+
+  // First send exhausts its own attempts against the limit and rejects.
+  await assert.rejects(
+    postWhatsAppMessage(URL, 'tok', {}, { paceKey: 'parked', maxAttempts: 2, baseDelayMs: 1, minGapMs: 0, cooldownMs: 50 }),
+  );
+  assert.ok(rateLimitCooldownRemaining('parked') > 0, 'number should be parked after 130429');
+
+  // A later send on the same number waits the cooldown out, then succeeds.
+  const started = Date.now();
+  const data = await postWhatsAppMessage(URL, 'tok', {}, { paceKey: 'parked', baseDelayMs: 1, minGapMs: 0, cooldownMs: 50 });
+  assert.equal(data.messages[0].id, 'wamid.5');
+  assert.ok(Date.now() - started >= 40, `expected to wait out the cooldown, waited ${Date.now() - started}ms`);
+  assert.equal(rateLimitCooldownRemaining('parked'), 0);
 });

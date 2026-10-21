@@ -413,15 +413,26 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   // Manual Retry on a failed bubble. The endpoint blocks until the re-send
   // settles, so an invalidate after it shows the real outcome (sent or
   // failed-again) instead of a hopeful optimistic flip.
+  //
+  // A rate-limited retry (130429) comes back 'deferred': the number is parked
+  // and the scheduler re-sends once Meta's window clears (~1 min), leaving the
+  // row 'failed' in the meantime. Refreshing once would just redraw the same
+  // error, so we also re-poll shortly after the cooldown to pick up the send.
   const handleRetryMessage = useCallback(async (m) => {
     if (!m?.id) return
+    let deferred = false
     try {
-      await retryMessage(m.id, agentToken)
+      const res = await retryMessage(m.id, agentToken)
+      deferred = res?.outcome === 'deferred'
     } catch (err) {
       console.error('[WhatsAppInbox] retry failed:', err?.message || err)
     }
-    if (activeConv?.id) queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    const refresh = () => {
+      if (activeConv?.id) queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    }
+    refresh()
+    if (deferred) setTimeout(refresh, 65000)
   }, [activeConv?.id, agentToken, queryClient])
 
   const justCreatedRef = useRef(null)

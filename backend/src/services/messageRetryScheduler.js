@@ -105,6 +105,7 @@ async function runAttempt(id, { manual = false } = {}) {
   } catch (err) {
     const reason = String(err?.message || err).slice(0, 300);
     const statusCode = Number(err?.statusCode) || 0;
+    const rateLimited = Number(err?.metaCode) === 130429 || /130429|rate limit/i.test(reason);
 
     // Refusals before the Graph call — expired temporary access (403 from
     // assertFroProjectSend), closed 24-hour window (422 from sendFroReply)
@@ -116,9 +117,21 @@ async function runAttempt(id, { manual = false } = {}) {
       .update({ status: 'failed', failure_reason: reason, status_updated_at: new Date().toISOString() })
       .eq('id', row.id)
       .eq('status', 'queued')
-      .eq('wa_message_id', null)
+      .is('wa_message_id', null)
       .select('id')
       .maybeSingle();
+
+    // A rate limit is the one failure that is NOT the content's fault: the
+    // number is throttled and the same message will land once the window
+    // clears. Even for a manual retry (which the agent asked for) we do not
+    // show "Not delivered" and stop — we wait the cooldown out and try again,
+    // bounded by the normal attempt cap, so the click just takes a minute
+    // rather than bouncing the agent back to the same error.
+    if (rateLimited && claimed.attempts < MAX_AUTO_RETRIES) {
+      scheduleRetry(id, RETRY_DELAYS_MS[0]);
+      console.warn(`[wa-retry] message ${row.id} rate-limited; re-armed in ${Math.round(RETRY_DELAYS_MS[0] / 1000)}s (attempt ${claimed.attempts}/${MAX_AUTO_RETRIES})`);
+      return { outcome: 'deferred', error: reason };
+    }
 
     const terminal = statusCode === 403 || statusCode === 422;
     if (!manual && !terminal && claimed.attempts < MAX_AUTO_RETRIES) {

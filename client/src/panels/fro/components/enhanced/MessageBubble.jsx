@@ -348,7 +348,9 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
           return (
           <div style={{ marginTop: 4, padding: '0 4px', borderTop: '1px solid #fecaca' }}>
             <div style={{ fontSize: 10, color: '#b91c1c', marginTop: 4, lineHeight: 1.35 }}>
-              Not delivered{message.failure_reason ? `: ${message.failure_reason}` : ''}
+              {failure.code === 130429
+                ? 'Not delivered: WhatsApp is limiting this number. Retry will wait about a minute and send automatically.'
+                : `Not delivered${message.failure_reason ? `: ${message.failure_reason}` : ''}`}
             </div>
             {failure.retryable ? (
               onRetry && (
