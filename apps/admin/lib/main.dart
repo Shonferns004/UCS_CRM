@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'services/backend_switcher.dart';
 import 'services/api_service.dart';
 import 'services/remote_config_service.dart';
 import 'pages/login_page.dart';
@@ -15,6 +16,7 @@ import 'pages/splash_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackendSwitcher.load();
   await RemoteConfigService.instance.init();
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,

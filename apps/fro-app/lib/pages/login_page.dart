@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../theme.dart';
 import 'home_shell.dart';
+import '../services/backend_picker.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -62,6 +63,7 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                  const BackendPicker(),
                     Container(
                       width: 72,
                       height: 72,

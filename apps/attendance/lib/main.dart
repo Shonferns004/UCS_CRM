@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'services/backend_switcher.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'services/remote_config_service.dart';
@@ -23,6 +24,7 @@ bool firebaseInitialized = false;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackendSwitcher.load();
   await RemoteConfigService.instance.init();
   try {
     await Firebase.initializeApp();

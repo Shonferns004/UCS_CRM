@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'api_config.dart';
 import 'channel.dart';
 import 'scraper_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiConfig.load();
   await initChannel();
   runApp(const ScrapperApp());
 }

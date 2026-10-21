@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'pages/home_shell.dart';
 import 'pages/login_page.dart';
+import 'services/backend_switcher.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/call_service.dart';
@@ -12,6 +13,7 @@ import 'theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackendSwitcher.load();
   final auth = await AuthService.create();
   final call = CallService();
   final meeting = MeetingService(call);

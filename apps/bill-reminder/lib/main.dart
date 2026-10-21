@@ -9,6 +9,7 @@ import 'models/reminder.dart';
 import 'pages/detail_page.dart';
 import 'pages/login_page.dart';
 import 'pages/main_shell.dart';
+import 'services/backend_switcher.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'theme.dart';
@@ -28,6 +29,7 @@ void _applySystemUi(Brightness brightness) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackendSwitcher.load();
   _applySystemUi(
       WidgetsBinding.instance.platformDispatcher.platformBrightness);
   try {

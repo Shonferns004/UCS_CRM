@@ -1,0 +1,1 @@
+UPDATE app_config SET data = '{"api_base_url":"http://192.168.1.152:5000/api","socket_url":"http://192.168.1.152:5000","minimum_version":"1.0.0","update_url":"","announcement":null,"feature_flags":{},"ui_text":{}}' WHERE id=1;

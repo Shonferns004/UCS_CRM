@@ -32,6 +32,7 @@ _fetchNgos();
 }
 
 Future<void> _load() async {
+await ApiConfig.load();
 final cfg = await getConfig();
 
 if (!mounted) return;
@@ -660,14 +661,33 @@ return Scaffold(
 
           const SizedBox(height: 12),
 
-          Text(
-            'Backend: $kBackendUrl',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: theme
-                  .colorScheme
-                  .outline,
+          // Backend selector: switch between local dev server and production
+          InkWell(
+            onTap: _pickBackend,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.dns_outlined, size: 14, color: theme.colorScheme.outline),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Backend: $kBackendUrl  (tap to change)',
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -676,5 +696,74 @@ return Scaffold(
   ),
 );
 
+}
+
+Future<void> _pickBackend() async {
+  final current = ApiConfig.backendId;
+  final picked = await showModalBottomSheet<String>(
+    context: context,
+    builder: (ctx) {
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Select backend', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            ...kBackendOptions.map(
+              (o) => ListTile(
+                title: Text(o['label']!),
+                subtitle: Text(o['url']!, style: const TextStyle(fontSize: 12)),
+                trailing: current == o['id'] ? const Icon(Icons.check_circle, size: 20) : null,
+                onTap: () => Navigator.pop(ctx, o['id']),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.link, size: 20),
+              title: const Text('Custom URL...'),
+              onTap: () => Navigator.pop(ctx, '__custom__'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
+  );
+
+  if (picked == null || !mounted) return;
+
+  String target;
+  if (picked == '__custom__') {
+    final ctrl = TextEditingController(text: ApiConfig.backendUrl);
+    final custom = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Backend URL'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'http://192.168.1.152:5000'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (custom == null || custom.isEmpty) return;
+    target = custom;
+  } else {
+    target = picked;
+  }
+
+  await ApiConfig.setBackend(target);
+  if (!mounted) return;
+  setState(() {});
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('Backend set to ${ApiConfig.backendUrl}'), duration: const Duration(seconds: 2)),
+  );
+  _fetchNgos();
 }
 }

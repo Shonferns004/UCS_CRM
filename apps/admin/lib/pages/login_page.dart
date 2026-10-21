@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../services/backend_picker.dart';
 import '../services/api_service.dart';
 import '../widgets/skeleton_loader.dart';
 
@@ -154,6 +155,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  const BackendPicker(),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.asset(

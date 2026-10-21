@@ -1,4 +1,8 @@
+import 'services/backend_switcher.dart';
+
 class Config {
-  // Backend API root. The reminders web admin runs against the same host.
-  static const String apiBaseUrl = 'https://api.beingsevak.org/api';
+  // Points at the local dev server by default; tap the "Backend" row in the
+  // app to switch between local / emulator / cloudflared / production.
+  static String get apiBaseUrl => BackendSwitcher.apiBaseUrl;
+  static String get socketUrl => BackendSwitcher.socketUrl;
 }
