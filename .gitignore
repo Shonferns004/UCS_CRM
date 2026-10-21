@@ -30,7 +30,7 @@ app-release.apk
 !client/src/**/assets/**
 !client/public/**
 feereceiptapp/
-/whatsapp-crm/
+/local
 shon/
 *.aab
 main.txt
@@ -61,3 +61,12 @@ aws/main.md
 
 
 scripts/.webhook-secret
+
+# Local dashboard artifacts
+dashboard-server.mjs
+uploads/
+webhook.log
+metrics.js
+
+cf-backend.log
+cf-webhook.log

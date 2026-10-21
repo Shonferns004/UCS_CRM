@@ -1,152 +1,589 @@
 <!DOCTYPE html>
-<html lang="en">
+<html class="dark" lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>UCS CRM — Status</title>
-<style>
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { font-family:'Segoe UI',system-ui,sans-serif; background:#0f172a; color:#e2e8f0; padding:24px; }
-  h1 { font-size:22px; margin-bottom:4px; }
-  .sub { color:#94a3b8; font-size:13px; margin-bottom:20px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; max-width:1100px; }
-  .card { background:#1e293b; border-radius:10px; padding:16px; border:1px solid #334155; }
-  .card h2 { font-size:15px; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
-  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
-  .dot.ok { background:#22c55e; box-shadow:0 0 8px #22c55e; }
-  .dot.bad { background:#ef4444; box-shadow:0 0 8px #ef4444; }
-  .dot.wait { background:#94a3b8; animation:pulse 1.2s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-  .info { font-size:13px; color:#94a3b8; margin:6px 0; min-height:18px; }
-  .info b { color:#e2e8f0; }
-  .links { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; }
-  .links a, .links button { font-size:12px; padding:5px 10px; border-radius:6px; background:#334155; color:#e2e8f0; text-decoration:none; border:none; cursor:pointer; }
-  .links a:hover, .links button:hover { background:#475569; }
-  .cmd { background:#0b1220; padding:8px 10px; border-radius:6px; font-family:Consolas,monospace; font-size:12px; color:#a5f3fc; margin:4px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
-  .cmd code { flex:1; word-break:break-all; }
-  .cmd button { background:#334155; color:#e2e8f0; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; }
-  .full { grid-column:1/-1; }
-  .btn { display:inline-block; background:#2563eb; color:#fff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:600; margin:4px; border:none; cursor:pointer; font-size:14px; }
-  .btn:hover { background:#1d4ed8; }
-  .btn.red { background:#dc2626; } .btn.red:hover { background:#b91c1c; }
-  .btn.gray { background:#475569; } .btn.gray:hover { background:#334155; }
-  .topbar { margin-bottom:20px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .status-line { font-size:13px; color:#94a3b8; margin-top:8px; }
-  iframe.probe { display:none; }
-  .footer { margin-top:20px; color:#64748b; font-size:12px; }
-</style>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>UCS CRM — Local Status Dashboard</title>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts: Inter & JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<!-- Tailwind Configuration -->
+<script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            slate: {
+              850: '#0f172a',
+              900: '#0b1120',
+              950: '#060a12',
+            },
+            cyber: {
+              blue: '#38bdf8',
+              cyan: '#22d3ee',
+              green: '#10b981',
+              amber: '#f59e0b',
+              rose: '#f43f5e',
+              indigo: '#6366f1',
+            }
+          },
+          boxShadow: {
+            'glow-cyan': '0 0 20px -5px rgba(34, 211, 238, 0.25)',
+            'glow-emerald': '0 0 20px -5px rgba(16, 185, 129, 0.3)',
+            'glow-rose': '0 0 20px -5px rgba(244, 63, 94, 0.35)',
+            'inner-subtle': 'inset 0 1px 1px 0 rgba(255, 255, 255, 0.05)',
+          }
+        }
+      }
+    }
+  </script>
+<!-- Global Custom Styling & Scrollbars -->
+<style data-purpose="custom-scrollbars">
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+    ::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 1); }
+    .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 9999; animation: slideIn .3s ease; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    .toast.success { background: #10b981; color: #04211a; }
+    .toast.error { background: #f43f5e; color: #fff; }
+    @keyframes slideIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+<style data-purpose="terminal-effects">
+    .terminal-line { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.2rem 0; line-height: 1.45; }
+    .badge-dot { animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulse-subtle { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(0.95); } }
+  </style>
 </head>
-<body>
+<body class="bg-[#080d19] text-slate-200 font-sans antialiased min-h-screen selection:bg-cyan-500/30 selection:text-cyan-200">
 
-<h1>UCS CRM — Status</h1>
-<p class="sub">Last check: <span id="lastCheck">—</span> &nbsp;·&nbsp; Auto-checks every 15s &nbsp;·&nbsp; <a href="#" onclick="location.reload();return false;" style="color:#60a5fa">Refresh</a></p>
-
-<div class="topbar">
-  <a class="btn" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/start-all.bat">▶ Start All</a>
-  <a class="btn red" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/stop-all.bat">■ Stop All</a>
-  <a class="btn gray" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/sync.ps1">Sync (pull+restart)</a>
-  <button class="btn gray" onclick="checkAll()">🔄 Re-check Now</button>
-</div>
-
-<div class="grid">
-
-  <div class="card">
-    <h2><span class="dot wait" id="d1"></span> Backend (Node/Express) — port 5000</h2>
-    <div class="info" id="s1">Checking…</div>
-    <div class="links">
-      <a href="http://192.168.1.152:5000/api/health" target="_blank">Health JSON</a>
-      <a href="http://192.168.1.152:5000/api" target="_blank">API base</a>
+<!-- Header -->
+<header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3.5">
+      <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-600 via-indigo-600 to-sky-400 p-[1px] shadow-glow-cyan flex items-center justify-center">
+        <div class="w-full h-full bg-slate-950 rounded-[11px] flex items-center justify-center">
+          <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-indigo-300 to-cyan-300 font-extrabold">UCS CRM</span>
+            <span class="text-slate-500 font-light">—</span>
+            <span class="text-slate-200">Local Status Dashboard</span>
+          </h1>
+          <span id="statusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-500 badge-dot"></span>
+            Checking...
+          </span>
+        </div>
+        <div class="text-xs text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          <span>Auto-checks every <strong class="text-slate-300">3s</strong></span>
+          <span>•</span>
+          <span class="text-slate-300" id="lastCheck">—</span>
+          <span>•</span>
+          <span class="text-indigo-400/90 font-medium">Standalone HTML</span>
+        </div>
+      </div>
     </div>
-    <div class="cmd"><code>cd backend; node src/index.js</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
-  </div>
-
-  <div class="card">
-    <h2><span class="dot wait" id="d2"></span> Frontend (Vite) — port 5173</h2>
-    <div class="info" id="s2">Checking…</div>
-    <div class="links">
-      <a href="http://192.168.1.152:5173" target="_blank">Open app</a>
-      <a href="http://localhost:5173" target="_blank">localhost</a>
+    <!-- Quick actions -->
+    <div class="flex items-center flex-wrap gap-2 text-xs font-medium">
+      <span class="text-slate-400 font-semibold uppercase tracking-wider text-[11px] mr-1 hidden lg:inline-block">Quick actions:</span>
+      <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700/80 text-slate-200 border border-slate-700/80 transition-all active:scale-95 shadow-sm" onclick="recheck()">
+        <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        Re-check Now
+      </button>
+      <button class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white font-semibold transition-all active:scale-95 shadow-glow-emerald border border-emerald-400/30" onclick="startAll()">
+        <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        Start All
+      </button>
+      <button class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600/90 hover:bg-rose-500 text-white font-semibold transition-all active:scale-95 shadow-glow-rose border border-rose-400/30" onclick="stopAll()">
+        <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        Stop All
+      </button>
+      <div class="h-4 w-[1px] bg-slate-700/80 mx-0.5 hidden sm:block"></div>
+      <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-all active:scale-95" onclick="downloadDump()">
+        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Download Dump
+      </button>
+      <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-all active:scale-95" onclick="syncNow()">
+        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+        Sync
+      </button>
     </div>
-    <div class="cmd"><code>cd client; npm run dev -- --host</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
   </div>
+</header>
 
-  <div class="card">
-    <h2><span class="dot wait" id="d3"></span> Webhook Server — port 9000</h2>
-    <div class="info" id="s3">Checking…</div>
-    <div class="links">
-      <a href="http://localhost:9000/webhook" target="_blank">Endpoint</a>
+<!-- Main Content -->
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
+
+  <!-- Service Status Grid -->
+  <section>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold tracking-wider text-slate-400 uppercase flex items-center gap-2">
+        Active Services &amp; Daemons
+        <span class="text-xs font-normal normal-case text-slate-500 font-mono">(4 managed endpoints)</span>
+      </h2>
+      <span class="text-xs text-slate-500 font-mono">Last scanned: <span id="lastScan2">—</span></span>
     </div>
-    <div class="cmd"><code>cloudflared tunnel --url http://localhost:9000</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
-  </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 min-w-0" id="serviceGrid"></div>
+  </section>
 
-  <div class="card">
-    <h2><span class="dot wait" id="d4"></span> Backend Tunnel (cloudflared) — port 5000</h2>
-    <div class="info" id="s4">Checking…</div>
-    <div class="links">
-      <a href="https://registrar-alex-findarticles-poison.trycloudflare.com" target="_blank">Backend public URL</a>
-      <a href="https://registrar-alex-findarticles-poison.trycloudflare.com/api/health" target="_blank">Health JSON</a>
+  <!-- Metrics Grid -->
+  <section>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold tracking-wider text-slate-400 uppercase flex items-center gap-2">
+        System Resources
+        <span class="text-xs font-normal normal-case text-slate-500 font-mono">(live metrics)</span>
+      </h2>
     </div>
-    <div class="cmd"><code>cloudflared tunnel --url http://localhost:5000</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
-  </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 min-w-0" id="metricsGrid"></div>
+  </section>
 
-  <div class="card full">
-    <h2>Recent webhook activity</h2>
-    <iframe id="logFrame" src="file:///C:/Users/Administrator/Desktop/UCS_CRM/webhook.log" style="width:100%;height:200px;border:none;border-radius:6px;background:#0b1220;color:#cbd5e1;font-family:Consolas,monospace;font-size:12px"></iframe>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn gray" onclick="document.getElementById('logFrame').src='file:///C:/Users/Administrator/Desktop/UCS_CRM/webhook.log?t='+Date.now()">🔄 Refresh Log</button>
-      <a class="btn gray" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/watch-log.bat">📺 Watch Live (opens PowerShell)</a>
+  <!-- Database Restore -->
+  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-800">
+      <div>
+        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+          <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+          Restore Database from Dump
+        </h2>
+        <p class="text-xs text-slate-400 mt-0.5">Upload a <code class="text-cyan-300 font-mono bg-slate-800 px-1 py-0.5 rounded">.dump</code> file from AWS RDS to restore into your local database.</p>
+      </div>
+      <div class="text-xs text-slate-400 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-cyan-400"></span>
+        <span>Target DB: <strong class="text-slate-200 font-mono">ucs_crm</strong> (port 5432)</span>
+      </div>
     </div>
-    <p class="status-line">Click "Refresh Log" to reload. For live tailing, double-click watch-log.bat.</p>
+    <div class="mt-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 bg-slate-950/60 p-4 rounded-lg border border-slate-800/80">
+      <div class="flex items-center gap-3">
+        <label class="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors">
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          Choose File
+          <input class="hidden" id="dumpFile" type="file" accept=".dump,.sql,.backup" onchange="document.getElementById('fileName').innerText = this.files[0] ? this.files[0].name : 'No file chosen'"/>
+        </label>
+        <span class="text-xs text-slate-400 font-mono truncate max-w-xs" id="fileName">No file chosen</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <button class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-900/30 transition-all active:scale-95" onclick="uploadDump()">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          Upload &amp; Restore
+        </button>
+        <button class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors" onclick="checkUploadLog()">
+          <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Check Upload Log
+        </button>
+        <button class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors" onclick="downloadDump()">
+          <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/></svg>
+          Download Dump from AWS
+        </button>
+      </div>
+    </div>
+    <div id="uploadStatus" class="text-xs text-slate-400 mt-3 min-h-[18px]"></div>
+    <div id="uploadProgress" class="mt-3" style="display:none">
+      <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden" style="min-height:10px">
+        <div id="uploadProgressBar" class="bg-gradient-to-r from-indigo-500 to-violet-400 h-2.5 rounded-full transition-all duration-300" style="width:0%;min-height:10px"></div>
+      </div>
+      <div id="uploadProgressText" class="text-xs text-slate-400 mt-1.5 font-mono">Restoring database...</div>
+    </div>
+    <div id="uploadLog" class="log mt-3" style="display:none"></div>
+  </section>
+
+  <!-- Webhook Terminal -->
+  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
+      <div>
+        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          Recent Webhook Activity &amp; Live Server Stream
+        </h2>
+        <p class="text-xs text-slate-400 mt-0.5">Direct telemetry stdout listener from port 9000 &amp; Cloudflare edge tunnels.</p>
+      </div>
+    </div>
+    <div class="mt-4 rounded-xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs overflow-hidden shadow-inner-subtle">
+      <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80 text-[11px] text-slate-500">
+        <div class="flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-500/70 inline-block"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500/70 inline-block"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/70 inline-block"></span>
+          <span class="ml-2 font-mono text-slate-400">ucs-crm-daemon-stdout — fish</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-slate-500">Encoding: UTF-8</span>
+          <span class="text-emerald-400 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Connected
+          </span>
+        </div>
+      </div>
+      <div class="h-64 overflow-y-auto space-y-1 text-slate-300 pr-2" id="terminalStream">
+        <div class="terminal-line text-slate-500">
+          <span class="text-slate-600">[—]</span>
+          <span class="text-cyan-400 font-semibold">[INFO]</span>
+          <span>Waiting for webhook activity...</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Footer -->
+<footer class="border-t border-slate-800/80 bg-slate-900/40 py-4 px-6 text-center text-xs text-slate-500">
+  <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+      <span>Double-click <code class="text-slate-400 font-mono bg-slate-800/60 px-1 py-0.5 rounded">start.bat</code> to launch everything.</span>
+    </div>
+    <div>
+      <span>Dashboard auto-checks every <strong>10s</strong>. Config: <code class="text-indigo-400 font-mono">src/config.js</code></span>
+    </div>
   </div>
+</footer>
 
-  <div class="card full">
-    <h2>If something is down — fix it</h2>
-    <table style="width:100%;font-size:13px;border-collapse:collapse">
-      <tr><td style="padding:6px 0;color:#94a3b8">Backend down</td><td><code style="color:#a5f3fc">cd backend; node src/index.js</code></td></tr>
-      <tr><td style="padding:6px 0;color:#94a3b8">Frontend down</td><td><code style="color:#a5f3fc">cd client; npm run dev -- --host</code></td></tr>
-      <tr><td style="padding:6px 0;color:#94a3b8">Webhook down</td><td><code style="color:#a5f3fc">cloudflared tunnel --url http://localhost:9000</code></td></tr>
-      <tr><td style="padding:6px 0;color:#94a3b8">Backend tunnel down</td><td><code style="color:#a5f3fc">cloudflared tunnel --url http://localhost:5000</code></td></tr>
-      <tr><td style="padding:6px 0;color:#94a3b8">Everything</td><td><a href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/start-all.bat" style="color:#60a5fa">Double-click scripts\start-all.bat</a></td></tr>
-    </table>
-  </div>
-
-</div>
-
-<p class="footer">This file works standalone — no server needed. Just double-click it. Status is checked via reachability probes.</p>
-
-<!-- Hidden probes -->
-<iframe id="p1" style="display:none" src="http://127.0.0.1:5000/api/health"></iframe>
-<iframe id="p2" style="display:none" src="http://127.0.0.1:5173"></iframe>
-<iframe id="p3" style="display:none" src="http://127.0.0.1:9000/webhook"></iframe>
-<iframe id="p4" style="display:none" src="https://registrar-alex-findarticles-poison.trycloudflare.com/api/health"></iframe>
+<!-- Toast container -->
+<div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
 
 <script>
-function copy(t){ navigator.clipboard.writeText(t.trim()).then(()=>flash('Copied!')); }
-function flash(m){ const n=document.createElement('div'); n.textContent=m; n.style.cssText='position:fixed;bottom:20px;right:20px;background:#22c55e;color:#000;padding:8px 12px;border-radius:6px;font-size:13px;z-index:9999'; document.body.appendChild(n); setTimeout(()=>n.remove(),1500); }
+const CS = 'http://localhost:9999';
 
-function setDot(id,state){ const e=document.getElementById(id); if(e) e.className='dot '+state; }
-function setInfo(id,html){ const e=document.getElementById(id); if(e) e.innerHTML=html; }
+const SERVICES = [
+  { key:'backend',  label:'Backend',  sub:'(Node/Express)', port:5000, cmd:'cd backend; node src/index.js', tag:'node / express',
+    links:[['Health JSON','http://192.168.1.152:5000/api/health'],['API base','http://192.168.1.152:5000/api']] },
+  { key:'frontend', label:'Frontend', sub:'(Vite)', port:5173, cmd:'cd client; npm run dev -- --host', tag:'npm / vite',
+    links:[['Open app','http://192.168.1.152:5173'],['localhost','http://localhost:5173']] },
+  { key:'webhook',  label:'Webhook Server', sub:'', port:9000, cmd:'cloudflared tunnel --url http://localhost:9000', tag:'cloudflared',
+    links:[['Endpoint','http://localhost:9000/webhook']] },
+  { key:'tunnel',   label:'Backend Tunnel', sub:'(cloudflared)', port:'—', cmd:'cloudflared tunnel --url http://localhost:5000', tag:'tunnel',
+    links:[['Tunnel dashboard','http://127.0.0.1:20241'],['Public URL','https://registrar-alex-findarticles-poison.trycloudflare.com']] },
+];
 
-function probe(url, dotId, infoId, label, okMsg){
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), 4000);
-  fetch(url, {mode:'no-cors', cache:'no-store', signal:controller.signal})
-    .then(()=>{ clearTimeout(timer); setDot(dotId,'ok'); setInfo(infoId,'✅ '+okMsg); })
-    .catch(()=>{ clearTimeout(timer); setDot(dotId,'bad'); setInfo(infoId,'❌ Not reachable'); });
-  setDot(dotId,'wait'); setInfo(infoId,'⏳ Checking…');
+const ICON_ON  = '<svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+const ICON_OFF = '<svg class="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
+
+let state = { backend:false, frontend:false, webhook:false, tunnel:false, backendInfo:null, tunnelUrl:null };
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderServices() {
+  const grid = document.getElementById('serviceGrid');
+  grid.innerHTML = SERVICES.map(s => {
+    const up = state[s.key];
+    const dot = up
+      ? 'animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'
+      : 'animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75';
+    const core = up ? 'bg-emerald-500' : 'bg-rose-500';
+    let statusText = 'Down';
+    if (up) {
+      if (s.key === 'backend') statusText = 'Online — db: ' + (state.backendInfo?.db || 'ok') + (state.backendInfo?.commit ? ', commit: ' + state.backendInfo.commit : '');
+      else if (s.key === 'frontend') statusText = 'Online';
+      else if (s.key === 'webhook') statusText = 'Online';
+      else statusText = 'Online — ' + (state.tunnelUrl || 'cloudflared');
+    }
+    const flagCls = up
+      ? 'inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-md border border-emerald-800/40 min-w-0 max-w-full'
+      : 'inline-flex items-center gap-1.5 text-xs font-semibold text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded-md border border-rose-800/40 min-w-0 max-w-full';
+    const links = s.links.map(([t,h]) => '<a class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700/70 transition-colors whitespace-nowrap" href="'+h+'" target="_blank">'+t+'</a>').join('');
+    const statusHtml = s.key === 'tunnel' && up && state.tunnelUrl
+      ? '<span class="truncate" title="'+esc(state.tunnelUrl)+'">'+esc(state.tunnelUrl)+'</span>'
+      : '<span class="truncate" title="'+esc(statusText)+'">'+esc(statusText)+'</span>';
+    return '<div class="rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-900/90 p-5 shadow-lg shadow-black/20 transition-all flex flex-col justify-between min-w-0 overflow-hidden">' +
+      '<div class="min-w-0">' +
+        '<div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800/60">' +
+          '<div class="flex items-center gap-2.5 min-w-0">' +
+            '<span class="relative flex h-3 w-3 shrink-0"><span class="'+dot+'"></span><span class="relative inline-flex rounded-full h-3 w-3 '+core+'"></span></span>' +
+            '<span class="font-semibold text-slate-200 text-sm truncate">'+s.label+' <span class="text-slate-400 font-normal">'+s.sub+'</span></span>' +
+          '</div>' +
+          '<span class="font-mono text-xs text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/50 shrink-0">port '+s.port+'</span>' +
+        '</div>' +
+        '<div class="my-3 flex flex-wrap items-center justify-between gap-2">' +
+          '<div class="'+flagCls+'">'+(up?ICON_ON:ICON_OFF)+statusHtml+'</div>' +
+          '<div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">'+links+'</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="mt-2 min-w-0">' +
+        '<div class="text-[11px] text-slate-400 mb-1 flex justify-between items-center gap-2">' +
+          '<span class="shrink-0">Restart command:</span>' +
+          '<span class="text-slate-500 font-mono text-[10px] truncate">'+s.tag+'</span>' +
+        '</div>' +
+        '<div class="flex items-center justify-between gap-2 rounded-lg bg-slate-950/90 border border-slate-800/90 p-2 font-mono text-xs text-cyan-300 min-w-0">' +
+          '<span class="truncate pr-2" title="'+s.cmd+'">'+s.cmd+'</span>' +
+          '<button class="shrink-0 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs border border-slate-700 transition-all" onclick="copyToClipboard(\''+s.cmd+'\', this)">Copy</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
 }
 
-function checkAll(){
-  probe('http://127.0.0.1:5000/api/health','d1','s1','Backend','Reachable');
-  probe('http://127.0.0.1:5173','d2','s2','Frontend','Reachable');
-  probe('http://127.0.0.1:9000/webhook','d3','s3','Webhook','Reachable');
-  probe('http://127.0.0.1:5000/api/health','d4','s4','Backend Tunnel','Reachable (localhost:5000)');
-  document.getElementById('lastCheck').textContent = new Date().toLocaleTimeString();
+function metricCard(opts) {
+  return '<div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-black/20 flex flex-col justify-between min-w-0 overflow-hidden">' +
+    '<div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800/60">' +
+      '<span class="font-semibold text-slate-200 text-sm flex items-center gap-2 min-w-0 truncate">'+opts.icon+'<span class="truncate">'+opts.label+'</span></span>' +
+      '<span class="text-[11px] font-mono uppercase tracking-wider text-slate-400 shrink-0 text-right">'+opts.total+'</span>' +
+    '</div>' +
+    '<div class="my-auto py-3 min-w-0">' +
+      '<div class="text-center">' +
+        '<span class="text-[11px] tracking-wider text-slate-400 font-medium uppercase">'+opts.sub+'</span>' +
+        '<div class="text-3xl font-extrabold text-white tracking-tight my-0.5 break-words">'+opts.value+'</div>' +
+      '</div>' +
+      '<div class="mt-2.5 mb-1.5 w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-[1px]">' +
+        '<div class="'+opts.barClass+' h-2 rounded-full transition-all duration-500" id="'+opts.barId+'" style="width:'+opts.pct+'%"></div>' +
+      '</div>' +
+      '<p class="text-center text-xs text-slate-400 font-mono mt-2 break-words">'+opts.sub2+'</p>' +
+    '</div>' +
+  '</div>';
 }
 
-checkAll();
-setInterval(checkAll, 15000);
+function renderMetrics() {
+  const m = window.METRICS || {};
+  const ram = m.ram || {total:0,used:0,free:0,pct:0};
+  const srv = m.serverRam || {total:0,processes:0};
+  const disk = m.disk || {total:0,used:0,free:0,pct:0};
+  const db = m.db || {size:'—',tables:0,connections:0};
+  const srvPct = ram.total ? Math.round((srv.total/1024/ram.total)*100) : 0;
+  const dbPct = disk.total ? Math.round((parseFloat(db.size)/1024/disk.total)*100*10)/10 : 0;
+
+  document.getElementById('metricsGrid').innerHTML =
+    metricCard({ icon:'<svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M3 9h2m-2 6h2m14-6h2m-2 6h2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>',
+      label:'RAM Usage', total:'Total '+ram.total+' GB', sub:'System RAM', value:ram.pct+'%',
+      barId:'m-ram-bar', pct:Math.max(ram.pct,1),
+      barClass: ram.pct>80?'bg-gradient-to-r from-rose-500 to-rose-400': ram.pct>60?'bg-gradient-to-r from-amber-500 to-amber-400':'bg-gradient-to-r from-emerald-500 to-teal-400',
+      sub2:'<span class="text-slate-200 font-medium">'+ram.used+' GB</span> used of '+ram.total+' GB <span class="text-slate-500">(free: <span class="text-emerald-400">'+ram.free+' GB</span>)</span>' }) +
+
+    metricCard({ icon:'<svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>',
+      label:'Server RAM (Node.js)', total:srv.processes+' daemons', sub:'Node.js Processes', value:srv.total+' MB',
+      barId:'m-srv-bar', pct:Math.max(srvPct,1),
+      barClass:'bg-gradient-to-r from-emerald-500 to-teal-400',
+      sub2:'<span class="text-slate-200">'+srv.processes+' processes</span> — <span class="text-cyan-400">~'+srvPct+'%</span> of '+ram.total+' GB' }) +
+
+    metricCard({ icon:'<svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 3.582 3 8 3s8-1 8-3V7M4 7c0 2 3.582 3 8 3s8-1 8-3M4 7c0-2 3.582-3 8-3s8 1 8 3"/></svg>',
+      label:'Disk (C:) Usage', total:'Total '+disk.total+' GB', sub:'Disk Usage', value:disk.pct+'%',
+      barId:'m-disk-bar', pct:Math.max(disk.pct,1),
+      barClass: disk.pct>90?'bg-gradient-to-r from-rose-500 to-rose-400': disk.pct>70?'bg-gradient-to-r from-amber-500 to-amber-400':'bg-gradient-to-r from-sky-500 to-indigo-400',
+      sub2:'<span class="text-slate-200">'+disk.used+' GB</span> used of '+disk.total+' GB <span class="text-slate-500">(free: <span class="text-emerald-400">'+disk.free+' GB</span>)</span>' }) +
+
+    metricCard({ icon:'<svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>',
+      label:'Database Size', total:db.tables+' tables', sub:'PostgreSQL', value:db.size,
+      barId:'m-db-bar', pct:Math.max(dbPct,0.5),
+      barClass:'bg-gradient-to-r from-indigo-500 to-violet-400',
+      sub2:'<span class="text-slate-200">'+dbPct+'%</span> of '+disk.total+' GB disk · <span class="text-cyan-400">'+db.connections+' connections</span>' });
+}
+
+function showToast(msg, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = 'toast ' + (type === 'success' ? 'success' : 'error');
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="text-emerald-400 font-bold">✓ Copied</span>';
+    setTimeout(() => { btn.innerHTML = orig; }, 1600);
+  });
+}
+
+async function checkAll() {
+  try {
+    const d = await (await fetch(CS + '/details', { cache: 'no-store' })).json();
+    state.backend = !!(d.backend && d.backend.status === 'ok');
+    state.backendInfo = d.backend;
+    state.frontend = !!d.frontend;
+    state.webhook = !!d.webhook;
+    state.tunnel = !!(d.tunnel && d.tunnel.public_url);
+    state.tunnelUrl = d.tunnel ? d.tunnel.public_url : null;
+    renderServices();
+
+    const up = [state.backend, state.frontend, state.webhook, state.tunnel].filter(Boolean).length;
+    const badge = document.getElementById('statusBadge');
+    if (up === 4) { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-dot"></span> 4/4 Services Online'; }
+    else if (up === 0) { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 badge-dot"></span> 0/4 Services Down'; }
+    else { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 badge-dot"></span> '+up+'/4 Services Degraded'; }
+  } catch {
+    state.backend = state.frontend = state.webhook = state.tunnel = false;
+    renderServices();
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+    badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 badge-dot"></span> Server Unreachable';
+  }
+  const now = new Date().toLocaleTimeString();
+  document.getElementById('lastCheck').textContent = now;
+  document.getElementById('lastScan2').textContent = now;
+
+  // metrics
+  try {
+    const m = await (await fetch(CS + '/metrics', { cache: 'no-store' })).json();
+    window.METRICS = m;
+    renderMetrics();
+  } catch {}
+
+  // terminal log
+  try {
+    const j = await (await fetch(CS + '/log', { cache: 'no-store' })).json();
+    const lines = j.lines || [];
+    const stream = document.getElementById('terminalStream');
+    if (lines.length > 0) {
+      const html = lines.map(line => {
+        const tag = line.includes('push event') ? '[PUSH]' : line.includes('pulling') ? '[PULL]' : (line.includes('done') || line.includes('Success')) ? '[OK]' : '[INFO]';
+        const color = (line.includes('Error') || line.includes('FAIL')) ? 'text-rose-400' : (line.includes('Success') || line.includes('done')) ? 'text-emerald-400' : 'text-cyan-400';
+        return '<div class="terminal-line text-slate-300"><span class="text-slate-600">'+(line.match(/^\[[\d:]+\]/)?.[0] || '')+'</span><span class="'+color+' font-semibold">'+tag+'</span><span>'+esc(line.replace(/^\[[\d:]+\]\s*/,''))+'</span></div>';
+      }).join('') + '<div class="terminal-line text-slate-500 pt-1"><span class="text-emerald-400 font-semibold">dev@local:~$</span><span class="w-2 h-4 bg-slate-300 inline-block animate-pulse align-middle ml-1"></span></div>';
+      if (stream.dataset.rendered !== html) { stream.innerHTML = html; stream.dataset.rendered = html; }
+    }
+  } catch {}
+}
+
+// ── Upload & Restore (XHR for real progress) ──
+function uploadDump() {
+  const fileInput = document.getElementById('dumpFile');
+  const status = document.getElementById('uploadStatus');
+  const progressDiv = document.getElementById('uploadProgress');
+  const progressBar = document.getElementById('uploadProgressBar');
+  const progressText = document.getElementById('uploadProgressText');
+  if (!fileInput.files.length) { status.textContent = 'Select a .dump file first.'; showToast('Select a .dump file first.', 'error'); return; }
+  const file = fileInput.files[0];
+
+  progressDiv.style.display = 'block';
+  progressBar.style.setProperty('width', '0%', 'important');
+  progressBar.style.setProperty('background', '', 'important');
+  progressText.textContent = 'Uploading ' + file.name + ' — 0%';
+  status.textContent = 'Uploading ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' MB)...';
+
+  const fd = new FormData();
+  fd.append('dump', file);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', CS + '/upload-restore');
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round((e.loaded / e.total) * 100);
+    progressBar.style.setProperty('width', pct + '%', 'important');
+    progressText.textContent = 'Uploading ' + file.name + ' — ' + pct + '% (' + (e.loaded/1024/1024).toFixed(1) + ' / ' + (e.total/1024/1024).toFixed(1) + ' MB)';
+  };
+  xhr.onload = () => {
+    let j = {}; try { j = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status !== 200 || !j.ok) {
+      progressBar.style.setProperty('background', '#f43f5e', 'important');
+      progressText.textContent = 'Upload failed';
+      status.textContent = 'ERROR: ' + (j.error || 'Upload failed');
+      showToast(j.error || 'Upload failed', 'error');
+      return;
+    }
+    progressBar.style.setProperty('width', '100%', 'important');
+    progressText.textContent = 'Upload complete. Restoring database...';
+    status.textContent = 'Uploaded. Restoring database (this can take a few minutes)...';
+    showToast('Upload complete, restoring...', 'success');
+    pollRestoreStatus(file.name);
+  };
+  xhr.onerror = () => {
+    progressBar.style.setProperty('background', '#f43f5e', 'important');
+    progressText.textContent = 'Upload failed';
+    status.textContent = 'ERROR: Server not running. Start it: node dashboard-server.mjs';
+    showToast('Server not running', 'error');
+  };
+  xhr.send(fd);
+}
+
+function pollRestoreStatus(fileName) {
+  const progressBar = document.getElementById('uploadProgressBar');
+  const progressText = document.getElementById('uploadProgressText');
+  const status = document.getElementById('uploadStatus');
+  const started = Date.now();
+  const iv = setInterval(async () => {
+    let s = null;
+    try { s = await (await fetch(CS + '/restore-status', { cache: 'no-store' })).json(); } catch { return; }
+    if (!s) return;
+    const secs = Math.round((Date.now() - started) / 1000);
+    if (s.running) {
+      progressBar.style.setProperty('width', '100%', 'important');
+      progressBar.style.setProperty('background', '', 'important');
+      progressText.textContent = 'Restoring database... ' + secs + 's elapsed';
+      status.textContent = 'Restoring database... ' + secs + 's elapsed (do not close this page)';
+    } else if (s.done) {
+      clearInterval(iv);
+      if (s.error) {
+        progressBar.style.setProperty('background', '#f43f5e', 'important');
+        progressText.textContent = 'Restore failed';
+        status.textContent = 'ERROR: ' + s.error;
+        showToast('Restore failed: ' + s.error, 'error');
+      } else {
+        progressBar.style.setProperty('width', '100%', 'important');
+        progressBar.style.setProperty('background', '#10b981', 'important');
+        progressText.textContent = 'Database restored successfully';
+        status.textContent = 'SUCCESS: ' + s.message;
+        showToast('Database restored successfully!', 'success');
+        checkAll();
+      }
+    }
+  }, 1000);
+}
+
+async function downloadDump() {
+  showToast('Downloading dump from AWS...', 'success');
+  try {
+    const j = await (await fetch(CS + '/download-dump', { method: 'POST' })).json();
+    if (j.ok) showToast('OK: ' + j.message, 'success');
+    else showToast('ERROR: ' + (j.error || 'Failed'), 'error');
+  } catch { showToast('Server not running', 'error'); }
+}
+
+async function startAll() {
+  try { const j = await (await fetch(CS + '/start-all', { method: 'POST' })).json(); showToast(j.ok ? j.message : j.error, j.ok ? 'success' : 'error'); setTimeout(checkAll, 4000); }
+  catch { showToast('Server not running', 'error'); }
+}
+
+async function stopAll() {
+  try { const j = await (await fetch(CS + '/stop-all', { method: 'POST' })).json(); showToast(j.ok ? j.message : j.error, j.ok ? 'success' : 'error'); setTimeout(checkAll, 2000); }
+  catch { showToast('Server not running', 'error'); }
+}
+
+async function syncNow() {
+  try { const j = await (await fetch(CS + '/webhook', { method: 'POST' })).json(); showToast(j.ok ? j.message : j.error, j.ok ? 'success' : 'error'); setTimeout(checkAll, 2000); }
+  catch { showToast('Server not running', 'error'); }
+}
+
+function recheck() { checkAll(); showToast('Status refreshed', 'success'); }
+
+function checkUploadLog() {
+  fetch(CS + '/log').then(r => r.json()).then(j => {
+    const lines = j.lines || [];
+    showToast(lines.length ? 'Upload log: ' + lines.length + ' entries (see terminal)' : 'Upload log is empty', 'success');
+  }).catch(() => showToast('Server not running', 'error'));
+}
+
+// ── Main loop ──
+if (location.protocol === 'file:') {
+  // Browser blocks fetch() to localhost from file:// -> probe via iframe and redirect
+  const tryConnect = () => {
+    const probe = document.createElement('iframe');
+    probe.style.display = 'none';
+    probe.src = CS + '/health?probe=' + Date.now();
+    let settled = false;
+    const failTimer = setTimeout(() => { if (settled) return; settled = true; try { probe.remove(); } catch {} }, 3000);
+    probe.onload = () => { if (settled) return; settled = true; clearTimeout(failTimer); location.replace(CS + '/'); };
+    probe.onerror = () => { if (settled) return; settled = true; clearTimeout(failTimer); try { probe.remove(); } catch {} };
+    document.body.appendChild(probe);
+  };
+  tryConnect();
+  setInterval(tryConnect, 5000);
+} else {
+  renderServices();
+  renderMetrics();
+  checkAll();
+  setInterval(checkAll, 3000);
+}
 </script>
-</body>
-</html>
-
+</body></html>

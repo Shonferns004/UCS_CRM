@@ -9,7 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/location_service.dart';
-import '../services/api_service.dart';
+import '../services/offline_punch_queue.dart';
 import '../services/realtime_service.dart';
 import '../services/remote_config_service.dart';
 import '../widgets/skeleton_loader.dart';
@@ -41,6 +41,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   int _lateUsed = 0;
   String _workerName = '';
   String _workerId = '';
+  int _pendingPunchCount = 0;
   String _officeStartTime = '10:00';
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
@@ -66,14 +67,18 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _fetchStatus();
+      _syncPendingPunches();
     });
     _fetchStatus();
+    _updatePendingBadge();
+    _syncPendingPunches();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _fetchStatus();
+      _syncPendingPunches();
     }
   }
 
@@ -235,6 +240,47 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     ApiService.cacheTodayStatus(today);
   }
 
+  Future<void> _updatePendingBadge() async {
+    final count = await OfflinePunchQueue.pendingCount();
+    if (mounted) setState(() => _pendingPunchCount = count);
+  }
+
+  Future<void> _syncPendingPunches() async {
+    final online = await ApiService.checkConnectivity();
+    if (!online) return;
+    final syncing = await OfflinePunchQueue.isSyncing();
+    if (syncing) return;
+    await OfflinePunchQueue.setSyncing(true);
+    try {
+      final pending = await OfflinePunchQueue.getPending();
+      for (final record in pending) {
+        try {
+          if (record['action'] == 'punch_in') {
+            await ApiService.punchIn(
+              record['code'] ?? '',
+              (record['latitude'] as num).toDouble(),
+              (record['longitude'] as num).toDouble(),
+              punchMethod: record['punch_method'] as String?,
+            );
+          } else if (record['action'] == 'punch_out') {
+            await ApiService.punchOut(
+              (record['latitude'] as num).toDouble(),
+              (record['longitude'] as num).toDouble(),
+              punchMethod: record['punch_method'] as String?,
+            );
+          }
+          await OfflinePunchQueue.remove(record['local_id'] as String);
+        } catch (_) {
+          // Stop syncing on first failure; retry later
+          break;
+        }
+      }
+    } finally {
+      await OfflinePunchQueue.setSyncing(false);
+      await _updatePendingBadge();
+    }
+  }
+
   Future<bool> _requestLocationPermission() async {
     bool service = await Geolocator.isLocationServiceEnabled();
     if (!service) {
@@ -272,16 +318,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     if (!await _requestLocationPermission()) return;
 
     final online = await ApiService.checkConnectivity();
-    if (!online && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No internet connection. Please check your network.'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
+    // If offline, we'll queue the punch instead of blocking
+    final isOffline = !online;
 
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -289,12 +327,50 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
     if (result == null || !mounted) return;
 
+    final code = result['code'] ?? '';
+    final lat = (result['lat'] as num).toDouble();
+    final lng = (result['lng'] as num).toDouble();
+    final punchMethod = result['punch_method'] as String?;
+
+    if (isOffline) {
+      // Queue for later sync
+      await OfflinePunchQueue.enqueue({
+        'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'action': 'punch_in',
+        'code': code,
+        'latitude': lat,
+        'longitude': lng,
+        'punch_method': punchMethod,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      final now = DateTime.now();
+      setState(() {
+        _isPunchedIn = true;
+        _punchInTime = now;
+        _isPunchedOut = false;
+        _punchOutTime = null;
+      });
+      _cacheTodayState(now.toIso8601String(), null);
+      if (mounted) {
+        HapticFeedback.vibrate();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Punched in (offline) — will sync when online'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      _updatePendingBadge();
+      return;
+    }
+
     try {
       final data = await ApiService.punchIn(
-        result['code'] ?? '',
-        (result['lat'] as num).toDouble(),
-        (result['lng'] as num).toDouble(),
-        punchMethod: result['punch_method'] as String?,
+        code,
+        lat,
+        lng,
+        punchMethod: punchMethod,
       );
       final lm = (data['lateMinutes'] ?? 0) as int;
       final now = DateTime.now();
@@ -316,17 +392,50 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         );
       }
     } catch (e) {
-      if (mounted) {
-        final msg = _friendlyNetworkError(e);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
+      // If network failed mid-request, queue it
+      if (e.toString().contains('SocketException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('Failed host lookup')) {
+        await OfflinePunchQueue.enqueue({
+          'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'action': 'punch_in',
+          'code': code,
+          'latitude': lat,
+          'longitude': lng,
+          'punch_method': punchMethod,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+        final now = DateTime.now();
+        setState(() {
+          _isPunchedIn = true;
+          _punchInTime = now;
+          _isPunchedOut = false;
+          _punchOutTime = null;
+        });
+        _cacheTodayState(now.toIso8601String(), null);
+        if (mounted) {
+          HapticFeedback.vibrate();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Punch saved offline — will sync when online'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        _updatePendingBadge();
+      } else {
+        if (mounted) {
+          final msg = _friendlyNetworkError(e);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+        }
       }
     }
-  }
 
   Future<void> _punchOut() async {
     if (_punchOutCountdown != null) {
@@ -343,16 +452,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     if (!await _requestLocationPermission()) return;
 
     final online = await ApiService.checkConnectivity();
-    if (!online && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No internet connection. Please check your network.'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
+    final isOffline = !online;
 
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -360,11 +460,44 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
     if (result == null || !mounted) return;
 
+    final lat = (result['lat'] as num).toDouble();
+    final lng = (result['lng'] as num).toDouble();
+    final punchMethod = result['punch_method'] as String?;
+
+    if (isOffline) {
+      await OfflinePunchQueue.enqueue({
+        'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'action': 'punch_out',
+        'latitude': lat,
+        'longitude': lng,
+        'punch_method': punchMethod,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      final now = DateTime.now();
+      setState(() {
+        _isPunchedOut = true;
+        _punchOutTime = now;
+      });
+      _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
+      if (mounted) {
+        HapticFeedback.vibrate();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Punched out (offline) — will sync when online'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      _updatePendingBadge();
+      return;
+    }
+
     try {
       await ApiService.punchOut(
-        (result['lat'] as num).toDouble(),
-        (result['lng'] as num).toDouble(),
-        punchMethod: result['punch_method'] as String?,
+        lat,
+        lng,
+        punchMethod: punchMethod,
       );
       final now = DateTime.now();
       setState(() {
@@ -382,14 +515,44 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         );
       }
     } catch (e) {
-      if (mounted) {
-        final msg = _friendlyNetworkError(e);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
+      if (e.toString().contains('SocketException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('Failed host lookup')) {
+        await OfflinePunchQueue.enqueue({
+          'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'action': 'punch_out',
+          'latitude': lat,
+          'longitude': lng,
+          'punch_method': punchMethod,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+        final now = DateTime.now();
+        setState(() {
+          _isPunchedOut = true;
+          _punchOutTime = now;
+        });
+        _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
+        if (mounted) {
+          HapticFeedback.vibrate();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Punch saved offline — will sync when online'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        _updatePendingBadge();
+      } else {
+        if (mounted) {
+          final msg = _friendlyNetworkError(e);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+        }
       }
     }
   }
@@ -831,13 +994,38 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
-            if (_absenceDays.isNotEmpty || (_isAdmin && _pendingAbsenceProofs.isNotEmpty))
+            if (_absenceDays.isNotEmpty || (_isAdmin && _pendingAbsenceProofs.isNotEmpty) || _pendingPunchCount > 0)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 0)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_pendingPunchCount > 0)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.orange.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.sync, color: Colors.orange.shade800, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '$_pendingPunchCount punch(es) saved offline — will sync when online',
+                                  style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w600, fontSize: 13),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _syncPendingPunches,
+                                child: Text('Sync Now', style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (_absenceDays.isNotEmpty) _buildAbsenceProofBanner(sc, colors),
                       if (_absenceDays.isNotEmpty && _isAdmin && _pendingAbsenceProofs.isNotEmpty)
                         SizedBox(height: Responsive.pad(context, 12)),
