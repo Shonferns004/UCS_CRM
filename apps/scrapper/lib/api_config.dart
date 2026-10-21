@@ -3,32 +3,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 const String kScraperKey = 'f045bdfa3a2583ba2386190e49fbb908b77c398887f04d95';
 
 /// Preset backends the scraper can talk to.
-/// 'local' points at the dev machine on the LAN so the app can hit a locally
-/// running backend instead of production.
+/// Only two: the permanent ngrok dev domain (works from any network) and
+/// the local machine address (same WiFi only).
 const List<Map<String, String>> kBackendOptions = [
   {
-    'id': 'local',
-    'label': 'Local (this machine)',
-    'url': 'http://192.168.1.152:5000',
-  },
-  {
     'id': 'tunnel',
-    'label': 'Tunnel (ngrok dev domain - works on any network)',
+    'label': 'Tunnel (ngrok - works on any network)',
     'url': 'https://audio-diagnoses-ream.ngrok-free.dev',
   },
   {
-    'id': 'local-10',
-    'label': 'Local (10.0.2.2 - Android emulator)',
-    'url': 'http://10.0.2.2:5000',
-  },
-  {
-    'id': 'production',
-    'label': 'Production',
-    'url': 'https://api.beingsevak.org',
+    'id': 'local',
+    'label': 'Local (this machine - same WiFi only)',
+    'url': 'http://192.168.1.152:5000',
   },
 ];
 
-const String kDefaultBackendId = 'local';
+const String kDefaultBackendId = 'tunnel';
 
 const String _prefsKey = 'scraper_backend_url';
 

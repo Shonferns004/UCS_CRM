@@ -95,7 +95,7 @@ class _ScraperPageState extends State<ScraperPage> {
       final res = await http
           .get(
             Uri.parse('$kBackendUrl/api/accounts/scraper/ngos'),
-            headers: {'X-Scraper-Key': kScraperKey},
+            headers: {'X-Scraper-Key': kScraperKey, 'ngrok-skip-browser-warning': 'true'},
           )
           .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) {

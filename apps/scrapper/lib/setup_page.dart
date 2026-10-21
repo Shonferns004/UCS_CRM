@@ -100,6 +100,7 @@ try {
         ),
         headers: {
           'X-Scraper-Key': kScraperKey,
+          'ngrok-skip-browser-warning': 'true',
         },
       )
       .timeout(
