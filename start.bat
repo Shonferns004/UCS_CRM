@@ -31,9 +31,9 @@ echo   [4/5] Frontend (5173)...
 start "UCS Frontend" /min cmd /c "cd client && npm run dev -- --host"
 timeout /t 8 /nobreak >nul
 
-echo   [5/5] Cloudflared tunnels + opening dashboard...
-start "UCS Tunnel 1" /min cmd /c "cloudflared tunnel --metrics 127.0.0.1:20241 --url http://localhost:9000 2> cf-webhook.log"
-start "UCS Tunnel 2" /min cmd /c "cloudflared tunnel --metrics 127.0.0.1:20242 --url http://localhost:5000 2> cf-backend.log"
+echo   [5/5] Tunnels + opening dashboard...
+start "UCS Tunnel Backend" /min cmd /c "ngrok http --domain=audio-diagnoses-ream.ngrok-free.dev 5000"
+start "UCS Tunnel Webhook" /min cmd /c "cloudflared tunnel --metrics 127.0.0.1:20241 --url http://localhost:9000 2> cf-webhook.log"
 timeout /t 6 /nobreak >nul
 start "" http://localhost:9999
 

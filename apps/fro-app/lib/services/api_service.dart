@@ -75,7 +75,7 @@ class ApiService {
     try {
       final res = await _post(
         Uri.parse('$baseUrl/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
         body: jsonEncode({'refresh_token': refresh}),
         skipRefresh: true,
       );
@@ -265,6 +265,7 @@ class ApiService {
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
   }
@@ -332,7 +333,7 @@ class ApiService {
       String identifier, String password) async {
     final res = await _post(
       Uri.parse('$baseUrl/auth/worker/login'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
       body: jsonEncode(
           {'identifier': identifier, 'password': password, 'client': 'attendance'}),
       skipRefresh: true,

@@ -12,9 +12,19 @@ const List<Map<String, String>> kBackendOptions = [
     'url': 'http://192.168.1.152:5000',
   },
   {
+    'id': 'tunnel',
+    'label': 'Tunnel (ngrok dev domain - works on any network)',
+    'url': 'https://audio-diagnoses-ream.ngrok-free.dev',
+  },
+  {
     'id': 'local-10',
     'label': 'Local (10.0.2.2 - Android emulator)',
     'url': 'http://10.0.2.2:5000',
+  },
+  {
+    'id': 'production',
+    'label': 'Production',
+    'url': 'https://api.beingsevak.org',
   },
 ];
 

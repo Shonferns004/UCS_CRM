@@ -8,10 +8,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// production without rebuilding.
 class BackendSwitcher {
   /// Preset backends the app can talk to.
+  /// Default is the permanent ngrok dev domain, which reaches the local dev
+  /// backend from any network (WiFi or mobile data) and never changes.
   static const List<Map<String, String>> options = [
     {
+      'id': 'tunnel',
+      'label': 'Tunnel (ngrok dev domain - works on any network)',
+      'url': 'https://audio-diagnoses-ream.ngrok-free.dev',
+    },
+    {
       'id': 'local',
-      'label': 'Local (this machine)',
+      'label': 'Local (this machine - same WiFi only)',
       'url': 'http://192.168.1.152:5000',
     },
     {
@@ -20,18 +27,13 @@ class BackendSwitcher {
       'url': 'http://10.0.2.2:5000',
     },
     {
-      'id': 'cloudflared',
-      'label': 'Local via cloudflared tunnel',
-      'url': 'https://registrar-alex-findarticles-poison.trycloudflare.com',
-    },
-    {
       'id': 'production',
       'label': 'Production',
       'url': 'https://api.beingsevak.org',
     },
   ];
 
-  static const String defaultId = 'local';
+  static const String defaultId = 'tunnel';
   static const String prefsKey = 'app_backend_url';
 
   static String _url = _urlFor(defaultId);

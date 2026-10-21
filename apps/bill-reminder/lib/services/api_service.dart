@@ -124,7 +124,7 @@ class ApiService {
     try {
       final res = await http.post(
         Uri.parse('$baseUrl/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
         body: jsonEncode({'refresh_token': refresh}),
       );
       if (res.statusCode != 200) return false;
@@ -167,6 +167,7 @@ class ApiService {
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
@@ -218,7 +219,7 @@ class ApiService {
   static Future<Map<String, dynamic>> login(String identifier, String password) async {
     final res = await http.post(
       Uri.parse('$baseUrl/auth/worker/login'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
       body: jsonEncode({
         'identifier': identifier,
         'password': password,
