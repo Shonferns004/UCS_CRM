@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 import 'channel.dart';
+import 'settings_page.dart';
 
 class ScraperPage extends StatefulWidget {
   const ScraperPage({super.key});
@@ -67,6 +68,21 @@ class _ScraperPageState extends State<ScraperPage> {
       _selectedProjectId = pid;
     }
     _reconcileSelection();
+  }
+
+  /// Opens backend settings. If the backend URL changed, reload the NGO list
+  /// against the new server so the picker isn't showing stale data.
+  Future<void> _openSettings() async {
+    final before = ApiConfig.backendUrl;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+    );
+
+    if (!mounted) return;
+    if (ApiConfig.backendUrl != before) {
+      await _fetchNgos();
+    }
   }
 
   String? _ngoId(Map<String, dynamic> n) =>
@@ -208,6 +224,16 @@ class _ScraperPageState extends State<ScraperPage> {
             letterSpacing: -0.5,
           ),
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: IconButton(
+              tooltip: 'Settings',
+              onPressed: _openSettings,
+              icon: const Icon(Icons.settings_outlined, size: 24),
+            ),
+          ),
+        ],
       ),
 
       body: SafeArea(

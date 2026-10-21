@@ -745,7 +745,7 @@ Future<void> _pickBackend() async {
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          decoration: const InputDecoration(hintText: 'http://192.168.1.152:5000'),
+          decoration: const InputDecoration(hintText: 'http://192.168.1.155:5000'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),

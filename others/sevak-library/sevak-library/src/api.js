@@ -20,7 +20,7 @@ const BASE = import.meta.env.DEV
   ? (ENV_BASE || '/api/sevak-library')
   : (/^https?:\/\//i.test(ENV_BASE)
       ? ENV_BASE.replace(/\/$/, '')
-      : 'https://api.beingsevak.org/api/sevak-library')
+      : 'https://audio-diagnoses-ream.ngrok-free.dev/api/sevak-library')
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, options)

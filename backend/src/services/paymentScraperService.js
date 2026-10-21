@@ -12,6 +12,8 @@ import { formatModeLabel } from './modeLabels.js';
 //   2. Server ref check — an existing bank_audit_entries row with the same
 //      payment_id (UPI ref) blocks re-creation REGARDLESS of its status
 //      (unverified, verified, matched, cleared — the row is the history).
+//      Batched: one IN() query answers the whole upload up front, backed by
+//      idx_bank_audit_entries_payment_id (migrations/195_scraper_indexes.sql).
 //   3. Fingerprint fallback — when no ref is visible, amount + transaction_date
 //      + normalized payer name + project id must be present to import.
 //   4. In-batch dedup — identical rows within one upload collapse to one.
@@ -228,19 +230,6 @@ async function logRunEntry(runId, entry) {
 
 // --- existence checks --------------------------------------------------------
 
-async function entryExistsByPaymentId(paymentId) {
-  if (!paymentId) return false;
-  // Note: deliberately NO status filter — verified/cleared rows still block
-  // re-creation. The row is the duplicate history.
-  const { data } = await db
-    .from('bank_audit_entries')
-    .select('id')
-    .eq('payment_id', paymentId)
-    .limit(1)
-    .maybeSingle();
-  return !!data;
-}
-
 async function entryExistsByFingerprint(projectId, amount, transactionDate, payerName) {
   const { data } = await db
     .from('bank_audit_entries')
@@ -253,6 +242,29 @@ async function entryExistsByFingerprint(projectId, amount, transactionDate, paye
     .limit(1)
     .maybeSingle();
   return !!data;
+}
+
+// Given every distinct ref in an upload, one IN() query per 500 refs answers
+// which are already in bank_audit_entries (backed by
+// idx_bank_audit_entries_payment_id, migration 195) instead of one full-table
+// scan per transaction. Chunked because a 1000-ref batch would otherwise
+// build a 1000-parameter statement. Deliberately throws on query failure: a
+// failed dedup check must abort the import, not silently import duplicates.
+async function fetchExistingPaymentIds(paymentIds) {
+  const existing = new Set();
+  const CHUNK = 500;
+  for (let i = 0; i < paymentIds.length; i += CHUNK) {
+    const chunk = paymentIds.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from('bank_audit_entries')
+      .select('payment_id')
+      .in('payment_id', chunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      if (row.payment_id) existing.add(row.payment_id);
+    }
+  }
+  return existing;
 }
 
 // --- normalization of one incoming transaction ------------------------------
@@ -304,6 +316,18 @@ export const importScrapedBatch = async ({
   const resolvedProject = (await resolveProjectCode(projectId)) || projectId;
 
   const batch = transactions.map((raw) => normalizeScrapedTransaction(raw));
+  // One indexed lookup for every ref in the upload, before the per-row loop:
+  // rows whose ref is already in bank_audit_entries are skipped, everything
+  // else (subject to in-batch dedup) is inserted.
+  const distinctRefs = [
+    ...new Set(
+      batch
+        .filter((item) => !item.error && item.paymentId)
+        .map((item) => item.paymentId)
+    ),
+  ];
+  const existingRefs =
+    distinctRefs.length > 0 ? await fetchExistingPaymentIds(distinctRefs) : new Set();
   const seenRefs = new Set();
   const seenFingerprints = new Set();
   const importedList = [];
@@ -351,8 +375,9 @@ export const importScrapedBatch = async ({
       seenFingerprints.add(fp);
     }
 
-    // Server-side hard checks across ALL statuses.
-    if (paymentId && (await entryExistsByPaymentId(paymentId))) {
+    // Server-side hard checks across ALL statuses (ref set fetched above;
+    // fingerprint check is per-item because it is the rare no-ref fallback).
+    if (paymentId && existingRefs.has(paymentId)) {
       skipped++;
       await logRunEntry(runId, { payment_id: paymentId, amount, payer_name: payerName, transaction_date: transactionDate, status: 'skipped', reason: 'Audit entry already exists for this UPI reference' });
       continue;
