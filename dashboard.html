@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UCS CRM — Status</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:#0f172a; color:#e2e8f0; padding:24px; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; max-width:1100px; }
+  .card { background:#1e293b; border-radius:10px; padding:16px; border:1px solid #334155; }
+  .card h2 { font-size:15px; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:#22c55e; box-shadow:0 0 8px #22c55e; }
+  .dot.bad { background:#ef4444; box-shadow:0 0 8px #ef4444; }
+  .dot.wait { background:#94a3b8; animation:pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .info { font-size:13px; color:#94a3b8; margin:6px 0; min-height:18px; }
+  .info b { color:#e2e8f0; }
+  .links { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; }
+  .links a, .links button { font-size:12px; padding:5px 10px; border-radius:6px; background:#334155; color:#e2e8f0; text-decoration:none; border:none; cursor:pointer; }
+  .links a:hover, .links button:hover { background:#475569; }
+  .cmd { background:#0b1220; padding:8px 10px; border-radius:6px; font-family:Consolas,monospace; font-size:12px; color:#a5f3fc; margin:4px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .cmd code { flex:1; word-break:break-all; }
+  .cmd button { background:#334155; color:#e2e8f0; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; }
+  .full { grid-column:1/-1; }
+  .btn { display:inline-block; background:#2563eb; color:#fff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:600; margin:4px; border:none; cursor:pointer; font-size:14px; }
+  .btn:hover { background:#1d4ed8; }
+  .btn.red { background:#dc2626; } .btn.red:hover { background:#b91c1c; }
+  .btn.gray { background:#475569; } .btn.gray:hover { background:#334155; }
+  .topbar { margin-bottom:20px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .status-line { font-size:13px; color:#94a3b8; margin-top:8px; }
+  iframe.probe { display:none; }
+  .footer { margin-top:20px; color:#64748b; font-size:12px; }
+</style>
+</head>
+<body>
+
+<h1>UCS CRM — Status</h1>
+<p class="sub">Last check: <span id="lastCheck">—</span> &nbsp;·&nbsp; Auto-checks every 15s &nbsp;·&nbsp; <a href="#" onclick="location.reload();return false;" style="color:#60a5fa">Refresh</a></p>
+
+<div class="topbar">
+  <a class="btn" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/start-all.bat">▶ Start All</a>
+  <a class="btn red" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/stop-all.bat">■ Stop All</a>
+  <a class="btn gray" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/sync.ps1">Sync (pull+restart)</a>
+  <button class="btn gray" onclick="checkAll()">🔄 Re-check Now</button>
+</div>
+
+<div class="grid">
+
+  <div class="card">
+    <h2><span class="dot wait" id="d1"></span> Backend (Node/Express) — port 5000</h2>
+    <div class="info" id="s1">Checking…</div>
+    <div class="links">
+      <a href="http://192.168.1.152:5000/api/health" target="_blank">Health JSON</a>
+      <a href="http://192.168.1.152:5000/api" target="_blank">API base</a>
+    </div>
+    <div class="cmd"><code>cd backend; node src/index.js</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot wait" id="d2"></span> Frontend (Vite) — port 5173</h2>
+    <div class="info" id="s2">Checking…</div>
+    <div class="links">
+      <a href="http://192.168.1.152:5173" target="_blank">Open app</a>
+      <a href="http://localhost:5173" target="_blank">localhost</a>
+    </div>
+    <div class="cmd"><code>cd client; npm run dev -- --host</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot wait" id="d3"></span> Webhook Server — port 9000</h2>
+    <div class="info" id="s3">Checking…</div>
+    <div class="links">
+      <a href="http://localhost:9000/webhook" target="_blank">Endpoint</a>
+    </div>
+    <div class="cmd"><code>cloudflared tunnel --url http://localhost:9000</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot wait" id="d4"></span> Backend Tunnel (cloudflared) — port 5000</h2>
+    <div class="info" id="s4">Checking…</div>
+    <div class="links">
+      <a href="https://registrar-alex-findarticles-poison.trycloudflare.com" target="_blank">Backend public URL</a>
+      <a href="https://registrar-alex-findarticles-poison.trycloudflare.com/api/health" target="_blank">Health JSON</a>
+    </div>
+    <div class="cmd"><code>cloudflared tunnel --url http://localhost:5000</code><button onclick="copy(this.previousElementSibling.textContent)">Copy</button></div>
+  </div>
+
+  <div class="card full">
+    <h2>Recent webhook activity</h2>
+    <iframe id="logFrame" src="file:///C:/Users/Administrator/Desktop/UCS_CRM/webhook.log" style="width:100%;height:200px;border:none;border-radius:6px;background:#0b1220;color:#cbd5e1;font-family:Consolas,monospace;font-size:12px"></iframe>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn gray" onclick="document.getElementById('logFrame').src='file:///C:/Users/Administrator/Desktop/UCS_CRM/webhook.log?t='+Date.now()">🔄 Refresh Log</button>
+      <a class="btn gray" href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/watch-log.bat">📺 Watch Live (opens PowerShell)</a>
+    </div>
+    <p class="status-line">Click "Refresh Log" to reload. For live tailing, double-click watch-log.bat.</p>
+  </div>
+
+  <div class="card full">
+    <h2>If something is down — fix it</h2>
+    <table style="width:100%;font-size:13px;border-collapse:collapse">
+      <tr><td style="padding:6px 0;color:#94a3b8">Backend down</td><td><code style="color:#a5f3fc">cd backend; node src/index.js</code></td></tr>
+      <tr><td style="padding:6px 0;color:#94a3b8">Frontend down</td><td><code style="color:#a5f3fc">cd client; npm run dev -- --host</code></td></tr>
+      <tr><td style="padding:6px 0;color:#94a3b8">Webhook down</td><td><code style="color:#a5f3fc">cloudflared tunnel --url http://localhost:9000</code></td></tr>
+      <tr><td style="padding:6px 0;color:#94a3b8">Backend tunnel down</td><td><code style="color:#a5f3fc">cloudflared tunnel --url http://localhost:5000</code></td></tr>
+      <tr><td style="padding:6px 0;color:#94a3b8">Everything</td><td><a href="file:///C:/Users/Administrator/Desktop/UCS_CRM/scripts/start-all.bat" style="color:#60a5fa">Double-click scripts\start-all.bat</a></td></tr>
+    </table>
+  </div>
+
+</div>
+
+<p class="footer">This file works standalone — no server needed. Just double-click it. Status is checked via reachability probes.</p>
+
+<!-- Hidden probes -->
+<iframe id="p1" style="display:none" src="http://127.0.0.1:5000/api/health"></iframe>
+<iframe id="p2" style="display:none" src="http://127.0.0.1:5173"></iframe>
+<iframe id="p3" style="display:none" src="http://127.0.0.1:9000/webhook"></iframe>
+<iframe id="p4" style="display:none" src="https://registrar-alex-findarticles-poison.trycloudflare.com/api/health"></iframe>
+
+<script>
+function copy(t){ navigator.clipboard.writeText(t.trim()).then(()=>flash('Copied!')); }
+function flash(m){ const n=document.createElement('div'); n.textContent=m; n.style.cssText='position:fixed;bottom:20px;right:20px;background:#22c55e;color:#000;padding:8px 12px;border-radius:6px;font-size:13px;z-index:9999'; document.body.appendChild(n); setTimeout(()=>n.remove(),1500); }
+
+function setDot(id,state){ const e=document.getElementById(id); if(e) e.className='dot '+state; }
+function setInfo(id,html){ const e=document.getElementById(id); if(e) e.innerHTML=html; }
+
+function probe(url, dotId, infoId, label, okMsg){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 4000);
+  fetch(url, {mode:'no-cors', cache:'no-store', signal:controller.signal})
+    .then(()=>{ clearTimeout(timer); setDot(dotId,'ok'); setInfo(infoId,'✅ '+okMsg); })
+    .catch(()=>{ clearTimeout(timer); setDot(dotId,'bad'); setInfo(infoId,'❌ Not reachable'); });
+  setDot(dotId,'wait'); setInfo(infoId,'⏳ Checking…');
+}
+
+function checkAll(){
+  probe('http://127.0.0.1:5000/api/health','d1','s1','Backend','Reachable');
+  probe('http://127.0.0.1:5173','d2','s2','Frontend','Reachable');
+  probe('http://127.0.0.1:9000/webhook','d3','s3','Webhook','Reachable');
+  probe('http://127.0.0.1:5000/api/health','d4','s4','Backend Tunnel','Reachable (localhost:5000)');
+  document.getElementById('lastCheck').textContent = new Date().toLocaleTimeString();
+}
+
+checkAll();
+setInterval(checkAll, 15000);
+</script>
+</body>
+</html>
+
