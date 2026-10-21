@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Main backend is the ngrok tunnel (https) — permitted by default via
+         system trust anchors. Cleartext is only allowed to the local dev
+         machine, so plain http://192.168.1.155:5000 works on the same WiFi. -->
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">52.66.211.205</domain>
+        <domain includeSubdomains="false">192.168.1.155</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
     </domain-config>
 </network-security-config>

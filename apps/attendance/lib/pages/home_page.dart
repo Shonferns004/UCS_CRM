@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/offline_punch_queue.dart';
 import '../services/realtime_service.dart';
@@ -436,6 +437,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         }
       }
     }
+  }
 
   Future<void> _punchOut() async {
     if (_punchOutCountdown != null) {

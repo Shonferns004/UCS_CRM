@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import { login as apiLogin, logout as apiLogout, setSession, clearSession, getToken, getUser, releaseWorkAs } from './api/auth'
+import { reconnectSocket } from './lib/socket'
 
 const ROLE_ALIASES = {
   'hr': 'hr',
@@ -78,6 +79,11 @@ export function UcsProvider({ children }) {
     setSession('ucs', data.token, userData)
     setToken(data.token)
     setUser(userData)
+    // The realtime socket is created by components that mount before login
+    // (MeetingGate sits at App level), so its first handshake carries no
+    // token and the server rejects it. Reconnecting now - after the token is
+    // in localStorage - brings realtime up without needing a page reload.
+    reconnectSocket()
     return { token: data.token, user: userData }
   }, [])
 

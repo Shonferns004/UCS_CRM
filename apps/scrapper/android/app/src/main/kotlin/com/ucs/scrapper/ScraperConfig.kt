@@ -16,7 +16,11 @@ object ScraperConfig {
     private const val ALIAS = "scraper_pin_key"
     private lateinit var prefs: SharedPreferences
 
-    const val DEFAULT_BACKEND_URL = "https://api.beingsevak.org"
+    // Native fallback used only when Flutter passes a blank backendUrl.
+    // Production (api.beingsevak.org) is NOT used by the scrapper — the ngrok
+    // tunnel is the main backend. Keep in sync with kBackendOptions in
+    // lib/api_config.dart.
+    const val DEFAULT_BACKEND_URL = "https://audio-diagnoses-ream.ngrok-free.dev"
     const val DEFAULT_API_KEY = "f045bdfa3a2583ba2386190e49fbb908b77c398887f04d95"
 
     fun init(context: Context) {

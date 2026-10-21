@@ -1,7 +1,7 @@
 // const API_BASE = 'https://api.beingsevak.org/api'
 // VITE_API_URL lets a local run talk to the local backend (e.g. http://localhost:5000/api).
 // Falls back to production when the env var is not set.
-export const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api'
+export const API_BASE = import.meta.env.VITE_API_URL || 'https://audio-diagnoses-ream.ngrok-free.dev/api'
 
 const getToken = () => localStorage.getItem('ucs_token')
 
