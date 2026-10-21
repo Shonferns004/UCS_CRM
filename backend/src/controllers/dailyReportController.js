@@ -337,6 +337,11 @@ export async function getReports(req, res) {
 // Planner reads this to paint a reporter's day green, so the marker tracks the
 // head's acceptance and not a member's own "done". Reduced to the (reporter, day)
 // keys the planner matches against its assignments.
+//
+// `dates` (comma separated YYYY-MM-DD) asks for days OUTSIDE the month as well.
+// A deliverable is finished on the day the work was really done, which for a
+// task planned in another month is not in the month on screen — without these
+// the cell never turns green for a previous / next month row.
 export async function getReviewedReports(req, res) {
   const panel = requirePanel(req, res);
   if (panel.error) return panel.error;
@@ -344,8 +349,13 @@ export async function getReviewedReports(req, res) {
   if (!/^\d{4}-\d{2}$/.test(month)) {
     return res.status(400).json({ message: 'month query parameter is required (YYYY-MM)' });
   }
+  const dates = String(req.query.dates || '')
+    .split(',')
+    .map((d) => d.trim())
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .slice(0, 120);
   try {
-    const rows = await listAcceptedForMonth(panel.panel, month);
+    const rows = await listAcceptedForMonth(panel.panel, month, dates);
     const accepted = rows.map((r) => ({ reporter_id: r.reporter_id, report_date: toIsoDay(r.report_date) }));
     return res.json({ panel: panel.panel, month, accepted });
   } catch (error) {

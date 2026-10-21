@@ -1697,25 +1697,49 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       })
   }, [taskAssignment])
 
-  const loadMonthTasks = useCallback(() => {
+  const loadMonthTasks = useCallback(async () => {
     if (!taskAssignment) { setTaskMap({}); setAcceptedDays(new Set()); return }
-    fetchTaskMonthAssignments(month)
-      .then((r) => {
-        const map = {}
-        for (const a of (r?.assignments || [])) map[`${a.task_date}::${a.title}::${a.content_type || ''}`] = a
-        setTaskMap(map)
-      })
-      .catch(() => setTaskMap({}))
-    fetchReviewedDailyReports('social', month)
-      .then((r) => {
-        const set = new Set()
-        for (const a of (r?.accepted || [])) set.add(`${a.reporter_id}::${a.report_date}`)
-        setAcceptedDays(set)
-      })
-      .catch(() => setAcceptedDays(new Set()))
+    // The days the work was actually finished on. They can sit in another month
+    // than the one on screen (a task planned for last month, finished today),
+    // and the head's acceptance lands on THAT day — so they are asked for by
+    // name, not left to the month filter.
+    const doneDays = []
+    try {
+      const r = await fetchTaskMonthAssignments(month)
+      const map = {}
+      const days = new Set()
+      for (const a of (r?.assignments || [])) {
+        map[`${a.task_date}::${a.title}::${a.content_type || ''}`] = a
+        const done = String(a.completed_date || '').slice(0, 10)
+        if (done) days.add(done)
+      }
+      setTaskMap(map)
+      doneDays.push(...days)
+    } catch {
+      setTaskMap({})
+    }
+    try {
+      const r = await fetchReviewedDailyReports('social', month, doneDays)
+      const set = new Set()
+      for (const a of (r?.accepted || [])) set.add(`${a.reporter_id}::${a.report_date}`)
+      setAcceptedDays(set)
+    } catch {
+      setAcceptedDays(new Set())
+    }
   }, [taskAssignment, month])
 
   useEffect(() => { loadMonthTasks() }, [loadMonthTasks])
+
+  /* The head accepts a report in the Approvals screen, which is often another
+     tab. Coming back to the planner re-reads the month's acceptances, so the
+     deliverable that was just signed off turns green straight away instead of
+     waiting for a month change. */
+  useEffect(() => {
+    if (!taskAssignment) return undefined
+    const onFocus = () => { loadMonthTasks() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [taskAssignment, loadMonthTasks])
 
   /* The roster member whose name matches a deliverable's soft default (Tanvi for
      Banner, Ganesh for YouTube Video, …), so the dropdown is pre-filled with who
@@ -3594,21 +3618,25 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           const row = taskMap[`${date}::${label}::${ct.value}`]
           const value = row ? String(row.assignee_id) : ''
           const done = deliverableDone(row)
+          // The work is finished but the head has not accepted the report for the
+          // completion day yet — say so, otherwise the cell just looks stuck.
+          const doneDay = String(row?.completed_date || '').slice(0, 10)
+          const awaiting = !done && doneDay ? ` · awaiting approval of ${doneDay}` : ''
           return (
             <label
               key={ct.value}
-              title={row ? `${ct.label} · ${row.assignee_name}${done ? ' · Done' : ''}` : `Assign ${ct.label}`}
+              title={row ? `${ct.label} · ${row.assignee_name}${done ? ' · Done' : awaiting}` : `Assign ${ct.label}`}
               style={{
                 position: 'relative', display: 'flex', alignItems: 'center', gap: 7,
                 padding: '5px 8px', borderRadius: 8, cursor: done ? 'default' : 'pointer',
-                border: `1px solid ${done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-line-strong, #ddd9f0)' : '#EEF0F7'}`,
+                border: `1px solid ${done ? 'var(--eh-success, #16a34a)' : awaiting ? '#f2c14e' : row ? 'var(--eh-line-strong, #ddd9f0)' : '#EEF0F7'}`,
                 background: done ? 'var(--eh-success-soft, #e7f6ec)' : row ? 'var(--eh-tint-1, #f0eefb)' : '#fff',
               }}
             >
               <span
                 style={{
                   width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                  background: done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-primary, #6c5ce7)' : '#d5d8e6',
+                  background: done ? 'var(--eh-success, #16a34a)' : awaiting ? '#f59e0b' : row ? 'var(--eh-primary, #6c5ce7)' : '#d5d8e6',
                 }}
               />
               <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: done ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)', whiteSpace: 'nowrap' }}>

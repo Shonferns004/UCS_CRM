@@ -169,6 +169,12 @@
 | PUT | `/api/daily-reports/:id/remark` | `hod, setReportRemark` |
 | PUT | `/api/daily-reports/:id/review` | `reviewers, reviewOnly, setReportReview` |
 
+`GET /api/daily-reports/reviewed?panel=social&month=YYYY-MM` returns the accepted
+`(reporter_id, report_date)` pairs of that month — what the Social Monthly Planner
+paints green. The optional `dates=YYYY-MM-DD,YYYY-MM-DD` asks for days OUTSIDE
+that month as well: a deliverable is finished on the day the work was really done,
+which for a row planned in another month is not in the month on screen.
+
 **Bug tracker — activity feed** (`/api/bugs`, `bugRoutes.js:13`, `getActivity`)
 
 | GET | `/api/bugs/activity?from=YYYY-MM-DD&to=YYYY-MM-DD` | `authenticate` → `getActivity` |

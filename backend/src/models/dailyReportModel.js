@@ -141,18 +141,50 @@ export const listMineForMonth = async (panel, month, reporter_name) => {
 // signed off. The planner turns that day's deliverables green — only the head's
 // acceptance does it, never a member's own "done". Empty until the review
 // columns (185) exist.
-export const listAcceptedForMonth = async (panel, month) => {
+//
+// `extraDates` (YYYY-MM-DD) names days outside the month that are needed too.
+// A deliverable is finished on the day the member actually did the work, which
+// is often NOT the day it was planned for: a task planned for last month and
+// finished today is signed off with today's report, so the month on screen
+// alone would never turn that cell green. The planner passes the completion
+// days of its rows, and they are answered whatever month they fall in.
+export const listAcceptedForMonth = async (panel, month, extraDates = []) => {
   if (!(await reviewEnabled())) return [];
-  const { data, error } = await db
+  const days = [...new Set(
+    (Array.isArray(extraDates) ? extraDates : [])
+      .map((d) => String(d || '').slice(0, 10))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+  )];
+
+  const select = () => db
     .from('daily_reports')
     .select('reporter_id, report_date')
     .eq('panel', panel)
-    .eq('review_status', 'accepted')
-    .gte('report_date', `${month}-01`)
-    .lt('report_date', monthEndExclusive(month))
-    .order('report_date', { ascending: true });
-  if (error) throw error;
-  return data || [];
+    .eq('review_status', 'accepted');
+
+  const runs = [];
+  if (month) {
+    runs.push(select()
+      .gte('report_date', `${month}-01`)
+      .lt('report_date', monthEndExclusive(month))
+      .order('report_date', { ascending: true }));
+  }
+  if (days.length) {
+    runs.push(select().in('report_date', days).order('report_date', { ascending: true }));
+  }
+  if (!runs.length) return [];
+
+  const results = await Promise.all(runs.map((q) => q));
+  // A day inside the month can also be named in `days`, so the same row can come
+  // back twice — one answer per (reporter, day) is all the planner needs.
+  const out = new Map();
+  for (const res of results) {
+    if (res?.error) throw res.error;
+    for (const row of res?.data || []) {
+      out.set(`${row.reporter_id}::${row.report_date}`, row);
+    }
+  }
+  return Array.from(out.values());
 };
 
 // Update first, insert only if nothing matched, rather than db.from().upsert().
