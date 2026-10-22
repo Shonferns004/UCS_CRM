@@ -9,6 +9,7 @@ import {
   uploadBeneficiaryDocumentBase64,
   sendCollectionOtp, verifyCollectionOtp,
   exportBeneficiariesController,
+  downloadBeneficiariesController,
   getFingerprintImagesController,
   listKitGivenEventsController,
 } from '../controllers/beneficiaryController.js';
@@ -72,6 +73,7 @@ router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'ac
 // Export — every beneficiary matching the current list filters as xlsx rows.
 // Declared before '/:id' so 'export' is not parsed as an id.
 router.get('/export', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), exportBeneficiariesController);
+router.get('/download', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), downloadBeneficiariesController);
 // Latest enrolled fingerprint image for a page of beneficiaries. Declared
 // before '/:id' so the plural path is not parsed as an id.
 router.get('/fingerprint-images', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getFingerprintImagesController);
