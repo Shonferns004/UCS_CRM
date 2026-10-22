@@ -21,7 +21,7 @@ flowchart TB
     LOGIN[Successful login] --> PP[panelPathFor user]
     PP --> DEPT{department contains develop or digital?}
     DEPT -->|develop| DEV["/dev-panel (Developer)"]
-    DEPT -->|digital| SOC["/social (Social)"]
+    DEPT -->|digital| SOC["/social (Social)"]hiii
     DEPT -->|no| ROLE{resolve by role}
     ROLE --> SA["/sa - super_admin"]
     ROLE --> HR["/hr - hr"]
