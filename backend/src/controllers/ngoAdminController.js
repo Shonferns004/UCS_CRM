@@ -29,6 +29,7 @@ import { buildFroLeaderboard, workingDaysBetween } from '../services/froRankServ
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
+import { idleAlertFor, isIdleAlertLevel } from '../utils/idleAlert.js';
 import { dayTotalsForWorkers, rangeTotalsForWorkers } from '../services/froTimeSessions.js';
 import { scoreTelecaller, loadPerformanceTargets, DEFAULT_DAILY_LEAD_TARGET, DEFAULT_DAILY_CONNECTED_TARGET } from '../services/telecallerPerformance.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
@@ -7253,6 +7254,33 @@ export const getTLDashboard = async (req, res) => {
     // (same ledger, same shift, same cutoff), so it is reused instead of
     // querying the same rows a second time on every poll.
     const perfRangeIsToday = perfIsTodayOnly;
+
+    // The shift a ledger day is measured against. Today is anchored to the
+    // worker's actual attendance; a past day has no punch to anchor to, so
+    // the configured shift (their own hours, or the org office hours) is
+    // projected onto it instead.
+    //
+    // Shared by the range read and the month read below, so the two can never
+    // measure the same day differently.
+    const perfShiftFor = (id, day) => {
+      const shift = shiftMap[String(id)];
+      if (!shift) return null;
+      if (day === perfTodayDay) return { startMs: shift.startMs, endMs: shift.endMs };
+      const dayStartMs = new Date(`${day}T00:00:00.000+05:30`).getTime();
+      const startMs = dayStartMs + (shift.cfgStartOffsetMs || 0);
+      let endMs = dayStartMs + (shift.cfgEndOffsetMs || 0);
+      // A window that ends before it starts (or one that crosses midnight)
+      // must not collapse the day to zero — fall back to the whole day.
+      if (endMs <= startMs) endMs = dayStartMs + 24 * 60 * 60 * 1000;
+      return { startMs, endMs };
+    };
+    // A covered-away worker stops accruing idle at the moment the cover
+    // started, so their idle freezes there.
+    const perfNowFor = (id) => {
+      const row = liveStatusMap[id] || {};
+      return isCoveredAway(row) ? idleFreezeCutoffMs(row) : NaN;
+    };
+
     let rangeLedgerTotals = new Map();
     try {
       rangeLedgerTotals = perfRangeIsToday
@@ -7261,25 +7289,43 @@ export const getTLDashboard = async (req, res) => {
           fromDay: rangeFromDay,
           toDay: rangeToDay,
           nowMs: now.getTime(),
-          shiftFor: (id, day) => {
-            const shift = shiftMap[String(id)];
-            if (!shift) return null;
-            if (day === perfTodayDay) return { startMs: shift.startMs, endMs: shift.endMs };
-            const dayStartMs = new Date(`${day}T00:00:00.000+05:30`).getTime();
-            const startMs = dayStartMs + (shift.cfgStartOffsetMs || 0);
-            let endMs = dayStartMs + (shift.cfgEndOffsetMs || 0);
-            // A window that ends before it starts (or one that crosses midnight)
-            // must not collapse the day to zero — fall back to the whole day.
-            if (endMs <= startMs) endMs = dayStartMs + 24 * 60 * 60 * 1000;
-            return { startMs, endMs };
-          },
-          nowFor: (id) => {
-            const row = liveStatusMap[id] || {};
-            return isCoveredAway(row) ? idleFreezeCutoffMs(row) : NaN;
-          },
+          shiftFor: perfShiftFor,
+          nowFor: perfNowFor,
         });
     } catch (ledgerErr) {
       console.error('tl-dashboard performance range ledger read failed:', ledgerErr.message);
+    }
+
+    // ---- M IDLE: idle time in the calendar month to date -----------------
+    //
+    // The board's IDLE column is always TODAY and the COLLECTION block is
+    // always the calendar month, so M IDLE is the calendar month to date and
+    // is deliberately independent of the date filter — the same convention
+    // the rest of the board already follows. The month is taken in IST, the
+    // same clock every other day on this board is taken in.
+    //
+    // When the selected period IS the month to date (the "This Month"
+    // filter) the read above already covered exactly this window, so it is
+    // reused instead of querying the same ledger rows a second time on every
+    // poll. The today-only shortcut is excluded from that reuse: it answers
+    // with the day reader, and the two readers must not be mixed.
+    const perfMonthStartDay = `${perfTodayDay.slice(0, 8)}01`;
+    const rangeIsMonthToDate = rangeFromDay === perfMonthStartDay
+      && rangeToDay === perfTodayDay
+      && !perfRangeIsToday;
+    let monthLedgerTotals = new Map();
+    try {
+      monthLedgerTotals = rangeIsMonthToDate
+        ? rangeLedgerTotals
+        : await rangeTotalsForWorkers(froWorkers.map((w) => w.id), {
+          fromDay: perfMonthStartDay,
+          toDay: perfTodayDay,
+          nowMs: now.getTime(),
+          shiftFor: perfShiftFor,
+          nowFor: perfNowFor,
+        });
+    } catch (monthLedgerErr) {
+      console.error('tl-dashboard monthly ledger read failed:', monthLedgerErr.message);
     }
 
     const performance = froWorkers.map(w => {
@@ -7356,6 +7402,20 @@ export const getTLDashboard = async (req, res) => {
       const idleDisplaySeconds = ledgerDay
         ? rowIdleSeconds
         : Math.max(rowIdleSeconds, Number(ls.today_idle_seconds || 0) || 0);
+
+      // ---- M IDLE -------------------------------------------------------
+      // Idle time in the calendar month to date, from the same ledger the
+      // IDLE column is derived from.
+      //
+      // Today's idle is added only when the ledger has NO row for today:
+      // when it has one, the month's total already includes today, so adding
+      // it again would double count. This mirrors the fallback the IDLE
+      // column uses for a FRO whose committed live total is the only record
+      // of their idle.
+      const monthLedger = monthLedgerTotals.get(String(w.id)) || null;
+      const todayLedger = ledgerTotals.get(String(w.id)) || null;
+      const monthIdleSeconds = (monthLedger ? monthLedger.idle_seconds : 0)
+        + (todayLedger ? 0 : idleDisplaySeconds);
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -7483,6 +7543,10 @@ export const getTLDashboard = async (req, res) => {
         // disagree while somebody is working; both are shown, they answer
         // different questions.
         today_idle_seconds: idleDisplaySeconds,
+        // M IDLE: idle time in the calendar month to date. Independent of the
+        // date filter, the same way the IDLE column is always today and the
+        // MONTHLY collection figure is always the calendar month.
+        month_idle_seconds: monthIdleSeconds,
         // `ls` is the worker's own row, so these need no "acting" branch.
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,
@@ -7968,8 +8032,13 @@ export const updateFollowupDate = async (req, res) => {
 // phone too — the whole point is they are away from the desk.
 export const notifyFroHandler = async (req, res) => {
   try {
-    const { workerId, message } = req.body;
+    const { workerId, message, level } = req.body;
     if (!workerId) return res.status(400).json({ message: 'workerId is required' });
+    // The board sends the tier it displayed (yellow | orange | red); the server
+    // owns the wording. An unknown tier is a client bug, not a silent downgrade.
+    if (level != null && !isIdleAlertLevel(level)) {
+      return res.status(400).json({ message: 'Unknown idle alert level' });
+    }
     const { data: worker } = await db
       .from('workers')
       .select('id, name, ngo_id')
@@ -7984,14 +8053,21 @@ export const notifyFroHandler = async (req, res) => {
     }
 
     const name = worker.name || 'Telecaller';
-    const alertBody = (typeof message === 'string' && message.trim())
-      ? message.trim()
-      : `${name}, your disposition timer ran out. Please resume your work.`;
+    // `level` is the tier the admin saw on the board. Resolving the copy here
+    // keeps the FRO modal, the bell row and the FCM push identical, and leaves
+    // the original free-text `message` path working for older callers.
+    const idleAlert = idleAlertFor(level, name);
+    const alertTitle = idleAlert ? idleAlert.title : 'You are idle';
+    const alertBody = idleAlert
+      ? idleAlert.body
+      : (typeof message === 'string' && message.trim())
+        ? message.trim()
+        : `${name}, your disposition timer ran out. Please resume your work.`;
     try {
       const { notifyWorker } = await import('../services/fcmService.js');
       await notifyWorker(
         workerId,
-        'You are idle',
+        alertTitle,
         alertBody,
         'idle_alert',
         String(workerId)
@@ -8002,11 +8078,15 @@ export const notifyFroHandler = async (req, res) => {
     }
     emitRealtime('fro:action', {
       type: 'idle_alert',
-      title: 'You are idle',
+      level: idleAlert ? idleAlert.level : null,
+      title: alertTitle,
       body: alertBody,
       sent_at: new Date().toISOString(),
     }, `worker:${workerId}`);
-    return res.json({ message: `Idle alert sent to ${name}` });
+    return res.json({
+      message: `Idle alert sent to ${name}`,
+      level: idleAlert ? idleAlert.level : null,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

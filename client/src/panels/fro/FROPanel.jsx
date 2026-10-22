@@ -31,6 +31,7 @@ import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive, { SidebarIncentive, useSpecialIncentive } from '../../components/SpecialIncentive'
 import RangeRulePopup from '../../components/RangeRulePopup'
 import IdleNoticeHost from './components/IdleNoticeHost'
+import IdleWarningModal from './components/IdleWarningModal'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
@@ -758,11 +759,23 @@ export default function FROPanel() {
     return () => clearInterval(poll);
   }, [user?.id]);
 
+// Admin "Warn" on the Telecaller Performance board arrives on this socket as an
+// idle_alert. It must open a modal on this panel immediately (not a toast that
+// scrolls away): the admin clicked a specific FRO, at a specific escalation
+// level, and the telecaller has to acknowledge it.
+const [idleWarning, setIdleWarning] = useState(null)
 useEffect(() => onFroAction((action) => {
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
       playFroAction(action.type, action.title, action.audioUrl);
     } else if (action?.type === 'idle_alert') {
-      toast(`${action.title}: ${action.body}`, 'info');
+      setIdleWarning({
+        level: action.level || null,
+        title: action.title || 'You are idle',
+        body: action.body || '',
+        // Re-keying on a fresh timestamp re-runs the pop animation when a second
+        // warning arrives while the first modal is still open.
+        at: Date.now(),
+      });
       showDesktopNotification(action.title, action.body);
     }
   }), []);
@@ -1223,6 +1236,13 @@ useEffect(() => onFroAction((action) => {
       <SpecialIncentive si={si} />
       <RangeRulePopup />
       <IdleNoticeHost />
+      {idleWarning && (
+        <IdleWarningModal
+          key={idleWarning.at}
+          warning={idleWarning}
+          onClose={() => setIdleWarning(null)}
+        />
+      )}
       <LeadChampionCelebration />
       <LeadIncentiveLeaderboard />
       <NoticePopup />
