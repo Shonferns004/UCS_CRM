@@ -1947,7 +1947,7 @@ export default function Dashboard() {
       // order. Every other header, and the order of all of them, is unchanged.
       'Telecaller', 'Performance', 'Login ID', 'Period', 'Total Calls', 'Connected', 'Leads Done',
       ...EXPORT_STATUS_ORDER.map(k => EXPORT_STATUS_LABELS[k]),
-      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Idle', 'Live Status'
+      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Idle', 'M Idle', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
       p.fro_name,
@@ -1963,6 +1963,8 @@ export default function Dashboard() {
       // Today's idle (committed + any period still running), in the same
       // "59m" / "1h 5m" form the panel and the FRO strip show.
       formatDuration(p.today_idle_seconds),
+      // Idle time in the calendar month to date — the M IDLE column.
+      formatDuration(p.month_idle_seconds),
       p.status || 'offline'
     ]);
     const t1 = calcRows1.reduce((a, { p, c }) => ({
@@ -1971,41 +1973,42 @@ export default function Dashboard() {
       odc: a.odc + (p.overdue_calls || 0), odf: a.odf + (p.overdue_followups || 0),
       logoutsToday: a.logoutsToday + (p.logout_today || 0),
       idleSec: a.idleSec + (p.today_idle_seconds || 0),
+      monthIdleSec: a.monthIdleSec + (p.month_idle_seconds || 0),
       leadsDone: a.leadsDone + (c.statuses.lead_done || 0),
       statuses: EXPORT_STATUS_ORDER.map((k, i) => a.statuses[i] + (c.statuses[k] || 0)),
       // The TOTAL row reports the AVERAGE score, because a sum of scores would
       // mean nothing. Only scored telecallers count towards it.
       perfSum: a.perfSum + (typeof p.performance_score?.score === 'number' ? p.performance_score.score : 0),
       perfCount: a.perfCount + (typeof p.performance_score?.score === 'number' ? 1 : 0),
-    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, logoutsToday: 0, idleSec: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0), perfSum: 0, perfCount: 0 });
-    aoa1.push(['TOTAL', t1.perfCount > 0 ? Math.round((t1.perfSum / t1.perfCount) * 10) / 10 : '', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, formatDuration(t1.idleSec), '']);
+    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, logoutsToday: 0, idleSec: 0, monthIdleSec: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0), perfSum: 0, perfCount: 0 });
+    aoa1.push(['TOTAL', t1.perfCount > 0 ? Math.round((t1.perfSum / t1.perfCount) * 10) / 10 : '', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, formatDuration(t1.idleSec), formatDuration(t1.monthIdleSec), '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
-    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 20 } }];
+    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 21 } }];
     ws1['!rows'] = [{ hpt: 30 }, { hpt: 28 }];
     XLSX.utils.sheet_add_aoa(ws1, [headers1], { origin: 'A2' });
     XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
     spanRef(ws1);
     ws1['!cols'] = [
-      // 7 fixed + 6 statuses + 8 tail = 21, matching headers1 (0..20).
+      // 7 fixed + 6 statuses + 9 tail = 22, matching headers1 (0..21).
       { wch: 25 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
       ...EXPORT_STATUS_ORDER.map(() => ({ wch: 16 })),
-      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
     ];
     styleCell(ws1, 0, 0, TITLE);
-    for (let c = 0; c <= 20; c++) styleCell(ws1, 1, c, HDR);
-    const numCols1 = [1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+    for (let c = 0; c <= 21; c++) styleCell(ws1, 1, c, HDR);
+    const numCols1 = [1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
     for (let r = 2; r < 2 + aoa1.length; r++) {
-      for (let c = 0; c <= 20; c++) {
+      for (let c = 0; c <= 21; c++) {
         const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols1.includes(c) ? 'center' : 'left' } };
         if (c === 15) s.numFmt = AMT.numFmt;
         styleCell(ws1, r, c, s);
       }
     }
-    for (let c = 0; c <= 20; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 15 ? AMT.numFmt : undefined });
+    for (let c = 0; c <= 21; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 15 ? AMT.numFmt : undefined });
     ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
-    ws1['!autofilter'] = { ref: `A2:U${1 + aoa1.length}` };
+    ws1['!autofilter'] = { ref: `A2:V${1 + aoa1.length}` };
     XLSX.utils.book_append_sheet(wb, ws1, 'Telecaller Performance');
 
     // ── Sheet 2: Performance Breakdown ────────────────────────────────
@@ -2754,6 +2757,23 @@ idle: {
     display: (v) => formatDuration(v),
     pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true,
   },
+          // M IDLE: the idle time in the calendar month to date, from the same
+          // authoritative ledger the IDLE column is derived from. It sits in
+          // the same IDLE group because it answers the same question over a
+          // longer window — IDLE is today, M IDLE is the month so far.
+          //
+          // Like IDLE it is independent of the date filter, exactly the way the
+          // board's MONTHLY collection figure is: a period filter must not make
+          // "today's idle" and "the month's idle" mean two different things.
+          //
+          // val stays NUMERIC so the column sorts on seconds, not on the
+          // formatted string ("10m" would sort before "59m" alphabetically).
+          mIdle: {
+    key: 'mIdle', param: 'M IDLE', full: 'Monthly Idle',
+    val: (p) => p.month_idle_seconds || 0,
+    display: (v) => formatDuration(v),
+    pill: true, color: '#b45309', bg: '#fff8e7', narrow: true,
+  },
           nc: { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
           conn: { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
           ld: { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
@@ -2782,7 +2802,7 @@ idle: {
           // the body.
           { label: 'PERFORMANCE', color: '#1d4ed8', bg: '#EFF6FF', keys: ['perf'] },
           { label: 'COLLECTION', color: '#0f766e', bg: '#F0FDFA', keys: ['monthly', 'collected', 'remaining', 'ptgt', 'today'] },
-          { label: 'IDLE', color: '#475569', bg: '#F1F5F9', keys: ['idle'] },
+          { label: 'IDLE', color: '#475569', bg: '#F1F5F9', keys: ['idle', 'mIdle'] },
           { label: 'CALL ACTIVITY', color: '#be123c', bg: '#FFF1F3', keys: ['nc', 'conn', 'ld'] },
           { label: 'FOLLOW-UP', color: '#1d4ed8', bg: '#EFF6FF', keys: ['fu', 'odf'] },
           { label: 'CALLBACKS', color: '#dc2626', bg: '#FEF2F2', keys: ['cb', 'odc'] },
@@ -3009,7 +3029,7 @@ idle: {
               {sortedRows.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
-                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1690, width: 'max-content' }}>
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1760, width: 'max-content' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
                       {stickyTh('FRO Name', 0)}
