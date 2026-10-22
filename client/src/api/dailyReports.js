@@ -16,8 +16,15 @@ export const fetchDailyReports = (panel, date) =>
 // Which reports for a panel were accepted during a month (YYYY-MM). The Social
 // Monthly Planner uses this to mark a reporter's day done, so the green tracks
 // the head's acceptance rather than the member's own task status.
-export const fetchReviewedDailyReports = (panel, month) =>
-  call(`/daily-reports/reviewed?panel=${encodeURIComponent(panel)}&month=${encodeURIComponent(month)}`)
+//
+// `dates` (YYYY-MM-DD list) asks for days outside that month as well: a
+// deliverable is finished on the day the work was really done, which for a row
+// planned in another month is not in the month on screen.
+export const fetchReviewedDailyReports = (panel, month, dates) => {
+  const parts = [`panel=${encodeURIComponent(panel)}`, `month=${encodeURIComponent(month)}`]
+  if (dates && dates.length) parts.push(`dates=${encodeURIComponent(dates.join(','))}`)
+  return call(`/daily-reports/reviewed?${parts.join('&')}`)
+}
 
 // HOD / super-admin overview. All filters are optional.
 export const fetchAllDailyReports = (date, panel, reporterId) => {
