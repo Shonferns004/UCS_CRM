@@ -142,10 +142,13 @@ const parseHhMm = (v, fallbackHour, fallbackMinute) => {
 // punch_in_time wins when it is from today, otherwise the configured shift, and
 // office hours are only consulted when the worker has no shift of their own.
 //
-// Returns { [workerId]: { startMs, endMs, hasAttendance } }. A worker that fails
-// to resolve is simply absent from the map, which is what the previous
-// try/catch-in-the-loop produced too (it left that FRO on the open-ended
-// fallback), so callers keep the same "no entry" handling.
+// Returns { [workerId]: { startMs, endMs, hasAttendance, cfgStartOffsetMs,
+// cfgEndOffsetMs } }. A worker that fails to resolve is simply absent from the
+// map, which is what the previous try/catch-in-the-loop produced too (it left
+// that FRO on the open-ended fallback), so callers keep the same "no entry"
+// handling. The two cfg*OffsetMs fields are the configured shift as a
+// time-of-day offset from IST midnight, so a caller can project a shift window
+// onto a PAST day (today's punch cannot be projected backwards).
 export async function getShiftWindowsMs(workerIds, nowMs = Date.now()) {
   const ids = [...new Set((workerIds || []).filter(Boolean))];
   const out = {};
@@ -225,7 +228,23 @@ export async function getShiftWindowsMs(workerIds, nowMs = Date.now()) {
     }
     if (!Number.isFinite(endMs) || endMs <= startMs) endMs = cfgEnd > startMs ? cfgEnd : startMs;
 
-    out[id] = { startMs, endMs, hasAttendance };
+    // The CONFIGURED shift (the worker's own hours, or the org office hours),
+    // expressed as a time-of-day offset from IST midnight.
+    //
+    // WHY THIS IS HERE. startMs/endMs above are anchored on TODAY — to today's
+    // punch when there is one — so they are absolute epoch values and cannot be
+    // reused for a day in the past. A reporting window that spans several days
+    // still needs a per-day shift window to clip the interval ledger, and the
+    // only shift that can be projected onto another day is the configured one.
+    // These two offsets are additive: no existing field changes meaning, and
+    // callers that ignore them behave exactly as before.
+    out[id] = {
+      startMs,
+      endMs,
+      hasAttendance,
+      cfgStartOffsetMs: (start.hour * 60 + start.minute) * 60000,
+      cfgEndOffsetMs: (end.hour * 60 + end.minute) * 60000,
+    };
   }
 
   return out;

@@ -1039,6 +1039,14 @@ export default function Dashboard() {
   const [connTargetDraft, setConnTargetDraft] = useState('');
   const [connTargetBusy, setConnTargetBusy] = useState(false);
   const [connTargetMsg, setConnTargetMsg] = useState('');
+  // PERFORMANCE score breakdown. The score itself is computed server-side and
+  // arrives on each tl-dashboard row, so this holds only WHICH row's breakdown
+  // is open plus the drafts for the two configurable targets the score is
+  // measured against.
+  const [perfBreakdownRow, setPerfBreakdownRow] = useState(null);
+  const [perfTargetDraft, setPerfTargetDraft] = useState({ lead: '', connected: '' });
+  const [perfTargetBusy, setPerfTargetBusy] = useState(false);
+  const [perfTargetMsg, setPerfTargetMsg] = useState('');
   const [dailyStats, setDailyStats] = useState([]);
 
   // Station-wise Collection. The month picker is deliberately independent of the
@@ -1425,6 +1433,35 @@ export default function Dashboard() {
   const tlRequestVersionRef = useRef(0);
   const tlForceFreshRef = useRef(false);
   const pauseOverridesRef = useRef(new Map());
+
+  // The two targets the PERFORMANCE score is measured against. Both live in the
+  // server `settings` table — the same place connected_call_target has always
+  // lived — so they can be retuned without a deploy and without a new table.
+  // Saving refetches the board (bypassing the 15s server cache) so the scores
+  // recompute against the new targets straight away.
+  const savePerfTargets = () => {
+    const lead = Math.round(Number(perfTargetDraft.lead));
+    const connected = Math.round(Number(perfTargetDraft.connected));
+    if (!Number.isFinite(lead) || lead <= 0 || lead > 10000) {
+      setPerfTargetMsg('Daily lead target must be between 1 and 10000.');
+      return;
+    }
+    if (!Number.isFinite(connected) || connected <= 0 || connected > 100000) {
+      setPerfTargetMsg('Daily connected-call target must be between 1 and 100000.');
+      return;
+    }
+    setPerfTargetBusy(true);
+    setPerfTargetMsg('');
+    apiPut('/settings', { daily_lead_target: String(lead), connected_call_target: String(connected) })
+      .then(() => {
+        setConnTarget(connected);
+        setPerfTargetMsg('Saved — the scores have been recalculated.');
+        tlForceFreshRef.current = true;
+        setTlRefreshNonce((n) => n + 1);
+      })
+      .catch((e) => { setPerfTargetMsg(e.message || 'Could not save the targets.'); })
+      .finally(() => setPerfTargetBusy(false));
+  };
 
   // Global meeting mode (from meetingStore): freezes live counts + suppresses
   // zero-call alerts while a company-wide meeting is active.
@@ -1906,12 +1943,18 @@ export default function Dashboard() {
     const EXPORT_STATUS_ORDER = ['scheduled', 'callback', 'office_program_visit', 'promise_pay_wa_email', 'not_interested_np', 'dnd'];
     const EXPORT_STATUS_LABELS = { scheduled: 'Follow Up (FU)', callback: 'Callback (C/B)', office_program_visit: 'Visit', promise_pay_wa_email: 'P', not_interested_np: 'NI', dnd: 'DND' };
     const headers1 = [
-      'Telecaller', 'Login ID', 'Period', 'Total Calls', 'Connected', 'Leads Done',
+      // PERFORMANCE sits right after the name, mirroring the on-screen column
+      // order. Every other header, and the order of all of them, is unchanged.
+      'Telecaller', 'Performance', 'Login ID', 'Period', 'Total Calls', 'Connected', 'Leads Done',
       ...EXPORT_STATUS_ORDER.map(k => EXPORT_STATUS_LABELS[k]),
       'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Idle', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
-      p.fro_name, p.fro_login_id || '', periodLabel,
+      p.fro_name,
+      // The weighted 0-100 score, or a blank when the FRO could not be
+      // scored at all (a blank and a 0 are different facts).
+      p.performance_score?.score ?? '',
+      p.fro_login_id || '', periodLabel,
       c.calls, c.connected,
       c.statuses.lead_done || 0,
       ...EXPORT_STATUS_ORDER.map(k => c.statuses[k] || 0),
@@ -1930,38 +1973,122 @@ export default function Dashboard() {
       idleSec: a.idleSec + (p.today_idle_seconds || 0),
       leadsDone: a.leadsDone + (c.statuses.lead_done || 0),
       statuses: EXPORT_STATUS_ORDER.map((k, i) => a.statuses[i] + (c.statuses[k] || 0)),
-    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, logoutsToday: 0, idleSec: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0) });
-    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, formatDuration(t1.idleSec), '']);
+      // The TOTAL row reports the AVERAGE score, because a sum of scores would
+      // mean nothing. Only scored telecallers count towards it.
+      perfSum: a.perfSum + (typeof p.performance_score?.score === 'number' ? p.performance_score.score : 0),
+      perfCount: a.perfCount + (typeof p.performance_score?.score === 'number' ? 1 : 0),
+    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, logoutsToday: 0, idleSec: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0), perfSum: 0, perfCount: 0 });
+    aoa1.push(['TOTAL', t1.perfCount > 0 ? Math.round((t1.perfSum / t1.perfCount) * 10) / 10 : '', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, formatDuration(t1.idleSec), '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
-    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 19 } }];
+    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 20 } }];
     ws1['!rows'] = [{ hpt: 30 }, { hpt: 28 }];
     XLSX.utils.sheet_add_aoa(ws1, [headers1], { origin: 'A2' });
     XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
     spanRef(ws1);
     ws1['!cols'] = [
-      // 6 fixed + 6 statuses + 8 tail = 20, matching headers1 (0..19).
-      { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+      // 7 fixed + 6 statuses + 8 tail = 21, matching headers1 (0..20).
+      { wch: 25 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
       ...EXPORT_STATUS_ORDER.map(() => ({ wch: 16 })),
       { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
     ];
     styleCell(ws1, 0, 0, TITLE);
-    for (let c = 0; c <= 19; c++) styleCell(ws1, 1, c, HDR);
-    const numCols1 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+    for (let c = 0; c <= 20; c++) styleCell(ws1, 1, c, HDR);
+    const numCols1 = [1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
     for (let r = 2; r < 2 + aoa1.length; r++) {
-      for (let c = 0; c <= 19; c++) {
+      for (let c = 0; c <= 20; c++) {
         const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols1.includes(c) ? 'center' : 'left' } };
         if (c === 15) s.numFmt = AMT.numFmt;
         styleCell(ws1, r, c, s);
       }
     }
-    for (let c = 0; c <= 19; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 15 ? AMT.numFmt : undefined });
+    for (let c = 0; c <= 20; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 15 ? AMT.numFmt : undefined });
     ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
-    ws1['!autofilter'] = { ref: `A2:T${1 + aoa1.length}` };
+    ws1['!autofilter'] = { ref: `A2:U${1 + aoa1.length}` };
     XLSX.utils.book_append_sheet(wb, ws1, 'Telecaller Performance');
 
-    // ── Sheet 2: Hourly Performance (subtotals per telecaller) ──────
+    // ── Sheet 2: Performance Breakdown ────────────────────────────────
+    // The component detail behind the PERFORMANCE column: for every FRO, the
+    // actual, the target and the score of each of the five components, plus
+    // the overall score and its band. A component that could not be scored
+    // (no target, or no working time) has a blank target and a blank score, so
+    // a reader can tell "not scored" from "scored zero".
+    const perfTargets = tlData?.performance_targets || {};
+    const perfOf = (p, key) => (p.performance_score?.components || []).find((c) => c.key === key) || null;
+    const perfScore = (c) => (c && c.available ? Math.round(Number(c.score) * 10) / 10 : '');
+    const perfActualNum = (c) => (c ? Number(c.actual || 0) : '');
+    const perfTargetNum = (c) => (c && c.available ? Number(c.target || 0) : '');
+    const perfActualDur = (c) => (c ? formatDuration(c.actual) : '');
+    const perfTargetDur = (c) => (c && c.available ? formatDuration(c.target) : '');
+    const headersPerf = [
+      'Telecaller', 'Login ID', 'Period',
+      "Today's Collection Actual (₹)", "Today's Collection Target (₹)", "Today's Collection Score",
+      'Leads Done Actual', 'Leads Done Target', 'Leads Done Score',
+      'Monthly Collection Actual (₹)', 'Monthly Collection Target (₹)', 'Monthly Collection Score',
+      'Connected Calls Actual', 'Connected Calls Target', 'Connected Calls Score',
+      'Idle Time', 'Eligible Working Time', 'Idle Score',
+      'Performance Score', 'Band'
+    ];
+    const aoaPerf = calcRows1.map(({ p }) => {
+      const tc = perfOf(p, 'todayCollection');
+      const ld = perfOf(p, 'leadsDone');
+      const mc = perfOf(p, 'monthlyCollection');
+      const cc = perfOf(p, 'connectedCalls');
+      const id = perfOf(p, 'idle');
+      return [
+        p.fro_name, p.fro_login_id || '', periodLabel,
+        perfActualNum(tc), perfTargetNum(tc), perfScore(tc),
+        perfActualNum(ld), perfTargetNum(ld), perfScore(ld),
+        perfActualNum(mc), perfTargetNum(mc), perfScore(mc),
+        perfActualNum(cc), perfTargetNum(cc), perfScore(cc),
+        perfActualDur(id), perfTargetDur(id), perfScore(id),
+        typeof p.performance_score?.score === 'number' ? p.performance_score.score : '',
+        p.performance_score?.label || '',
+      ];
+    });
+    if (aoaPerf.length > 0) {
+      const scored = aoaPerf.filter(r => typeof r[18] === 'number');
+      const avg = scored.length ? Math.round((scored.reduce((s, r) => s + Number(r[18]), 0) / scored.length) * 10) / 10 : '';
+      aoaPerf.push(['AVERAGE', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', avg, '']);
+    }
+    const wsPerf = XLSX.utils.aoa_to_sheet([]);
+    wsPerf[enc({ r: 0, c: 0 })] = {
+      t: 's',
+      v: `Performance Score Breakdown — ${periodLabel} (daily lead target ${perfTargets.daily_lead_target ?? '—'}, daily connected-call target ${perfTargets.connected_call_target ?? '—'})`,
+    };
+    wsPerf['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 19 } }];
+    wsPerf['!rows'] = [{ hpt: 30 }, { hpt: 30 }];
+    XLSX.utils.sheet_add_aoa(wsPerf, [headersPerf], { origin: 'A2' });
+    XLSX.utils.sheet_add_aoa(wsPerf, aoaPerf, { origin: 'A3' });
+    spanRef(wsPerf);
+    wsPerf['!cols'] = [
+      { wch: 25 }, { wch: 18 }, { wch: 12 },
+      { wch: 16 }, { wch: 16 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 16 }, { wch: 16 }, { wch: 12 },
+      { wch: 14 }, { wch: 14 }, { wch: 12 },
+      { wch: 12 }, { wch: 14 }, { wch: 10 },
+      { wch: 12 }, { wch: 12 }
+    ];
+    styleCell(wsPerf, 0, 0, TITLE);
+    for (let c = 0; c <= 19; c++) styleCell(wsPerf, 1, c, HDR);
+    for (let r = 2; r < 2 + aoaPerf.length; r++) {
+      for (let c = 0; c <= 19; c++) {
+        const s = { font: FONT, alignment: { vertical: 'center', horizontal: (c <= 2 || c === 19) ? 'left' : 'center' } };
+        // The rupee columns keep the currency format the main sheet uses.
+        if (c === 3 || c === 4 || c === 9 || c === 10) s.numFmt = AMT.numFmt;
+        styleCell(wsPerf, r, c, s);
+      }
+    }
+    if (aoaPerf.length > 0) {
+      for (let c = 0; c <= 19; c++) styleCell(wsPerf, 1 + aoaPerf.length, c, { ...SUB, numFmt: (c === 3 || c === 4 || c === 9 || c === 10) ? AMT.numFmt : undefined });
+    }
+    wsPerf['!freeze'] = { xSplit: 0, ySplit: 1 };
+    wsPerf['!autofilter'] = { ref: `A2:T${1 + aoaPerf.length}` };
+    XLSX.utils.book_append_sheet(wb, wsPerf, 'Performance Breakdown');
+
+    // ── Sheet 3: Hourly Performance (subtotals per telecaller) ──────
     let hourlyDataToUse = froHourlyData;
     if (!hourlyDataToUse || hourlyDataToUse.length === 0) {
       try {
@@ -2022,7 +2149,7 @@ export default function Dashboard() {
     if (aoa2.length > 1) ws2['!autofilter'] = { ref: `A2:H${1 + aoa2.length}` };
     XLSX.utils.book_append_sheet(wb, ws2, 'Hourly Performance');
 
-    // ── Sheet 3: Computations ───────────────────────────────────────
+    // ── Sheet 4: Computations ───────────────────────────────────────
     const ws3 = XLSX.utils.aoa_to_sheet([]);
     ws3[enc({ r: 0, c: 0 })] = { t: 's', v: `Computations — ${periodLabel}` };
     ws3['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
@@ -2537,7 +2664,63 @@ export default function Dashboard() {
         const statusesOf = (p) => p.connectedStatuses_range || {};
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
+        // ── PERFORMANCE score ──
+        // The score is computed server-side (services/telecallerPerformance.js)
+        // and arrives on each row; this only draws it and decides its band.
+        // The bands are the same four the backend uses, so the column and the
+        // breakdown can never disagree about what a score means.
+        const perfTone = (score) => {
+          if (score === null || score === undefined) return { color: '#94a3b8', label: 'Not scored' };
+          if (score >= 90) return { color: '#15803d', label: 'Excellent' };
+          if (score >= 75) return { color: '#166534', label: 'Good' };
+          if (score >= 50) return { color: '#b45309', label: 'Average' };
+          return { color: '#b91c1c', label: 'Poor' };
+        };
+        const perfCellContent = (p) => {
+          const score = p.performance_score?.score ?? null;
+          const tone = perfTone(score);
+          if (score === null) {
+            return (
+              <span title="No score — every component was unavailable for this period" style={{ fontSize: '0.656rem', fontWeight: 700, color: tone.color }}>—</span>
+            );
+          }
+          // Number + band + a hairline bar, stacked so the column stays narrow
+          // and the row height stays close to the rest of the board.
+          return (
+            <span style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1, lineHeight: 1, paddingBottom: 4 }}>
+              <span style={{ fontSize: '0.656rem', fontWeight: 700, color: tone.color }}>{score}</span>
+              <span style={{ fontSize: '0.5rem', fontWeight: 700, color: tone.color, textTransform: 'uppercase', letterSpacing: .2 }}>{tone.label}</span>
+              <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, borderRadius: 1, background: '#e8edf3', overflow: 'hidden' }}>
+                <span style={{ display: 'block', width: `${score}%`, height: '100%', background: tone.color, borderRadius: 1 }} />
+              </span>
+            </span>
+          );
+        };
+
         const METRIC_DEFS = {
+          // ── PERFORMANCE ──
+          // The weighted 0-100 score, computed server-side by
+          // services/telecallerPerformance.js and sent on every row together
+          // with its full breakdown, so the number can be verified without a
+          // second request per telecaller.
+          //
+          // A null score means EVERY component was unavailable — a different
+          // fact from a score of zero — so the cell draws a dash, never a 0.
+          perf: {
+            key: 'perf', param: 'SCORE', full: 'Performance',
+            val: (p) => p.performance_score?.score ?? null,
+            narrow: true,
+            custom: (p) => perfCellContent(p),
+            click: (p) => {
+              setPerfBreakdownRow(p);
+              setPerfTargetDraft({
+                lead: String(tlData?.performance_targets?.daily_lead_target ?? ''),
+                connected: String(tlData?.performance_targets?.connected_call_target ?? ''),
+              });
+              setPerfTargetMsg('');
+            },
+          },
+
           // ── Collection ──
           // These five come off each tl-dashboard row, which computes them from
           // the same leaderboard the High/Low Performance panels read, so the
@@ -2591,6 +2774,13 @@ idle: {
         // indices had to be recounted by hand every time a group changed, and a
         // miscount silently shifted a header onto the wrong column.
         const GROUPS = [
+          // PERFORMANCE comes first so the column sits immediately after the
+          // FRO name, where the eye goes for the headline number. It is its own
+          // one-column group so the existing group header / sub-header / body
+          // machinery renders it like any other column — no special-casing in
+          // the table markup, and the group spans cannot drift out of step with
+          // the body.
+          { label: 'PERFORMANCE', color: '#1d4ed8', bg: '#EFF6FF', keys: ['perf'] },
           { label: 'COLLECTION', color: '#0f766e', bg: '#F0FDFA', keys: ['monthly', 'collected', 'remaining', 'ptgt', 'today'] },
           { label: 'IDLE', color: '#475569', bg: '#F1F5F9', keys: ['idle'] },
           { label: 'CALL ACTIVITY', color: '#be123c', bg: '#FFF1F3', keys: ['nc', 'conn', 'ld'] },
@@ -2611,6 +2801,22 @@ idle: {
           if (!perfSort.key) return 0;
           const col = COLUMNS.find(c => c.key === perfSort.key);
           if (!col) return 0;
+          // A FRO with no performance score must stay at the BOTTOM of the
+          // column in BOTH directions. The generic numeric compare below would
+          // read null as 0 and float an unscored FRO above every scored one
+          // when sorting downwards, which is the opposite of what an admin
+          // means by "sort by performance, worst first".
+          if (perfSort.key === 'perf') {
+            const sa = col.val(a); const sb = col.val(b);
+            const aMissing = sa === null || sa === undefined;
+            const bMissing = sb === null || sb === undefined;
+            if (aMissing && bMissing) return ranked(a) - ranked(b);
+            if (aMissing) return 1;
+            if (bMissing) return -1;
+            if (sa < sb) return -1 * perfSort.dir;
+            if (sa > sb) return 1 * perfSort.dir;
+            return ranked(a) - ranked(b);
+          }
           const va = col.val(a); const vb = col.val(b);
           if (va < vb) return -1 * perfSort.dir;
           if (va > vb) return 1 * perfSort.dir;
@@ -2643,6 +2849,22 @@ idle: {
           const v = m.val(p);
           // Clicking still requires a real value — a zero has no donors to list.
           const click = m.filterType ? (e) => { e.stopPropagation(); if (v > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: m.filterType, status: m.status }); } : null;
+          // A column that draws itself (the PERFORMANCE score) opts out of the
+          // pill/plain layouts below and supplies its own content; the click
+          // opens its breakdown. Everything else on the board is untouched.
+          if (m.custom) {
+            return (
+              <td key={m.key} style={{ padding: m.narrow ? '5px 0' : '5px 1px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+                <span
+                  onClick={(e) => { e.stopPropagation(); if (m.click) m.click(p); }}
+                  title={m.title ? m.title(p) : `Click to see the ${m.full.toLowerCase()} breakdown`}
+                  style={{ display: 'inline-flex', justifyContent: 'center', cursor: m.click ? 'pointer' : 'default' }}
+                >
+                  {m.custom(p)}
+                </span>
+              </td>
+            );
+          }
           // Every value renders in the same style, zero and ₹0 included. These
           // used to drop to a washed-out grey with no weight whenever the value was
           // 0, and a pill column lost its colour entirely — so a ₹0 read as "no
@@ -2682,6 +2904,29 @@ idle: {
           { value: 'monthly', label: 'This Month' },
           { value: 'custom', label: 'Custom Date' },
         ];
+
+        // ── Breakdown formatters ──
+        // The backend sends each component with its unit, so one formatter
+        // serves rupee amounts, plain counts and durations.
+        const perfActualText = (c) => {
+          if (c.unit === 'amount') return fmt(c.actual);
+          if (c.unit === 'duration') return formatDuration(c.actual);
+          return String(Math.round(c.actual || 0));
+        };
+        const perfTargetText = (c) => {
+          if (!c.available) return c.reason === 'no_working_time' ? 'No working time' : 'Not set';
+          if (c.unit === 'amount') return fmt(c.target);
+          if (c.unit === 'duration') return formatDuration(c.target);
+          return String(Math.round(c.target));
+        };
+        const perfWeightText = (c, applied) => {
+          const basePct = (c.weight || 0) * 100;
+          const moved = c.available && Math.abs(applied - basePct) > 0.5;
+          return `${applied.toFixed(0)}%${moved ? ` (base ${basePct.toFixed(0)}%)` : ''}`;
+        };
+        const perfBreakdownComponents = perfBreakdownRow?.performance_score?.components || [];
+        const perfAppliedWeights = perfBreakdownRow?.performance_score?.appliedWeights || {};
+        const perfMissing = perfBreakdownComponents.filter((c) => !c.available);
 
         return (
           <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16 }}>
@@ -2764,7 +3009,7 @@ idle: {
               {sortedRows.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
-                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1620, width: 'max-content' }}>
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1690, width: 'max-content' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
                       {stickyTh('FRO Name', 0)}
@@ -2857,6 +3102,130 @@ idle: {
               .perf-table tbody tr:hover td { background: #f8fafc; }
               .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
             `}</style>
+
+            {/* ── PERFORMANCE breakdown ──
+                The score, the five components that produced it and the targets
+                they were measured against, so the number can be checked by
+                hand. Opened by clicking the PERFORMANCE cell. */}
+            {perfBreakdownRow && (
+              <div
+                onClick={() => setPerfBreakdownRow(null)}
+                style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1300, padding: 16 }}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ background: '#fff', borderRadius: 14, width: 'min(620px, 96vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 50px rgba(15,23,42,.3)' }}
+                >
+                  <div style={{ padding: '16px 20px', borderBottom: '1px solid #eef2f6', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#17233C' }}>{perfBreakdownRow.fro_name} — Performance</div>
+                      <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
+                        {PERIOD_LABELS[dashPeriod] || 'Range'}
+                        {tlData?.range?.from ? ` · ${new Date(tlData.range.from).toLocaleString('en-IN')}` : ''}
+                        {tlData?.range?.to ? ` → ${new Date(tlData.range.to).toLocaleString('en-IN')}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1, color: perfTone(perfBreakdownRow.performance_score?.score ?? null).color }}>
+                        {perfBreakdownRow.performance_score?.score ?? '—'}
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: 'uppercase', letterSpacing: .3, color: perfTone(perfBreakdownRow.performance_score?.score ?? null).color }}>
+                        {perfTone(perfBreakdownRow.performance_score?.score ?? null).label}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setPerfBreakdownRow(null)}
+                      title="Close"
+                      style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, width: 26, height: 26, cursor: 'pointer', color: '#475569', fontSize: 14, lineHeight: 1, flexShrink: 0 }}
+                    >×</button>
+                  </div>
+
+                  <div style={{ padding: '14px 20px 4px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ color: 'var(--ink-soft)', fontSize: 10, textTransform: 'uppercase', letterSpacing: .3, fontWeight: 700 }}>
+                          <th style={{ textAlign: 'left', padding: '4px 0', borderBottom: '1px solid #eef2f6' }}>Component</th>
+                          <th style={{ textAlign: 'right', padding: '4px 0', borderBottom: '1px solid #eef2f6' }}>Actual</th>
+                          <th style={{ textAlign: 'right', padding: '4px 0', borderBottom: '1px solid #eef2f6' }}>Target</th>
+                          <th style={{ textAlign: 'right', padding: '4px 0', borderBottom: '1px solid #eef2f6' }}>Score</th>
+                          <th style={{ textAlign: 'right', padding: '4px 0', borderBottom: '1px solid #eef2f6' }}>Weight</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {perfBreakdownComponents.map((c) => (
+                          <tr key={c.key}>
+                            <td style={{ padding: '6px 0', borderBottom: '1px solid #f6f8fb', color: '#17233C', fontWeight: 600 }}>{c.label}</td>
+                            <td style={{ padding: '6px 0', borderBottom: '1px solid #f6f8fb', textAlign: 'right', color: '#334155' }}>{perfActualText(c)}</td>
+                            <td style={{ padding: '6px 0', borderBottom: '1px solid #f6f8fb', textAlign: 'right', color: c.available ? '#334155' : '#94a3b8' }}>{perfTargetText(c)}</td>
+                            <td style={{ padding: '6px 0', borderBottom: '1px solid #f6f8fb', textAlign: 'right', fontWeight: 700, color: c.available ? perfTone(Math.round(c.score)).color : '#94a3b8' }}>
+                              {c.available ? Math.round(c.score) : '—'}
+                            </td>
+                            <td style={{ padding: '6px 0', borderBottom: '1px solid #f6f8fb', textAlign: 'right', color: c.available ? '#334155' : '#94a3b8' }}>
+                              {c.available ? perfWeightText(c, perfAppliedWeights[c.key] ?? 0) : 'redistributed'}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td style={{ padding: '8px 0', fontWeight: 800, color: '#17233C' }}>Overall</td>
+                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748B' }}>—</td>
+                          <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748B' }}>—</td>
+                          <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 800, color: perfTone(perfBreakdownRow.performance_score?.score ?? null).color }}>
+                            {perfBreakdownRow.performance_score?.score ?? '—'}
+                          </td>
+                          <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 700, color: '#334155' }}>100%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {perfMissing.length > 0 && (
+                      <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 11, lineHeight: 1.5 }}>
+                        {perfMissing.length === perfBreakdownComponents.length
+                          ? 'Every component was unavailable for this period, so there is no score. The em dash above is not a score of zero.'
+                          : `${perfMissing.map((c) => c.label).join(', ')} could not be scored for this period. The weight of ${perfMissing.reduce((s, c) => s + (c.weight || 0) * 100, 0).toFixed(0)}% was redistributed across the components that could be scored.`}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, border: '1px solid #eef2f6', background: '#fafbfd' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#17233C', marginBottom: 2 }}>Targets used</div>
+                      <div style={{ fontSize: 10.5, color: '#64748B', marginBottom: 8 }}>
+                        Daily lead target and daily connected-call target, both stored in Settings and applied to every FRO.
+                        {tlData?.performance_targets?.range_working_days > 1
+                          ? ` This period covers ${tlData.performance_targets.range_working_days} working days, so the targets were scaled to ${tlData.performance_targets.period_lead_target} leads and ${tlData.performance_targets.period_connected_target} connected calls.`
+                          : ''}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .3 }}>
+                          Daily lead target
+                          <input
+                            type="number" min="1" max="10000" value={perfTargetDraft.lead}
+                            onChange={(e) => setPerfTargetDraft(d => ({ ...d, lead: e.target.value }))}
+                            style={{ width: 110, padding: '6px 8px', border: '1px solid #dfe5ec', borderRadius: 7, fontSize: 12, fontWeight: 600, color: '#17233C' }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .3 }}>
+                          Daily connected-call target
+                          <input
+                            type="number" min="1" max="100000" value={perfTargetDraft.connected}
+                            onChange={(e) => setPerfTargetDraft(d => ({ ...d, connected: e.target.value }))}
+                            style={{ width: 110, padding: '6px 8px', border: '1px solid #dfe5ec', borderRadius: 7, fontSize: 12, fontWeight: 600, color: '#17233C' }}
+                          />
+                        </label>
+                        <button
+                          onClick={savePerfTargets}
+                          disabled={perfTargetBusy}
+                          style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: perfTargetBusy ? '#93c5fd' : '#2F80D9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: perfTargetBusy ? 'default' : 'pointer' }}
+                        >
+                          {perfTargetBusy ? 'Saving…' : 'Save targets'}
+                        </button>
+                      </div>
+                      {perfTargetMsg && (
+                        <div style={{ marginTop: 7, fontSize: 11, fontWeight: 600, color: perfTargetMsg.startsWith('Saved') ? '#15803d' : '#b91c1c' }}>{perfTargetMsg}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}

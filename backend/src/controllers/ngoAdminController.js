@@ -25,11 +25,12 @@ import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import { istMonthBounds } from '../utils/ist.js';
 import { buildTeamCollection, resolveRange } from '../services/teamCollectionService.js';
 import { getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker, getWorkerCollectionReceipts, HIGH_TIER_LOG_PREDICATE } from '../models/froDonorLogModel.js';
-import { buildFroLeaderboard } from '../services/froRankService.js';
+import { buildFroLeaderboard, workingDaysBetween } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
-import { dayTotalsForWorkers } from '../services/froTimeSessions.js';
+import { dayTotalsForWorkers, rangeTotalsForWorkers } from '../services/froTimeSessions.js';
+import { scoreTelecaller, loadPerformanceTargets, DEFAULT_DAILY_LEAD_TARGET, DEFAULT_DAILY_CONNECTED_TARGET } from '../services/telecallerPerformance.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -7070,6 +7071,11 @@ export const getTLDashboard = async (req, res) => {
           monthNonConnected: 0, todayNonConnected: 0, weekNonConnected: 0, rangeNonConnected: 0,
           monthDonations: 0, todayDonations: 0, weekDonations: 0, rangeDonations: 0,
           rangeAmount: 0,
+          // Connected CALL rows in the selected period. The board's CONN column
+          // counts connected DONORS (distinct, latest disposition); this counts
+          // CALLS (log rows with a connected disposition), which is the unit the
+          // daily connected-call target is expressed in.
+          rangeConnectedCalls: 0,
           connectedStatuses_month: {},
           connectedStatuses_today: {},
           connectedStatuses_week: {},
@@ -7089,6 +7095,12 @@ export const getTLDashboard = async (req, res) => {
       if (isToday) callCounts[log.fro_worker_id].today++;
       if (isWeek) callCounts[log.fro_worker_id].week++;
       if (isRange) callCounts[log.fro_worker_id].range++;
+      // Same rule as classifyLogSide() for the 'connected' side, but with the
+      // Set that is already in scope so this does not walk the disposition array
+      // again for every log row on a month-wide board.
+      if (isRange && (connectedStatuses.has(log.disposition_detail) || String(log.disposition_category || '').toLowerCase() === 'connected')) {
+        callCounts[log.fro_worker_id].rangeConnectedCalls++;
+      }
       if (log.accounts_status === 'verified') {
         if (isMonth) callCounts[log.fro_worker_id].monthDonations++;
         if (isToday) callCounts[log.fro_worker_id].todayDonations++;
@@ -7186,6 +7198,88 @@ export const getTLDashboard = async (req, res) => {
     } catch (e) {
       // Non-fatal: the board still renders, only the target columns stay 0.
       console.error('getTLDashboard leaderboard failed:', e?.message || String(e));
+    }
+
+    // ---------------------------------------------------------------------
+    // PERFORMANCE SCORE
+    // ---------------------------------------------------------------------
+    // The board's PERFORMANCE column is computed HERE, server-side, inside the
+    // one payload the board already loads. Scoring it per-telecaller in the
+    // browser would mean one extra request per row on every poll, and scoring
+    // it from a second endpoint would mean the score could disagree with the
+    // collection figures on the same row.
+    //
+    // The arithmetic lives in services/telecallerPerformance.js and is unit
+    // tested there. This block only gathers the inputs.
+    //
+    // The targets are the two configurable ones, both read from the `settings`
+    // table (the same place connected_call_target has always lived), so no new
+    // table and no migration are involved.
+    const perfTargets = await loadPerformanceTargets().catch(() => ({
+      daily_lead_target: DEFAULT_DAILY_LEAD_TARGET,
+      connected_call_target: DEFAULT_DAILY_CONNECTED_TARGET,
+    }));
+
+    // Working days in the selected reporting period. This follows the
+    // leaderboard's OWN rule exactly (services/froRankService.js), because the
+    // collection component of the score is measured against the leaderboard's
+    // period_target: if the two disagreed, the collection target and the lead
+    // target would be scaled to different windows and the score would be
+    // internally inconsistent.
+    //
+    // A single day that IS today counts as one working day. A mid-month
+    // Sunday counts as none (the leaderboard's rule: Sundays off, except the
+    // month's last Sunday), which makes the target components unavailable
+    // rather than silently measuring against a target nobody set.
+    const perfTodayDay = istDateStr(now);
+    const perfIsTodayOnly = rangeFromDay === perfTodayDay && rangeToDay === perfTodayDay;
+    const rangeWorkingDays = perfIsTodayOnly
+      ? 1
+      : Math.max(0, workingDaysBetween(rangeFromDay, rangeToDay));
+
+    // The daily targets are scaled to the reporting period, so the score of a
+    // week-long period is measured against a week of target, not one day of it.
+    const periodLeadTarget = perfTargets.daily_lead_target * rangeWorkingDays;
+    const periodConnectedTarget = perfTargets.connected_call_target * rangeWorkingDays;
+
+    // Idle time and eligible logged-in working time over the SELECTED period,
+    // read from the same authoritative ledger the IDLE column is derived from.
+    //
+    // Today the window is the attendance-anchored shift, so the score's idle
+    // component agrees with the IDLE column on the same row. A past day cannot
+    // reuse today's punch, so the configured shift (the worker's own hours, or
+    // the org office hours) is projected onto it instead.
+    // A single-day period that IS today is already answered by ledgerTotals
+    // (same ledger, same shift, same cutoff), so it is reused instead of
+    // querying the same rows a second time on every poll.
+    const perfRangeIsToday = perfIsTodayOnly;
+    let rangeLedgerTotals = new Map();
+    try {
+      rangeLedgerTotals = perfRangeIsToday
+        ? ledgerTotals
+        : await rangeTotalsForWorkers(froWorkers.map((w) => w.id), {
+          fromDay: rangeFromDay,
+          toDay: rangeToDay,
+          nowMs: now.getTime(),
+          shiftFor: (id, day) => {
+            const shift = shiftMap[String(id)];
+            if (!shift) return null;
+            if (day === perfTodayDay) return { startMs: shift.startMs, endMs: shift.endMs };
+            const dayStartMs = new Date(`${day}T00:00:00.000+05:30`).getTime();
+            const startMs = dayStartMs + (shift.cfgStartOffsetMs || 0);
+            let endMs = dayStartMs + (shift.cfgEndOffsetMs || 0);
+            // A window that ends before it starts (or one that crosses midnight)
+            // must not collapse the day to zero — fall back to the whole day.
+            if (endMs <= startMs) endMs = dayStartMs + 24 * 60 * 60 * 1000;
+            return { startMs, endMs };
+          },
+          nowFor: (id) => {
+            const row = liveStatusMap[id] || {};
+            return isCoveredAway(row) ? idleFreezeCutoffMs(row) : NaN;
+          },
+        });
+    } catch (ledgerErr) {
+      console.error('tl-dashboard performance range ledger read failed:', ledgerErr.message);
     }
 
     const performance = froWorkers.map(w => {
@@ -7301,6 +7395,42 @@ export const getTLDashboard = async (req, res) => {
       }
       const lc = logoutCounts[String(w.id)] || { today: 0, total: 0 };
 
+      // ---- PERFORMANCE SCORE -------------------------------------------
+      // Every input is either already on this row or is the period idle
+      // figure read from the ledger above, so the score can never disagree
+      // with the columns printed beside it.
+      const perfRangeLedger = rangeLedgerTotals.get(String(w.id)) || null;
+      const perfIdleSeconds = perfRangeLedger ? perfRangeLedger.idle_seconds : 0;
+      // "Eligible logged-in working time" is the time the FRO was on the clock
+      // and on shift: worked seconds plus idle seconds. Approved meetings and
+      // admin pauses are already inside the worked figure and time outside the
+      // shift is excluded, so neither is billed as idle.
+      const perfEligibleSeconds = perfRangeLedger
+        ? perfRangeLedger.worked_seconds + perfRangeLedger.idle_seconds
+        : 0;
+      const performanceScore = scoreTelecaller({
+        // Collection in the SELECTED reporting period against the target for
+        // that same period — so a week-long report is not measured against one
+        // day of target, and not against the whole month either.
+        periodCollection: lb?.period_collection ?? 0,
+        periodTarget: lb?.period_target ?? 0,
+        // Leads done = donors whose LATEST disposition in the period is a
+        // completed lead. Distinct donors, so reopening a lead or revisiting
+        // one from History cannot count it twice.
+        leadsDone: callCounts[w.id]?.connectedStatuses_range?.lead_done || 0,
+        dailyLeadTarget: periodLeadTarget,
+        // Monthly achievement always uses the monthly figures, whatever the
+        // date filter says.
+        monthlyCollected: lb?.collection_amount ?? 0,
+        monthlyTarget: lb?.monthly_target ?? 0,
+        // Connected CALLS (log rows with a connected disposition), which is the
+        // unit the daily connected-call target is expressed in.
+        connectedCalls: callCounts[w.id]?.rangeConnectedCalls || 0,
+        dailyConnectedTarget: periodConnectedTarget,
+        idleSeconds: perfIdleSeconds,
+        eligibleWorkingSeconds: perfEligibleSeconds,
+      });
+
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
@@ -7384,6 +7514,15 @@ export const getTLDashboard = async (req, res) => {
         remaining_target: lb?.remaining_target ?? 0,
         period_target: lb?.period_target ?? 0,
         period_today: lb?.today_collection ?? 0,
+        // Collection inside the selected reporting period. The board's TODAY
+        // column is TODAY's collection whatever the filter says, so the period
+        // figure needed its own field rather than borrowing that one.
+        period_collection: lb?.period_collection ?? 0,
+        // Connected CALL rows in the selected period (the CONN column counts
+        // connected DONORS instead).
+        connected_calls_range: callCounts[w.id]?.rangeConnectedCalls || 0,
+        // The weighted 0-100 performance score and its full breakdown.
+        performance_score: performanceScore,
         // 'auto' = derived from salary (new hire, first 3 months), 'manual' = the
         // stored fro_monthly_targets row, 'not_set' = neither.
         target_source: lb?.target_source ?? 'not_set',
@@ -7448,6 +7587,17 @@ export const getTLDashboard = async (req, res) => {
       funnel,
       hourly,
       performance,  // Add full performance array for telecaller table
+      // The configurable targets the PERFORMANCE score is measured against, and
+      // the number of working days in the selected period they were scaled to.
+      // Sent with the payload so the breakdown can show exactly which numbers
+      // produced a score, and so the admin can retune them from the board.
+      performance_targets: {
+        daily_lead_target: perfTargets.daily_lead_target,
+        connected_call_target: perfTargets.connected_call_target,
+        range_working_days: rangeWorkingDays,
+        period_lead_target: periodLeadTarget,
+        period_connected_target: periodConnectedTarget,
+      },
       collections_per_ngo,
       top_performers: {
         amount: topByAmount,
