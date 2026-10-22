@@ -8,8 +8,7 @@
 // This is the flow the user reported as broken: "I verify the lead, the row is
 // still there, only after a refresh does it go away".
 import { readFileSync } from 'node:fs'
-// socket.io-client is a client-side dependency; the backend only has the server.
-import { io } from '../../client/node_modules/socket.io-client/build/esm/index.js'
+// Native WebSocket client (uWebSockets.js transport). No socket.io dependency.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
@@ -65,22 +64,23 @@ check('login', !!token)
 
 // --- socket (mirrors the fixed client module) -------------------------------
 const events = []
-const socket = io(SOCK, {
-  transports: ['websocket'],
-  auth: (cb) => cb({ token }),
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-})
+const wsUrl = SOCK.replace(/^http/, 'ws').replace(/:5000$/, ':5001')
+const socket = { connected: false, close() { try { this._ws && this._ws.close() } catch {} } }
+const ws = new WebSocket(wsUrl)
+socket._ws = ws
 await new Promise((res, rej) => {
-  socket.on('connect', res)
-  socket.on('connect_error', (e) => rej(new Error(e.message)))
+  ws.onopen = () => { ws.send(JSON.stringify({ type: 'auth', payload: { token } })) }
+  ws.onmessage = (e) => {
+    let m; try { m = JSON.parse(e.data) } catch { return }
+    if (m.type === 'auth:ok') { socket.connected = true; res() }
+    else if (m.type === 'auth:error') rej(new Error(m.payload?.message || 'auth error'))
+    else if (m.type === 'db:change' && (m.payload?.table === 'bank_audit_entries' || m.payload?.table === 'receipts')) events.push(m.payload)
+  }
+  ws.onclose = () => { socket.connected = false }
   setTimeout(() => rej(new Error('connect timeout')), 15000)
 })
 check('socket connected with the login token', socket.connected)
-
-socket.on('db:change', (p) => {
-  if (p.table === 'bank_audit_entries' || p.table === 'receipts') events.push(p)
-})
+// keep db:change capture already wired above
 
 // --- pick a bank audit entry to verify --------------------------------------
 const hdr = { Authorization: `Bearer ${token}` }

@@ -17,6 +17,7 @@ import {
   resolveEventState,
   sumIntervalsByState,
   istDayBoundsMs,
+  istDaysBetween,
   isIdleState,
 } from '../utils/froTimeState.js';
 
@@ -317,6 +318,104 @@ export async function dayTotalsForWorkers(workerIds, { shiftFor = () => null, no
     const cut = nowFor(k);
     const at = Number.isFinite(cut) ? Math.min(cut, nowMs) : nowMs;
     out.set(k, sumIntervalsByState(clampIdleToFirstPresence(sessions, day.startMs), { shift: shiftFor(k), nowMs: at, dayBounds: day }));
+  }
+  return out;
+}
+
+/**
+ * Batch per-state totals across an IST date RANGE, for many workers at once.
+ *
+ * WHY THIS EXISTS. dayTotalsForWorkers answers "today". A reporting board that
+ * can show a week, a month or a custom range needs the same numbers for an
+ * arbitrary window, and it must be measured by EXACTLY the same rules — so this
+ * splits the range into its IST days and runs the authoritative
+ * sumIntervalsByState() over each one, then adds the days up. Nothing here
+ * re-implements the idle rules.
+ *
+ * Per day it also applies the same late-login clamp the single-day reader
+ * uses, so an interval left open overnight is not billed as idle from
+ * midnight on a past day either.
+ *
+ * `shiftFor(workerId, day)` must return the shift window for that worker on
+ * that day ({ startMs, endMs }) or null for "no shift known". The caller
+ * supplies it because the shift is per worker (their own hours, their own
+ * punch) and the ledger does not own that knowledge.
+ *
+ * `nowFor(workerId)` is the same freeze cutoff dayTotalsForWorkers takes: a
+ * worker who has gone home must not keep accruing idle. It is applied to every
+ * day of the range, which is correct — a cutoff in the past cannot shorten an
+ * interval that had already ended.
+ *
+ * Returns Map(workerId -> totals). Only workers with ledger rows in the range
+ * appear, so a caller can tell "no ledger" from "a genuine zero".
+ */
+export async function rangeTotalsForWorkers(workerIds, { fromDay, toDay, shiftFor = () => null, nowFor = () => null, nowMs = Date.now(), pool = db._pool } = {}) {
+  const ids = [...new Set((workerIds || []).filter(Boolean).map(String))];
+  const out = new Map();
+  if (ids.length === 0) return out;
+
+  const days = istDaysBetween(fromDay, toDay);
+  if (days.length === 0) return out;
+
+  const rangeStartMs = new Date(`${days[0]}T00:00:00.000+05:30`).getTime();
+  const lastDayStartMs = new Date(`${days[days.length - 1]}T00:00:00.000+05:30`).getTime();
+  const rangeEndMs = lastDayStartMs + 24 * 60 * 60 * 1000;
+
+  const { rows } = await pool.query(
+    `SELECT worker_id, state, started_at, ended_at
+       FROM fro_time_sessions
+      WHERE worker_id::text = ANY($1::text[])
+        AND started_at < $3
+        AND COALESCE(ended_at, 'infinity'::timestamptz) > $2
+      ORDER BY started_at ASC`,
+    [ids, toIso(rangeStartMs), toIso(rangeEndMs)]
+  );
+
+  const byWorker = new Map();
+  for (const r of rows) {
+    const k = String(r.worker_id);
+    if (!byWorker.has(k)) byWorker.set(k, []);
+    byWorker.get(k).push(r);
+  }
+
+  for (const [k, sessions] of byWorker) {
+    const cut = nowFor(k);
+    const at = Number.isFinite(cut) ? Math.min(cut, nowMs) : nowMs;
+    const acc = {
+      idle_seconds: 0,
+      worked_seconds: 0,
+      meeting_seconds: 0,
+      pause_seconds: 0,
+      internet_problem_seconds: 0,
+      sleep_hidden_seconds: 0,
+      off_shift_seconds: 0,
+      days_with_ledger: 0,
+    };
+    for (const day of days) {
+      const dayStartMs = new Date(`${day}T00:00:00.000+05:30`).getTime();
+      const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+      const daySessions = sessions.filter((s) => {
+        const sStart = new Date(s.started_at).getTime();
+        if (!Number.isFinite(sStart)) return false;
+        const sEnd = s.ended_at ? new Date(s.ended_at).getTime() : Infinity;
+        return sStart < dayEndMs && sEnd > dayStartMs;
+      });
+      if (daySessions.length === 0) continue;
+      const totals = sumIntervalsByState(clampIdleToFirstPresence(daySessions, dayStartMs), {
+        shift: shiftFor(k, day),
+        nowMs: at,
+        dayBounds: { startMs: dayStartMs, endMs: dayEndMs, day },
+      });
+      acc.idle_seconds += totals.idle_seconds;
+      acc.worked_seconds += totals.worked_seconds;
+      acc.meeting_seconds += totals.meeting_seconds;
+      acc.pause_seconds += totals.pause_seconds;
+      acc.internet_problem_seconds += totals.internet_problem_seconds;
+      acc.sleep_hidden_seconds += totals.sleep_hidden_seconds;
+      acc.off_shift_seconds += totals.off_shift_seconds;
+      acc.days_with_ledger += 1;
+    }
+    out.set(k, acc);
   }
   return out;
 }

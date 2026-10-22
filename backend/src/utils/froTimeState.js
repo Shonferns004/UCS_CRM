@@ -108,6 +108,35 @@ export function istDayBoundsMs(nowMs = Date.now()) {
   return { startMs, endMs: startMs + 24 * 60 * 60 * 1000, day };
 }
 
+/**
+ * The list of IST calendar days from `fromDay` to `toDay` inclusive.
+ *
+ * Used by the range reader (rangeTotalsForWorkers) to split a multi-day
+ * reporting window into the same single-day windows the "today" reader uses,
+ * so a range and a day are measured by identical rules.
+ *
+ * The list is capped: a reporting window longer than MAX_IST_DAYS is a
+ * mistake or an abuse, and scanning years of interval rows per worker is not
+ * something a dashboard poll should ever be asked to do.
+ */
+export const MAX_IST_DAYS = 92;
+
+export function istDaysBetween(fromDay, toDay) {
+  const start = String(fromDay || '').slice(0, 10);
+  const end = String(toDay || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return [];
+  const days = [];
+  let cursorMs = istMidnightMs(start);
+  const endMs = istMidnightMs(end);
+  // Walk forward from the start so a reversed range simply yields nothing
+  // rather than looping forever.
+  while (cursorMs <= endMs && days.length < MAX_IST_DAYS) {
+    days.push(istDateStr(new Date(cursorMs)));
+    cursorMs += 24 * 60 * 60 * 1000;
+  }
+  return days;
+}
+
 // ---------------------------------------------------------------------------
 // Interval math
 // ---------------------------------------------------------------------------
