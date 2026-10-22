@@ -7220,13 +7220,22 @@ export const getTLDashboard = async (req, res) => {
       connected_call_target: DEFAULT_DAILY_CONNECTED_TARGET,
     }));
 
-    // Working days in the selected reporting period. A single-day period counts
-    // as one working day even when that day is a Sunday, so a one-day report
-    // never silently loses its daily targets. A multi-day period follows the
-    // leaderboard's own rule (Sundays off, except the month's last Sunday).
-    const rangeWorkingDays = rangeFromDay === rangeToDay
+    // Working days in the selected reporting period. This follows the
+    // leaderboard's OWN rule exactly (services/froRankService.js), because the
+    // collection component of the score is measured against the leaderboard's
+    // period_target: if the two disagreed, the collection target and the lead
+    // target would be scaled to different windows and the score would be
+    // internally inconsistent.
+    //
+    // A single day that IS today counts as one working day. A mid-month
+    // Sunday counts as none (the leaderboard's rule: Sundays off, except the
+    // month's last Sunday), which makes the target components unavailable
+    // rather than silently measuring against a target nobody set.
+    const perfTodayDay = istDateStr(now);
+    const perfIsTodayOnly = rangeFromDay === perfTodayDay && rangeToDay === perfTodayDay;
+    const rangeWorkingDays = perfIsTodayOnly
       ? 1
-      : Math.max(1, workingDaysBetween(rangeFromDay, rangeToDay));
+      : Math.max(0, workingDaysBetween(rangeFromDay, rangeToDay));
 
     // The daily targets are scaled to the reporting period, so the score of a
     // week-long period is measured against a week of target, not one day of it.
@@ -7240,11 +7249,10 @@ export const getTLDashboard = async (req, res) => {
     // component agrees with the IDLE column on the same row. A past day cannot
     // reuse today's punch, so the configured shift (the worker's own hours, or
     // the org office hours) is projected onto it instead.
-    const perfTodayDay = istDateStr(now);
     // A single-day period that IS today is already answered by ledgerTotals
     // (same ledger, same shift, same cutoff), so it is reused instead of
     // querying the same rows a second time on every poll.
-    const perfRangeIsToday = rangeFromDay === rangeToDay && rangeFromDay === perfTodayDay;
+    const perfRangeIsToday = perfIsTodayOnly;
     let rangeLedgerTotals = new Map();
     try {
       rangeLedgerTotals = perfRangeIsToday
