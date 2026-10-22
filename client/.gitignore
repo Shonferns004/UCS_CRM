@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 .env.*.local
+backend/.env
+backend/.env_old
