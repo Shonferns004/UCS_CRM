@@ -1275,7 +1275,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     registerLocalDbAccessCleanup();
   });
   const { initRealtime } = await import('./socket.js');
-  initRealtime(server);
+  await initRealtime(server);
 }
 
 export default app;

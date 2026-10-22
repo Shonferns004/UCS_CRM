@@ -10,12 +10,20 @@ import * as socketioImpl from './realtime/socketio.legacy.js';
 // if it fails to load we fall back to the Socket.IO implementation instead.
 const transport = String(process.env.REALTIME_TRANSPORT || 'uws').toLowerCase();
 let uwsImpl = null;
-if (transport !== 'socketio') {
-  try {
-    uwsImpl = await import('./realtime/uws.js');
-  } catch (e) {
-    console.error('[socket] uWebSockets failed to load, falling back to Socket.IO:', e?.message);
-  }
+let uwsLoadPromise = null;
+
+async function loadUws() {
+  if (transport === 'socketio') return;
+  if (uwsImpl) return;
+  if (uwsLoadPromise) return uwsLoadPromise;
+  uwsLoadPromise = (async () => {
+    try {
+      uwsImpl = await import('./realtime/uws.js');
+    } catch (e) {
+      console.error('[socket] uWebSockets failed to load, falling back to Socket.IO:', e?.message);
+    }
+  })();
+  return uwsLoadPromise;
 }
 
 function impl() {
@@ -24,7 +32,10 @@ function impl() {
   return uwsImpl || socketioImpl;
 }
 
-export function initRealtime(server) { return impl().initRealtime(server); }
+export async function initRealtime(server) {
+  await loadUws();
+  return impl().initRealtime(server);
+}
 export function isWorkerOnline(workerId) { return impl().isWorkerOnline(workerId); }
 export function getOnlineWorkerIds() { return impl().getOnlineWorkerIds(); }
 export function emitDbChange(payload) { return impl().emitDbChange(payload); }

@@ -29,6 +29,7 @@ import { buildFroLeaderboard, workingDaysBetween } from '../services/froRankServ
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
+import { idleAlertFor, isIdleAlertLevel } from '../utils/idleAlert.js';
 import { dayTotalsForWorkers, rangeTotalsForWorkers } from '../services/froTimeSessions.js';
 import { scoreTelecaller, loadPerformanceTargets, DEFAULT_DAILY_LEAD_TARGET, DEFAULT_DAILY_CONNECTED_TARGET } from '../services/telecallerPerformance.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
@@ -8031,8 +8032,13 @@ export const updateFollowupDate = async (req, res) => {
 // phone too — the whole point is they are away from the desk.
 export const notifyFroHandler = async (req, res) => {
   try {
-    const { workerId, message } = req.body;
+    const { workerId, message, level } = req.body;
     if (!workerId) return res.status(400).json({ message: 'workerId is required' });
+    // The board sends the tier it displayed (yellow | orange | red); the server
+    // owns the wording. An unknown tier is a client bug, not a silent downgrade.
+    if (level != null && !isIdleAlertLevel(level)) {
+      return res.status(400).json({ message: 'Unknown idle alert level' });
+    }
     const { data: worker } = await db
       .from('workers')
       .select('id, name, ngo_id')
@@ -8047,14 +8053,21 @@ export const notifyFroHandler = async (req, res) => {
     }
 
     const name = worker.name || 'Telecaller';
-    const alertBody = (typeof message === 'string' && message.trim())
-      ? message.trim()
-      : `${name}, your disposition timer ran out. Please resume your work.`;
+    // `level` is the tier the admin saw on the board. Resolving the copy here
+    // keeps the FRO modal, the bell row and the FCM push identical, and leaves
+    // the original free-text `message` path working for older callers.
+    const idleAlert = idleAlertFor(level, name);
+    const alertTitle = idleAlert ? idleAlert.title : 'You are idle';
+    const alertBody = idleAlert
+      ? idleAlert.body
+      : (typeof message === 'string' && message.trim())
+        ? message.trim()
+        : `${name}, your disposition timer ran out. Please resume your work.`;
     try {
       const { notifyWorker } = await import('../services/fcmService.js');
       await notifyWorker(
         workerId,
-        'You are idle',
+        alertTitle,
         alertBody,
         'idle_alert',
         String(workerId)
@@ -8065,11 +8078,15 @@ export const notifyFroHandler = async (req, res) => {
     }
     emitRealtime('fro:action', {
       type: 'idle_alert',
-      title: 'You are idle',
+      level: idleAlert ? idleAlert.level : null,
+      title: alertTitle,
       body: alertBody,
       sent_at: new Date().toISOString(),
     }, `worker:${workerId}`);
-    return res.json({ message: `Idle alert sent to ${name}` });
+    return res.json({
+      message: `Idle alert sent to ${name}`,
+      level: idleAlert ? idleAlert.level : null,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

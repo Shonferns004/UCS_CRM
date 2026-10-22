@@ -7,7 +7,7 @@
  * Pure function, no DOM needed.  Run from the client/ directory:
  *   node src/utils/warnTone.test.mjs
  */
-import { warnToneFor, WARN_AFTER_SECONDS, WARN_ORANGE_AFTER_SECONDS, WARN_RED_AFTER_SECONDS } from './warnTone.js'
+import { warnToneFor, WARN_TONES, WARN_NEUTRAL, WARN_AFTER_SECONDS, WARN_ORANGE_AFTER_SECONDS, WARN_RED_AFTER_SECONDS } from './warnTone.js'
 
 const CASES = [
   // idle seconds, expected level (null = button hidden)
@@ -55,6 +55,24 @@ const yellowText = (yellow?.fg || '').toLowerCase()
 if (yellowText === '#ffffff' || yellowText === '#fff') {
   console.log('yellow text is white  <<< unreadable on yellow')
   failures++
+}
+
+// The FRO modal paints its badge from the same tier, so the soft/ink pair must
+// exist on all three and stay distinct — otherwise two warnings look alike.
+for (const level of ['yellow', 'orange', 'red']) {
+  const tone = WARN_TONES[level]
+  const ok = !!(tone?.soft && tone?.ink) && !!tone.soft.match(/^#[0-9a-f]{6}$/i) && !!tone.ink.match(/^#[0-9a-f]{6}$/i)
+  if (!ok) { failures++; console.log(`${level}: missing/invalid soft or ink  <<<`) }
+}
+const softs = new Set(['yellow', 'orange', 'red'].map((l) => WARN_TONES[l].soft))
+const inks = new Set(['yellow', 'orange', 'red'].map((l) => WARN_TONES[l].ink))
+if (softs.size !== 3 || inks.size !== 3) {
+  failures++
+  console.log('modal palettes are not distinct  <<<')
+}
+if (!WARN_NEUTRAL?.soft || !WARN_NEUTRAL?.ink || WARN_NEUTRAL.label !== 'idle alert') {
+  failures++
+  console.log('neutral fallback tone is incomplete  <<<')
 }
 
 console.log(failures === 0 ? '\nALL WARN TONES CORRECT' : `\n${failures} case(s) wrong`)

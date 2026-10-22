@@ -3083,7 +3083,11 @@ idle: {
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     try {
-                                      const r = await apiPost('/ngo-admin/notify-fro', { workerId: p.fro_id, message: 'Your idle time is increasing. Kindly get back to work.' });
+                                      // Send the tier, not the text: the server
+                                      // resolves the canonical wording for this
+                                      // level so the FRO's modal, bell and push
+                                      // all read the same message.
+                                      const r = await apiPost('/ngo-admin/notify-fro', { workerId: p.fro_id, level: warnTone.level });
                                       toast(r?.message || `Warning sent to ${p.fro_name}`, 'success');
                                     } catch (err) {
                                       toast(err.message || 'Could not send warning', 'error');
