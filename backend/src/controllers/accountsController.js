@@ -5,6 +5,7 @@ import { confirmMatchCredit } from '../services/creditService.js';
 import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, voidReceipt, deleteReceiptSafely, bulkDeleteReceipts, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
+import { settleBankAuditEntry } from '../services/bankAuditSettleService.js';
 import { formatModeLabel } from '../services/modeLabels.js';
 import { normalizeAgentName, resolveAgentToWorker } from '../utils/workerNameMatch.js';
 import { receiptsForDonor } from '../services/receiptLookup.js';
@@ -506,41 +507,22 @@ if (!agentStamp) {
       } catch (err) { console.error('Failed to mark bank audit entry verified:', err.message); }
     }
 
-    // Settle the bank audit entry for this money (linked to the receipt, or
-    // matching the lead's UPI transaction id) so it leaves the audit fully
+    // Settle the bank audit entry for this money so it leaves the audit fully
     // credited (status verified, linked to the lead + receipt) instead of a
-    // bare "verified" row.
-    try {
-      let bankEntry = null;
-      try {
-        const { data } = await db.from('bank_audit_entries').select('*').eq('receipt_id', receipt.id).maybeSingle();
-        bankEntry = data || null;
-      } catch (err) { console.error('Failed to find entry by receipt:', err.message); }
-      if (!bankEntry && upi_transaction_id) {
-        try { bankEntry = await getEntryByPaymentId(upi_transaction_id); }
-        catch (err) { console.error('Failed to find entry by payment id:', err.message); }
-      }
-      if (bankEntry && bankEntry.status !== 'verified') {
-        const settlePatch = {
-          status: 'verified',
-          donor_id: donorId,
-          matched_lead_log_id: logId,
-          match_status: 'confirmed',
-          matched_by: req.user.id,
-          matched_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          receipt_id: receipt.id,
-          receipt_no: receipt.receipt_no || null,
-        };
-        if (!bankEntry.match_no) {
-          try {
-            const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
-            settlePatch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
-          } catch (err) { console.error('Match no allocation failed:', err.message); }
-        }
-        await db.from('bank_audit_entries').update(settlePatch).eq('id', bankEntry.id);
-      }
-    } catch (err) { console.error('Failed to settle bank audit entry on verify:', err.message); }
+    // bare "verified" row. The shared helper also finds entries that have no
+    // receipt_id (scraped entries) - see bankAuditSettleService.js.
+    await settleBankAuditEntry({
+      logId,
+      receipt,
+      receiptId: receipt?.id,
+      receiptNo: receipt?.receipt_no,
+      donorId,
+      upiTransactionId: upi_transaction_id,
+      amount: Number(log.amount_collected || receipt?.amount || 0),
+      transactionDate: log.transaction_datetime || entry?.transaction_date || null,
+      payerName: log.payment_from || receipt?.donor_name || entry?.payer_name || null,
+      userId: req.user.id,
+    });
 
     // Everything the receipt depends on has succeeded — only now mark the lead
     // verified (this is what removes it from Lead Verification) and credit the
@@ -679,14 +661,21 @@ export const doneLead = async (req, res) => {
         updated_at: now,
       }).eq('id', donorId);
 
-      // Mark any linked bank_audit_entries as verified.
-      try {
-        await from('bank_audit_entries').update({
-          status: 'verified',
-          matched_at: now,
-          updated_at: now,
-        }).eq('receipt_id', existing.id);
-      } catch (err) { console.error('Failed to mark bank audit entry verified:', err.message); }
+      // Mark any linked bank_audit_entries as verified. The shared helper also
+      // finds entries that have no receipt_id (scraped entries) - the old
+      // receipt_id-only update left those behind in the Audits tab forever.
+      await settleBankAuditEntry({
+        logId,
+        receipt: existing,
+        receiptId: existing?.id,
+        receiptNo: existing?.receipt_no,
+        donorId,
+        upiTransactionId: log.upi_transaction_id || null,
+        amount,
+        transactionDate: log.transaction_datetime || null,
+        payerName: log.payment_from || donorProfile.name || null,
+        userId: req.user.id,
+      });
 
       return { receipt_no: existing.receipt_no };
     });
@@ -804,6 +793,23 @@ export const quickVerifyLead = async (req, res) => {
         }).eq('id', donorId);
       } catch (err) { console.error('Failed to update donor totals:', err.message); }
     }
+
+    // Settle the bank audit entry for this money. Quick Verify used to skip
+    // bank_audit_entries entirely, so a scraped entry for this lead stayed
+    // 'unverified' and kept showing up in the Audits tab after the money was
+    // already collected.
+    await settleBankAuditEntry({
+      logId,
+      receipt,
+      receiptId: receipt?.id,
+      receiptNo: receipt?.receipt_no,
+      donorId: donorId || null,
+      upiTransactionId: log.upi_transaction_id || null,
+      amount: Number(log.amount_collected || 0),
+      transactionDate: log.transaction_datetime || null,
+      payerName: log.payment_from || finalDonorName || null,
+      userId: req.user.id,
+    });
 
     return res.json({ message: 'Lead verified under Priyank Shah', receipt });
   } catch (error) {

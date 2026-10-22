@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
 import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X, MoreHorizontal, Eye, PencilLine, History, UserMinus, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { useUcs } from '../../../store'
 import { useIsMobile } from '../../../hooks/useIsMobile'
+import { useRealtime } from '../../../hooks/useRealtime'
 
 // Soft accent palette cycled per NGO so each assignment card is instantly
 // recognizable even when a donor spans several NGOs.
@@ -133,6 +134,13 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
   }, [])
 
   useEffect(() => { loadDetail(donorId) }, [donorId, loadDetail])
+
+  // Live: a donor's totals, assignment or receipt count change the moment a
+  // lead is verified elsewhere. Without this the drawer kept showing the
+  // pre-verification numbers until a manual reload.
+  useRealtime('fro_donor_logs', { event: '*', onUpdate: () => { if (donorId) loadDetail(donorId) } })
+  useRealtime('donor_profiles', { event: '*', onUpdate: () => { if (donorId) loadDetail(donorId) } })
+  useRealtime('receipts', { event: '*', onInsert: () => { if (donorId) loadDetail(donorId) } })
 
   useEffect(() => {
     if (!canManage) return

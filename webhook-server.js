@@ -1,6 +1,9 @@
-// UCS CRM - GitHub Webhook Receiver (auto-pull on team push)
+// UCS CRM - Auto-pull server
 // Run: node webhook-server.js
-// Listens on port 9000 and pulls the latest code when a teammate merges a PR.
+// Listens on port 9000. Two ways it picks up new code from GitHub:
+//   1. POLLING (default, no public URL needed) - checks the remote master
+//      commit every 30s with `git ls-remote` and pulls when it changes.
+//   2. WEBHOOK (optional) - POST /webhook from GitHub, if you have a tunnel.
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -34,6 +37,58 @@ function verify(body, sig) {
   let diff = 0;
   for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
+}
+
+// ── Polling: watch the remote branch for new commits ──
+const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '30', 10) * 1000;
+let lastRemoteSha = null;
+let lastLocalSha = null;
+let polling = false;
+
+function localSha() {
+  try { return execSync('git rev-parse HEAD', { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 15000 }).trim(); }
+  catch { return null; }
+}
+
+function remoteSha() {
+  try {
+    const out = execSync('git ls-remote origin master', { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 20000 });
+    const line = out.split(/\r?\n/).find(l => l.includes('refs/heads/master'));
+    return line ? line.split(/\s+/)[0] : null;
+  } catch { return null; }
+}
+
+function pollOnce() {
+  if (polling) return;
+  polling = true;
+  try {
+    const remote = remoteSha();
+    const local = localSha();
+    if (!remote) { log('poll: could not reach origin (offline?)'); return; }
+    if (lastRemoteSha === null) {
+      lastRemoteSha = remote;
+      lastLocalSha = local;
+      log('auto-pull ready — watching origin/master (currently ' + String(remote).slice(0, 7) + ')');
+      return;
+    }
+    if (remote !== lastRemoteSha) {
+      log('auto-pull: new commit on origin/master (' + String(remote).slice(0, 7) + ') — pulling');
+      lastRemoteSha = remote;
+      const result = pullLatest();
+      if (result.ok) {
+        lastLocalSha = localSha();
+        log('auto-pull: updated to ' + String(lastLocalSha).slice(0, 7) + ' — restarting backend + frontend');
+        restartServices();
+      }
+    } else if (local !== lastLocalSha) {
+      lastLocalSha = local;
+      log('auto-pull: local moved to ' + String(local).slice(0, 7));
+    }
+  } catch (e) {
+    log('poll error: ' + (e.message || e));
+  } finally {
+    polling = false;
+  }
 }
 
 function pullLatest() {
@@ -76,7 +131,19 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', port: PORT }));
+    res.end(JSON.stringify({ status: 'ok', port: PORT, polling: true, intervalMs: POLL_INTERVAL }));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/poll-status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      polling: true,
+      intervalMs: POLL_INTERVAL,
+      lastRemoteSha,
+      lastLocalSha,
+      inSync: lastRemoteSha === lastLocalSha,
+    }));
     return;
   }
 
@@ -123,7 +190,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  log('webhook server listening on :' + PORT + (SECRET ? ' (signature verification ON)' : ' (no secret - set scripts secret)'));
-  log('cloudflared tunnel command: cloudflared tunnel --url http://localhost:9000');
+  log('auto-pull server listening on :' + PORT);
+  log('polling origin/master every ' + (POLL_INTERVAL / 1000) + 's - no public URL needed');
+  log('optional webhook: POST /webhook (if you run a tunnel for it)');
+  pollOnce();
+  setInterval(pollOnce, POLL_INTERVAL);
 });
 

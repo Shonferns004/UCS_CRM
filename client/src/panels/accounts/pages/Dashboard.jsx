@@ -135,10 +135,31 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   }, [load]);
   useEffect(() => () => { if (rtTimerRef.current) clearTimeout(rtTimerRef.current); if (clickRef.current) clearTimeout(clickRef.current); }, []);
 
+  // Live refresh of the leads list.
+  // Two subscriptions on purpose:
+  //  - 'disposition' rows (the bulk of the list) refresh on every change.
+  //  - An unfiltered subscription also catches the OTHER rows (action='donation'),
+  //    whose accounts_status flips to 'verified' when Accounts verifies them.
+  //    With only the filtered one, verifying a 'donation' lead left it on
+  //    screen until a manual reload.
+  // Bank audit entries are watched too: verifying a lead settles its audit
+  // entry, and the Audits tab must drop that row straight away.
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
     onInsert: rtLoad,
     onUpdate: rtLoad,
+  });
+  useRealtime('fro_donor_logs', {
+    event: '*',
+    onInsert: rtLoad,
+    onUpdate: rtLoad,
+    onDelete: rtLoad,
+  });
+  useRealtime('bank_audit_entries', {
+    event: '*',
+    onInsert: rtLoad,
+    onUpdate: rtLoad,
+    onDelete: rtLoad,
   });
 
   const stats = useMemo(() => {

@@ -12,6 +12,7 @@ import { generateReceiptPDF, formatReceiptDate } from '../services/pdfGenerator'
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
+import { useRealtime } from '../../../hooks/useRealtime';
 import WhatsAppDeliveryBadge from '../components/WhatsAppDeliveryBadge';
 import { API_BASE as apiBase } from '../../../lib/apiBase';
 
@@ -221,6 +222,11 @@ export default function ReceiptHistory() {
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
   }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, pgMode, libraryMode, minAmount, maxAmount]);
+
+  // Live: a receipt raised or its status changed must appear in the list
+  // straight away, not on the next page load.
+  useRealtime('receipts', { event: '*', onInsert: () => load(), onUpdate: () => load() });
+  useRealtime('bank_audit_entries', { event: '*', onInsert: () => load(), onUpdate: () => load() });
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);

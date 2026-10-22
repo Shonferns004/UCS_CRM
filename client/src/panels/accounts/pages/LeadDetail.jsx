@@ -5,6 +5,7 @@ import { ModernTimeInput } from '../components/ModernTimeInput';
 import { apiGet, apiPost } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { generateReceiptPDF } from '../services/pdfGenerator';
+import { useRealtime } from '../../../hooks/useRealtime';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
@@ -172,6 +173,13 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
     try { const r = await apiGet(`/accounts/leads/${lead.log_id}/receipt`); setReceipt(r||null); }
     catch { setReceipt(null); }
   };
+
+  // Live updates: a lead verified (or a receipt raised) anywhere - in the
+  // FRO app, in Quick Verify, in another tab - must show up here without a
+  // manual reload, otherwise the detail pane shows stale state.
+  useRealtime('fro_donor_logs', { event: '*', onUpdate: () => load() });
+  useRealtime('bank_audit_entries', { event: '*', onUpdate: () => { load(); loadReceipt(); } });
+  useRealtime('receipts', { event: '*', onInsert: () => loadReceipt(), onUpdate: () => loadReceipt() });
 
   const loadHistory = async () => {
     if (!l?.donor_id) return;
