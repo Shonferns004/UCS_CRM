@@ -1578,6 +1578,80 @@ export const generateAllEventsReport = async (req, res) => {
 };
 
 // ─── NGO MONTHLY REPORT ───
+// The five deliverables a planner cell holds. The Monthly Planner paints a
+// cell green only when ALL of them are finished and the head accepted the
+// member's report for that day; the report reads the same rule so the two
+// screens never disagree about the same month.
+const PLANNER_CONTENT_TYPES = [
+  'Banner', 'YouTube Video', 'Instagram Reels', 'Instagram Photos', 'Captions & Heading',
+];
+
+/* Which planner cells (day + festival) the team has finished, read straight
+   from the two tables the planner itself reads:
+     - `task_assignments` — one row per deliverable, with the day the work was
+       really done (`completed_date`);
+     - `daily_reports`   — the member's report, `review_status = accepted` when
+       the Social head signed it off.
+
+   A deliverable counts as done when the member finished it AND the head
+   accepted that member's report for the planned day or for the completion
+   day. A cell is finished when all five deliverables are done.
+
+   Returns a map "YYYY-MM-DD::festival" → { done, total, allDone }. A database
+   that was never migrated for these columns simply has no finished cell — the
+   report then falls back to the event's own status. */
+const loadPlannerDoneCells = async (month, year) => {
+  const cells = new Map();
+  try {
+    const taskCols = await getTableColumns('task_assignments');
+    const reportCols = await getTableColumns('daily_reports');
+    if (!taskCols.includes('completed_date') || !reportCols.includes('review_status')) return cells;
+    const mm = String(Number(month)).padStart(2, '0');
+    const monthKey = `${year}-${mm}`;
+    const start = `${monthKey}-01`;
+    const end = monthEndExclusive(monthKey);
+    const [tasksRes, reportsRes] = await Promise.all([
+      db.from('task_assignments')
+        .select('task_date, title, content_type, assignee_id, completed_date')
+        .eq('panel', 'social')
+        .gte('task_date', start).lt('task_date', end),
+      db.from('daily_reports')
+        .select('reporter_id, report_date')
+        .eq('panel', 'social')
+        .eq('review_status', 'accepted')
+        .gte('report_date', start).lt('report_date', end),
+    ]);
+    if (tasksRes?.error) throw tasksRes.error;
+    const accepted = new Set((reportsRes?.data || [])
+      .map(r => `${r.reporter_id}::${String(r.report_date || '').slice(0, 10)}`));
+    const groups = new Map();
+    for (const t of (tasksRes?.data || [])) {
+      const day = String(t.task_date || '').slice(0, 10);
+      const key = `${day}::${String(t.title || '').trim()}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t);
+    }
+    for (const [key, rows] of groups) {
+      const day = key.split('::')[0];
+      let done = 0;
+      for (const r of rows) {
+        const doneDay = String(r.completed_date || '').slice(0, 10);
+        if (!doneDay) continue;
+        const who = String(r.assignee_id || '');
+        if (accepted.has(`${who}::${day}`) || accepted.has(`${who}::${doneDay}`)) done += 1;
+      }
+      cells.set(key, {
+        done,
+        total: rows.length,
+        allDone: rows.length === PLANNER_CONTENT_TYPES.length && done === PLANNER_CONTENT_TYPES.length,
+      });
+    }
+  } catch (error) {
+    console.error('[monthly-report] planner done cells failed:', error.message);
+  }
+  return cells;
+};
+
 // Groups events by NGO for a selected month/year and returns a per-NGO KPI
 // summary (event counts, submitted/completed, beneficiaries, budget). Supports
 // an optional ngo_id filter so the UI can show "All NGOs" or a single NGO.
@@ -1616,6 +1690,17 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const k = `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.date || '').slice(0, 10)}|${String(e.name || '').trim().toLowerCase()}`;
       if (!eventByNameDate.has(k)) eventByNameDate.set(k, e);
     }
+    // The month's events per NGO + day, and the events a row has already
+    // claimed. A row that no link points at can still find the event that was
+    // made for it on that day (a typed programme is never saved as a row, and
+    // an older event can lose its link), and two rows never share one event.
+    const eventsByNgoDate = new Map();
+    for (const e of events) {
+      const k = `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.date || '').slice(0, 10)}`;
+      if (!eventsByNgoDate.has(k)) eventsByNgoDate.set(k, []);
+      eventsByNgoDate.get(k).push(e);
+    }
+    const claimedEventIds = new Set();
     const eventBannerMap = {};
     try {
       const bannerRows = await EventHead.getBannerMediaByEvents(events.map(e => e.id).filter(Boolean));
@@ -1642,18 +1727,37 @@ export const generateNgoMonthlyReport = async (req, res) => {
     // The event a planner row was turned into. Resolved in the same order the
     // photo is: the suggestion's own link, then the durable planner link
     // (date + festival + NGO), then a name+date+NGO match for events that
-    // predate the link feature. Every step is scoped to the row's own NGO, so
-    // a row is never credited with another NGO's event.
-    const linkedEventFor = (ngoId, date, festival, suggestedId) => {
+    // predate the link feature, and finally the one event the NGO has on that
+    // day that no other row has claimed — a programme typed into the planner
+    // is never saved as a row, so it has no link of its own. Every step is
+    // scoped to the row's own NGO, so a row is never credited with another
+    // NGO's event, and an event is only ever credited to one row.
+    const linkedEventFor = (ngoId, date, festival, suggestedId, programme) => {
       const f = String(festival || '').trim();
       const ngoKey = ngoId != null && ngoId !== '' ? String(ngoId) : '';
       const evId = suggestedId != null ? suggestedId : linkMap.get(`${ngoKey}|${date}|${f}`);
       let linked = evId != null ? eventById.get(String(evId)) : null;
-      if (!linked) linked = eventByNameDate.get(`${ngoId != null ? String(ngoId) : ''}|${date}|${f.toLowerCase()}`);
+      if (!linked) linked = eventByNameDate.get(`${ngoKey}|${date}|${f.toLowerCase()}`);
+      if (!linked) {
+        const sameDay = (eventsByNgoDate.get(`${ngoKey}|${date}`) || [])
+          .filter(e => !claimedEventIds.has(String(e.id)));
+        if (sameDay.length === 1) {
+          linked = sameDay[0];
+        } else if (sameDay.length > 1) {
+          // More than one event that day: the one whose name speaks of the
+          // festival or of the planned programme wins, else the newest.
+          const prog = String(programme || '').trim().toLowerCase();
+          const fl = f.toLowerCase();
+          linked = sameDay.find(e => {
+            const n = String(e.name || '').trim().toLowerCase();
+            return (fl && n.includes(fl)) || (prog && n.includes(prog));
+          }) || sameDay.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+        }
+      }
+      if (linked) claimedEventIds.add(String(linked.id));
       return linked || null;
     };
-    const imageFor = (ngoId, date, festival, suggestedId) => {
-      const linked = linkedEventFor(ngoId, date, festival, suggestedId);
+    const imageForEvent = (linked) => {
       if (!linked) return { url: null };
       // The caller needs to know WHICH event photo this is, because the event
       // head's bucket is private: the browser must read it back through the
@@ -1662,6 +1766,38 @@ export const generateNgoMonthlyReport = async (req, res) => {
       if (banner) return { url: banner, event_id: linked.id, kind: 'banner', index: 0 };
       const photo = eventDefaultImage(linked);
       return photo ? { url: photo, event_id: linked.id, kind: 'photo', index: 0 } : { url: null };
+    };
+
+    /* The report shows what was actually COMPLETED — nothing else.
+       An event that is still a Draft (created but never sent), Submitted
+       (waiting for the head's approval), Rejected, Postponed or Cancelled was
+       not finished, so it does not belong on the report card. "Approved" and
+       "Completed" are the two states that mean the programme was carried out
+       and accepted. */
+    const COMPLETE_STATUS = ['completed', 'approved'];
+    const isComplete = (e) => COMPLETE_STATUS.includes(String(e?.status || '').trim().toLowerCase());
+
+    /* …but a programme can also be finished without its event being approved
+       yet, and the Monthly Planner is where the team sees that: a cell turns
+       green once all FIVE deliverables carry a completion day and the Social
+       head accepted the member's daily report for that day. The planner also
+       turns such a programme into a real event (that is the "Create Event"
+       button it offers). So the report must not stop at the event's status —
+       a programme the planner counts as done belongs on the report, otherwise
+       the two screens disagree about the same month (the planner shows the
+       work finished, the report shows nothing at all).
+
+       Both signals are read from the same tables the planner reads:
+       `task_assignments` (the five deliverables) and `daily_reports` (the
+       head's acceptance). The cell key is "day::festival" — the same key the
+       planner's own grid uses. */
+    // A programme the planner counts as finished is COMPLETED for the report,
+    // even while its event record is still a Draft waiting for the head's
+    // approval — the work is what the report is about.
+    const plannerCells = await loadPlannerDoneCells(month, year);
+    const plannerDoneCell = (date, festival) => {
+      const c = plannerCells.get(`${String(date || '').slice(0, 10)}::${String(festival || '').trim()}`);
+      return Boolean(c && c.allDone);
     };
 
     const byNgo = new Map();
@@ -1703,12 +1839,29 @@ export const generateNgoMonthlyReport = async (req, res) => {
       seedNgoCard(f.ngo_id, ctx.ngoMap[f.ngo_id], code);
       const row = byNgo.get(id);
       const d = f.observance_date ? String(f.observance_date).slice(0, 10) : null;
-      const img = imageFor(f.ngo_id, d, f.festival, f.suggested_event_id);
+      // The event this row was turned into, resolved ONCE so the card's title
+      // and its photo can never come from two different events.
+      const linked = linkedEventFor(f.ngo_id, d, f.festival, f.suggested_event_id, f.title || f.activity_name);
+      // A planned row reaches the report only when the programme was actually
+      // FINISHED, and nothing about it is still waiting:
+      //   - the event it became is approved / completed (the head signed the
+      //     event off), OR
+      //   - the planner has this cell finished: all five deliverables carry a
+      //     completion day and the head accepted the member's daily report for
+      //     it — the planner's own green "Done" — and there is no event record
+      //     waiting for approval.
+      // A row whose event is still Draft / Submitted is work waiting for the
+      // head's approval, not a finished programme, so it stays off the report
+      // until it is approved. A row that is only a plan does not belong here
+      // either.
+      const cellDone = plannerDoneCell(d, f.festival);
+      if (linked && !isComplete(linked)) continue;
+      if (!isComplete(linked) && !cellDone) continue;
+      const img = imageForEvent(linked);
       // The name the event was SAVED under — the Social head can rename it in
       // the Create / Edit form, and that is the name the report must carry.
       // A row whose event has no name (or no event at all) keeps the festival
       // it was planned for, so the report never shows an empty slot.
-      const linked = linkedEventFor(f.ngo_id, d, f.festival, f.suggested_event_id);
       const eventName = String(linked?.name || '').trim();
       row.events_count += 1;
       row.events.push({
@@ -1724,7 +1877,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
         sector_name: f.sector_name || null,
         activity_name: f.activity_name || null,
         venue: f.location || null,
-        status: null,
+        // The status of the event this programme became, so the card can say
+        // whether the programme was only planned or actually carried out. A
+        // programme the planner counts as finished is COMPLETED for the report
+        // even while its event record is still a Draft waiting for the head's
+        // approval — the work is what the report is about.
+        status: isComplete(linked) ? (linked?.status || null) : 'completed',
         budget: null,
         beneficiaries: 0,
         image: img.url || null,
@@ -1739,9 +1897,146 @@ export const generateNgoMonthlyReport = async (req, res) => {
       .map(n => ({ ...n, budget: Math.round(n.budget) }))
       .sort((a, b) => a.ngo_name.localeCompare(b.ngo_name));
 
+    // The ideas the head TICKED in "Suggest Programmes" are the same decision
+    // the festival grid rows are — "this programme is planned for this month" —
+    // but they live in their own table, so the report never saw them and a
+    // ticked idea was invisible here. An idea reaches the report only when the
+    // programme it became was actually completed; an idea that is still a plan
+    // (or that has no event at all) stays out, exactly like a pending festival
+    // row does.
+    const planRows = await EventHead.getPlannerSuggestions({ ngo_id, month, year, selected_only: true }).catch(() => []);
+    const planAll = await EventHead.getPlannerSuggestions({ ngo_id, month, year }).catch(() => []);
+    const titleKey = (t) => String(t || '').trim().toLowerCase();
+    for (const p of planRows) {
+      const id = p.ngo_id != null ? String(p.ngo_id) : 'unknown';
+      const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[p.ngo_id] || '') : '';
+      seedNgoCard(p.ngo_id, ctx.ngoMap[p.ngo_id], code);
+      const row = byNgo.get(id);
+      const title = String(p.title || '').trim();
+      // The event this idea became. It is listed when the programme was
+      // finished: the event is approved / completed.
+      const linked = p.event_id != null ? eventById.get(String(p.event_id)) : null;
+      if (!isComplete(linked)) continue;
+      if ((row.events || []).some((e) => titleKey(e.programme) === titleKey(title))) continue;
+      const d = (p.event_date ? String(p.event_date).slice(0, 10) : null)
+        || (linked?.date ? String(linked.date).slice(0, 10) : null);
+      const img = imageForEvent(linked);
+      row.events_count += 1;
+      row.events.push({
+        id: `plan-${p.id}`,
+        name: String(linked?.name || '').trim() || title || null,
+        festival: String(linked?.name || '').trim() || title || null,
+        event_name: String(linked?.name || '').trim() || title || null,
+        festival_name: null,
+        programme: title || null,
+        beneficiary: p.beneficiary_group || null,
+        date: d,
+        day: d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
+        sector_name: null,
+        activity_name: ctx.activityMap ? (ctx.activityMap[p.activity_id] || null) : null,
+        venue: linked?.venue || null,
+        status: isComplete(linked) ? (linked?.status || null) : 'completed',
+        budget: null,
+        beneficiaries: 0,
+        image: img.url || null,
+        image_event_id: img.event_id || null,
+        image_kind: img.kind || null,
+        image_index: img.index || 0,
+        banner: null,
+        source: 'suggestion',
+      });
+    }
+
+    // A completed programme is listed even when no planned row covers it: a
+    // programme typed into the planner is never saved as a row, and an event
+    // whose link was overwritten has no row of its own either. Without this the
+    // event — and the name it was saved under — would simply be missing from
+    // the month.
+    //
+    // Listed when the programme was finished: the event is approved /
+    // completed. A plain DRAFT event nobody finished anything on, a Submitted
+    // one still waiting for the head's approval, and Postponed / Cancelled /
+    // Rejected never happened — none of them belongs on a report of what was
+    // done. So the report is a record of what was COMPLETED, not a plan of
+    // what is to be done.
+    // One programme of one NGO on one day. The name is part of the key because
+    // an NGO can run two festivals on the same day and they are two programmes.
+    const programmeKey = (e) => {
+      const ngo = e.ngo_id != null ? String(e.ngo_id) : '';
+      const d = e.date ? String(e.date).slice(0, 10) : '';
+      const n = String(e.name || '').trim().toLowerCase();
+      return n ? `${ngo}|${d}|${n}` : '';
+    };
+    // The same programme saved twice (same NGO, date and name) is one
+    // programme — the second row is a duplicate, not a second programme.
+    const listedProgrammes = new Set();
+    for (const n of ngos) {
+      const ngoKey = String(n.ngo_id ?? '');
+      const extras = events
+        .filter(e => String(e.ngo_id ?? '') === ngoKey
+          && !claimedEventIds.has(String(e.id)))
+        .filter(e => isComplete(e))
+        .filter(e => {
+          const k = programmeKey(e);
+          if (!k) return true;
+          if (listedProgrammes.has(k)) return false;
+          listedProgrammes.add(k);
+          return true;
+        })
+        .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      if (!extras.length) continue;
+      const extraCards = extras.map(e => {
+        const d = e.date ? String(e.date).slice(0, 10) : null;
+        const img = imageForEvent(e);
+        return {
+          id: `event-${e.id}`,
+          name: String(e.name || '').trim() || null,
+          festival: String(e.name || '').trim() || null,
+          event_name: String(e.name || '').trim() || null,
+          festival_name: null,
+          programme: null,
+          beneficiary: null,
+          date: d,
+          day: d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
+          sector_name: null,
+          activity_name: e.activity_name || null,
+          venue: e.venue || null,
+          status: isComplete(e) ? (e.status || null) : 'completed',
+          budget: null,
+          beneficiaries: 0,
+          image: img.url || null,
+          image_event_id: img.event_id || null,
+          image_kind: img.kind || null,
+          image_index: img.index || 0,
+          banner: null,
+        };
+      });
+      // Keep the card in date order: the planned rows are already sorted by
+      // their observance date, so the extra cards slot into that sequence.
+      const planned = n.events.slice();
+      const merged = [];
+      let i = 0;
+      for (const card of extraCards) {
+        while (i < planned.length && String(planned[i].date || '') <= String(card.date || '')) {
+          merged.push(planned[i]);
+          i += 1;
+        }
+        merged.push(card);
+      }
+      while (i < planned.length) { merged.push(planned[i]); i += 1; }
+      n.events = merged;
+      n.events_count = n.events.length;
+    }
+
     const totalEvents = ngos.reduce((s, n) => s + n.events_count, 0);
     const totalBudget = ngos.reduce((s, n) => s + n.budget, 0);
     const totalBeneficiaries = ngos.reduce((s, n) => s + n.beneficiaries, 0);
+    // How many ideas the month holds and how many of them the head selected.
+    // The difference is the reason a month can come up empty while the planner
+    // is full of ideas, so the report says it out loud instead of showing a
+    // blank card.
+    const suggestions = planAll.length;
+    const selectedSuggestions = planRows.length;
 
     // The order the Social head arranged the programme cards in (drag and
     // drop). It is a presentation choice, but it is stored in the database so
@@ -1781,7 +2076,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       year: Number(year),
       ngo_id: ngo_id || null,
       ngos,
-      summary: { totalEvents, totalBudget, totalBeneficiaries },
+      summary: { totalEvents, totalBudget, totalBeneficiaries, suggestions, selectedSuggestions },
       generated_at: new Date(),
     });
   } catch (error) {
