@@ -282,7 +282,7 @@ const SEARCH_DEBOUNCE_MS = 600;
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_MIN_DIGITS = 3;
 
-export default function MyDonors({ embedded = false, portalEl = null }) {
+export default function MyDonors({ embedded = false, portalEl = null, onDetailStateChange }) {
   const isMobile = useIsMobile()
   const isCompact = useIsMobile(480)
   const navigate = useNavigate()
@@ -659,6 +659,15 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       }
     }
   }, [activeDonor]);
+
+  // Tell the host (e.g. MyLeadsSuspense) when a donor detail is open, so the
+  // performance strip can be hidden on the detail view and shown only on the
+  // My Leads list itself.
+  useEffect(() => {
+    if (typeof onDetailStateChange === 'function') {
+      onDetailStateChange(!!activeDonor || !!externalDonor);
+    }
+  }, [activeDonor, externalDonor, onDetailStateChange]);
 
   useEffect(() => {
     getMyStations().then(s => {
