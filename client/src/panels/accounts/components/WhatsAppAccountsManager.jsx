@@ -187,30 +187,22 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     if (!agents[account.id]) loadAgents(account.id);
   };
 
-  // Assign runs as a sequential batch: one POST per worker, as the API
-  // accepts a single froWorkerId per call.
+  // Assign runs as a single request: the API takes the whole list of worker
+  // ids and inserts them in one statement. The previous one-POST-per-agent
+  // loop cost a round trip per agent, so assigning a handful of FROs sat on a
+  // spinner for as many network hops as there were agents.
   const assignAgents = async (accountId, workerIds) => {
     if (!workerIds.length) return false;
     setAssigning(true);
-    let done = 0;
     try {
-      for (const id of workerIds) {
-        await apiPost(`/whatsapp/accounts/${accountId}/agents`, { froWorkerId: id });
-        done += 1;
-      }
+      const res = await apiPost(`/whatsapp/accounts/${accountId}/agents`, { froWorkerIds: workerIds });
       await loadAgents(accountId);
+      const done = typeof res?.assigned === 'number' ? res.assigned : workerIds.length;
       toast(done === 1 ? '1 agent assigned' : `${done} agents assigned`, 'success');
       return true;
     } catch (err) {
-      if (done > 0) {
-        await loadAgents(accountId);
-        toast(
-          `Assigned ${done} of ${workerIds.length} agents. ${err.message || 'The rest failed.'}`,
-          'error'
-        );
-      } else {
-        toast(err.message || 'Could not assign agent', 'error');
-      }
+      await loadAgents(accountId);
+      toast(err.message || 'Could not assign agent', 'error');
       return false;
     } finally {
       setAssigning(false);

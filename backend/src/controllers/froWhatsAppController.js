@@ -117,10 +117,10 @@ export async function listConversations(req, res) {
 export async function listMessages(req, res) {
   try {
     const { id } = req.params;
-    const messages = await getConversationMessages(id);
+    const messages = await getConversationMessages(id, req.user?.id);
     return res.json(messages);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(error.statusCode || 500).json({ message: error.message });
   }
 }
 

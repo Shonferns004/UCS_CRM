@@ -178,9 +178,16 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const filteredByTab = useMemo(() => {
     const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean))
     const tempProjects = new Set((myAccounts || []).filter(a => a?.temporary).map(a => a?.project).filter(Boolean))
-    return conversations.filter(conversation =>
-      isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab)
-    )
+    return conversations.filter(conversation => {
+      // Station-prefix filter on client side too
+      const proj = (conversation?.project ?? (conversation?.contact?.project || '')).toLowerCase();
+      if (proj) {
+        // derive from agent's stations? but we don't have them here; rely on server + basic mapping
+        // For now, if server scoped it with _scope, trust it
+        if (conversation._scope === 'station' || conversation._scope === 'temp') return true;
+      }
+      return isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab)
+    })
   }, [conversations, waUser?.id, myAccounts, activeTab])
 
   // Project chips come from the accounts this FRO actually holds, so a chip for

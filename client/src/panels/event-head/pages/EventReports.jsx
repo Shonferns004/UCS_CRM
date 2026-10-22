@@ -117,7 +117,43 @@ const ALL_STATUS = ['Submitted', 'Submitted&', 'Pending Approval', 'Approval Pen
 const isSubmitted = (s) => { const v = String(s || '').trim().toLowerCase(); return v === 'submitted' || v === 'submitted&' || v === 'pending approval' || v === 'approval pending' }
 
 const STATUS_LABEL = { Completed: '✓ COMPLETED', Submitted: 'SUBMITTED', Approved: 'APPROVED', Rejected: 'REJECTED', Draft: 'DRAFT' }
-const STATUS_COLOR = { Completed: '#16a34a', Submitted: '#2563eb', Approved: '#0ea5e9', Rejected: '#dc2626', Draft: '#f59e0b' }
+const STATUS_COLOR = { Completed: '#16a34a', Submitted: '#2563eb', Approved: '#0ea5e9', Rejected: '#dc2626', Draft: '#f59e0b', Postponed: '#7c3aed', Cancelled: '#6b7280', Closed: '#4b5563' }
+
+// The badge on a monthly-report programme card. The report lists only the
+// programmes that were COMPLETED, so the badge says the same thing in words:
+// a programme the head accepted is COMPLETED (green), one that is still
+// waiting for the approval is PENDING APPROVAL (amber), one that was never
+// sent is PENDING (amber). It used to be "Completed" only when the programme
+// had a photo and "Pending" otherwise, which mislabelled every programme that
+// was planned but not yet documented.
+const REPORT_BADGE = {
+  Approved: 'COMPLETED',
+  Completed: 'COMPLETED',
+  Submitted: 'PENDING APPROVAL',
+  'Submitted&': 'PENDING APPROVAL',
+  'Pending Approval': 'PENDING APPROVAL',
+  'Approval Pending': 'PENDING APPROVAL',
+  Draft: 'PENDING',
+  Postponed: 'POSTPONED',
+  Cancelled: 'CANCELLED',
+  Rejected: 'REJECTED',
+  Closed: 'CLOSED',
+}
+const BADGE_COLOR = {
+  COMPLETED: '#16a34a',
+  'PENDING APPROVAL': '#f59e0b',
+  PENDING: '#f59e0b',
+  POSTPONED: '#7c3aed',
+  CANCELLED: '#6b7280',
+  REJECTED: '#dc2626',
+  CLOSED: '#4b5563',
+}
+const reportBadge = (ev) => {
+  const st = String(ev?.status || '').trim()
+  if (st && REPORT_BADGE[st]) return { text: REPORT_BADGE[st], color: BADGE_COLOR[REPORT_BADGE[st]] }
+  if (ev?.image) return { text: 'COMPLETED', color: BADGE_COLOR.COMPLETED }
+  return { text: 'PENDING', color: BADGE_COLOR.PENDING }
+}
 
 const money = (v) => (v == null || v === '' ? '—' : '₹' + Number(v).toLocaleString('en-IN'))
 const fmtDate = (d) => {
@@ -648,7 +684,12 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
    which saves it in the database, so it survives a reload and is the same for
    everyone who opens the report. */
 function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReorder }) {
-  const rows = (n.events || []).filter(ev => ev.image)
+  // Every programme of the month is listed, not only the photographed ones: a
+  // programme that was planned and run but has no photo uploaded yet is still
+  // a programme of that month. It carries the placeholder and the "Pending"
+  // badge, so the grid matches the count in the card header — which used to
+  // say "25 programmes" above a grid that showed only the photographed ones.
+  const rows = (n.events || [])
   const headerBg = theme.color
   const bannerSrc = n.banner || theme.banner
   const rounded = theme.name === 'AFLF'
@@ -712,7 +753,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
 
       <div style={{ padding: '14px 16px' }}>
         {rows.length === 0 ? (
-          <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No completed programmes this month.</div>
+          <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No completed programmes for this month.</div>
         ) : (
           <div
             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}
@@ -721,6 +762,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
           >
             {rows.map((ev, i) => {
               const key = String(ev.id)
+              const badge = reportBadge(ev)
               return (
                 <div
                   key={ev.id ?? i}
@@ -731,7 +773,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
                 >
                   <div style={{ position: 'relative', height: 130, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
                     <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} />
-                    <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: ev.image ? STATUS_COLOR.Completed : STATUS_COLOR.Draft, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{ev.image ? 'Completed' : 'Pending'}</span>
+                    <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
                     {/* The drag handle is for the screen only - it must not end up
                         in the PDF, which is a picture of this very card. */}
                     <span
@@ -1047,11 +1089,15 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     const ngo = (monthlyData?.ngos || []).find(n => String(n.ngo_id ?? '') === ngoKey)
     if (!ngo) return
     const all = ngo.events || []
-    const byKey = new Map(all.filter(ev => ev.image).map(ev => [String(ev.id), ev]))
+    // EVERY programme card is draggable — the handle is on all of them — so the
+    // order must be resolved against all of them. It used to be resolved
+    // against the photographed cards only, which meant dragging a planned
+    // programme (no photo yet) did nothing at all.
+    const byKey = new Map(all.map(ev => [String(ev.id), ev]))
     const moved = visibleKeys.map(k => byKey.get(k)).filter(Boolean)
-    // The dragged cards take the cards' own places in their new order; a card
-    // without a photo (there is nothing to drag on it) keeps the place it had.
-    const slots = all.map((ev, i) => (ev.image ? i : -1)).filter(i => i >= 0)
+    // The dragged cards take the cards' own places in their new order; every
+    // other card keeps the place it had.
+    const slots = all.map((ev, i) => i)
     const next = [...all]
     slots.forEach((slot, k) => { if (moved[k]) next[slot] = moved[k] })
     const keys = next.map(ev => String(ev.id))
@@ -1548,13 +1594,24 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                 <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
                   {monthlyMonthLabel} {monthlyYearLabel}
                 </span>
-                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} programmes</span>
+                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} completed programme{monthlyData.summary.totalEvents === 1 ? '' : 's'}</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.ngos.length} NGO{monthlyData.ngos.length === 1 ? '' : 's'}</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Beneficiaries: {monthlyData.summary.totalBeneficiaries.toLocaleString('en-IN')}</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Budget: {money(monthlyData.summary.totalBudget)}</span>
               </div>
 
-              {monthlyData.ngos.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 12 }}>No programmes planned for this month.</div>}
+              {monthlyData.summary.totalEvents === 0 && (
+                <div style={{ color: '#9ca3af', fontSize: 13, padding: 12, marginBottom: 12 }}>
+                  No completed programmes for this month.
+                  {Number(monthlyData.summary.selectedSuggestions || 0) < Number(monthlyData.summary.suggestions || 0) && (
+                    <div style={{ marginTop: 6 }}>
+                      {Number(monthlyData.summary.suggestions || 0) - Number(monthlyData.summary.selectedSuggestions || 0)} programme
+                      {Number(monthlyData.summary.suggestions || 0) - Number(monthlyData.summary.selectedSuggestions || 0) === 1 ? ' was' : 's were'}
+                      {' '}generated for this month but not selected yet — select them in <b>Suggest Programmes</b>, and once they are completed they will be listed here.
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
                 {orderedNgos.map(n => {

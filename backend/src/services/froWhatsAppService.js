@@ -5,6 +5,8 @@ import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from '
 import config from '../config/whatsappConfig.js';
 import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
 import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
+import { resolveInboxScope, isConversationInStationScope, getFroStationPairs } from './froStationScope.js';
+import { froActPairs } from '../controllers/froController.js';
 
 // Object keys under the shared media bucket. Meta fetches these URLs itself, so
 // only keys with this prefix may be turned into a signed link for it.
@@ -41,84 +43,69 @@ export function mediaPayloadKind(mime, fallback) {
 export async function getFroConversations(froWorkerId, restrictPairs = null) {
   const resultConvs = [];
   const seenIds = new Set();
+  const scope = await resolveInboxScope(froWorkerId, { restrictPairs });
 
-  // ── Permanent: donor phones from fro_assignments ──
-  const { data: assignments, error: assignErr } = await db
-    .from('fro_assignments')
-    .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
-    .eq('fro_worker_id', froWorkerId)
-    .or('status.is.null,status.neq.reassigned');
+  // Station-donor scoping: only conversations whose contact is a donor in the
+  // FRO's allocated stations (unioned with temp grant stations). This is the
+  // source of truth for inbox ownership.
+  const allowedProjects = scope.allowedProjects || new Set();
+  if (scope.hasStations && scope.stationConversationIds.size > 0) {
+    const ids = [...scope.stationConversationIds];
+    const { data: conversations, error: convErr } = await db
+      .from('conversations')
+      .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+      .in('id', ids)
+      .order('last_message_at', { ascending: false });
 
-  if (assignErr) throw assignErr;
-  let scoped = assignments || [];
-  if (restrictPairs && restrictPairs.length > 0) {
-    const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
-    scoped = scoped.filter(a => allowed.has(`${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`));
-  }
-
-  const donorPhones = scoped
-    .map(a => a.donor_profiles?.mobile_number)
-    .filter(Boolean);
-
-  const phoneVariants = new Set();
-  for (const p of donorPhones) {
-    const raw = String(p).replace(/[^0-9]/g, '');
-    phoneVariants.add(raw);
-    if (raw.startsWith('91') && raw.length === 12) {
-      phoneVariants.add(raw.slice(2));
-    } else if (raw.length === 10) {
-      phoneVariants.add('91' + raw);
-    }
-  }
-
-  // TEMPORARY ACCESS: union the donors of this worker's GRANTED STATIONS
-  // (station-donor scoped). Skipped under work-as restrictPairs.
-  if (!restrictPairs || restrictPairs.length === 0) {
-    try {
-      const temp = await loadTempAllotment(froWorkerId);
-      for (const p of temp.phoneVariants) phoneVariants.add(p);
-    } catch (e) {
-      console.error('[getFroConversations] temp allotment load failed:', e?.message || e);
-    }
-  }
-
-  if (phoneVariants.size > 0) {
-    const phoneList = [...phoneVariants];
-    const { data: contacts, error: contactErr } = await db
-      .from('contacts')
-      .select('id, phone, phone_normalized, wa_profile_name, project')
-      .in('phone_normalized', phoneList);
-
-    if (!contactErr && contacts && contacts.length > 0) {
-      const contactIds = contacts.map(c => c.id);
-      const { data: conversations, error: convErr } = await db
-        .from('conversations')
-        .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
-        .in('contact_id', contactIds)
-        .order('last_message_at', { ascending: false });
-
-      if (!convErr && conversations) {
-        for (const c of conversations) {
-          if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push(c); }
+    if (!convErr && conversations) {
+      for (const c of conversations) {
+        // Enforce station-prefix -> allowed projects
+        if (allowedProjects.size > 0 && c.project && !allowedProjects.has(String(c.project).toLowerCase())) {
+          continue;
+        }
+        if (!seenIds.has(c.id)) {
+          seenIds.add(c.id);
+          resultConvs.push({ ...c, _scope: 'station' });
         }
       }
     }
+  } else if (scope.hasStations && scope.stationConversationIds.size === 0) {
+    // FRO has stations but no donor-conversations found in them - return empty
+    // (do NOT fall back to project-wide unclaimed threads).
+    return [];
   }
 
-  // TEMPORARY ACCESS: also include ALL conversations on temp projects (so Laxmi
-  // sees the full inbox of Archna's number, not just granted-station donors).
+  // TEMPORARY ACCESS: also include ALL conversations on temp projects (Laxmi sees
+  // the full inbox of Archna's number) - behaviour must remain unchanged.
   if (!restrictPairs || restrictPairs.length === 0) {
     try {
       const temp = await getTempWhatsappAccess(froWorkerId);
       if (temp.projects.size > 0) {
-        const { data: tempConvs, error: tempErr } = await db
-          .from('conversations')
-          .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
-          .in('project', [...temp.projects])
-          .order('last_message_at', { ascending: false });
-        if (!tempErr && tempConvs) {
-          for (const c of tempConvs) {
-            if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push(c); }
+        let tempProjects = [...temp.projects].map(p => String(p).toLowerCase());
+        // Also enforce prefix filter for temp access? User says "fro joo station allocated hai usse ka hi whatsapp dekhe"
+        // but temp access is special - Archna gives full access to Laxmi on granted stations. Keep as-is for now but apply prefix filter.
+        if (allowedProjects.size > 0) {
+          tempProjects = tempProjects.filter(p => allowedProjects.has(p));
+        }
+        if (tempProjects.length > 0) {
+          const { data: tempConvs, error: tempErr } = await db
+            .from('conversations')
+            .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+            .in('project', tempProjects)
+            .order('last_message_at', { ascending: false });
+          if (!tempErr && tempConvs) {
+            for (const c of tempConvs) {
+              if (allowedProjects.size > 0 && c.project && !allowedProjects.has(String(c.project).toLowerCase())) {
+                continue;
+              }
+              if (!seenIds.has(c.id)) {
+                seenIds.add(c.id);
+                resultConvs.push({ ...c, _scope: 'temp' });
+              } else {
+                const idx = resultConvs.findIndex(x => x.id === c.id);
+                if (idx >= 0 && !resultConvs[idx]._scope) resultConvs[idx]._scope = 'temp';
+              }
+            }
           }
         }
       }
@@ -127,10 +114,90 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
     }
   }
 
+  // Fallback for workers with no station assignments at all (should be rare) -
+  // keep legacy behaviour to avoid breaking them.
+  if (!scope.hasStations) {
+    const { data: assignments, error: assignErr } = await db
+      .from('fro_assignments')
+      .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
+      .eq('fro_worker_id', froWorkerId)
+      .or('status.is.null,status.neq.reassigned');
+
+    if (assignErr) throw assignErr;
+    let scoped = assignments || [];
+    if (restrictPairs && restrictPairs.length > 0) {
+      const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
+      scoped = scoped.filter(a => allowed.has(`${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`));
+    }
+
+    const donorPhones = scoped
+      .map(a => a.donor_profiles?.mobile_number)
+      .filter(Boolean);
+
+    const phoneVariants = new Set();
+    for (const p of donorPhones) {
+      const raw = String(p).replace(/[^0-9]/g, '');
+      phoneVariants.add(raw);
+      if (raw.startsWith('91') && raw.length === 12) {
+        phoneVariants.add(raw.slice(2));
+      } else if (raw.length === 10) {
+        phoneVariants.add('91' + raw);
+      }
+    }
+
+    if (!restrictPairs || restrictPairs.length === 0) {
+      try {
+        const temp = await loadTempAllotment(froWorkerId);
+        for (const p of temp.phoneVariants) phoneVariants.add(p);
+      } catch (e) {
+        console.error('[getFroConversations] temp allotment load failed:', e?.message || e);
+      }
+    }
+
+    if (phoneVariants.size > 0) {
+      const phoneList = [...phoneVariants];
+      const { data: contacts, error: contactErr } = await db
+        .from('contacts')
+        .select('id, phone, phone_normalized, wa_profile_name, project')
+        .in('phone_normalized', phoneList);
+
+      if (!contactErr && contacts && contacts.length > 0) {
+        const contactIds = contacts.map(c => c.id);
+        const { data: conversations, error: convErr } = await db
+          .from('conversations')
+          .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+          .in('contact_id', contactIds)
+          .order('last_message_at', { ascending: false });
+
+        if (!convErr && conversations) {
+          for (const c of conversations) {
+            if (!seenIds.has(c.id)) { seenIds.add(c.id); resultConvs.push({ ...c, _scope: 'legacy' }); }
+          }
+        }
+      }
+    }
+  }
+
   return resultConvs;
 }
 
-export async function getConversationMessages(conversationId) {
+export async function getConversationMessages(conversationId, froWorkerId = null) {
+  if (froWorkerId) {
+    try {
+      const scope = await resolveInboxScope(froWorkerId);
+      if (scope.hasStations && scope.pairs.length > 0) {
+        const allowed = await isConversationInStationScope(scope.pairs, conversationId);
+        if (!allowed) {
+          const err = new Error('Unauthorized');
+          err.statusCode = 403;
+          throw err;
+        }
+      }
+    } catch (e) {
+      if (e.statusCode === 403) throw e;
+      // fall through if scope check fails
+    }
+  }
   const { data, error } = await db
     .from('messages')
     .select('*')
@@ -150,6 +217,26 @@ export async function getConversationMessages(conversationId) {
 
 export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl, mediaMimeType = null, opts = {}) {
   console.log('[sendFroReply] conversationId=', conversationId, 'froWorkerId=', froWorkerId);
+  try {
+    const scope = await resolveInboxScope(froWorkerId);
+    if (scope.hasStations && scope.pairs.length > 0) {
+      const allowed = await isConversationInStationScope(scope.pairs, conversationId);
+      if (!allowed) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
+      }
+      // Enforce project prefix
+      const { data: convChk } = await db.from('conversations').select('project').eq('id', conversationId).maybeSingle();
+      if (convChk?.project && scope.allowedProjects?.size > 0 && !scope.allowedProjects.has(String(convChk.project).toLowerCase())) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+  } catch (e) {
+    if (e.statusCode === 403) throw e;
+  }
   // Auto/manual retry (messageRetryScheduler): the failed row has already
   // been claimed back to 'queued' by the scheduler — reuse it instead of
   // inserting a second bubble for the same content.
@@ -581,6 +668,19 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
 }
 
 export async function markConversationRead(conversationId, froWorkerId) {
+  try {
+    const scope = await resolveInboxScope(froWorkerId);
+    if (scope.hasStations && scope.pairs.length > 0) {
+      const allowed = await isConversationInStationScope(scope.pairs, conversationId);
+      if (!allowed) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
+  } catch (e) {
+    if (e.statusCode === 403) throw e;
+  }
   const { error } = await db
     .from('conversations')
     .update({ unread_count: 0 })
@@ -593,6 +693,14 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
   const isAdmin = ['admin', 'master', 'super_admin'].includes(role);
 
   console.log('[getAgentConversations] agentUserId=', agentUserId, 'projectFilter=', projectFilter, 'role=', role);
+
+  // Get station scope for this agent (via worker_agent_assignments)
+  let scope = null;
+  try {
+    scope = await resolveInboxScope(agentUserId);
+  } catch (e) {
+    console.error('[getAgentConversations] scope resolution failed:', e?.message || e);
+  }
 
   let query = db
     .from('conversations')
@@ -676,11 +784,17 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
 
   const seen = new Map();
   for (const c of conversations || []) {
+    // Enforce station-prefix project restriction
+    if (!isAdmin && scope?.hasStations && scope?.allowedProjects?.size > 0) {
+      if (c.project && !scope.allowedProjects.has(String(c.project).toLowerCase())) {
+        continue;
+      }
+    }
     // group_id joins the dedupe key so two different WhatsApp groups that
     // happen to share a first sender are not collapsed into one row.
     const key = `${c.contact_id}__${c.project || 'none'}__${c.group_id || ''}`;
     if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
-      seen.set(key, c);
+      seen.set(key, { ...c, _scope: scope?.hasStations ? 'station' : 'legacy' });
     }
   }
   return Array.from(seen.values());

@@ -1254,7 +1254,12 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       const event = isEdit
         ? await updateEvent(entry.eventId, payload)
         : await createEvent({ ...payload, status: 'Draft' })
-      if (!isEdit && entry?.suggestion?.id && event?.id) {
+      // The row's own suggestion must point at the event, so the Monthly
+      // Report can show the name the event was saved under. This runs on an
+      // edit too: a renamed event is still the same programme, and without it
+      // the row would keep pointing at nothing (or at an older event) and the
+      // report would fall back to the festival name.
+      if (entry?.suggestion?.id && event?.id) {
         try {
           await setFestivalSuggestionSelected(Number(entry.suggestion.id), true, Number(event.id))
         } catch {

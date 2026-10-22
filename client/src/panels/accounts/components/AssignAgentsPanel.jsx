@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { apiGet } from '../api/auth';
 import SearchInput from './SearchInput.jsx';
@@ -11,52 +11,61 @@ function initialsOf(name) {
 
 const SKELETONS = [0, 1, 2, 3, 4, 5];
 
+function matchesText(worker, q) {
+  return [worker.name, worker.email, worker.phone, worker.login_id].some((value) =>
+    String(value || '').toLowerCase().includes(q)
+  );
+}
+
 /**
- * Second panel inside the agents drawer: search for workers that are not yet
- * assigned to this account and assign a selection. Uses the same endpoints the
- * inline UI used (search + one POST per assignment); the manager owns the
- * calls, this panel owns only the selection state.
+ * Second panel inside the agents drawer: pick the FROs that are not yet
+ * assigned to this account and assign them.
+ *
+ * The whole FRO roster is fetched once when the panel opens and filtered in
+ * the browser. Searching used to fire a request per keystroke (300ms
+ * debounce + a round trip to the database), which made typing feel slow and
+ * capped the results at the first 20 matches - so the agent an admin was
+ * looking for could simply be missing. One request, one list, instant
+ * filtering.
  */
 export default function AssignAgentsPanel({ account, assignedIds, assigning, onAssign, onBack }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState(null);
-  const [searching, setSearching] = useState(false);
+  const [roster, setRoster] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
-  const [searchError, setSearchError] = useState(null);
-  const timer = useRef(null);
-  const inputRef = useRef(null);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
 
   useEffect(() => {
-    const q = query.trim();
-    if (timer.current) clearTimeout(timer.current);
-    if (q.length < 2) {
-      setResults(null);
-      setSearching(false);
-      setSearchError(null);
-      return undefined;
-    }
-    setSearching(true);
-    timer.current = setTimeout(async () => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
       try {
-        const data = await apiGet(`/whatsapp/accounts/agents/search?q=${encodeURIComponent(q)}`);
-        setResults(data || []);
-        setSearchError(null);
-      } catch {
-        setResults([]);
-        setSearchError('Could not search agents. Please try again.');
+        const data = await apiGet('/whatsapp/accounts/agents/list');
+        if (cancelled) return;
+        setRoster(data || []);
+        setLoadError(null);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setLoadError('Could not load agents. Please try again.');
       } finally {
-        setSearching(false);
+        if (!cancelled) setLoading(false);
       }
-    }, 300);
-    return undefined;
-  }, [query]);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
-  const candidates = useMemo(() => {
-    if (!results) return [];
-    return results.filter((w) => !assignedIds.has(w.id));
-  }, [results, assignedIds]);
+  const matches = useMemo(() => {
+    const list = roster || [];
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((w) => matchesText(w, q));
+  }, [roster, query]);
+
+  // Agents already on this account are not offered again.
+  const candidates = useMemo(
+    () => matches.filter((w) => !assignedIds.has(w.id)),
+    [matches, assignedIds]
+  );
 
   // Drop selections that stopped being candidates when the results changed.
   useEffect(() => {
@@ -90,19 +99,19 @@ export default function AssignAgentsPanel({ account, assignedIds, assigning, onA
     if (ok) onBack();
   };
 
+  const total = (roster || []).length;
   const q = query.trim();
+
   let emptyState = null;
-  if (!searching && !searchError) {
-    if (results === null) {
+  if (!loading && !loadError) {
+    if (matches.length === 0) {
       emptyState = {
-        title: 'Search for agents to assign',
-        text: 'Type at least 2 characters of a name, email or phone number.',
+        title: q ? `No agents match "${q}"` : 'No agents available',
+        text: q ? 'Try a different name, email or phone number.' : '',
       };
-    } else if (results.length === 0) {
-      emptyState = { title: 'No agents match your search', text: '' };
     } else if (candidates.length === 0) {
       emptyState = {
-        title: 'All agents are already assigned',
+        title: 'All matching agents are already assigned',
         text: 'Every agent matching this search is already on this account.',
       };
     }
@@ -124,7 +133,6 @@ export default function AssignAgentsPanel({ account, assignedIds, assigning, onA
 
       <div className="wa-drawer-toolbar">
         <SearchInput
-          inputRef={inputRef}
           value={query}
           onChange={setQuery}
           placeholder="Search agents to assign"
@@ -133,7 +141,15 @@ export default function AssignAgentsPanel({ account, assignedIds, assigning, onA
         />
       </div>
 
-      {!searching && !searchError && q.length >= 2 && candidates.length > 0 && (
+      {!loading && !loadError && total > 0 && (
+        <p className="wa-drawer-count" role="status">
+          {q
+            ? `Showing ${candidates.length} of ${matches.length} matching agents`
+            : `Showing ${candidates.length} of ${total} agents`}
+        </p>
+      )}
+
+      {candidates.length > 0 && (
         <label className="wa-selectall">
           <input type="checkbox" checked={allSelected} onChange={toggleAll} />
           Select all (filtered)
@@ -141,11 +157,14 @@ export default function AssignAgentsPanel({ account, assignedIds, assigning, onA
       )}
 
       <div className="wa-drawer-list">
-        {searchError ? (
+        {loadError ? (
           <div className="wa-drawer-error" role="alert">
-            <span>{searchError}</span>
+            <span>{loadError}</span>
+            <button type="button" className="wa-btn wa-btn-ghost" onClick={onBack}>
+              Back
+            </button>
           </div>
-        ) : searching ? (
+        ) : loading ? (
           <div aria-hidden="true">
             {SKELETONS.map((i) => (
               <div key={i} className="wa-skel-row">
@@ -162,11 +181,18 @@ export default function AssignAgentsPanel({ account, assignedIds, assigning, onA
         ) : (
           candidates.map((w) => {
             const name = w.name || w.email || 'Unknown';
+            const sub = w.phone || w.email || w.login_id || '';
             return (
               <label key={w.id} className="wa-assign-row">
                 <input type="checkbox" checked={selected.has(w.id)} onChange={() => toggle(w.id)} />
                 <span className="wa-arow-avatar" aria-hidden="true">{initialsOf(name)}</span>
-                <span className="wa-arow-name" title={name}>{name}</span>
+                <span className="wa-assign-text">
+                  <span className="wa-assign-name" title={name}>{name}</span>
+                  <span className="wa-assign-sub" title={sub}>{sub}</span>
+                </span>
+                {w.is_active === false ? (
+                  <span className="wa-assign-tag">Inactive</span>
+                ) : null}
               </label>
             );
           })

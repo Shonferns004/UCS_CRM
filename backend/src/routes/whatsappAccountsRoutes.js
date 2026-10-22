@@ -4,7 +4,7 @@ import {
   list, getById, create, update, remove,
 } from '../controllers/whatsappAccountController.js';
 import {
-  listAgents, assignAgent, removeAgent, searchAgents,
+  listAgents, assignAgent, removeAgent, searchAgents, listAssignableAgents,
 } from '../controllers/froWhatsAppAssignmentController.js';
 
 /**
@@ -35,6 +35,7 @@ router.use(requireWhatsAppAdmin);
 
 // Declared before '/:accountId/...' so the literal segment is never read as an id.
 router.get('/agents/search', searchAgents);
+router.get('/agents/list', listAssignableAgents);
 
 router.get('/', list);
 router.post('/', create);

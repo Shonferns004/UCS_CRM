@@ -33,7 +33,6 @@ timeout /t 8 /nobreak >nul
 
 echo   [5/5] Tunnels + opening dashboard...
 start "UCS Tunnel Backend" /min cmd /c "ngrok http --domain=audio-diagnoses-ream.ngrok-free.dev 5000"
-start "UCS Tunnel Webhook" /min cmd /c "cloudflared tunnel --metrics 127.0.0.1:20241 --url http://localhost:9000 2> cf-webhook.log"
 timeout /t 6 /nobreak >nul
 start "" http://localhost:9999
 
