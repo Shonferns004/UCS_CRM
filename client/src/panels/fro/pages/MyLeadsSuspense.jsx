@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock, Wallet } from 'lucide-react';
 import { useIsMobile } from '../../../hooks/useIsMobile';
@@ -168,6 +168,8 @@ export default function MyLeadsSuspense() {
   const isMobile = useIsMobile();
   const isCompact = useIsMobile(480);
   const shellRef = useRef(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const handleDetailStateChange = useCallback((open) => setDetailOpen(!!open), []);
 
   // No padding and no gap: this view is meant to run edge to edge, touching the
   // header above and the sidebar/window edges at the sides. The host's padding is
@@ -182,19 +184,21 @@ export default function MyLeadsSuspense() {
 
   return (
     <div ref={shellRef} className="my-leads-shell" style={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', padding: 0, boxSizing: 'border-box', minHeight: 0 }}>
-<div className="perf-strip" style={{
-        flex: `0 0 ${stripH}px`,
-        height: stripH,
-        minWidth: 0,
-        position: 'relative',
-        zIndex: 9999,
-        background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-        borderBottom: '1px solid #e6eaf2',
-        overflow: 'visible',
-        display: 'flex',
-      }}>
-        <PersonalPerformance />
-      </div>
+      {!detailOpen && (
+        <div className="perf-strip" style={{
+          flex: `0 0 ${stripH}px`,
+          height: stripH,
+          minWidth: 0,
+          position: 'relative',
+          zIndex: 9999,
+          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+          borderBottom: '1px solid #e6eaf2',
+          overflow: 'visible',
+          display: 'flex',
+        }}>
+          <PersonalPerformance />
+        </div>
+      )}
 
       <div className="my-leads-bottom" style={{ flex: '1 1 0', minHeight: isMobile ? 680 : 0, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap: 0, minWidth: 0 }}>
         <div className="my-leads-pane" style={{
@@ -206,7 +210,7 @@ export default function MyLeadsSuspense() {
         }}>
           <SectionTitle label="My Leads" pct="60%" />
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            <MyDonors embedded portalEl={shellRef.current} />
+            <MyDonors embedded portalEl={shellRef.current} onDetailStateChange={handleDetailStateChange} />
           </div>
         </div>
 
