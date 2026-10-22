@@ -115,13 +115,45 @@ export default function AllBeneficiaries() {
         alert('No beneficiaries to export.')
         return
       }
-      const ws = XLSX.utils.json_to_sheet(rows)
+      // Excel cells cannot hold more than 32767 chars; clip any oversized value
+      // (e.g. base64 photo data) so writeFile never throws.
+      const safeRows = rows.map((r) => {
+        const out = {}
+        for (const [k, v] of Object.entries(r)) {
+          out[k] = (typeof v === 'string' && v.length > 32767) ? v.slice(0, 32767) : v
+        }
+        return out
+      })
+      const ws = XLSX.utils.json_to_sheet(safeRows)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Beneficiaries')
       XLSX.writeFile(wb, `beneficiaries_${new Date().toISOString().slice(0, 10)}.xlsx`)
     } catch (e) {
       console.error('Export error:', e)
       alert('Export failed: ' + (e.message || 'unknown error'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleDownloadJson = async () => {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      if (statusFilter) params.set('status', statusFilter)
+      if (eventFilter) params.set('event_id', eventFilter)
+      const res = await apiGet(`/beneficiaries/download?${params}`)
+      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `beneficiaries_${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Download error:', e)
+      alert('Download failed: ' + (e.message || 'unknown error'))
     } finally {
       setExporting(false)
     }
@@ -146,6 +178,13 @@ export default function AllBeneficiaries() {
             style={{ ...styles.btn, background: '#0f766e', color: '#fff', opacity: exporting ? 0.6 : 1 }}
           >
             {exporting ? 'Exporting...' : 'Export Excel'}
+          </button>
+          <button
+            onClick={handleDownloadJson}
+            disabled={exporting}
+            style={{ ...styles.btn, background: '#1d4ed8', color: '#fff', opacity: exporting ? 0.6 : 1 }}
+          >
+            {exporting ? 'Downloading...' : 'Download JSON (full data)'}
           </button>
           <button
             onClick={() => navigate(base + '/import')}

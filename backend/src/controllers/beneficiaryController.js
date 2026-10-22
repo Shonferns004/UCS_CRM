@@ -567,6 +567,7 @@ export const exportBeneficiariesController = async (req, res) => {
     const data = rows.map((b) => ({
       'Beneficiary Code': b.beneficiary_code || '',
       'Full Name': b.full_name || '',
+      'Photo': (typeof b.photo === 'string' && b.photo.length <= 32767) ? b.photo : (b.photo ? 'Photo available' : ''),
       'Mobile': b.mobile || '',
       'Alternate Mobile': b.alternate_mobile || '',
       'Email': b.email || '',
@@ -603,7 +604,27 @@ export const exportBeneficiariesController = async (req, res) => {
   }
 };
 
-// Latest enrolled fingerprint IMAGE per beneficiary, for a page of the list.
+// Full-data download (JSON) — no Excel 32767-char cell limit, so base64 photos
+// survive intact. Used for migrating beneficiaries to another database.
+export const downloadBeneficiariesController = async (req, res) => {
+  try {
+    const { search, status, ngo_id, event_id } = req.query;
+    let created_by;
+    if (isBeneficiariesAppSession(req.user)) {
+      let operator = null;
+      try { operator = await getBnfOperatorBySession(req.user); } catch (_) { operator = null; }
+      created_by = operator?.name || req.user?.name || null;
+    }
+    const rows = await exportBeneficiaries({
+      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, created_by,
+    });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="beneficiaries_${new Date().toISOString().slice(0, 10)}.json"`);
+    return res.send(JSON.stringify({ data: rows, total: rows.length }, null, 2));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 // One request covers the whole page (`?ids=1,2,3`) instead of N per-row calls.
 export const getFingerprintImagesController = async (req, res) => {
   try {
