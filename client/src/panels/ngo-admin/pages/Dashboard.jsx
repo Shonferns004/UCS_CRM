@@ -8,6 +8,7 @@ import TeamWiseCollection from '../components/TeamWiseCollection';
 import { useMeeting } from '../../../meetingStore';
 import { onDbChange } from '../../../lib/socket';
 import { formatDuration } from '../../../utils/formatDuration';
+import { warnToneFor } from '../../../utils/warnTone';
 import { DISPOSITION_LABELS, DISPOSITION_GROUPS } from '../../../lib/dispositions';
 
 // Station-wise Collection layout: two sibling cards, OLD on the left and NEW on
@@ -3051,6 +3052,11 @@ idle: {
                       // number, so a glance down the row catches it.
                       const idl = p.status === 'idle';
                       const highlighted = live || met || idl;
+                      // The Warn button escalates with the idle time: yellow
+                      // after an hour, orange after an hour and a half, red at
+                      // two hours. warnToneFor returns null until the hour is
+                      // passed, which is the same rule the button always used.
+                      const warnTone = warnToneFor(p.today_idle_seconds);
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 6px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', maxWidth: 190 }}>
@@ -3071,9 +3077,9 @@ idle: {
                               {idl && (
                                 <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
                               )}
-                              {(p.today_idle_seconds || 0) > 3600 && (
+                              {warnTone && (
                                 <button
-                                  title={`Idle for ${formatDuration(p.today_idle_seconds)} — click to warn this telecaller`}
+                                  title={`Idle for ${formatDuration(p.today_idle_seconds)} — ${warnTone.label}. Click to warn this telecaller`}
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     try {
@@ -3083,7 +3089,7 @@ idle: {
                                       toast(err.message || 'Could not send warning', 'error');
                                     }
                                   }}
-                                  style={{ background: '#dc2626', border: '1px solid #b91c1c', cursor: 'pointer', padding: '1px 6px', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 3, borderRadius: 999, fontSize: 9, fontWeight: 700, flexShrink: 0 }}
+                                  style={{ background: warnTone.bg, border: `1px solid ${warnTone.border}`, cursor: 'pointer', padding: '1px 6px', color: warnTone.fg, display: 'inline-flex', alignItems: 'center', gap: 3, borderRadius: 999, fontSize: 9, fontWeight: 700, flexShrink: 0 }}
                                 >
                                   <Bell size={9} fill="currentColor" /> Warn
                                 </button>
