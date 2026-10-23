@@ -78,7 +78,7 @@ function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, r
                 <span>· {totalDonors.toLocaleString('en-IN')} donor{totalDonors === 1 ? '' : 's'}</span>
               </span>
             </div>
-            <div className="sm-no-scrollbar" style={{ maxHeight: 640, overflowY: 'auto' }}>
+            <div className="sm-no-scrollbar" style={{ maxHeight: 'none', overflowY: 'visible' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
