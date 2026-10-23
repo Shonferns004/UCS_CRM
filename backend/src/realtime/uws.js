@@ -323,8 +323,14 @@ export function emitChatToUsers(uids, payload) {
 export function emitRealtime(event, payload, room) {
   if (!app) return;
   const msg = { type: event, payload };
-  if (room) broadcastTopic(room, msg);
-  else broadcastAll(msg);
+  if (room) {
+    const set = topics.get(room);
+    console.info('[uws] emit', event, '-> room', room, 'recipients:', set ? set.size : 0);
+    broadcastTopic(room, msg);
+  } else {
+    console.info('[uws] emit', event, '-> all', clients.size, 'clients');
+    broadcastAll(msg);
+  }
 }
 export function isRealtimeInitialized() {
   return !!app;
