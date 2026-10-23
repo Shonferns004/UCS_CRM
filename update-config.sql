@@ -1,1 +1,0 @@
-UPDATE app_config SET data = '{"api_base_url":"https://audio-diagnoses-ream.ngrok-free.dev/api","socket_url":"https://audio-diagnoses-ream.ngrok-free.dev","minimum_version":"1.0.0","update_url":"","announcement":null,"feature_flags":{},"ui_text":{}}' WHERE id=1;
