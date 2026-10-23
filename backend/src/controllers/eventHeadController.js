@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import * as EventHead from '../models/eventHeadModel.js';
 import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName, isCampaignName } from '../utils/activitySheet.js';
 import db, { getTableColumns } from '../config/db.js';
+import { openStoredObject } from '../services/mediaProxy.js';
 import groq from '../config/groq.js';
 import {
   availableYears, allThemes, SUPPORTED_LUNAR_YEARS,
@@ -1311,6 +1312,14 @@ const s3FileNameFromUrl = (url) => {
   return key.startsWith('event/') ? key.slice('event/'.length) : null;
 };
 async function readEventObject(url) {
+  try {
+    const obj = await openStoredObject(url);
+    if (obj && obj.body) {
+      const chunks = [];
+      for await (const chunk of obj.body) chunks.push(chunk);
+      return { buffer: Buffer.concat(chunks), contentType: obj.contentType };
+    }
+  } catch { /* fall through */ }
   const fileName = s3FileNameFromUrl(url);
   if (fileName) {
     const { data, error } = await db.storage.from('event').download(fileName);
@@ -1724,6 +1733,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       `${String(l.ngo_id ?? '')}|${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
       l.event_id,
     ]));
+    const linkedEventIds = new Set([...linkMap.values()].map(v => String(v)));
     // The event a planner row was turned into. Resolved in the same order the
     // photo is: the suggestion's own link, then the durable planner link
     // (date + festival + NGO), then a name+date+NGO match for events that
@@ -1855,8 +1865,8 @@ export const generateNgoMonthlyReport = async (req, res) => {
       // until it is approved. A row that is only a plan does not belong here
       // either.
       const cellDone = plannerDoneCell(d, f.festival);
-      if (linked && !isComplete(linked)) continue;
-      if (!isComplete(linked) && !cellDone) continue;
+      if (!cellDone) continue;
+      if (!linked) continue;
       const img = imageForEvent(linked);
       // The name the event was SAVED under — the Social head can rename it in
       // the Create / Edit form, and that is the name the report must carry.
@@ -1908,6 +1918,8 @@ export const generateNgoMonthlyReport = async (req, res) => {
     const planAll = await EventHead.getPlannerSuggestions({ ngo_id, month, year }).catch(() => []);
     const titleKey = (t) => String(t || '').trim().toLowerCase();
     for (const p of planRows) {
+      // Skip suggestion-level cards: report mirrors festival rows / Download buttons.
+      continue;
       const id = p.ngo_id != null ? String(p.ngo_id) : 'unknown';
       const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[p.ngo_id] || '') : '';
       seedNgoCard(p.ngo_id, ctx.ngoMap[p.ngo_id], code);
@@ -1974,8 +1986,8 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const ngoKey = String(n.ngo_id ?? '');
       const extras = events
         .filter(e => String(e.ngo_id ?? '') === ngoKey
-          && !claimedEventIds.has(String(e.id)))
-        .filter(e => isComplete(e))
+          && !claimedEventIds.has(String(e.id))
+          && linkedEventIds.has(String(e.id)))
         .filter(e => {
           const k = programmeKey(e);
           if (!k) return true;

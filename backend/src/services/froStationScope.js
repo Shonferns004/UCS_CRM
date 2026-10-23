@@ -203,26 +203,24 @@ export async function isConversationInStationScope(pairs, conversationId) {
 
 /**
  * Derive allowed WhatsApp projects from station prefixes.
- * BOD/BFD -> bsct, bsct2 | AOD/AFD -> aflf, aflf2 | MOD/MFD -> mann
- */
-export function getAllowedProjectsByStations(pairs) {
-  const allowed = new Set();
-  for (const p of pairs || []) {
-    const st = String(p?.station || '').toUpperCase();
-    if (!st) continue;
-    const prefix = st.split('-')[0];
-    if (['BOD', 'BFD'].includes(prefix)) {
-      allowed.add('bsct');
-      allowed.add('bsct2');
-    } else if (['AOD', 'AFD'].includes(prefix)) {
-      allowed.add('aflf');
-      allowed.add('aflf2');
-    } else if (['MOD', 'MFD'].includes(prefix)) {
-      allowed.add('mann');
-    }
-  }
-  return allowed;
-}
+  * BOD/BFD -> bsct2 | AOD/AFD -> aflf2 | MOD/MFD -> mann
+  */
+ export function getAllowedProjectsByStations(pairs) {
+   const allowed = new Set();
+   for (const p of pairs || []) {
+     const st = String(p?.station || '').toUpperCase();
+     if (!st) continue;
+     const prefix = st.split('-')[0];
+     if (['BOD', 'BFD'].includes(prefix)) {
+       allowed.add('bsct2');
+     } else if (['AOD', 'AFD'].includes(prefix)) {
+       allowed.add('aflf2');
+     } else if (['MOD', 'MFD'].includes(prefix)) {
+       allowed.add('mann');
+     }
+   }
+   return allowed;
+ }
 
 /**
  * The whole inbox scope for a WhatsApp caller.
