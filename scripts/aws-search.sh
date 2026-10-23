@@ -1,6 +1,8 @@
 #!/bin/bash
 # Runs on the EC2 box against AWS RDS. Searches for a donor/record.
-export PGPASSWORD=ucscompany123
+# The database password is NOT stored here. Set it in the environment first:
+#   export PGPASSWORD='...'        (or: set -a; . /etc/ucs/db.env; set +a)
+: "${PGPASSWORD:?PGPASSWORD must be set; this script no longer hardcodes the database password}"
 PSQL="psql -h ucs-crm-db.cv8asue2a57e.ap-south-1.rds.amazonaws.com -p 5432 -U ucs_admin -d postgres -P pager=off"
 
 echo "=== suspense_donations count ==="

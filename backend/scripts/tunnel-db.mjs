@@ -6,9 +6,9 @@
 // so a tunnel over port 22 is the path that survives. This script does not change
 // any network policy -- it only forwards a local TCP port.
 //
-//   node scripts/tunnel-db.mjs start     # background tunnel, writes a .pid file
-//   node scripts/tunnel-db.mjs stop      # close the tunnel, remove the .pid file
-//   node scripts/tunnel-db.mjs status    # is the tunnel up?
+//   node scripts/tunnel-db.mjs start     # background tunnel + watchdog, writes a .pid file
+//   node scripts/tunnel-db.mjs stop      # close the tunnel and the watchdog
+//   node scripts/tunnel-db.mjs status    # is the tunnel up? is the watchdog alive?
 //   node scripts/tunnel-db.mjs backend   # start the tunnel if needed, then the backend
 //   node scripts/tunnel-db.mjs env       # print PG* vars for the current shell
 //   node scripts/tunnel-db.mjs ui        # browser panel with a "Start Local" button
@@ -20,6 +20,11 @@
 // `env` prints. Do NOT edit backend/.env -- db.js prefers DATABASE_URL over PG* when
 // both are set, and the real URL would win and point straight back at the blocked IP.
 //
+// Credentials come from DB_TUNNEL_PGUSER / DB_TUNNEL_PGPASSWORD / DB_TUNNEL_PGDATABASE
+// in backend/.env (gitignored), falling back to DATABASE_URL. They are deliberately
+// NOT the same thing: DATABASE_URL usually points at a local Postgres on the LAN,
+// and those credentials are rejected by RDS with 28P01. See scripts/lib/tunnel-creds.mjs.
+//
 // Reversible: `stop` kills the local ssh process. Nothing in AWS is modified.
 
 import { config as dotenv } from 'dotenv';
@@ -30,6 +35,7 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveTunnelCredentials, describeCredentialProblem } from './lib/tunnel-creds.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv({ path: path.join(__dirname, '..', '.env') });
@@ -44,16 +50,19 @@ const LOCAL_PORT = parseInt(process.env.DB_TUNNEL_LOCAL_PORT || '15432', 10);
 const REMOTE_PORT = parseInt(process.env.DB_TUNNEL_REMOTE_PORT || '5432', 10);
 const PID_FILE = path.join(os.tmpdir(), 'ucs-crm-db-tunnel.pid');
 const LOG_FILE = path.join(os.tmpdir(), 'ucs-crm-db-tunnel.log');
+// The watchdog is a separate, detached process so that a bare `start` -- which
+// exits immediately -- still leaves something behind that repairs the tunnel
+// when the network drops it. See cmdWatch().
+const WATCH_PID_FILE = path.join(os.tmpdir(), 'ucs-crm-db-tunnel.watch.pid');
+// "A tunnel is wanted." An explicit `stop` removes this file first, so the
+// watchdog can never resurrect a tunnel the user just closed.
+const WANTED_FILE = path.join(os.tmpdir(), 'ucs-crm-db-tunnel.wanted');
 
-// Read DATABASE_URL without printing it. Only the username is ever shown.
-function readDbUrl() {
-  const url = process.env.DATABASE_URL;
-  if (!url) return null;
-  try {
-    return new URL(url);
-  } catch {
-    return null;
-  }
+// The credentials the tunnel authenticates with. Read once at startup; the
+// watchdog re-reads them per restart so a .env edit takes effect without a
+// manual restart.
+function tunnelCredentials() {
+  return resolveTunnelCredentials(process.env);
 }
 
 function localPortBusy(port) {
@@ -67,10 +76,9 @@ function localPortBusy(port) {
 }
 
 // True only if something answers with a Postgres-style byte. A tunnel that is
-// merely holding the port open but not forwarding still fails this, which is the
-// difference between "up" and "useless".
-async function portForwarding(url) {
-  const user = url ? decodeURIComponent(url.username || '') : '';
+// merely holding the port open but not forwarding still fails this, which is
+// the difference between "up" and "useless".
+async function portForwarding(creds) {
   const sock = net.connect({ port: LOCAL_PORT, host: '127.0.0.1' });
   const ok = await new Promise(resolve => {
     const settle = v => { sock.destroy(); resolve(v); };
@@ -82,7 +90,7 @@ async function portForwarding(url) {
     sock.once('data', d => settle(d.length > 0 && d.toString('latin1', 1, 2) === 'R' || d.length > 0));
     sock.once('error', () => settle(false));
   });
-  return { ok, user, hasPassword: url ? Boolean(url.password) : false };
+  return { ok, user: creds?.user || '', hasPassword: Boolean(creds?.password) };
 }
 
 function readPid() {
@@ -96,85 +104,29 @@ function readPid() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Tunnel watchdog
-//
-// ssh to the jump host dies whenever the local network drops for longer than
-// the keepalive budget: a VPN reconnect, a Wi-Fi roam, the laptop waking from
-// sleep. On this machine those events happen several times an hour. Once ssh
-// is gone nothing else brings the tunnel back -- the backend process stays up
-// but every query fails, which looks exactly like "the backend stopped
-// working". While a tunnel is wanted (started, and not explicitly stopped),
-// this restarts it automatically. `stop` and the panel's Stop button clear
-// the flag, so an intentional stop is never overridden.
-// ---------------------------------------------------------------------------
-let tunnelWanted = false;
-let tunnelRestarting = false;
-let lastTunnelRestartAt = 0;
-
-function watchTunnel(log) {
-  if (!tunnelWanted || tunnelRestarting) return;
-  if (readPid()) return;
-  const now = Date.now();
-  // Cooldown so a start that fails immediately (no key, blocked port) does not
-  // respawn every tick.
-  if (now - lastTunnelRestartAt < 20000) return;
-  tunnelRestarting = true;
-  lastTunnelRestartAt = now;
-  log('[tunnel] connection lost -- restarting');
-
-  // Run `start` as a child rather than in-process: cmdStart exits(1) on
-  // failure, which must not take the panel down with it.
-  const child = uiRunSelf(['start']);
-  const relay = stream => {
-    let buf = '';
-    stream.setEncoding('utf8');
-    stream.on('data', chunk => {
-      buf += chunk;
-      const parts = buf.split(/\r?\n/);
-      buf = parts.pop() ?? '';
-      for (const line of parts) if (line.trim()) log(line);
-    });
-    stream.on('end', () => { if (buf.trim()) log(buf); });
-  };
-  relay(child.stdout);
-  relay(child.stderr);
-  child.on('error', err => { log(`[tunnel] restart failed: ${err.message}`); tunnelRestarting = false; });
-  child.on('exit', code => {
-    if (code !== 0) log(`[tunnel] restart exited with code ${code} -- see ${LOG_FILE}`);
-    tunnelRestarting = false;
-  });
+function readWatchPid() {
+  try {
+    const pid = parseInt(fs.readFileSync(WATCH_PID_FILE, 'utf8').trim(), 10);
+    if (!pid) return null;
+    process.kill(pid, 0);
+    return pid;
+  } catch {
+    return null;
+  }
 }
 
-async function cmdStart() {
-  const existing = readPid();
-  if (existing) {
-    console.log(`Tunnel already running (pid ${existing}).`);
-    // Asking for `start` means the tunnel should be up, alive or not -- the
-    // watchdog takes over from here.
-    tunnelWanted = true;
-    await cmdStatus();
-    return;
-  }
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-  if (!fs.existsSync(KEY)) {
-    console.error(`SSH key not found: ${KEY}`);
-    console.error('Set DB_TUNNEL_KEY to the .pem path, or restore key/ucs-backend.pem.');
-    process.exit(1);
-  }
+// ---------------------------------------------------------------------------
+// Tunnel lifecycle
+//
+// `openTunnel` is the single place that starts ssh, so the CLI path and the
+// watchdog path cannot drift apart.
+// ---------------------------------------------------------------------------
 
-  const url = readDbUrl();
-  if (!url) {
-    console.error('DATABASE_URL not set in backend/.env -- cannot read db user for the probe.');
-    process.exit(1);
-  }
-
-  if (await localPortBusy(LOCAL_PORT)) {
-    console.error(`Port ${LOCAL_PORT} on 127.0.0.1 is already in use.`);
-    console.error(`Set DB_TUNNEL_LOCAL_PORT to another port, or run 'stop' if a stale tunnel holds it.`);
-    process.exit(1);
-  }
-
+// Spawns the ssh process that carries the tunnel. Returns its pid, or null if
+// ssh exited immediately (bad key, blocked port, forward already in use).
+function spawnSsh() {
   const args = [
     '-N', '-T',
     '-o', 'BatchMode=yes',
@@ -203,23 +155,43 @@ async function cmdStart() {
   fs.appendFileSync(LOG_FILE, `\n[${new Date().toISOString()}] starting: ssh ${args.join(' ')}\n`);
   const child = spawn('ssh', args, { detached: true, stdio: ['ignore', fs.openSync(LOG_FILE, 'a'), fs.openSync(LOG_FILE, 'a')] });
   child.unref();
+  return child.pid;
+}
+
+// Starts ssh and waits until the tunnel actually carries a Postgres handshake.
+// Returns { ok, pid, probe }.
+async function openTunnel() {
+  if (!fs.existsSync(KEY)) {
+    return { ok: false, reason: `SSH key not found: ${KEY}. Set DB_TUNNEL_KEY to the .pem path, or restore key/ucs-backend.pem.` };
+  }
+
+  const creds = tunnelCredentials();
+  const problem = describeCredentialProblem(creds);
+  if (problem) {
+    return { ok: false, reason: problem };
+  }
+
+  if (await localPortBusy(LOCAL_PORT)) {
+    return { ok: false, reason: `Port ${LOCAL_PORT} on 127.0.0.1 is already in use. Set DB_TUNNEL_LOCAL_PORT to another port, or run 'stop' if a stale tunnel holds it.` };
+  }
+
+  const pid = spawnSsh();
 
   // ExitOnForwardFailure means ssh dies if the local bind fails. Wait briefly, then
   // check whether the child is still alive -- reading the pid file here would always
   // be false because it is written after this check.
-  await new Promise(r => setTimeout(r, 2500));
+  await sleep(2500);
 
   let alive = true;
   try {
-    process.kill(child.pid, 0);
+    process.kill(pid, 0);
   } catch {
     alive = false;
   }
   if (!alive) {
-    console.error(`ssh exited before the tunnel was established. See ${LOG_FILE}`);
-    process.exit(1);
+    return { ok: false, reason: `ssh exited before the tunnel was established. See ${LOG_FILE}` };
   }
-  fs.writeFileSync(PID_FILE, String(child.pid));
+  fs.writeFileSync(PID_FILE, String(pid));
 
   // The first connection through a COLD tunnel takes longer than one probe:
   // ssh has to establish, then the jump host dials RDS, then RDS does its
@@ -227,80 +199,216 @@ async function cmdStart() {
   // "Start Local" failed on the first press and succeeded on the second.
   // Retry until the deadline instead of trusting a single attempt.
   const deadline = Date.now() + 45000;
-  let probe = { ok: false, user: '', hasPassword: false };
+  let probe = { ok: false, user: creds.user, hasPassword: true };
   while (Date.now() < deadline) {
-    probe = await portForwarding(url);
+    probe = await portForwarding(creds);
     if (probe.ok) break;
-    await new Promise(r => setTimeout(r, 1000));
+    await sleep(1000);
   }
   if (!probe.ok) {
-    console.error('Tunnel process is up but port forwarding did not answer a Postgres handshake.');
-    console.error(`See ${LOG_FILE}`);
     // Leave nothing half-started behind: a live ssh with a pid file makes the
     // NEXT attempt print "Tunnel already running" while every probe still
     // fails, which looks exactly like "the tunnel is up but nothing works".
-    try { process.kill(child.pid); } catch { /* already gone */ }
+    try { process.kill(pid); } catch { /* already gone */ }
     if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
+    return { ok: false, reason: 'Tunnel process is up but port forwarding did not answer a Postgres handshake. See ' + LOG_FILE };
+  }
+
+  return { ok: true, pid, probe };
+}
+
+// ---------------------------------------------------------------------------
+// Watchdog
+//
+// ssh to the jump host dies whenever the local network drops for longer than
+// the keepalive budget: a VPN reconnect, a Wi-Fi roam, the laptop waking from
+// sleep. On this machine those events happen several times an hour. Once ssh
+// is gone nothing else brings the tunnel back -- the backend process stays up
+// but every query fails, which looks exactly like "the backend stopped
+// working". While a tunnel is wanted (started, and not explicitly stopped),
+// this restarts it automatically.
+//
+// It runs as its own detached process rather than as a timer inside the
+// `backend`/`ui` commands, because a bare `start` exits straight away: without
+// a separate process there would be nothing left to notice the drop.
+// ---------------------------------------------------------------------------
+
+// Starts the watchdog if one is not already running. Returns its pid or null.
+function ensureWatchdog() {
+  const existing = readWatchPid();
+  if (existing) return existing;
+
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'watch'], {
+    cwd: path.join(__dirname, '..'),
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+  return child.pid;
+}
+
+async function cmdWatch() {
+  // Claim the watchdog slot atomically. Two watchdogs would race to spawn ssh
+  // onto the same forward port, and the loser's ssh would exit with "Address
+  // already in use" while the winner kept running -- a confusing failure that
+  // looks like a random tunnel drop.
+  let claimed = false;
+  try {
+    fs.writeFileSync(WATCH_PID_FILE, String(process.pid), { flag: 'wx' });
+    claimed = true;
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+  }
+  if (!claimed) {
+    const existing = readWatchPid();
+    if (existing && existing !== process.pid) {
+      console.log(`[watch] a watchdog is already running (pid ${existing}).`);
+      return;
+    }
+    // Stale pid file from a watchdog that died without cleaning up.
+    fs.writeFileSync(WATCH_PID_FILE, String(process.pid));
+  }
+
+  const shutdown = () => {
+    try { if (fs.readFileSync(WATCH_PID_FILE, 'utf8').trim() === String(process.pid)) fs.unlinkSync(WATCH_PID_FILE); } catch { /* already gone */ }
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
+  console.log(`[watch] watchdog started (pid ${process.pid}); watching 127.0.0.1:${LOCAL_PORT}.`);
+
+  for (;;) {
+    await sleep(15000);
+
+    // An explicit `stop` clears the flag before killing ssh, so the watchdog
+    // can never override an intentional stop.
+    if (!fs.existsSync(WANTED_FILE)) break;
+
+    if (readPid()) continue; // ssh is still alive
+
+    console.log('[watch] tunnel is down -- restarting');
+    const result = await openTunnel();
+    if (result.ok) {
+      console.log(`[watch] tunnel back up (pid ${result.pid}).`);
+    } else {
+      console.error(`[watch] could not restart the tunnel: ${result.reason}`);
+      // Leave no stale pid file behind, or the next tick would think a
+      // tunnel is running when it is not.
+      try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch { /* already gone */ }
+    }
+  }
+
+  console.log('[watch] tunnel no longer wanted -- watchdog exiting.');
+  shutdown();
+}
+
+async function cmdStart() {
+  const existing = readPid();
+  if (existing) {
+    console.log(`Tunnel already running (pid ${existing}).`);
+    ensureWatchdog();
+    fs.writeFileSync(WANTED_FILE, String(Date.now()));
+    await cmdStatus();
+    return;
+  }
+
+  const result = await openTunnel();
+  if (!result.ok) {
+    console.error(result.reason);
     process.exit(1);
   }
 
+  // Mark the tunnel as wanted BEFORE the watchdog starts, so the watchdog's
+  // first tick already knows it should keep the tunnel alive.
+  fs.writeFileSync(WANTED_FILE, String(Date.now()));
+  ensureWatchdog();
+
+  const creds = tunnelCredentials();
   console.log(`Tunnel up. 127.0.0.1:${LOCAL_PORT} -> ${JUMP_HOST} -> ${HOST}:${REMOTE_PORT}`);
-  console.log(`Database user: ${probe.user} (password ${probe.hasPassword ? 'present' : 'MISSING'})`);
-  tunnelWanted = true;
+  console.log(`Database user: ${creds.user} (password ${creds.password ? 'present' : 'MISSING'})`);
+  console.log(`Credentials source: ${creds.source}`);
+  console.log('A watchdog is running and will restart the tunnel if the network drops it.');
   console.log('');
   console.log('Next, in the shell you start the backend from:');
-  console.log(`  node scripts/tunnel-db.mjs env`);
+  console.log('  node scripts/tunnel-db.mjs env');
   console.log('then paste the output into your shell, then start the backend as usual.');
   console.log('');
   console.log('Stop it with: node scripts/tunnel-db.mjs stop');
 }
 
-function cmdStop() {
+async function cmdStop() {
   // An explicit stop must stay stopped: clear the flag BEFORE killing ssh so
   // the watchdog cannot race and bring it straight back.
-  tunnelWanted = false;
-  const pid = readPid();
-  if (!pid) {
-    console.log('No tunnel running.');
-    if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
-    return;
+  try { fs.unlinkSync(WANTED_FILE); } catch { /* not there */ }
+
+  // Kill the watchdog first so it cannot respawn ssh while we are closing it.
+  const watchPid = readWatchPid();
+  if (watchPid) {
+    try {
+      process.kill(watchPid);
+      console.log(`Stopped watchdog (pid ${watchPid}).`);
+    } catch { /* already gone */ }
+    try { fs.unlinkSync(WATCH_PID_FILE); } catch { /* already gone */ }
   }
-  try {
-    process.kill(pid);
-    console.log(`Stopped tunnel (pid ${pid}).`);
-  } catch (e) {
-    console.error(`Could not stop pid ${pid}: ${e.message}`);
-    process.exit(1);
+
+  // The watchdog may have been mid-restart, so re-read the pid file after the
+  // kill instead of trusting the value captured before it. Repeat a couple of
+  // times: the watchdog's own ssh child is detached and survives the
+  // watchdog's death, and it writes the pid file after we would have read it.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const pid = readPid();
+    if (!pid) break;
+    try {
+      process.kill(pid);
+      console.log(`Stopped tunnel (pid ${pid}).`);
+    } catch (e) {
+      console.error(`Could not stop pid ${pid}: ${e.message}`);
+      process.exit(1);
+    }
+    try { fs.unlinkSync(PID_FILE); } catch { /* already gone */ }
+    await sleep(400);
   }
-  if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
+
   console.log('Nothing in AWS was modified -- this only closed a local ssh process.');
 }
 
 async function cmdStatus() {
   const pid = readPid();
+  const watchPid = readWatchPid();
   if (!pid) {
     console.log('Tunnel: not running');
+    console.log(`Watchdog: ${watchPid ? `running (pid ${watchPid})` : 'not running'}`);
     return;
   }
-  const url = readDbUrl();
-  const probe = await portForwarding(url);
+  const creds = tunnelCredentials();
+  const probe = await portForwarding(creds);
   console.log(`Tunnel: running (pid ${pid})`);
   console.log(`Forwarding 127.0.0.1:${LOCAL_PORT} -> ${JUMP_HOST} -> ${HOST}:${REMOTE_PORT}`);
   console.log(`Postgres handshake over tunnel: ${probe.ok ? 'OK' : 'NO RESPONSE'}`);
+  console.log(`Watchdog: ${watchPid ? `running (pid ${watchPid})` : 'not running'}`);
+}
+
+// True while a tunnel is wanted. Used by the UI to decide whether to keep
+// things up.
+function tunnelWanted() {
+  return fs.existsSync(WANTED_FILE);
 }
 
 function tunnelEnv() {
-  const url = readDbUrl();
-  if (!url) {
-    console.error('DATABASE_URL not set in backend/.env');
+  const creds = tunnelCredentials();
+  const problem = describeCredentialProblem(creds);
+  if (problem) {
+    console.error(problem);
     process.exit(1);
   }
   return {
     PGHOST: '127.0.0.1',
     PGPORT: String(LOCAL_PORT),
-    PGUSER: decodeURIComponent(url.username || ''),
-    PGPASSWORD: decodeURIComponent(url.password || ''),
-    PGDATABASE: url.pathname.replace(/^\//, ''),
+    PGUSER: creds.user,
+    PGPASSWORD: creds.password,
+    PGDATABASE: creds.database,
     PGSSLMODE: 'require',
     DATABASE_URL: '',
     DATABASE_SSL: 'false',
@@ -319,23 +427,21 @@ function tunnelEnv() {
 }
 
 // Starts the backend in the foreground with the tunnel env applied, so no secret
-// is ever printed. Ctrl-C stops the backend; the tunnel is left running for the
-// next run. Use `stop` to close the tunnel.
+// is ever printed. Ctrl-C stops the backend; the tunnel is left running for
+// the next run. Use `stop` to close the tunnel.
 async function cmdBackend() {
   if (!readPid()) {
     console.log('No tunnel running -- starting one first.');
-    await cmdStart();
+    const result = await openTunnel();
+    if (!result.ok) {
+      console.error(result.reason);
+      process.exit(1);
+    }
   }
   // We are now the thing that needs the tunnel: keep it up. `stop` (or the
-  // panel's Stop button) clears this flag and ends the watchdog. When the
-  // panel spawned us it owns the watchdog instead -- two of them would race
-  // ssh onto the same forward port, so only the standalone CLI path runs one.
-  tunnelWanted = true;
-  let watchdog = null;
-  if (process.env.DB_TUNNEL_UI_CHILD !== '1') {
-    watchdog = setInterval(() => watchTunnel(line => console.log(line)), 15000);
-    watchdog.unref();
-  }
+  // panel's Stop button) clears the flag and ends the watchdog.
+  fs.writeFileSync(WANTED_FILE, String(Date.now()));
+  ensureWatchdog();
 
   const env = { ...process.env, ...tunnelEnv() };
   const cwd = path.join(__dirname, '..');
@@ -369,23 +475,21 @@ async function cmdBackend() {
 }
 
 function cmdEnv() {
-  const url = readDbUrl();
-  if (!url) {
-    console.error('DATABASE_URL not set in backend/.env');
+  const creds = tunnelCredentials();
+  const problem = describeCredentialProblem(creds);
+  if (problem) {
+    console.error(problem);
     process.exit(1);
   }
-  const user = decodeURIComponent(url.username || '');
-  const pass = decodeURIComponent(url.password || '');
-  const dbname = url.pathname.replace(/^\//, '');
-  const host = url.hostname;
 
-  // Values come from the existing .env; DATABASE_URL is intentionally omitted so
-  // db.js falls through to the PG* branch instead of dialling the blocked IP.
+  // Values come from DB_TUNNEL_* (falling back to DATABASE_URL); DATABASE_URL is
+  // intentionally omitted so db.js falls through to the PG* branch instead of
+  // dialling the blocked IP.
   console.log(`$env:PGHOST="127.0.0.1"`);
   console.log(`$env:PGPORT="${LOCAL_PORT}"`);
-  console.log(`$env:PGUSER="${user}"`);
-  console.log(`$env:PGPASSWORD="${pass}"`);
-  console.log(`$env:PGDATABASE="${dbname}"`);
+  console.log(`$env:PGUSER="${creds.user}"`);
+  console.log(`$env:PGPASSWORD="${creds.password}"`);
+  console.log(`$env:PGDATABASE="${creds.database}"`);
   console.log(`$env:PGSSLMODE="require"`);
   console.log(`$env:DATABASE_URL=""`);
   console.log(`$env:DATABASE_SSL="false"`);
@@ -393,7 +497,7 @@ function cmdEnv() {
   console.log(`$env:PG_POOL_MAX="15"`);
   console.log(`$env:PG_IDLE_TIMEOUT_MS="300000"`);
   console.log('');
-  console.log('Sourced from backend/.env. Host is rewritten to the tunnel; nothing was');
+  console.log(`Host is rewritten to the tunnel; credentials came from ${creds.source}. Nothing was`);
   console.log('hard-coded. Do not paste this output into chat or commit it.');
 }
 
@@ -450,7 +554,8 @@ async function uiStart() {
   if (uiBackend) return { ok: true, already: true };
   // The Start button means "keep this running" from now on: the watchdog owns
   // the tunnel until Stop (or closing the panel) says otherwise.
-  tunnelWanted = true;
+  fs.writeFileSync(WANTED_FILE, String(Date.now()));
+  ensureWatchdog();
   if (await backendAlive()) {
     uiPush(`[ui] something is already listening on port ${BACKEND_PORT}; leaving it alone.`);
     return { ok: true, already: true };
@@ -486,7 +591,6 @@ async function uiStart() {
 
 async function uiStop() {
   uiPush('\n[ui] stopping');
-  tunnelWanted = false;
   const child = uiBackend;
   uiBackend = null;
   if (child) {
@@ -518,7 +622,7 @@ async function uiStatus() {
   const pid = readPid();
   const running = await backendAlive();
   return {
-    tunnel: { running: Boolean(pid), pid },
+    tunnel: { running: Boolean(pid), pid, watchdog: readWatchPid() },
     backend: {
       running,
       pid: uiBackend ? uiBackend.pid : null,
@@ -573,14 +677,13 @@ function cmdUi() {
     console.log('The panel and the backend are unauthenticated -- trusted networks only.');
     console.log('Ctrl-C to close the panel (it will stop the tunnel too).');
 
-    // Watchdog. This machine's network drops several times an hour and each
-    // drop kills the ssh session; nodemon can lose the backend too. The panel
-    // is the long-lived process, so while the user has things started it
-    // brings them back and reports it in the Output panel.
+    // The panel is the long-lived process, so it keeps the backend up when
+    // nodemon drops it. The tunnel itself is repaired by the separate
+    // watchdog process -- restarting it from here as well would race two
+    // watchers onto the same forward port.
     let backendDownPolls = 0;
     setInterval(async () => {
-      watchTunnel(uiPush);
-      if (!tunnelWanted || uiBackend) { backendDownPolls = 0; return; }
+      if (!tunnelWanted() || uiBackend) { backendDownPolls = 0; return; }
       if (await backendAlive()) { backendDownPolls = 0; return; }
       backendDownPolls += 1;
       // Two consecutive misses (~30s): a nodemon reload takes a few seconds,
@@ -614,12 +717,13 @@ function localAddresses() {
 
 const cmd = process.argv[2] || 'start';
 if (cmd === 'start') await cmdStart();
-else if (cmd === 'stop') cmdStop();
+else if (cmd === 'stop') await cmdStop();
 else if (cmd === 'status') await cmdStatus();
 else if (cmd === 'env') cmdEnv();
 else if (cmd === 'backend') await cmdBackend();
-else if (cmd === 'ui') cmdUi();
+else if (cmd === 'ui') await cmdUi();
+else if (cmd === 'watch') await cmdWatch();
 else {
-  console.error(`Unknown command: ${cmd}. Use start | stop | status | env | backend | ui.`);
+  console.error(`Unknown command: ${cmd}. Use start | stop | status | env | backend | ui | watch.`);
   process.exit(1);
 }

@@ -141,6 +141,7 @@ import { ensureEventHeadReportCardOrderSchema } from './bootstrap/ensureEventHea
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { ensureScraperIndexes } from './bootstrap/ensureScraperIndexes.js';
 import { ensureTemporaryDataAccessSchema } from './bootstrap/ensureTemporaryDataAccessSchema.js';
+import { ensureSettingsSchema } from './bootstrap/ensureSettingsSchema.js';
 import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSchema.js';
 import { ensureWhatsAppConversationSchema } from './bootstrap/ensureWhatsAppConversationSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
@@ -1255,6 +1256,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     await ensureScraperIndexes().catch(e => console.error('ensureScraperIndexes failed:', e?.message || e));
     await ensureTemporaryDataAccessSchema().catch(e => console.error('ensureTemporaryDataAccessSchema failed:', e?.message || e));
+    await ensureSettingsSchema().catch(e => console.error('ensureSettingsSchema failed:', e?.message || e));
     await ensureWhatsAppAccountSchema().catch(e => console.error('ensureWhatsAppAccountSchema failed:', e?.message || e));
     await ensureWhatsAppConversationSchema().catch(e => console.error('ensureWhatsAppConversationSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');

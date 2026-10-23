@@ -32,6 +32,7 @@ import SpecialIncentive, { SidebarIncentive, useSpecialIncentive } from '../../c
 import RangeRulePopup from '../../components/RangeRulePopup'
 import IdleNoticeHost from './components/IdleNoticeHost'
 import IdleWarningModal from './components/IdleWarningModal'
+import * as socketModule from '../../lib/socket'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
@@ -764,21 +765,60 @@ export default function FROPanel() {
 // scrolls away): the admin clicked a specific FRO, at a specific escalation
 // level, and the telecaller has to acknowledge it.
 const [idleWarning, setIdleWarning] = useState(null)
+const showIdleWarning = useCallback((action) => {
+  const warning = {
+    level: action?.level || null,
+    title: action?.title || 'You are idle',
+    body: action?.body || '',
+    // Re-keying on a fresh timestamp re-runs the pop animation when a second
+    // warning arrives while the first modal is still open.
+    at: Date.now(),
+  };
+  setIdleWarning(warning);
+  try {
+    window.dispatchEvent(new CustomEvent('ucs:idle-alert', { detail: warning }));
+  } catch (e) {}
+}, []);
 useEffect(() => onFroAction((action) => {
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
       playFroAction(action.type, action.title, action.audioUrl);
     } else if (action?.type === 'idle_alert') {
-      setIdleWarning({
-        level: action.level || null,
-        title: action.title || 'You are idle',
-        body: action.body || '',
-        // Re-keying on a fresh timestamp re-runs the pop animation when a second
-        // warning arrives while the first modal is still open.
-        at: Date.now(),
-      });
-      showDesktopNotification(action.title, action.body);
+      showIdleWarning(action);
     }
-  }), []);
+  }), [showIdleWarning]);
+
+// Direct socket listener as a fallback - some builds/environments don't route
+// through onFroAction consistently.
+useEffect(() => {
+  let unsub = null;
+  try {
+    const sock = (typeof socketModule?.getSocket === 'function' ? socketModule.getSocket() : null);
+    if (sock) {
+      const handler = (action) => {
+        if (action?.type === 'idle_alert') {
+          showIdleWarning(action);
+        }
+      };
+      sock.on('fro:action', handler);
+      unsub = () => {
+        try { sock.off('fro:action', handler); } catch (e) {}
+      };
+    }
+  } catch (e) {}
+  return () => {
+    if (typeof unsub === 'function') unsub();
+  };
+}, [showIdleWarning]);
+
+useEffect(() => {
+  const handler = (e) => {
+    const d = e?.detail;
+    if (!d) return;
+    showIdleWarning({ level: d.level, title: d.title, body: d.body });
+  };
+  window.addEventListener('ucs:idle-alert', handler);
+  return () => window.removeEventListener('ucs:idle-alert', handler);
+}, [showIdleWarning]);
 
   const [froBroadcast, setFroBroadcast] = useState(null);
   const [froBroadcastMin, setFroBroadcastMin] = useState(false);

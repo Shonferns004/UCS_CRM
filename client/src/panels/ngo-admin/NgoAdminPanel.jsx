@@ -12,6 +12,7 @@ import DonorDetailModal from '../../components/DonorDetailModal'
 import NoticePopup from '../../components/NoticePopup'
 import { useMeeting, startMeeting, endMeeting } from '../../meetingStore'
 import { toast } from '../../components/Toast'
+import ToastContainer from '../../components/Toast'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
 import ChatNavBadge from '../../components/chat/ChatNavBadge'
 
@@ -707,6 +708,7 @@ return (
       )}
 
       <NoticePopup />
+      <ToastContainer />
 
     </div>
   )

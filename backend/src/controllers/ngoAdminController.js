@@ -1830,7 +1830,9 @@ export const getStations = async (req, res) => {
     // and takes names from the access list, while an explicit ngo_id takes only
     // that NGO and looks its name up directly. A single-NGO admin hits exactly
     // that overlap, so keying on the set alone would hand them the wrong list.
-    const stationCacheKey = `stations:${ngo_id ? 'one' : 'all'}:${targetNgoIds.slice().sort().join(',')}`;
+    // v2: payload now also carries donor_amount_min / donor_amount_max, so the
+    // cache key is versioned to avoid serving a stale v1 entry that lacks them.
+    const stationCacheKey = `stations:v2:${ngo_id ? 'one' : 'all'}:${targetNgoIds.slice().sort().join(',')}`;
     if (req.query.fresh !== '1') {
       const cached = cacheGet(stationCacheKey, 60000);
       if (cached) return res.json(cached);
@@ -1860,7 +1862,35 @@ export const getStations = async (req, res) => {
     const highTierDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
     const seen = new Set();
-    const seenHt = new Set();
+    const seenHt = new Set();    // Donor amount range per station (distinct donors, across all NGOs). Used
+    // by the Station Management screen to show "500 - 2000" next to a station.
+    // Sourced from ACTUAL COLLECTED receipts (receipts.amount joined via
+    // fro_donor_logs -> fro_assignments), not the pledged amount on
+    // donor_profiles (which is stale/inflated for some stations). Each donor's
+    // amount = sum of their receipts for that station.
+    const amountSeen = new Set(); // `${station}::${donor_id}`
+    const stationAmountMin = {};   // { station: min amount }
+    const stationAmountMax = {};   // { station: max amount }
+    const stationDonorAmount = {}; // `${station}::${donor_id}` -> total collected
+    try {
+      const { rows } = await db._pool.query(
+        `SELECT fa.station AS station, fa.donor_id AS donor_id, COALESCE(SUM(r.amount), 0) AS total_amount
+           FROM receipts r
+           JOIN fro_donor_logs l ON l.id = r.log_id
+           JOIN fro_assignments fa ON fa.id = l.assignment_id
+          WHERE fa.ngo_id = ANY($1::uuid[])
+            AND fa.station IS NOT NULL
+          GROUP BY fa.station, fa.donor_id`,
+        [targetNgoIds]
+      );
+      for (const r of rows || []) {
+        stationDonorAmount[`${String(r.station).trim()}::${r.donor_id}`] = Number(r.total_amount) || 0;
+      }
+    } catch (e) {
+      console.warn('[getStations] receipts aggregation failed:', e?.message || String(e));
+    }
+
+
     for (const d of faData || []) {
       const s = d.station.trim();
       // Dedupe per (station, ngo), NOT on donor_id alone. donor_id is the same
@@ -1886,6 +1916,16 @@ export const getStations = async (req, res) => {
       if (!isHighTier && d.fro_worker_id) {
         const froKey = `${s}_${d.fro_worker_id}`;
         froDonorCount[froKey] = (froDonorCount[froKey] || 0) + 1;
+      }
+      // Amount range (distinct donors per station, across all NGOs).
+      const amtKey = `${s}::${d.donor_id}`;
+      if (!amountSeen.has(amtKey)) {
+        amountSeen.add(amtKey);
+        const amt = stationDonorAmount[amtKey] || 0;
+        if (amt > 0) {
+          if (stationAmountMin[s] === undefined || amt < stationAmountMin[s]) stationAmountMin[s] = amt;
+          if (stationAmountMax[s] === undefined || amt > stationAmountMax[s]) stationAmountMax[s] = amt;
+        }
       }
     }
 
@@ -1955,6 +1995,8 @@ export const getStations = async (req, res) => {
       donor_count: totalDonorCount[s.station] || {}, // { ngo_id: count } (excludes high_tier)
       high_tier_donor_count: highTierDonorCount[s.station] || {}, // { ngo_id: count }
       fro_donor_count: s.fro_worker_id ? (froDonorCount[`${s.station}_${s.fro_worker_id}`] || 0) : 0,
+      donor_amount_min: stationAmountMin[s.station] ?? null,
+      donor_amount_max: stationAmountMax[s.station] ?? null,
     }));
 
     result.sort((a, b) => {
@@ -1971,6 +2013,8 @@ export const getStations = async (req, res) => {
       return nA - nB;
     });
 
+    // Diagnostic: how many donors actually carry an amount, and do receipts /
+    // fro_donor_logs have any? Helps pinpoint why the range is empty.
     cacheSet(stationCacheKey, result);
     redis.set(stationRedisKey(stationCacheKey), result, STATION_REDIS_TTL_S).catch(() => { });
     return res.json(result);
@@ -8112,7 +8156,7 @@ export const notifyFroHandler = async (req, res) => {
   try {
     const { workerId, message, level } = req.body;
     if (!workerId) return res.status(400).json({ message: 'workerId is required' });
-    // The board sends the tier it displayed (yellow | orange | red); the server
+    // The board sends the tier it displayed (green | yellow | orange | red); the server
     // owns the wording. An unknown tier is a client bug, not a silent downgrade.
     if (level != null && !isIdleAlertLevel(level)) {
       return res.status(400).json({ message: 'Unknown idle alert level' });

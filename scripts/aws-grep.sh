@@ -2,7 +2,9 @@
 # Searches every text column of every public table for a needle.
 # The generated query is too long for the shell, so it goes to a file first.
 # Usage: bash -s <needle>
-export PGPASSWORD=ucscompany123
+# The database password is NOT stored here. Set it in the environment first:
+#   export PGPASSWORD='...'        (or: set -a; . /etc/ucs/db.env; set +a)
+: "${PGPASSWORD:?PGPASSWORD must be set; this script no longer hardcodes the database password}"
 NEEDLE="${1:-658418557764}"
 HOST="ucs-crm-db.cv8asue2a57e.ap-south-1.rds.amazonaws.com"
 
