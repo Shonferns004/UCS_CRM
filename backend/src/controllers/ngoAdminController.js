@@ -1847,7 +1847,7 @@ export const getStations = async (req, res) => {
     // Get donor counts per station from fro_assignments (deduplicated by donor_id)
     const { data: faData, error: faErr } = await db
       .from('fro_assignments')
-      .select('donor_id, station, ngo_id, fro_worker_id, assigned_at')
+      .select('donor_id, station, ngo_id, fro_worker_id, assigned_at, batch_type')
       .in('ngo_id', targetNgoIds)
       .not('station', 'is', null)
       .or('status.is.null,status.neq.reassigned')
@@ -1856,9 +1856,11 @@ export const getStations = async (req, res) => {
     if (faErr) throw faErr;
 
     // Build total donor count per station PER NGO and per-FRO count
-    const totalDonorCount = {}; // { station: { ngo_id: count } }
+    const totalDonorCount = {}; // { station: { ngo_id: count } } (excludes high_tier)
+    const highTierDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
     const seen = new Set();
+    const seenHt = new Set();
     for (const d of faData || []) {
       const s = d.station.trim();
       // Dedupe per (station, ngo), NOT on donor_id alone. donor_id is the same
@@ -1873,12 +1875,15 @@ export const getStations = async (req, res) => {
       // Keyed per station the count is exactly "distinct donors assigned here",
       // which is what donors-by-station returns for the same (station, ngo) -
       // so the pill and the list it opens can no longer disagree.
+      const isHighTier = d.batch_type === 'high_tier';
+      const dedupSet = isHighTier ? seenHt : seen;
       const key = `${s}::${d.ngo_id}::${d.donor_id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!totalDonorCount[s]) totalDonorCount[s] = {};
-      totalDonorCount[s][d.ngo_id] = (totalDonorCount[s][d.ngo_id] || 0) + 1;
-      if (d.fro_worker_id) {
+      if (dedupSet.has(key)) continue;
+      dedupSet.add(key);
+      const bucket = isHighTier ? highTierDonorCount : totalDonorCount;
+      if (!bucket[s]) bucket[s] = {};
+      bucket[s][d.ngo_id] = (bucket[s][d.ngo_id] || 0) + 1;
+      if (!isHighTier && d.fro_worker_id) {
         const froKey = `${s}_${d.fro_worker_id}`;
         froDonorCount[froKey] = (froDonorCount[froKey] || 0) + 1;
       }
@@ -1947,7 +1952,8 @@ export const getStations = async (req, res) => {
 
     const result = Object.values(stationMap).map(s => ({
       ...s,
-      donor_count: totalDonorCount[s.station] || {}, // { ngo_id: count }
+      donor_count: totalDonorCount[s.station] || {}, // { ngo_id: count } (excludes high_tier)
+      high_tier_donor_count: highTierDonorCount[s.station] || {}, // { ngo_id: count }
       fro_donor_count: s.fro_worker_id ? (froDonorCount[`${s.station}_${s.fro_worker_id}`] || 0) : 0,
     }));
 
@@ -4490,7 +4496,8 @@ export const masterSearch = async (req, res) => {
         .from('fro_assignments')
         .select('station, id', { count: 'exact', head: false })
         .in('station', stationNames)
-        .or('status.is.null,status.neq.reassigned');
+        .or('status.is.null,status.neq.reassigned')
+        .not('batch_type', 'eq', 'high_tier');
       const countMap = {};
       for (const c of counts || []) {
         countMap[c.station] = (countMap[c.station] || 0) + 1;
@@ -4905,6 +4912,77 @@ export const highTierDistribute = async (req, res) => {
 // batch came from, the target stations it spread into, how many leads, and when
 // it was distributed. Multiple sources can sit in the same target station, so a
 // batch (grouped by high_tier_batch_id) is the unit of restore.
+// Convert a station's (non-high-tier) data into the High Tier bucket WITHOUT
+// moving it. Data stays on the source station; only batch_type flips to
+// 'high_tier', so it no longer mixes into the station's normal donor count
+// and becomes eligible for slice-wise temp access grants.
+export const convertStationToHighTier = async (req, res) => {
+  try {
+    const sourceStation = String(req.params.station || '').trim();
+    const { ngo_id, count } = req.body || {};
+    if (!sourceStation) return res.status(400).json({ message: 'Source station is required' });
+
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO assigned' });
+
+    const scope = resolveStationNgoScope(ngoIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    const scopeNgoIds = scope.ids;
+
+    // Rows eligible: not reassigned, not already high_tier.
+    let limitClause = '';
+    const params = [sourceStation, scopeNgoIds];
+    if (count != null && count !== '' && Number.isFinite(Number(count)) && Number(count) > 0) {
+      limitClause = 'LIMIT $3';
+      params.push(parseInt(count, 10));
+    }
+
+    const client = await db._pool.connect();
+    let converted = 0;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `SELECT id FROM fro_assignments
+          WHERE station = $1
+            AND ngo_id = ANY($2)
+            AND (status IS NULL OR status <> 'reassigned')
+            AND (batch_type IS NULL OR batch_type <> 'high_tier')
+          ORDER BY id ASC
+          ${limitClause}`,
+        params,
+      );
+      const ids = (rows || []).map(r => r.id);
+      if (ids.length > 0) {
+        await client.query(
+          `UPDATE fro_assignments
+              SET batch_type = 'high_tier',
+                  high_tier_source_station = $1,
+                  high_tier_prev_batch_type = COALESCE(batch_type, 'old_data'),
+                  updated_at = now()
+            WHERE id = ANY($2)`,
+          [sourceStation, ids],
+        );
+        converted = ids.length;
+      }
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    bustStationCache();
+    return res.json({
+      message: `Converted ${converted} lead${converted === 1 ? '' : 's'} on ${sourceStation} to High Tier.`,
+      converted,
+      station: sourceStation,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getHighTierBatches = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
@@ -4921,14 +4999,14 @@ export const getHighTierBatches = async (req, res) => {
     // type from the ngo_id column, so this stays correct whether the id is uuid
     // or integer (ngo_id is uuid here — different tables in this codebase vary).
     const { rows } = await db._pool.query(
-      `SELECT high_tier_batch_id AS batch_id,
-              high_tier_source_station AS source_station,
+      `SELECT COALESCE(high_tier_batch_id::text, 'temp-access') AS batch_id,
+              COALESCE(high_tier_source_station, station) AS source_station,
               ngo_id,
-              station,
+              COALESCE(target_station, station) AS station,
               high_tier_distributed_at AS distributed_at,
               COUNT(*)::int AS count
          FROM fro_assignments
-        WHERE high_tier_batch_id IS NOT NULL
+        WHERE batch_type = 'high_tier'
           AND status IS DISTINCT FROM 'reassigned'
           AND ngo_id = ANY($1)
         GROUP BY 1, 2, 3, 4, 5
@@ -4972,12 +5050,12 @@ export const getHighTierBatches = async (req, res) => {
     try {
       const collectedRows = await sql(
         `SELECT a.high_tier_batch_id AS batch_id,
-                a.station AS station,
+                COALESCE(a.target_station, a.station) AS station,
                 COALESCE(SUM(r.amount), 0) AS amount
            FROM receipts r
            JOIN fro_donor_logs l ON l.id = r.log_id
            JOIN fro_assignments a ON a.id = l.assignment_id
-          WHERE a.high_tier_batch_id IS NOT NULL
+          WHERE a.batch_type = 'high_tier'
             AND a.status IS DISTINCT FROM 'reassigned'
             AND a.ngo_id = ANY($1)
             AND ${HIGH_TIER_LOG_PREDICATE('l', 'a')}

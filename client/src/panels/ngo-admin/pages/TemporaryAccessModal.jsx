@@ -154,7 +154,11 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
   const [startsLocal, setStartsLocal] = useState(defaultStart);
   const [expiresLocal, setExpiresLocal] = useState(defaultExpiry);
   const [scopeType, setScopeType] = useState('STATION_ALL');
+  const [allowedCount, setAllowedCount] = useState('');
   const [hasHighTier, setHasHighTier] = useState(false);
+  const [convertCount, setConvertCount] = useState('');
+  const [converting, setConverting] = useState(false);
+  const [convertMsg, setConvertMsg] = useState(null);
   const [froPickerOpen, setFroPickerOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [warnings, setWarnings] = useState(null);
@@ -283,6 +287,7 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
         scope_type: scopeType,
         reason_code: 'STAFF_ABSENCE',
         reason_note: null,
+        allowed_count: (scopeType === 'STATION_HIGH_TIER' && allowedCount !== '') ? Number(allowedCount) : null,
       });
       let revokeFailures = [];
       if (alsoRevoke && otherLiveGrants.length > 0) {
@@ -470,6 +475,22 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
               </div>
             </div>
           )}
+          {scopeType === 'STATION_HIGH_TIER' && (
+            <div>
+              <label style={labelStyle}>Slice size (optional — leave blank for all high-tier rows on this station)</label>
+              <input
+                type="number"
+                min="1"
+                value={allowedCount}
+                onChange={e => setAllowedCount(e.target.value)}
+                placeholder="e.g. 70"
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 13 }}
+              />
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+                Auto-offset: slices are assigned in order (first grant takes rows 1–N, next grant N+1–…). Max = available high-tier rows on this station.
+              </div>
+            </div>
+          )}
           {!hasHighTier && (
             <div style={{ fontSize: 12, color: 'var(--ink-soft)', background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, padding: '8px 10px' }}>
               <b>Scope:</b> Entire station (all donors) — this station has no high-tier data.
@@ -493,6 +514,45 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
               {error}
             </div>
           )}
+        </div>
+
+        {/* ── Convert station data to High Tier (without moving) ── */}
+        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line, #e5e7eb)', background: '#f8fafc' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>Convert station data to High Tier (data stays on this station)</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="number"
+              min="1"
+              value={convertCount}
+              onChange={e => setConvertCount(e.target.value)}
+              placeholder="rows (blank = all)"
+              style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12 }}
+            />
+            <button
+              className="btn btn-sm"
+              disabled={converting}
+              onClick={async () => {
+                setConverting(true);
+                setConvertMsg(null);
+                try {
+                  const { apiPost } = await import('../api/auth.js');
+                  const res = await apiPost(`/ngo-admin/stations/${encodeURIComponent(target.station)}/convert-to-high-tier`, {
+                    ngo_id: target.ngoId,
+                    count: convertCount.trim() === '' ? null : Number(convertCount),
+                  });
+                  setConvertMsg(res?.message || 'Done');
+                } catch (e) {
+                  setConvertMsg(e?.message || 'Failed');
+                } finally {
+                  setConverting(false);
+                }
+              }}
+              style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600 }}
+            >
+              {converting ? 'Converting…' : 'Convert'}
+            </button>
+          </div>
+          {convertMsg && <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 4 }}>{convertMsg}</div>}
         </div>
 
         <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: '1px solid var(--line, #e5e7eb)' }}>

@@ -53,7 +53,8 @@ export async function getActiveGrants(workerId) {
   if (rows === undefined) {
     try {
       const { rows: dbRows, error } = await db._pool.query(
-        `SELECT id, ngo_id, station, scope_type, starts_at, expires_at, status
+        `SELECT id, ngo_id, station, scope_type, starts_at, expires_at, status,
+            allowed_count, allowed_offset
            FROM temporary_data_assignments
           WHERE working_fro_worker_id = $1
             AND status IN ('SCHEDULED', 'ACTIVE')`,
@@ -78,6 +79,39 @@ export async function getActiveGrants(workerId) {
 export async function getActiveGrantPairs(workerId) {
   const grants = await getActiveGrants(workerId);
   return grants.map(g => ({ station: String(g.station).trim(), ngo_id: g.ngo_id }));
+}
+
+/**
+ * For a temp grant with slice control (allowed_count set), return the list of
+ * fro_assignments.id that this grantee may work. null = no restriction (all
+ * rows on that station+tier). Cached per grant id.
+ */
+const SLICE_CACHE_PREFIX = 'tda:slice:';
+const SLICE_CACHE_TTL_MS = 15 * 1000;
+export async function getAllowedAssignmentIds(grant) {
+  if (!grant || grant.allowed_count == null) return null;
+  const cacheKey = `${SLICE_CACHE_PREFIX}${grant.id}`;
+  let ids = cacheGet(cacheKey, SLICE_CACHE_TTL_MS);
+  if (ids === undefined) {
+    try {
+      const { rows, error } = await db._pool.query(
+        `SELECT id FROM fro_assignments
+          WHERE station = $1
+            AND batch_type = 'high_tier'
+            AND (status IS NULL OR status <> 'reassigned')
+          ORDER BY id ASC
+          LIMIT $2 OFFSET $3`,
+        [grant.station, grant.allowed_count, grant.allowed_offset || 0],
+      );
+      if (error) throw new Error(error.message);
+      ids = (rows || []).map(r => r.id);
+      cacheSet(cacheKey, ids);
+    } catch (e) {
+      console.warn('[temp access] slice lookup failed:', e?.message || String(e));
+      return [];
+    }
+  }
+  return ids;
 }
 
 /** Call after any grant create/extend/revoke so the worker's next request re-reads. */

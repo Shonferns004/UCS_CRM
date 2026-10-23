@@ -47,6 +47,7 @@ import {
   resolveDataRequest,
   transferStationData,
   highTierDistribute,
+  convertStationToHighTier,
   getHighTierBatches,
   highTierRestore,
   highTierMove,
@@ -202,6 +203,7 @@ router.post('/stations/:station/transfer-data', transferStationData);
 // High Tier: move a station's whole allotment into the High Tier bucket and
 // split it across target stations in one shot. Admin-only (mutates allotments).
 router.post('/stations/:station/high-tier-distribute', authenticateRole('admin', 'super_admin'), highTierDistribute);
+router.post('/stations/:station/convert-to-high-tier', authenticateRole('admin', 'super_admin'), convertStationToHighTier);
 // Live High Tier batches (grouped by source) and bringing a whole batch back to
 // its source station. Read is admin-visible; restore mutates allotments.
 router.get('/high-tier-batches', authenticateRole('admin', 'super_admin'), getHighTierBatches);
