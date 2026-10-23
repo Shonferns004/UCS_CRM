@@ -21,6 +21,7 @@ Names only. Values are deliberately not reproduced in this document.
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID` | Cloud API | Send messages as the business |
 | `WHATSAPP_VERIFY_TOKEN` | webhook verification | Spoof inbound webhooks |
 | `RDS_INSTANCE_IDENTIFIER`, `AWS_REGION` | database location | Reconnaissance |
+| `DB_TUNNEL_PGUSER`, `DB_TUNNEL_PGPASSWORD` | credentials for the SSH tunnel to RDS | **Total** — direct production database access |
 | `HEAD_AWS_ACCESS_KEY_ID`, `HEAD_AWS_SECRET_ACCESS_KEY` | upstream AWS | AWS account compromise |
 | `UPSTREAM_AWS_ACCESS_KEY_ID`, `UPSTREAM_AWS_SECRET_ACCESS_KEY` | upstream AWS | AWS account compromise |
 | `LOCAL_DB_ACCESS`, `LOCAL_DB_ACCESS_RULE_TTL_HOURS` | temporary DB ingress | Direct database access |

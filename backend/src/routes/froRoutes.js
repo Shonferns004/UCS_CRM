@@ -20,6 +20,7 @@ import {
   scheduleContact,
   uploadPaymentScreenshot,
   getMyStations,
+  getDataVisibility,
   getFroScheduled,
   getFroCallbacks,
   getFroPromises,
@@ -104,6 +105,9 @@ router.post('/status/resume-self', authenticate, resumeOwnPause);
 router.use(requireFro);
 
 router.get('/my-stations', getMyStations);
+// State of the admin's "Hide Old Donors" switch, so the FRO panel can explain
+// why the old stations' leads are missing. Carries no donor data.
+router.get('/data-visibility', getDataVisibility);
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/donors', getDonorSplitList);
 router.get('/allotment-summary', getMyAllotmentSummary);

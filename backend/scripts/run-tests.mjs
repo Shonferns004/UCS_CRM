@@ -30,7 +30,7 @@ const env = { ...process.env, DATABASE_URL: await viaTunnelIfUp(testUrl), NODE_E
 
 const child = spawn(
   process.execPath,
-  ['--test', '--test-force-exit', 'src/**/*.test.js'],
+  ['--test', '--test-force-exit', 'src/**/*.test.js', 'scripts/**/*.test.js'],
   { cwd: BACKEND_DIR, env, stdio: 'inherit' }
 );
 

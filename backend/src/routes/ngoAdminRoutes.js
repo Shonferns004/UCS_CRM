@@ -11,6 +11,10 @@ import {
   getDonorTransactions,
 } from '../controllers/ngoAdminController.js';
 import {
+  getHideOldDonors,
+  setHideOldDonors,
+} from '../controllers/oldDonorVisibilityController.js';
+import {
   getFroWorkers,
   getAccessibleNgos,
   getAssignments,
@@ -151,6 +155,16 @@ router.post('/stations/:station/add-donor', authenticateRole('admin', 'super_adm
 router.get('/fro-daily-stats', authenticateRole('admin', 'super_admin', 'hr'), getFroDailyStats);
 
 router.use(authenticateRole('admin', 'super_admin'));
+
+// ─── Hide Old Donors ─────────────────────────────────────────────────────────
+// Admin switch on the Station Management page. When ON, the field teams see
+// only the new (FD-*) stations: the old station's donors, follow-ups and
+// history are hidden from them. When OFF everything is visible again.
+//
+// Registered BELOW the admin-only wall on purpose - flipping it changes what
+// every FRO in the system can work on.
+router.get('/hide-old-donors', getHideOldDonors);
+router.put('/hide-old-donors', setHideOldDonors);
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);

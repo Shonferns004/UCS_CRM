@@ -121,6 +121,44 @@ const RULES = [
     group: 1,
   },
   {
+    id: 'SN-12',
+    name: 'Credential in an environment-variable assignment',
+    // SN-09 needs a word boundary before the keyword. In PGPASSWORD=,
+    // db_password= or JWT_SECRET= there is no boundary to anchor to: the
+    // underscore and the capital run are word characters, so \b never fires
+    // between them. That is how the RDS password sat in
+    // scripts/run-backend-tunnel.mjs while the scanner ran clean -- the
+    // keyword was there, but in a spelling the rule could not reach.
+    //
+    // This rule anchors on the suffix instead, and requires the assignment to
+    // carry a quoted literal, so ordinary `process.env.X` reads are untouched.
+    //
+    // The keyword must END the identifier, immediately before the `=` or `:`.
+    // That is what separates a credential (PGPASSWORD=, JWT_SECRET=) from a
+    // name that merely mentions one (SECRET_NAME: "ucs-crm/rds-password" --
+    // a Secrets Manager path, not a secret).
+    //
+    // The prefix is required to be non-empty, which makes this rule
+    // complementary to SN-09 rather than a duplicate of it: SN-09 catches the
+    // bare keyword (`password: 'x'`), SN-12 catches only the prefixed spelling
+    // (`PGPASSWORD: 'x'`), which is exactly the one SN-09's word boundary
+    // cannot reach.
+    re: /\b[A-Za-z0-9_]+(?:PASSWORD|PASSWD|SECRET|API_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|TOKEN|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL)\s*[:=]\s*['"]([^'"\s${}]{6,})['"]/gi,
+    group: 1,
+  },
+  {
+    id: 'SN-13',
+    name: 'Unquoted credential assignment (shell / dotenv style)',
+    // SN-12 needs quotes around the value, so `export PGPASSWORD=...` in a
+    // shell script was invisible to it — and those scripts run against the
+    // production RDS instance. The value must be a bare alphanumeric literal
+    // at end of line, which excludes expression forms such as
+    // `PGPASSWORD=creds.password` and `PGPASSWORD=${VAR}` while still catching
+    // a real password paste.
+    re: /^[ \t]*(?:export[ \t]+)?[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|API_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|TOKEN|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL)[ \t]*=[ \t]*([A-Za-z0-9]{8,})[ \t]*$/gim,
+    group: 1,
+  },
+  {
     id: 'SN-10',
     name: 'Indian PAN number in source',
     re: /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g,
@@ -177,6 +215,15 @@ const ALLOW_EXACT = new Set([
   // Sevak Library Gmail app password (library.sevak@gmail.com), hardcoded per
   // project directive — see backend/src/sevakLibrary/services/email.service.js
   'rxfbyualivpoayeo',
+  // Android broadcast identifiers in apps/lockbox. The constant names end in
+  // SECRET and so look like credentials to SN-12, but the values are the names
+  // of intents the app sends to itself — not secrets.
+  'secretCodeUsed',
+  'fromSecretCode',
+  // Throwaway JWT signing key for the local realtime e2e probe
+  // (client/realtime-e2e.probe.mjs). It signs requests against a local
+  // backend only and is not a credential for anything reachable.
+  'probe-secret',
 ])
 
 /** Extension allow-list. Binary and lock files are not text-scanned. */
@@ -313,6 +360,14 @@ function scan() {
 
   const findings = []
 
+  // One credential is one finding. Several rules can legitimately match the
+  // same bytes (an EAA token matches both SN-02 and SN-13; a quoted literal
+  // matches SN-09 and SN-12), and reporting it twice trains people to skim the
+  // output. Keyed on the file, line and the raw value -- not the redacted
+  // display copy, so two different secrets that happen to redact alike are
+  // still reported separately.
+  const seen = new Set()
+
   // Generic rules.
   for (const rel of candidates) {
     const abs = join(root, ...rel.split('/'))
@@ -346,6 +401,10 @@ function scan() {
         if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*')) continue
         // Already-redacted samples such as *** or ••••••
         if (isPlaceholder(m[rule.group] ?? m[0])) continue
+
+        const dedupeKey = `${rel}\u0000${lineNo}\u0000${value}`
+        if (seen.has(dedupeKey)) continue
+        seen.add(dedupeKey)
 
         findings.push({
           rule: rule.id,
@@ -441,4 +500,15 @@ function main() {
   return 1
 }
 
-process.exit(main())
+// Run the scan only when this file is executed directly. Importing it — a test
+// asserting the rules catch what they must — must not start a scan or exit the
+// process.
+if (resolve(process.argv[1] || '').replace(/\\/g, '/') === SELF) {
+  process.exit(main())
+}
+
+// Exported so the rule set can be regression-tested: the SN-12 rule exists
+// because a credential in an env-var-shaped assignment (PGPASSWORD=) slipped
+// past the scanner, and a test is the only way to keep it from slipping past
+// again.
+export { RULES, isPlaceholder }

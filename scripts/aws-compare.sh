@@ -1,7 +1,9 @@
 #!/bin/bash
 # Runs on the EC2 box against the AWS RDS production database.
 # Prints one line per public table:  table|exact_row_count
-export PGPASSWORD=ucscompany123
+# The database password is NOT stored here. Set it in the environment first:
+#   export PGPASSWORD='...'        (or: set -a; . /etc/ucs/db.env; set +a)
+: "${PGPASSWORD:?PGPASSWORD must be set; this script no longer hardcodes the database password}"
 PSQL="psql -h ucs-crm-db.cv8asue2a57e.ap-south-1.rds.amazonaws.com -p 5432 -U ucs_admin -d postgres -t -A -F |"
 
 # Build one UNION ALL query that counts every public table exactly.

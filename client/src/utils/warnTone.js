@@ -1,23 +1,20 @@
 // Escalation colours for the admin's "Warn" button on the Telecaller
-// Performance board.
+// Performance board and FRO idle strips.
 //
-// The button appears once a telecaller has been idle for an hour and then
-// escalates as the silence grows: yellow after an hour (a nudge), orange
-// after an hour and a half (a warning), red at two hours (urgent). Before
-// this, every idle telecaller past the hour got the same red button, so a
-// one-hour nudge looked identical to a three-hour outage.
-//
-// Kept in one module so the thresholds, the palette and the unit test can
-// never drift apart. Yellow carries dark text because white on yellow is
-// unreadable at the 9px this button renders at.
+// 1:00-1:40 -> green
+// 1:41-2:10 -> orange
+// 2:11+     -> red
 export const WARN_AFTER_SECONDS = 3600;
-export const WARN_ORANGE_AFTER_SECONDS = 5400;
-export const WARN_RED_AFTER_SECONDS = 7200;
+export const WARN_GREEN_MAX_SECONDS = 6000;   // 1h 40m
+export const WARN_ORANGE_AFTER_SECONDS = 6060; // 1h 41m
+export const WARN_ORANGE_MAX_SECONDS = 7800;  // 2h 10m
+export const WARN_RED_AFTER_SECONDS = 7810;    // 2h 11m
 
 export const WARN_TONES = {
   // `soft`/`ink` are the FRO-side modal's badge palette: same tier, a tint the
   // body text can sit on. The button itself uses bg/border/fg only.
-  yellow: { bg: '#facc15', border: '#eab308', fg: '#713f12', soft: '#fefce8', ink: '#713f12', label: 'heads-up' },
+  green: { bg: '#22c55e', border: '#16a34a', fg: '#ffffff', soft: '#f0fdf4', ink: '#166534', label: 'idle' },
+  yellow: { bg: '#22c55e', border: '#16a34a', fg: '#ffffff', soft: '#f0fdf4', ink: '#166534', label: 'idle' },
   orange: { bg: '#f97316', border: '#ea580c', fg: '#ffffff', soft: '#fff7ed', ink: '#9a3412', label: 'warning' },
   red: { bg: '#dc2626', border: '#b91c1c', fg: '#ffffff', soft: '#fef2f2', ink: '#b91c1c', label: 'urgent' },
 };
@@ -30,15 +27,22 @@ export const WARN_NEUTRAL = {
 };
 
 // Returns the tone for an idle stretch in seconds, or null while the button
-// should stay hidden (the hour has not been reached yet). The appearance
-// rule is unchanged from the original button: it shows only once idle is
-// strictly past an hour.
+// should stay hidden (the hour has not been reached yet).
+// 1:00-1:40 -> green, 1:41-2:10 -> orange, 2:11+ -> red
 export function warnToneFor(idleSeconds) {
   const s = Number(idleSeconds) || 0;
   if (s >= WARN_RED_AFTER_SECONDS) return { level: 'red', ...WARN_TONES.red };
   if (s >= WARN_ORANGE_AFTER_SECONDS) return { level: 'orange', ...WARN_TONES.orange };
-  if (s > WARN_AFTER_SECONDS) return { level: 'yellow', ...WARN_TONES.yellow };
+  if (s > WARN_AFTER_SECONDS) return { level: 'green', ...WARN_TONES.green };
   return null;
+}
+
+export function idleColorFor(idleSeconds) {
+  const s = Number(idleSeconds) || 0;
+  if (s >= WARN_RED_AFTER_SECONDS) return { color: '#dc2626', bg: 'rgba(220,38,38,.12)', border: '#fecaca', level: 'red' };
+  if (s >= WARN_ORANGE_AFTER_SECONDS) return { color: '#ea580c', bg: 'rgba(249,115,22,.12)', border: '#fdba74', level: 'orange' };
+  if (s > WARN_AFTER_SECONDS) return { color: '#16a34a', bg: 'rgba(34,197,94,.12)', border: '#86efac', level: 'green' };
+  return { color: 'var(--ink-soft)', bg: 'transparent', border: 'transparent', level: null };
 }
 
 export default warnToneFor;
