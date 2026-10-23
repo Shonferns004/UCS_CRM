@@ -18,13 +18,21 @@ function getToken() {
 
 function getWsUrl() {
   const override = import.meta.env.VITE_WS_URL
-  if (override) return override
-  const base = import.meta.env.VITE_SOCKET_URL || API_BASE.replace(/\/api\/?$/, '')
+  const wsPort = import.meta.env.VITE_WS_PORT || '5001'
+  // Never let a localhost override leak to remote clients: if the configured
+  // URL points at localhost but the page is served from another host, derive
+  // the WebSocket URL from the current host instead.
+  if (override && !( /localhost|127\.0\.0\.1/.test(override) && typeof window !== 'undefined' && window.location && !/localhost|127\.0\.0\.1/.test(window.location.hostname) )) {
+    return override
+  }
+  const base = import.meta.env.VITE_SOCKET_URL || (API_BASE ? API_BASE.replace(/\/api\/?$/, '') : '')
   try {
-    const u = new URL(base)
+    const u = new URL(base || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000'))
     const proto = u.protocol === 'https:' ? 'wss:' : 'ws:'
-    const port = import.meta.env.VITE_WS_PORT || '5001'
-    return `${proto}//${u.hostname}:${port}`
+    const host = (typeof window !== 'undefined' && window.location && !/localhost|127\.0\.0\.1/.test(window.location.hostname))
+      ? window.location.hostname
+      : u.hostname
+    return `${proto}//${host}:${wsPort}`
   } catch {
     return 'ws://localhost:5001'
   }
@@ -49,7 +57,7 @@ function dispatch(type, payload) {
 function scheduleAuthRetry() {
   if (authRetryTimer) return
   if (!getToken()) return
-  if (authRetries >= 20) return
+  // Keep retrying indefinitely; cap the delay instead of giving up after 20 tries.
   const base = Math.min(1000 * 2 ** authRetries, 10000)
   const jitter = Math.random() * base * 0.3
   const delay = base + jitter
@@ -66,8 +74,10 @@ function connect() {
   if (currentSocket && (currentSocket.readyState === WebSocket.CONNECTING || currentSocket.readyState === WebSocket.OPEN)) {
     return shim
   }
+  const url = getWsUrl()
+  console.info('[ws] connecting to', url)
   let s
-  try { s = new WebSocket(getWsUrl()) } catch (e) {
+  try { s = new WebSocket(url) } catch (e) {
     console.warn('[ws] construct failed:', e?.message || e)
     scheduleAuthRetry()
     return shim
@@ -75,6 +85,7 @@ function connect() {
   currentSocket = s
 
   s.onopen = () => {
+    console.info('[ws] open')
     const token = getToken()
     if (token) {
       try { s.send(JSON.stringify({ type: 'auth', payload: { token } })) } catch { /* ignore */ }
@@ -87,6 +98,7 @@ function connect() {
     try { msg = JSON.parse(ev.data) } catch { return }
     if (!msg || typeof msg.type !== 'string') return
     if (msg.type === 'auth:ok') {
+      console.info('[ws] authenticated')
       connected = true
       authRetries = 0
       if (authRetryTimer) { clearTimeout(authRetryTimer); authRetryTimer = null }
@@ -94,6 +106,7 @@ function connect() {
       return
     }
     if (msg.type === 'auth:error') {
+      console.warn('[ws] auth error (token invalid/expired)')
       connected = false
       try { s.close() } catch { /* ignore */ }
       return
@@ -101,7 +114,8 @@ function connect() {
     if (msg.type === 'pong') return
     dispatch(msg.type, msg.payload)
   }
-  s.onclose = () => {
+  s.onclose = (ev) => {
+    console.info('[ws] closed', ev?.code, ev?.reason || '')
     if (currentSocket !== s) return
     currentSocket = null
     const wasConnected = connected
