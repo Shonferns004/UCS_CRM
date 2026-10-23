@@ -35,6 +35,8 @@ export default function AllBeneficiaries() {
   const [statusFilter, setStatusFilter] = useState('')
   const [eventFilter, setEventFilter] = useState('')
   const [events, setEvents] = useState([])
+  const [jsonFile, setJsonFile] = useState(null)
+const [uploading, setUploading] = useState(false)
   const [page, setPage] = useState(1)
   const [exporting, setExporting] = useState(false)
   const pageSize = 25
@@ -158,6 +160,52 @@ export default function AllBeneficiaries() {
       setExporting(false)
     }
   }
+  const handleUploadJson = async () => {
+  if (!jsonFile) {
+    alert('Please select a JSON backup file.')
+    return
+  }
+
+  setUploading(true)
+
+  try {
+    const text = await jsonFile.text()
+    const jsonData = JSON.parse(text)
+
+    if (!Array.isArray(jsonData.data)) {
+      throw new Error('Invalid JSON backup format.')
+    }
+
+    if (jsonData.data.length === 0) {
+      throw new Error('No beneficiary records found.')
+    }
+
+    const confirmed = window.confirm(
+      `Found ${jsonData.data.length} beneficiaries.\n` +
+      'Do you want to import this backup?'
+    )
+
+    if (!confirmed) return
+
+    const result = await apiPost(
+      '/beneficiaries/upload',
+      jsonData
+    )
+
+    alert(result.message || 'Import completed successfully.')
+
+    setJsonFile(null)
+    setPage(1)
+    setSelected(new Set())
+
+    await loadData()
+  } catch (e) {
+    console.error('JSON upload error:', e)
+    alert('Upload failed: ' + (e.message || 'Unknown error'))
+  } finally {
+    setUploading(false)
+  }
+}
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -186,6 +234,32 @@ export default function AllBeneficiaries() {
           >
             {exporting ? 'Downloading...' : 'Download JSON (full data)'}
           </button>
+          <input
+  type="file"
+  accept=".json,application/json"
+  onChange={(e) =>
+    setJsonFile(e.target.files?.[0] || null)
+  }
+  disabled={uploading}
+  style={{
+    ...styles.input,
+    width: '190px',
+    minWidth: '150px',
+  }}
+/>
+
+<button
+  onClick={handleUploadJson}
+  disabled={uploading || !jsonFile}
+  style={{
+    ...styles.btn,
+    background: '#7c3aed',
+    color: '#fff',
+    opacity: uploading || !jsonFile ? 0.6 : 1,
+  }}
+>
+  {uploading ? 'Uploading...' : 'Upload JSON'}
+</button>
           <button
             onClick={() => navigate(base + '/import')}
             style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}

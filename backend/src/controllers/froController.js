@@ -3006,6 +3006,27 @@ export const getMyDonors = async (req, res) => {
         return true;
       });
     }
+    // Slice control: if a temp grant has allowed_count set, restrict that
+    // station's rows to the granted slice (auto-offset window).
+    try {
+      const { getActiveGrants, getAllowedAssignmentIds } = await import('../services/temporaryAccessService.js');
+      const grants = await getActiveGrants(workerId);
+      const sliceAllowedByStation = {};
+      for (const g of grants || []) {
+        if (g.allowed_count == null) continue;
+        const ids = await getAllowedAssignmentIds(g);
+        sliceAllowedByStation[String(g.station).trim()] = new Set(ids || []);
+      }
+      if (Object.keys(sliceAllowedByStation).length > 0) {
+        assignments = assignments.filter(a => {
+          const allowed = sliceAllowedByStation[String(a.station).trim()];
+          if (!allowed) return true;
+          return allowed.has(a.id);
+        });
+      }
+    } catch (e) {
+      console.warn('[temp access] slice filter skipped:', e?.message || String(e));
+    }
       // Reflects the whole allotment in this scope, not just the tab being asked
       // for: high-tier rows are present in `data` regardless of new/old filters
       // (those are applied in memory just below).
@@ -4730,6 +4751,8 @@ export const getMyStations = async (req, res) => {
               via_temporary_access: true,
               temp_grant_id: p.id,
               temp_expires_at: p.expires_at,
+              temp_allowed_count: p.allowed_count,
+              temp_allowed_offset: p.allowed_offset,
             });
           }
           mapped.sort((a, b) => String(a.station).localeCompare(String(b.station)));

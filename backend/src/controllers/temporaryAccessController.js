@@ -77,6 +77,7 @@ export function deriveStatus(row, now = Date.now()) {
 
 const ASSIGN_COLS = `id, ngo_id, station, working_fro_worker_id, granted_by_admin_id,
   scope_type, starts_at, expires_at, status, reason_code, reason_note,
+  allowed_count, allowed_offset,
   created_at, updated_at, revoked_at, revoked_by_admin_id, revocation_reason`;
 
 // The new tables carry NO FKs (mirroring work_as_sessions — admin ids span two
@@ -209,6 +210,7 @@ export async function createTemporaryAccess(req, res) {
     const {
       ngo_id, station, working_fro_worker_id, starts_at, expires_at,
       reason_code, reason_note, scope_type = 'STATION_ALL',
+      allowed_count,
     } = req.body || {};
 
     // ── validation ──
@@ -227,6 +229,17 @@ export async function createTemporaryAccess(req, res) {
     }
     if (scope_type === 'SELECTED_DONORS') {
       return badRequest(res, 'scope_type SELECTED_DONORS is not yet supported; use STATION_ALL, STATION_HIGH_TIER, or STATION_NORMAL', 'SCOPE_UNSUPPORTED');
+    }
+    // Slice control: allowed_count limits how many of the station's high-tier
+    // rows this grantee may work. Auto-offset is computed later (sum of
+    // existing active grants' counts on this station) so slices don't overlap.
+    let allowedCount = null;
+    if (allowed_count != null && allowed_count !== '') {
+      const n = parseInt(allowed_count, 10);
+      if (!Number.isFinite(n) || n < 1) {
+        return badRequest(res, 'allowed_count must be a positive integer', 'BAD_SLICE');
+      }
+      allowedCount = n;
     }
     const start = new Date(starts_at);
     const expiry = new Date(expires_at);
@@ -342,6 +355,35 @@ export async function createTemporaryAccess(req, res) {
       expires_at: o.expires_at,
     }));
 
+    // Slice control: compute auto-offset and validate allowed_count against the
+    // station's available high-tier rows (only meaningful for STATION_HIGH_TIER).
+    let allowedOffset = 0;
+    if (allowedCount != null) {
+      // total high-tier rows on this station
+      const { rows: cntRows } = await db._pool.query(
+        `SELECT count(*)::int AS c FROM fro_assignments
+          WHERE station = $1 AND batch_type = 'high_tier'
+            AND (status IS NULL OR status <> 'reassigned')`,
+        [station],
+      );
+      const total = cntRows?.[0]?.c || 0;
+      if (allowedCount > total) {
+        return badRequest(res, `allowed_count ${allowedCount} exceeds available high-tier rows (${total}) on ${station}`, 'SLICE_TOO_LARGE');
+      }
+      // auto-offset = sum of existing active grants' allowed_count on this station
+      const { rows: offRows } = await db._pool.query(
+        `SELECT COALESCE(SUM(allowed_count), 0)::int AS off
+           FROM temporary_data_assignments
+          WHERE station = $1 AND status IN ('SCHEDULED','ACTIVE')
+            AND allowed_count IS NOT NULL`,
+        [station],
+      );
+      allowedOffset = offRows?.[0]?.off || 0;
+      if (allowedOffset + allowedCount > total) {
+        return badRequest(res, `Slice exceeds available rows: offset ${allowedOffset} + ${allowedCount} > ${total}`, 'SLICE_OVERFLOW');
+      }
+    }
+
     // ── insert + audit in one transaction ──
     const adminId = req.user?.id || null;
     const adminRole = req.user?.role || null;
@@ -349,14 +391,16 @@ export async function createTemporaryAccess(req, res) {
       const { rows, error } = await db._pool.query(
         `INSERT INTO temporary_data_assignments
            (ngo_id, station, working_fro_worker_id, granted_by_admin_id,
-            scope_type, starts_at, expires_at, status, reason_code, reason_note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            scope_type, starts_at, expires_at, status, reason_code, reason_note,
+            allowed_count, allowed_offset)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING ${ASSIGN_COLS.split(',').map(c => c.trim()).join(', ')}`,
         [
           ngo_id, station, working_fro_worker_id, adminId,
           scope_type, start.toISOString(), expiry.toISOString(),
           start.getTime() > Date.now() ? 'SCHEDULED' : 'ACTIVE',
           reason_code, String(reason_note || '').trim() || null,
+          allowedCount, allowedOffset,
         ],
       );
       if (error) throw error;
@@ -375,6 +419,38 @@ export async function createTemporaryAccess(req, res) {
       });
       return row;
     });
+
+    // Slice: stamp target_station on the granted slice so collection reports
+    // can attribute money to the FRO's own station (preserves per-target
+    // breakdown) while the data physically stays on the source station.
+    if (allowedCount != null) {
+      try {
+        const { rows: froStations } = await db._pool.query(
+          `SELECT station FROM fro_station_assignments
+            WHERE fro_worker_id = $1 ORDER BY station ASC LIMIT 1`,
+          [working_fro_worker_id],
+        );
+        const targetStation = froStations?.[0]?.station || null;
+        if (targetStation) {
+          await db._pool.query(
+            `UPDATE fro_assignments
+                SET target_station = $1, updated_at = now()
+              WHERE id IN (
+                SELECT id FROM fro_assignments
+                 WHERE station = $2
+                   AND batch_type = 'high_tier'
+                   AND (status IS NULL OR status <> 'reassigned')
+                   AND target_station IS NULL
+                 ORDER BY id ASC
+                 LIMIT $3 OFFSET $4
+              )`,
+            [targetStation, station, allowedCount, allowedOffset],
+          );
+        }
+      } catch (e) {
+        console.warn('[temp access] target_station stamp failed:', e?.message || String(e));
+      }
+    }
 
     // The working FRO's donor list/station caches may now include the new
     // scope — drop them so the very next request reflects the grant (the
@@ -414,14 +490,16 @@ export async function createTemporaryAccess(req, res) {
         const { rows, error: retryErr } = await db._pool.query(
           `INSERT INTO temporary_data_assignments
              (ngo_id, station, working_fro_worker_id, granted_by_admin_id,
-              scope_type, starts_at, expires_at, status, reason_code, reason_note)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+              scope_type, starts_at, expires_at, status, reason_code, reason_note,
+              allowed_count, allowed_offset)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING ${ASSIGN_COLS.split(',').map(c => c.trim()).join(', ')}`,
           [
             ngo_id, station, working_fro_worker_id, adminId,
             scope_type, start.toISOString(), expiry.toISOString(),
             start.getTime() > Date.now() ? 'SCHEDULED' : 'ACTIVE',
             reason_code, String(reason_note || '').trim() || null,
+            allowedCount, allowedOffset,
           ],
         );
         if (retryErr) throw retryErr;
