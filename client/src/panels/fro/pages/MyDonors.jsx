@@ -703,6 +703,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     // deleting them, so the list can show everything behind the "Show
     // suppressed" toggle and reconcile with the allotment count.
     opts.includeSuppressed = true;
+    opts.limit = 1000;
     if (station && station !== 'all') opts.station = station;
     if (selectedNgo) opts.ngoId = selectedNgo;
     return opts;
@@ -1478,6 +1479,13 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     if (backendSearchTimerRef.current) { clearTimeout(backendSearchTimerRef.current); backendSearchTimerRef.current = null; }
     const term = q.trim();
     latestSearchRef.current = term;
+    // High Tier keeps its full batch loaded, so search is handled locally
+    // (visibleForLeads) — no backend disposed search, which would hide pending
+    // high-tier leads and make search look broken.
+    if (dataTab === 'high_tier') {
+      setDisposedResults([]);
+      return;
+    }
     // Every backend search is expensive: the handler materialises every in-scope
     // donor id, then runs a leading-wildcard ILIKE across it. Typing a 10-digit
     // number one key at a time used to fire roughly one such query per keystroke,
@@ -1669,7 +1677,18 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     const isOverdueTab = listView === 'overdue';
     const overdueList = overdueLeads.filter(d => inActiveBucket(d, dataTab));
     // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
-    const searching = listView === 'leads' && searchQuery.trim().length >= 2;
+    const searching = listView === 'leads' && searchQuery.trim().length >= 2 && dataTab !== 'high_tier';
+    // High Tier holds the whole (already-worked + pending) batch in `donors`, so
+    // search filters that loaded list locally instead of swapping to the backend's
+    // disposed-only search (which would hide pending high-tier leads and make
+    // search appear broken).
+    const highTierSearching = listView === 'leads' && dataTab === 'high_tier' && searchQuery.trim().length >= 2;
+    const visibleForLeads = highTierSearching ? visible.filter(d => {
+      const q = searchQuery.trim().toLowerCase();
+      return (d.donor_name || '').toLowerCase().includes(q)
+        || (d.donor_mobile || '').includes(q)
+        || (d.station || '').toLowerCase().includes(q);
+    }) : visible;
     const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
     const historyFiltered = isHistory ? historyScoped.filter(d => {
       const q = searchQuery.trim().toLowerCase();
@@ -1702,17 +1721,17 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       ...r,
       id: r.donor_id,
       is_disposed: true,
-    })) : isOverdueTab ? overdueFiltered : isFollowUps ? followUpActive : (searching ? disposedResults.map(r => ({
-      ...r,
-      id: r.donor_id,
-      ngo_id: r.ngo_id,
-      donor_name: r.donor_name,
-      donor_mobile: r.donor_mobile,
-      station: r.station,
-      is_disposed: !!r.disposed_at || r.status === 'disposed',
-      disposition_detail: r.disposition_detail,
-      disposed_at: r.disposed_at,
-    })) : visible);
+      })) : isOverdueTab ? overdueFiltered : isFollowUps ? followUpActive : (searching ? disposedResults.map(r => ({
+        ...r,
+        id: r.donor_id,
+        ngo_id: r.ngo_id,
+        donor_name: r.donor_name,
+        donor_mobile: r.donor_mobile,
+        station: r.station,
+        is_disposed: !!r.disposed_at || r.status === 'disposed',
+        disposition_detail: r.disposition_detail,
+        disposed_at: r.disposed_at,
+      })) : visibleForLeads);
 
     // Only the first `visibleCount` rows are mounted. `hasMoreRef` is read by the
     // scroll handler above to decide whether the window can still grow.
@@ -1856,7 +1875,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
               Searching leads…
             </div>
-          ) : searching && listItems.length === 0 ? (
+          ) : (searching || highTierSearching) && listItems.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
               No leads match "{searchQuery.trim()}". Clear the search to return to your queue.
             </div>

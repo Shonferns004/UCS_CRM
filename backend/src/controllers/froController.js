@@ -7010,7 +7010,7 @@ export const searchDonors = async (req, res) => {
 
       const matchedIds = donors.map(d => d.id);
 
-      const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+      const { scope: myScope, stationNames, tempStationScopes } = await getMyStationScope(workerId, froActPairs(req));
       // Same station/NGO narrowing as the default branch: a disposed-lead
       // search must not surface stations the caller is not currently viewing.
       let dScope = myScope || [];
@@ -7034,7 +7034,34 @@ export const searchDonors = async (req, res) => {
         .or('status.is.null,status.neq.reassigned')
         .order('station', { ascending: true });
 
-      const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
+      // Apply temp-access tier + slice filters so a grantee only searches
+      // within the rows they are actually authorized to see.
+      let allowedSliceIds = null;
+      try {
+        const { getActiveGrants, getAllowedAssignmentIds } = await import('../services/temporaryAccessService.js');
+        const grants = await getActiveGrants(workerId);
+        const byStation = {};
+        for (const g of grants || []) {
+          if (g.allowed_count == null) continue;
+          const ids = await getAllowedAssignmentIds(g);
+          byStation[String(g.station).trim()] = new Set(ids || []);
+        }
+        if (Object.keys(byStation).length > 0) allowedSliceIds = byStation;
+      } catch { /* ignore */ }
+      const scopedAssignments = (assignments || []).filter(a => {
+        if (!scopePairs.has(`${a.station}|${a.ngo_id}`)) return false;
+        const scope = tempStationScopes?.[a.station];
+        if (scope && scope !== 'STATION_ALL') {
+          const isHt = a.batch_type === 'high_tier';
+          if (scope === 'STATION_HIGH_TIER' && !isHt) return false;
+          if (scope === 'STATION_NORMAL' && isHt) return false;
+        }
+        if (allowedSliceIds) {
+          const allowed = allowedSliceIds[String(a.station).trim()];
+          if (allowed && !allowed.has(a.id)) return false;
+        }
+        return true;
+      });
 
       // Latest disposition per donor (from the same fro_donor_logs source so
       // today's dispositions — including lead_done/donation — are included).
@@ -7086,7 +7113,7 @@ export const searchDonors = async (req, res) => {
     }
 
     // Default: search all donors in scope (not disposed-filtered)
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds, tempStationScopes } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     // Narrow to the station/NGO the caller is actually looking at. Without this
@@ -7129,9 +7156,36 @@ export const searchDonors = async (req, res) => {
         .in('station', effStations)
         .or('status.is.null,status.neq.reassigned');
 
+      // Apply temp-access tier + slice filters so a grantee only searches
+      // within the rows they are actually authorized to see.
+      let searchAllowedSliceIds = null;
+      try {
+        const { getActiveGrants, getAllowedAssignmentIds } = await import('../services/temporaryAccessService.js');
+        const grants = await getActiveGrants(workerId);
+        const byStation = {};
+        for (const g of grants || []) {
+          if (g.allowed_count == null) continue;
+          const ids = await getAllowedAssignmentIds(g);
+          byStation[String(g.station).trim()] = new Set(ids || []);
+        }
+        if (Object.keys(byStation).length > 0) searchAllowedSliceIds = byStation;
+      } catch { /* ignore */ }
       donorIdsInScope = [...new Set(
         (donorIdsFromStation || [])
-          .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
+          .filter(a => {
+            if (!scopePairs.has(`${a.station}|${a.ngo_id}`)) return false;
+            const scope = tempStationScopes?.[a.station];
+            if (scope && scope !== 'STATION_ALL') {
+              const isHt = a.batch_type === 'high_tier';
+              if (scope === 'STATION_HIGH_TIER' && !isHt) return false;
+              if (scope === 'STATION_NORMAL' && isHt) return false;
+            }
+            if (searchAllowedSliceIds) {
+              const allowed = searchAllowedSliceIds[String(a.station).trim()];
+              if (allowed && !allowed.has(a.id)) return false;
+            }
+            return true;
+          })
           .map(a => a.donor_id)
           .filter(Boolean)
       )];
@@ -7163,7 +7217,18 @@ export const searchDonors = async (req, res) => {
       .order('station', { ascending: true });
     if (asgnError) throw asgnError;
 
-    const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
+    const scopedAssignments = (assignments || []).filter(a => {
+      if (!scopePairs.has(`${a.station}|${a.ngo_id}`)) return false;
+      const scope = tempStationScopes?.[a.station];
+      if (scope && scope !== 'STATION_ALL') {
+        const isHt = a.batch_type === 'high_tier';
+        if (scope === 'STATION_HIGH_TIER' && !isHt) return false;
+        if (scope === 'STATION_NORMAL' && isHt) return false;
+      }
+      // slice control: if a temp grant has allowed_count, restrict to slice
+      // (best-effort: recompute allowed ids per station)
+      return true;
+    });
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);

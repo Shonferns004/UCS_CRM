@@ -1844,49 +1844,66 @@ export const getStations = async (req, res) => {
     // Get station assignments — only include null-NGO rows in the "all" view (no ngo_id filter)
     const assignments = await getStationAssignmentsByNgo(targetNgoIds, !ngo_id);
 
-    // Get donor counts per station from fro_assignments (deduplicated by donor_id)
-    const { data: faData, error: faErr } = await db
-      .from('fro_assignments')
-      .select('donor_id, station, ngo_id, fro_worker_id, assigned_at, batch_type')
-      .in('ngo_id', targetNgoIds)
-      .not('station', 'is', null)
-      .or('status.is.null,status.neq.reassigned')
-      .order('assigned_at', { ascending: false });
-
-    if (faErr) throw faErr;
-
-    // Build total donor count per station PER NGO and per-FRO count
+    // Get donor counts per station from fro_assignments (deduplicated by donor_id).
+    // Compute the aggregates in SQL instead of pulling every assignment row into
+    // Node and deduping in JS: the table is large enough that the full scan +
+    // sort previously exceeded the pool's query_timeout ("Query read timeout").
     const totalDonorCount = {}; // { station: { ngo_id: count } } (excludes high_tier)
     const highTierDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
-    const seen = new Set();
-    const seenHt = new Set();
-    for (const d of faData || []) {
-      const s = d.station.trim();
-      // Dedupe per (station, ngo), NOT on donor_id alone. donor_id is the same
-      // person in every NGO they are assigned to, and faData is ordered by
-      // assigned_at DESC, so a set keyed on donor_id attributed each donor to
-      // whichever of their rows came first - usually an assignment in a
-      // different NGO - and then skipped them everywhere else. That is why the
-      // AOD-11 row read "AFLF: 755" while its donor list held 1819: all 1819
-      // of those donors are also active in another NGO, so the other NGO's row
-      // claimed each of them first.
-      //
-      // Keyed per station the count is exactly "distinct donors assigned here",
-      // which is what donors-by-station returns for the same (station, ngo) -
-      // so the pill and the list it opens can no longer disagree.
-      const isHighTier = d.batch_type === 'high_tier';
-      const dedupSet = isHighTier ? seenHt : seen;
-      const key = `${s}::${d.ngo_id}::${d.donor_id}`;
-      if (dedupSet.has(key)) continue;
-      dedupSet.add(key);
-      const bucket = isHighTier ? highTierDonorCount : totalDonorCount;
-      if (!bucket[s]) bucket[s] = {};
-      bucket[s][d.ngo_id] = (bucket[s][d.ngo_id] || 0) + 1;
-      if (!isHighTier && d.fro_worker_id) {
-        const froKey = `${s}_${d.fro_worker_id}`;
-        froDonorCount[froKey] = (froDonorCount[froKey] || 0) + 1;
-      }
+
+    const [totalRes, highRes, froRes] = await Promise.all([
+      db._pool.query(
+        `SELECT TRIM(station) AS station, ngo_id, COUNT(DISTINCT donor_id)::int AS cnt
+           FROM fro_assignments
+          WHERE ngo_id = ANY($1::uuid[])
+            AND station IS NOT NULL
+            AND (status IS NULL OR status <> 'reassigned')
+            AND (batch_type IS NULL OR batch_type <> 'high_tier')
+          GROUP BY TRIM(station), ngo_id`,
+        [targetNgoIds],
+      ),
+      db._pool.query(
+        `SELECT TRIM(station) AS station, ngo_id, COUNT(DISTINCT donor_id)::int AS cnt
+           FROM fro_assignments
+          WHERE ngo_id = ANY($1::uuid[])
+            AND station IS NOT NULL
+            AND (status IS NULL OR status <> 'reassigned')
+            AND batch_type = 'high_tier'
+          GROUP BY TRIM(station), ngo_id`,
+        [targetNgoIds],
+      ),
+      db._pool.query(
+        `SELECT TRIM(station) AS station, fro_worker_id, COUNT(DISTINCT donor_id)::int AS cnt
+           FROM (
+             SELECT DISTINCT ON (TRIM(station), ngo_id, donor_id)
+                    TRIM(station) AS station, ngo_id, donor_id, fro_worker_id, assigned_at
+               FROM fro_assignments
+              WHERE ngo_id = ANY($1::uuid[])
+                AND station IS NOT NULL
+                AND (status IS NULL OR status <> 'reassigned')
+                AND (batch_type IS NULL OR batch_type <> 'high_tier')
+              ORDER BY TRIM(station), ngo_id, donor_id, assigned_at DESC
+           ) t
+          WHERE fro_worker_id IS NOT NULL
+          GROUP BY TRIM(station), fro_worker_id`,
+        [targetNgoIds],
+      ),
+    ]);
+
+    for (const r of totalRes.rows || []) {
+      const s = r.station;
+      if (!totalDonorCount[s]) totalDonorCount[s] = {};
+      totalDonorCount[s][r.ngo_id] = r.cnt;
+    }
+    for (const r of highRes.rows || []) {
+      const s = r.station;
+      if (!highTierDonorCount[s]) highTierDonorCount[s] = {};
+      highTierDonorCount[s][r.ngo_id] = r.cnt;
+    }
+    for (const r of froRes.rows || []) {
+      const s = r.station;
+      froDonorCount[`${s}_${r.fro_worker_id}`] = r.cnt;
     }
 
     const ngoIdToName = {};
@@ -4496,8 +4513,7 @@ export const masterSearch = async (req, res) => {
         .from('fro_assignments')
         .select('station, id', { count: 'exact', head: false })
         .in('station', stationNames)
-        .or('status.is.null,status.neq.reassigned')
-        .not('batch_type', 'eq', 'high_tier');
+        .or('status.is.null,status.neq.reassigned');
       const countMap = {};
       for (const c of counts || []) {
         countMap[c.station] = (countMap[c.station] || 0) + 1;
@@ -4958,6 +4974,7 @@ export const convertStationToHighTier = async (req, res) => {
               SET batch_type = 'high_tier',
                   high_tier_source_station = $1,
                   high_tier_prev_batch_type = COALESCE(batch_type, 'old_data'),
+                  high_tier_distributed_at = now(),
                   updated_at = now()
             WHERE id = ANY($2)`,
           [sourceStation, ids],

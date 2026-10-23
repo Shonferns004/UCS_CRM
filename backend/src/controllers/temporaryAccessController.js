@@ -434,7 +434,9 @@ export async function createTemporaryAccess(req, res) {
         if (targetStation) {
           await db._pool.query(
             `UPDATE fro_assignments
-                SET target_station = $1, updated_at = now()
+                SET target_station = $1,
+                    high_tier_distributed_at = COALESCE(high_tier_distributed_at, now()),
+                    updated_at = now()
               WHERE id IN (
                 SELECT id FROM fro_assignments
                  WHERE station = $2
