@@ -86,4 +86,17 @@ export function revokeTemporaryAccess(id, body) {
   return apiPost(`/ngo-admin/temporary-access/${id}/revoke`, body)
 }
 
+// ─── Hide Old Donors (admin switch) ──────────────────────────────────────────
+// Wraps /ngo-admin/hide-old-donors. When the switch is ON the field teams see
+// only the new (FD-*) stations — the old station's donors, follow-ups and
+// history are hidden from them until an admin turns it back off.
+
+export function getHideOldDonors() {
+  return apiGet('/ngo-admin/hide-old-donors')
+}
+
+export function setHideOldDonors(hidden) {
+  return apiPut('/ngo-admin/hide-old-donors', { hidden: !!hidden })
+}
+
 export { setSession, clearSession, getToken, getUser } from '../../../api/auth'

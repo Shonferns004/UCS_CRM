@@ -43,6 +43,8 @@ handling, and a findings register with concrete fixes.
 | [EDGE-HARDENING-PLAN.md](EDGE-HARDENING-PLAN.md) | Phased edge work (Phases 0-6) + verification commands |
 | [DATA-PROTECTION.md](DATA-PROTECTION.md) | PII inventory, database access, backups, retention, logging hygiene |
 | [SECRETS-MANAGEMENT.md](SECRETS-MANAGEMENT.md) | Secret inventory, handling rules, rotation procedure |
+| [DATABASE-TUNNEL.md](DATABASE-TUNNEL.md) | Laptop to production RDS over the EC2 jump host, with a watchdog |
+| [LOCAL-DB-TUNNEL.md](LOCAL-DB-TUNNEL.md) | Reach the office Postgres from any network, with no public listener |
 | [FINDINGS.md](FINDINGS.md) | Prioritised findings register with evidence and remediation |
 | [HARDENING-CHECKLIST.md](HARDENING-CHECKLIST.md) | Actionable pre-deploy checklist |
 

@@ -209,7 +209,8 @@ is directly reachable.
 
 **Remediation**
 - Move RDS into private subnets and set `PubliclyAccessible = false`.
-- Reach it via the SSH tunnel (`backend/start-local-db-tunnel.ps1`) or a VPN.
+- Reach it via the SSH tunnel (`npm run tunnel` in `backend/`, see
+  `docs/security/DATABASE-TUNNEL.md`) or a VPN.
 - Keep `LOCAL_DB_ACCESS=false` outside local development.
 - Restrict the security group to the application security group only.
 - Rotate the AWS access key that is itself committed (see security-check

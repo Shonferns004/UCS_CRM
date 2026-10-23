@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, Download, XCircle, Clock, UserPlus, Upload, Unlink } from 'lucide-react';
-import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess } from '../api/auth';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, EyeOff, Download, XCircle, Clock, UserPlus, Upload, Unlink } from 'lucide-react';
+import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess, getHideOldDonors, setHideOldDonors } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
@@ -59,19 +59,26 @@ function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, r
         const ngo = groupNgo[g];
         const color = NGO_NAME_COLORS[g];
         const label = g.toUpperCase();
+        const ngoId = ngo?.id;
         const rows = searched
           .filter(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g))
           .sort((a, b) => {
                 const pa = String(a.station || ''); const pb = String(b.station || '');
                 return pa.localeCompare(pb, undefined, { numeric: true });
               });
+        // Total donors across all stations of this NGO (stable regardless of search).
+        const allNgoRows = base.filter(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g));
+        const totalDonors = allNgoRows.reduce((sum, s) => sum + (Number(s.donor_count?.[ngoId]) || 0), 0);
         return (
           <div key={g} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 0, overflow: 'hidden', background: '#fff' }}>
             <div style={{ background: color, color: '#fff', padding: '8px 12px', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span>{label}</span>
-              <span style={{ opacity: 0.85, fontSize: 11, fontWeight: 600 }}>{rows.length} station{rows.length === 1 ? '' : 's'}</span>
+              <span style={{ opacity: 0.85, fontSize: 11, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span>{rows.length} station{rows.length === 1 ? '' : 's'}</span>
+                <span>· {totalDonors.toLocaleString('en-IN')} donor{totalDonors === 1 ? '' : 's'}</span>
+              </span>
             </div>
-            <div className="sm-no-scrollbar" style={{ maxHeight: 640, overflowY: 'auto' }}>
+            <div className="sm-no-scrollbar" style={{ maxHeight: 'none', overflowY: 'visible' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
@@ -2732,6 +2739,40 @@ export default function StationManagement() {
   const [revokeGrantTarget, setRevokeGrantTarget] = useState(null); // { grant, station }
   const [revokingGrant, setRevokingGrant] = useState(false);
 
+  // ─── Hide Old Donors ──────────────────────────────────────────────────────
+  // One global switch for the whole panel. When it is ON the field teams are
+  // narrowed to the new (FD-*) stations: the old station's donors, their
+  // follow-ups and their history are hidden from them, so they can only work
+  // on the new data. Turning it off brings the old data straight back.
+  const [hideOldDonors, setHideOldDonorsState] = useState(false);
+  const [hidingOldDonors, setHidingOldDonors] = useState(false);
+
+  const loadHideOldDonors = () => {
+    getHideOldDonors()
+      .then(r => setHideOldDonorsState(!!r?.hidden))
+      .catch(() => setHideOldDonorsState(false)); // feature unavailable → shown
+  };
+
+  const toggleHideOldDonors = async () => {
+    const next = !hideOldDonors;
+    const question = next
+      ? 'Hide old-station donors from the field teams?\n\nEvery FRO will be limited to the new (FD) stations. The old stations\' donors, their follow-ups and their history will not be visible to them until you turn this back on.'
+      : 'Show old-station donors again?\n\nThe FROs assigned to the old stations will get their donors, follow-ups and history back.';
+    if (!confirm(question)) return;
+    setHidingOldDonors(true);
+    try {
+      const res = await setHideOldDonors(next);
+      setHideOldDonorsState(!!res?.hidden);
+      setMsg(res?.message || (next
+        ? 'Old-station donors are now hidden from the field teams.'
+        : 'Old-station donors are visible again.'));
+    } catch (e) {
+      toast(e?.message || 'Could not change the hide-old-donors setting', 'error');
+    } finally {
+      setHidingOldDonors(false);
+    }
+  };
+
   const loadTempGrants = () => {
     listTemporaryAccess()
       .then(rows => setTempGrants(Array.isArray(rows) ? rows : []))
@@ -2841,7 +2882,15 @@ export default function StationManagement() {
     const url = '/ngo-admin/stations';
     try {
       const cached = localStorage.getItem('ucs_stations_cache');
-      if (cached) { const parsed = JSON.parse(cached); if (Array.isArray(parsed)) { setStations(parsed); setLoading(false); } }
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Only trust the cache if it already carries the donor amount range
+        // (newer payloads). Stale caches from before that field existed would
+        // hide the range until the next fetch, so ignore them.
+        if (Array.isArray(parsed) && parsed.some(s => s && (s.donor_amount_min != null || s.donor_amount_max != null))) {
+          setStations(parsed); setLoading(false);
+        }
+      }
     } catch {}
     apiGet(url).then(s => {
       if (Array.isArray(s)) { setStations(s); try { localStorage.setItem('ucs_stations_cache', JSON.stringify(s)); } catch {} }
@@ -2891,6 +2940,7 @@ export default function StationManagement() {
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('Initial transfers load error:', err));
+    loadHideOldDonors();
   }, []);
 
   useEffect(() => {
@@ -2917,6 +2967,24 @@ export default function StationManagement() {
     if (term && !(String(s.station).toLowerCase().includes(term) || String(s.fro_worker_name || '').toLowerCase().includes(term))) return false;
     return true;
   });
+
+  // How many stations each FRO is currently assigned to (across all NGOs).
+  // Shown as a badge beside the FRO's name so an admin can see at a glance
+  // how many stations a person is sitting on (e.g. Mahima -> 3).
+  const froStationCount = useMemo(() => {
+    const map = {};
+    for (const s of stations) {
+      if (!s.fro_worker_id) continue;
+      // Count only the stations of the kind the admin is currently looking at,
+      // so the badge reflects "old stations" on the Old tab and "new stations"
+      // on the New tab — not a combined total.
+      if (stationTab === 'new' && !isFreshStation(s.station)) continue;
+      if (stationTab === 'old' && isFreshStation(s.station)) continue;
+      const id = String(s.fro_worker_id);
+      map[id] = (map[id] || 0) + 1;
+    }
+    return map;
+  }, [stations, stationTab]);
 
   const renderStationRow = (s, ngo) => {
     const ngoName = ngo?.name || s.ngos?.[0]?.ngo_name;
@@ -2946,6 +3014,11 @@ export default function StationManagement() {
           <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
             {Number(s.donor_count?.[ngo?.id] || 0).toLocaleString('en-IN')} donor{Number(s.donor_count?.[ngo?.id] || 0) === 1 ? '' : 's'}
           </div>
+          {s.donor_amount_min != null && s.donor_amount_max != null && (
+            <div style={{ fontSize: 9, color: '#7c3aed', marginTop: 1, lineHeight: 1.2, fontWeight: 600 }}>
+              ₹{Number(s.donor_amount_min).toLocaleString('en-IN')} – ₹{Number(s.donor_amount_max).toLocaleString('en-IN')}
+            </div>
+          )}
           {at && (
             <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
               → {at.target_station}
@@ -2962,6 +3035,12 @@ export default function StationManagement() {
                 placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
               />
             </div>
+            {s.fro_worker_id && froStationCount[String(s.fro_worker_id)] >= 1 && (
+              <span title={`${w?.name || 'This FRO'} is assigned to ${froStationCount[String(s.fro_worker_id)]} ${stationTab === 'new' ? 'new' : 'old'} station${froStationCount[String(s.fro_worker_id)] === 1 ? '' : 's'} (this tab).`}
+                style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                {froStationCount[String(s.fro_worker_id)]}
+              </span>
+            )}
             <button
               title="Grant temporary access"
               onClick={() => setTempAccessTarget({ station: s.station, ngoId: ngoScopeForRow(s), permanentFroId: s.fro_worker_id || null, permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null, donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0 })}
@@ -3200,8 +3279,36 @@ export default function StationManagement() {
           {/* Title / count / month */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {hideOldDonors && (
+                <span
+                  title="The field teams can only see the new (FD) stations right now."
+                  style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <EyeOff size={12} /> Old donors hidden — FROs see only new data
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Hide Old Donors: one global switch. ON → the field teams are
+                  limited to the new (FD) stations; the old stations' donors,
+                  follow-ups and history disappear from their panel. OFF → they
+                  come straight back. */}
+              <button
+                onClick={toggleHideOldDonors}
+                disabled={hidingOldDonors}
+                title={hideOldDonors
+                  ? 'Old-station donors are hidden from the field teams. Click to show them again.'
+                  : 'Hide the old stations\' donors, follow-ups and history from the field teams so they only work on the new data.'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                  borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: hidingOldDonors ? 'wait' : 'pointer',
+                  background: hideOldDonors ? '#f0fdf4' : '#fef2f2',
+                  color: hideOldDonors ? '#15803d' : '#b91c1c',
+                  border: `1px solid ${hideOldDonors ? '#86efac' : '#fecaca'}`,
+                  opacity: hidingOldDonors ? 0.6 : 1,
+                }}>
+                {hideOldDonors ? <Eye size={13} /> : <EyeOff size={13} />}
+                {hidingOldDonors ? 'Working…' : hideOldDonors ? 'Show Old Donors' : 'Hide Old Donors'}
+              </button>
             </div>
           </div>
 
@@ -3376,6 +3483,12 @@ export default function StationManagement() {
                                 placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
                               />
                             </div>
+                            {s.fro_worker_id && froStationCount[String(s.fro_worker_id)] >= 1 && (
+                              <span title={`${w?.name || 'This FRO'} is assigned to ${froStationCount[String(s.fro_worker_id)]} ${stationTab === 'new' ? 'new' : 'old'} station${froStationCount[String(s.fro_worker_id)] === 1 ? '' : 's'} (this tab).`}
+                                style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                {froStationCount[String(s.fro_worker_id)]}
+                              </span>
+                            )}
                             <button
                               title="Grant temporary access"
                               onClick={() => setTempAccessTarget({ station: s.station, ngoId: ngoScopeForRow(s), permanentFroId: s.fro_worker_id || null, permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null, donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0 })}
@@ -3385,7 +3498,14 @@ export default function StationManagement() {
                             </button>
                           </div>
                         </td>
-                        <td>{renderDonorPills(s)}</td>
+                        <td>
+                          {renderDonorPills(s)}
+                          {s.donor_amount_min != null && s.donor_amount_max != null && (
+                            <div style={{ fontSize: 9, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
+                              ₹{Number(s.donor_amount_min).toLocaleString('en-IN')} – ₹{Number(s.donor_amount_max).toLocaleString('en-IN')}
+                            </div>
+                          )}
+                        </td>
 
                         <td className="nga-actions">
                           <div className="nga-actions-inline" style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>

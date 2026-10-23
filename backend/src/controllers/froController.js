@@ -65,6 +65,8 @@ import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '..
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
 import { getActiveGrantPairs, canWorkAssignment, getActiveGrants } from '../services/temporaryAccessService.js';
+import { isOldDonorsHidden } from '../services/oldDonorVisibility.js';
+import { isFreshStation } from '../utils/stations.js';
 import redis from '../config/redis.cjs';
 
 // FRO read payloads are recomputed on every poll and on every page visit, and
@@ -147,16 +149,22 @@ const FRO_DONORS_KEY_PARAMS = [
  * stays the same, so two operators impersonating the same FRO can hold two
  * different queues at once. Without it one would be served the other's leads.
  *
+ * The visibility segment is the admin's "Hide Old Donors" switch. It changes
+ * WHICH donors belong in the list, so it is part of the identity: flipping the
+ * switch must never serve the list that was built while the switch was the
+ * other way round.
+ *
  * Returned hashed, so both tiers get short fixed-width keys. The L1 key keeps its
  * `fro:donors:<workerId>:` head because invalidation deletes that prefix.
  */
-function froDonorsCacheKeys(req, workerId) {
+function froDonorsCacheKeys(req, workerId, hideOldDonors = false) {
   const params = FRO_DONORS_KEY_PARAMS.map(p => `${p}=${req.query?.[p] ?? ''}`);
   const actPairs = froActPairs(req);
   const act = actPairs
     ? actPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`).sort().join(',')
     : '-';
-  const hash = redis.hashKey(`${workerId}|act=${act}|${params.join('&')}`);
+  const visibility = hideOldDonors ? 'hideold' : 'showold';
+  const hash = redis.hashKey(`${workerId}|${visibility}|act=${act}|${params.join('&')}`);
   return {
     l1: `fro:donors:${workerId}:${hash}`,
     l2: `${FRO_DONORS_REDIS_PREFIX}${workerId}:${hash}`,
@@ -199,6 +207,22 @@ import { reconcileDispositionIdle } from '../services/froTimeReconcile.js';
 import { TIME_STATES, TIME_EVENTS, isHeldState } from '../utils/froTimeState.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
+  // Hide Old Donors: a donor that lives ONLY on old stations is out of reach
+  // for writes as well as reads while the switch is on. Checked first and
+  // read-only, so the guard can never leave a claimed or a freshly created row
+  // behind. A donor with NO assignment row at all is untouched - it still
+  // goes down the normal create path below.
+  if (await isOldDonorsHidden()) {
+    const { data: liveRows } = await db
+      .from('fro_assignments')
+      .select('id, station')
+      .eq('donor_id', donorId)
+      .or('status.is.null,status.neq.reassigned')
+      .limit(50);
+    const rows = liveRows || [];
+    if (rows.length > 0 && !rows.some(r => isFreshStation(r.station))) return null;
+  }
+
   // 1) Worker already owns an active assignment for this donor (and ngo).
   let query = db
     .from('fro_assignments')
@@ -408,6 +432,11 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
 
 // Scope guard: does this FRO hold an active assignment for the donor? Used to
 // block IDOR reads/writes on donors outside the worker's assigned scope.
+//
+// Hide Old Donors: an assignment on an OLD station does not count while the
+// switch is on. The donor is unreachable for this FRO - no timeline, no
+// receipts, no donations, no type/frequency edit - exactly as if the FRO had
+// never held it.
 async function getFroAssignment(donorId, workerId, ngoId) {
   let query = db
     .from('fro_assignments')
@@ -418,7 +447,10 @@ async function getFroAssignment(donorId, workerId, ngoId) {
     .limit(1);
   if (ngoId) query = query.eq('ngo_id', ngoId);
   const { data: owned } = await query.maybeSingle();
-  if (owned) return owned;
+  if (owned) {
+    if (await isOldDonorsHidden() && !isFreshStation(owned.station)) return null;
+    return owned;
+  }
 
   // Temporary fallback: no owned row, so check whether a LIVE admin grant
   // covers one of this donor's current rows. Returns the row WITHOUT any
@@ -448,6 +480,7 @@ async function getFroAssignment(donorId, workerId, ngoId) {
     if (scope === 'STATION_NORMAL') return !isHighTier;
     return false;
   });
+  if (covered && await isOldDonorsHidden() && !isFreshStation(covered.station)) return null;
   return covered || null;
 }
 
@@ -548,6 +581,23 @@ async function getMyStationScope(workerId, restrictPairs = null) {
     const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
     scope = scope.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station).trim()}`));
   }
+
+  // ─── Hide Old Donors ──────────────────────────────────────────────────────
+  // The admin's "Hide Old Donors" switch on the Station Management page
+  // narrows EVERY FRO to the fresh (FD-*) stations. This is the one place that
+  // decides what a worker can see, so filtering here hides the old station's
+  // donors, their follow-ups, their scheduled calls, callbacks, promises,
+  // overdue list, disposed leads and per-donor history in one move.
+  //
+  // Fails open: isOldDonorsHidden() reports OFF when the settings read errors,
+  // so a settings hiccup can never blank out the field teams' work.
+  if (await isOldDonorsHidden()) {
+    scope = scope.filter(s => isFreshStation(s.station));
+    for (const st of Object.keys(tempStationScopes)) {
+      if (!isFreshStation(st)) delete tempStationScopes[st];
+    }
+  }
+
   const stationNames = scope.map(s => s.station);
   const allowedNgoIds = [...new Set(scope.map(s => s.ngo_id).filter(Boolean))];
   return { scope, stationNames, allowedNgoIds, tempStationScopes };
@@ -2887,8 +2937,12 @@ export const getMyDonors = async (req, res) => {
       hasTempGrant = (g || []).length > 0;
     } catch { /* ignore */ }
     const cacheable = req.query.queue_current !== 'true' && !hasTempGrant;
+    // Read the switch BEFORE the cache lookup: it is part of the cache
+    // identity, so a flip moves the list to a different key instead of
+    // serving the previous one.
+    const hideOldDonors = await isOldDonorsHidden();
     const { l1: l1Key, l2: l2Key } = cacheable
-      ? froDonorsCacheKeys(req, workerId)
+      ? froDonorsCacheKeys(req, workerId, hideOldDonors)
       : { l1: null, l2: null };
     if (cacheable && req.query.fresh !== '1') {
       const hit = cacheGet(l1Key, FRO_DONORS_TTL_MS);
@@ -3958,7 +4012,7 @@ export const getDonorLogs = async (req, res) => {
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { ngo_id } = req.query;
 
-    const ASSIGN_COLS = 'id, ngo_id, rollover_from_status, rollover_at';
+    const ASSIGN_COLS = 'id, ngo_id, station, rollover_from_status, rollover_at';
     let assignment = null;
     if (ngo_id) {
       const { data } = await db
@@ -4012,6 +4066,22 @@ export const getDonorLogs = async (req, res) => {
           return false;
         }) || null;
       }
+    }
+
+    // Hide Old Donors: the donor timeline is reachable by donor id, so it
+    // needs its own guard. A donor held on an old station resolves to no
+    // assignment at all - the same empty answer an out-of-scope donor gets.
+    // A donor who ALSO sits on a fresh station keeps that row, so the FRO
+    // still sees the part of the donor that belongs to the new data.
+    if (assignment && await isOldDonorsHidden() && !isFreshStation(assignment.station)) {
+      const { data: freshRows } = await db
+        .from('fro_assignments')
+        .select(ASSIGN_COLS)
+        .eq('donor_id', donorId)
+        .eq('fro_worker_id', workerId)
+        .or('status.is.null,status.neq.reassigned')
+        .limit(50);
+      assignment = (freshRows || []).find(r => isFreshStation(r.station)) || null;
     }
 
     let logs = [];
@@ -4767,7 +4837,30 @@ export const getMyStations = async (req, res) => {
       const allowed = new Set(actPairs.map(p => `${p.ngo_id ?? ''}|${String(p.station ?? '').trim()}`));
       mapped = mapped.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station ?? '').trim()}`));
     }
+
+    // Hide Old Donors: the dropdown must not offer a station the FRO can no
+    // longer work, otherwise picking it returns an empty list with no
+    // explanation.
+    if (await isOldDonorsHidden()) {
+      mapped = mapped.filter(s => isFreshStation(s.station));
+    }
+
     return res.json(mapped);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /api/fro/data-visibility → { old_donors_hidden: boolean }
+//
+// Tells the field team that the admin has hidden the old-station donors, so an
+// FRO whose queue suddenly shrank (or emptied out) understands WHY instead of
+// thinking the app lost their leads. It carries no donor data - only the state
+// of the switch.
+export const getDataVisibility = async (req, res) => {
+  try {
+    const hidden = await isOldDonorsHidden();
+    return res.json({ old_donors_hidden: hidden });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -5223,15 +5316,25 @@ export const getMyHistory = async (req, res) => {
 
     if (error) throw error;
 
-    const donorIds = [...new Set((logs || []).map(l => l.donor_id).filter(Boolean))];
+    // Hide Old Donors: this timeline is keyed on the WORKER, not on the
+    // station scope, so it does not go through getMyStationScope. Each log
+    // carries its assignment's station, so the old station's history is
+    // dropped here - otherwise the FRO would still read about the very
+    // donors the switch is supposed to hide.
+    let visibleLogs = logs || [];
+    if (await isOldDonorsHidden()) {
+      visibleLogs = visibleLogs.filter(l => isFreshStation(l.fro_assignments?.station));
+    }
+
+    const donorIds = [...new Set(visibleLogs.map(l => l.donor_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
       : { data: [] };
     const donorMap = {};
     for (const d of donors || []) donorMap[d.id] = d;
-    const ownerNameMap = await resolveWorkerNames((logs || []).map(l => l.fro_assignments?.fro_worker_id));
+    const ownerNameMap = await resolveWorkerNames(visibleLogs.map(l => l.fro_assignments?.fro_worker_id));
 
-    const result = (logs || []).map(l => {
+    const result = visibleLogs.map(l => {
       const d = donorMap[l.donor_id] || {};
       return {
         id: l.id,
@@ -7297,23 +7400,45 @@ export const getMyDisposedLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { station: stationFilter, ngo_id: ngoFilter } = req.query;
+    const allMonths = req.query.all_months === 'true' || req.query.lifetime === 'true';
 
-    let disposedQuery = db
-      .from('fro_donor_logs')
-      .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
-      .eq('fro_assignments.fro_worker_id', workerId);
-    if (req.user.impersonation && req.user.imposter_id != null) {
-      disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
+    let disposedLogs = [];
+    let logErr = null;
+    if (allMonths) {
+      try {
+        const { rows } = await db._pool.query(
+          `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at
+             FROM fro_donor_logs l
+             JOIN fro_assignments fa ON fa.id = l.assignment_id
+            WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
+           UNION ALL
+           SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
+             FROM fro_donor_logs_archive a
+             JOIN fro_assignments fa ON fa.id = a.assignment_id
+            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
+           ORDER BY created_at DESC
+           LIMIT 10000`,
+          [workerId]
+        );
+        disposedLogs = rows || [];
+      } catch (e) {
+        logErr = e;
+      }
+    } else {
+      let disposedQuery = db
+        .from('fro_donor_logs')
+        .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
+        .eq('fro_assignments.fro_worker_id', workerId);
+      if (req.user.impersonation && req.user.imposter_id != null) {
+        disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
+      }
+      const { data, error } = await disposedQuery
+        .gte('created_at', istMonthBounds(new Date()).month)
+        .order('created_at', { ascending: false })
+        .limit(10000);
+      disposedLogs = data || [];
+      logErr = error;
     }
-    const { data: disposedLogs, error: logErr } = await disposedQuery
-      // History is scoped to THIS billing month's work. The daily rollover
-      // archives the previous month's call logs out of fro_donor_logs anyway,
-      // but that runs at 04:00 IST — a hard clamp here keeps the 1st-of-month
-      // history clean even in the hours before the archive runs, and keeps
-      // "this month's disposed" true regardless of job timing.
-      .gte('created_at', istMonthBounds(new Date()).month)
-      .order('created_at', { ascending: false })
-      .limit(500);
     if (logErr) throw logErr;
     if (!disposedLogs || disposedLogs.length === 0) return res.json([]);
 
@@ -7342,7 +7467,7 @@ export const getMyDisposedLeads = async (req, res) => {
       .from('donor_profiles')
       .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
       .in('id', disposedDonorIds)
-      .limit(500);
+      .limit(5000);
     if (error) throw error;
     if (!donors || donors.length === 0) return res.json([]);
 

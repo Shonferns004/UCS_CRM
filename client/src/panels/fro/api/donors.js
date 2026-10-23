@@ -198,6 +198,12 @@ export async function getMyStations() {
   return api('/fro/my-stations', { _prefix: 'ucs' })
 }
 
+// State of the admin's "Hide Old Donors" switch. Used only to explain the
+// missing old-station leads - it carries no donor data.
+export async function getDataVisibility() {
+  return api('/fro/data-visibility', { _prefix: 'ucs' })
+}
+
 export async function searchDonorsByMobile(q, opts = {}) {
   const params = new URLSearchParams({ q });
   if (opts.disposed) params.set('disposed', 'true');
@@ -213,6 +219,7 @@ export async function getMyDisposedLeads(opts = {}) {
   const params = new URLSearchParams();
   if (opts.station) params.set('station', opts.station);
   if (opts.ngoId) params.set('ngo_id', opts.ngoId);
+  if (opts.allMonths) params.set('all_months', 'true');
   const qs = params.toString();
   return api(`/fro/my-disposed-leads${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }

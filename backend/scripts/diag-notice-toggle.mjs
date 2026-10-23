@@ -1,8 +1,24 @@
+// Database credentials come from DB_TUNNEL_* in backend/.env (gitignored).
+// This file used to carry the RDS password inline, which put a production
+// credential in a git-tracked file.
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { config as dotenv } from 'dotenv';
+import { resolveTunnelCredentials, describeCredentialProblem } from './lib/tunnel-creds.mjs';
+
+dotenv({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env') });
+
+const creds = resolveTunnelCredentials(process.env);
+const problem = describeCredentialProblem(creds);
+if (problem) {
+  console.error(`[diag-notice-toggle] ${problem}`);
+  process.exit(1);
+}
 process.env.PGHOST='127.0.0.1';
 process.env.PGPORT='15432';
-process.env.PGUSER='ucs_admin';
-process.env.PGPASSWORD='ucscompany123';
-process.env.PGDATABASE='postgres';
+process.env.PGUSER=creds.user;
+process.env.PGPASSWORD=creds.password;
+process.env.PGDATABASE=creds.database;
 process.env.PGSSLMODE='require';
 process.env.DATABASE_URL='';
 process.env.DATABASE_SSL='false';

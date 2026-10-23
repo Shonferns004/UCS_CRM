@@ -1830,7 +1830,9 @@ export const getStations = async (req, res) => {
     // and takes names from the access list, while an explicit ngo_id takes only
     // that NGO and looks its name up directly. A single-NGO admin hits exactly
     // that overlap, so keying on the set alone would hand them the wrong list.
-    const stationCacheKey = `stations:${ngo_id ? 'one' : 'all'}:${targetNgoIds.slice().sort().join(',')}`;
+    // v2: payload now also carries donor_amount_min / donor_amount_max, so the
+    // cache key is versioned to avoid serving a stale v1 entry that lacks them.
+    const stationCacheKey = `stations:v2:${ngo_id ? 'one' : 'all'}:${targetNgoIds.slice().sort().join(',')}`;
     if (req.query.fresh !== '1') {
       const cached = cacheGet(stationCacheKey, 60000);
       if (cached) return res.json(cached);
@@ -1851,59 +1853,71 @@ export const getStations = async (req, res) => {
     const totalDonorCount = {}; // { station: { ngo_id: count } } (excludes high_tier)
     const highTierDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
+    const seen = new Set();
+    const seenHt = new Set();
 
-    const [totalRes, highRes, froRes] = await Promise.all([
-      db._pool.query(
-        `SELECT TRIM(station) AS station, ngo_id, COUNT(DISTINCT donor_id)::int AS cnt
-           FROM fro_assignments
-          WHERE ngo_id = ANY($1::uuid[])
-            AND station IS NOT NULL
-            AND (status IS NULL OR status <> 'reassigned')
-            AND (batch_type IS NULL OR batch_type <> 'high_tier')
-          GROUP BY TRIM(station), ngo_id`,
+    // Donor amount range per station (distinct donors, across all NGOs). Sourced
+    // from ACTUAL COLLECTED receipts (receipts.amount joined via fro_donor_logs
+    // -> fro_assignments), not the pledged amount on donor_profiles. Each
+    // donor's amount = sum of their receipts for that station.
+    const amountSeen = new Set(); // `${station}::${donor_id}`
+    const stationAmountMin = {};   // { station: min amount }
+    const stationAmountMax = {};   // { station: max amount }
+    const stationDonorAmount = {}; // `${station}::${donor_id}` -> total collected
+    try {
+      const { rows } = await db._pool.query(
+        `SELECT fa.station AS station, fa.donor_id AS donor_id, COALESCE(SUM(r.amount), 0) AS total_amount
+           FROM receipts r
+           JOIN fro_donor_logs l ON l.id = r.log_id
+           JOIN fro_assignments fa ON fa.id = l.assignment_id
+          WHERE fa.ngo_id = ANY($1::uuid[])
+            AND fa.station IS NOT NULL
+          GROUP BY fa.station, fa.donor_id`,
         [targetNgoIds],
-      ),
-      db._pool.query(
-        `SELECT TRIM(station) AS station, ngo_id, COUNT(DISTINCT donor_id)::int AS cnt
-           FROM fro_assignments
-          WHERE ngo_id = ANY($1::uuid[])
-            AND station IS NOT NULL
-            AND (status IS NULL OR status <> 'reassigned')
-            AND batch_type = 'high_tier'
-          GROUP BY TRIM(station), ngo_id`,
-        [targetNgoIds],
-      ),
-      db._pool.query(
-        `SELECT TRIM(station) AS station, fro_worker_id, COUNT(DISTINCT donor_id)::int AS cnt
-           FROM (
-             SELECT DISTINCT ON (TRIM(station), ngo_id, donor_id)
-                    TRIM(station) AS station, ngo_id, donor_id, fro_worker_id, assigned_at
-               FROM fro_assignments
-              WHERE ngo_id = ANY($1::uuid[])
-                AND station IS NOT NULL
-                AND (status IS NULL OR status <> 'reassigned')
-                AND (batch_type IS NULL OR batch_type <> 'high_tier')
-              ORDER BY TRIM(station), ngo_id, donor_id, assigned_at DESC
-           ) t
-          WHERE fro_worker_id IS NOT NULL
-          GROUP BY TRIM(station), fro_worker_id`,
-        [targetNgoIds],
-      ),
-    ]);
+      );
+      for (const r of rows || []) {
+        stationDonorAmount[`${String(r.station).trim()}::${r.donor_id}`] = Number(r.total_amount) || 0;
+      }
+    } catch (e) {
+      console.warn('[getStations] receipts aggregation failed:', e?.message || String(e));
+    }
 
-    for (const r of totalRes.rows || []) {
-      const s = r.station;
-      if (!totalDonorCount[s]) totalDonorCount[s] = {};
-      totalDonorCount[s][r.ngo_id] = r.cnt;
-    }
-    for (const r of highRes.rows || []) {
-      const s = r.station;
-      if (!highTierDonorCount[s]) highTierDonorCount[s] = {};
-      highTierDonorCount[s][r.ngo_id] = r.cnt;
-    }
-    for (const r of froRes.rows || []) {
-      const s = r.station;
-      froDonorCount[`${s}_${r.fro_worker_id}`] = r.cnt;
+    for (const d of faData || []) {
+      const s = d.station.trim();
+      // Dedupe per (station, ngo), NOT on donor_id alone. donor_id is the same
+      // person in every NGO they are assigned to, and faData is ordered by
+      // assigned_at DESC, so a set keyed on donor_id attributed each donor to
+      // whichever of their rows came first - usually an assignment in a
+      // different NGO - and then skipped them everywhere else. That is why the
+      // AOD-11 row read "AFLF: 755" while its donor list held 1819: all 1819
+      // of those donors are also active in another NGO, so the other NGO's row
+      // claimed each of them first.
+      //
+      // Keyed per station the count is exactly "distinct donors assigned here",
+      // which is what donors-by-station returns for the same (station, ngo) -
+      // so the pill and the list it opens can no longer disagree.
+      const isHighTier = d.batch_type === 'high_tier';
+      const dedupSet = isHighTier ? seenHt : seen;
+      const key = `${s}::${d.ngo_id}::${d.donor_id}`;
+      if (dedupSet.has(key)) continue;
+      dedupSet.add(key);
+      const bucket = isHighTier ? highTierDonorCount : totalDonorCount;
+      if (!bucket[s]) bucket[s] = {};
+      bucket[s][d.ngo_id] = (bucket[s][d.ngo_id] || 0) + 1;
+      if (!isHighTier && d.fro_worker_id) {
+        const froKey = `${s}_${d.fro_worker_id}`;
+        froDonorCount[froKey] = (froDonorCount[froKey] || 0) + 1;
+      }
+      // Amount range (distinct donors per station, across all NGOs).
+      const amtKey = `${s}::${d.donor_id}`;
+      if (!amountSeen.has(amtKey)) {
+        amountSeen.add(amtKey);
+        const amt = stationDonorAmount[amtKey] || 0;
+        if (amt > 0) {
+          if (stationAmountMin[s] === undefined || amt < stationAmountMin[s]) stationAmountMin[s] = amt;
+          if (stationAmountMax[s] === undefined || amt > stationAmountMax[s]) stationAmountMax[s] = amt;
+        }
+      }
     }
 
     const ngoIdToName = {};
@@ -1972,6 +1986,8 @@ export const getStations = async (req, res) => {
       donor_count: totalDonorCount[s.station] || {}, // { ngo_id: count } (excludes high_tier)
       high_tier_donor_count: highTierDonorCount[s.station] || {}, // { ngo_id: count }
       fro_donor_count: s.fro_worker_id ? (froDonorCount[`${s.station}_${s.fro_worker_id}`] || 0) : 0,
+      donor_amount_min: stationAmountMin[s.station] ?? null,
+      donor_amount_max: stationAmountMax[s.station] ?? null,
     }));
 
     result.sort((a, b) => {
@@ -1988,6 +2004,8 @@ export const getStations = async (req, res) => {
       return nA - nB;
     });
 
+    // Diagnostic: how many donors actually carry an amount, and do receipts /
+    // fro_donor_logs have any? Helps pinpoint why the range is empty.
     cacheSet(stationCacheKey, result);
     redis.set(stationRedisKey(stationCacheKey), result, STATION_REDIS_TTL_S).catch(() => { });
     return res.json(result);
@@ -8129,7 +8147,7 @@ export const notifyFroHandler = async (req, res) => {
   try {
     const { workerId, message, level } = req.body;
     if (!workerId) return res.status(400).json({ message: 'workerId is required' });
-    // The board sends the tier it displayed (yellow | orange | red); the server
+    // The board sends the tier it displayed (green | yellow | orange | red); the server
     // owns the wording. An unknown tier is a client bug, not a silent downgrade.
     if (level != null && !isIdleAlertLevel(level)) {
       return res.status(400).json({ message: 'Unknown idle alert level' });

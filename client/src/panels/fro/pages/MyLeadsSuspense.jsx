@@ -7,6 +7,7 @@ import FroSuspense from './Suspense';
 import CallTimer from '../components/CallTimer';
 import { getMyPerformance } from '../api/donors';
 import { formatDuration } from '../../../utils/formatDuration';
+import { idleColorFor } from '../../../utils/warnTone';
 
 function SectionTitle({ label, pct }) {
   return (
@@ -26,12 +27,12 @@ function Arrow({ good }) {
   );
 }
 
-function Metric({ label, value, good, accent, icon, valueColor, className, innerRef }) {
+function Metric({ label, value, good, accent, icon, valueColor, className, innerRef, style: extraStyle, labelColor }) {
   return (
-    <div ref={innerRef} className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+    <div ref={innerRef} className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...(extraStyle || {}) }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <span style={{ color: accent || '#94a3b8', display: 'inline-flex' }}>{icon}</span>
-        <span style={{ fontSize: 12, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.8px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span style={{ fontSize: 12, color: labelColor || '#94a3b8', textTransform: 'uppercase', letterSpacing: '.8px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <strong style={{ color: valueColor || '#0f172a', fontSize: 17, lineHeight: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{value}</strong>
@@ -44,9 +45,11 @@ function Metric({ label, value, good, accent, icon, valueColor, className, inner
 function IdleMetric({ value, idleSeconds, isIdle }) {
   const ref = useRef(null);
   const [rect, setRect] = useState(null);
-  const danger = (idleSeconds ?? 0) > 3600;
+  const s = Number(idleSeconds) || 0;
+  const idleStyle = idleColorFor(s);
+  const show = s > 3600;
   useEffect(() => {
-    if (!danger) { setRect(null); return; }
+    if (!show) { setRect(null); return; }
     const update = () => {
       if (ref.current) setRect(ref.current.getBoundingClientRect());
     };
@@ -63,20 +66,22 @@ function IdleMetric({ value, idleSeconds, isIdle }) {
       window.removeEventListener('resize', update);
       if (ro) ro.disconnect();
     };
-  }, [danger]);
+  }, [show]);
   return (
     <>
       <Metric
         label="Idle"
+        labelColor={show ? idleStyle.color : '#94a3b8'}
         value={value}
         good={!(isIdle)}
-        accent={(idleSeconds ?? 0) > 0 ? '#7f1d1d' : '#64748b'}
-        valueColor={danger ? '#7f1d1d' : undefined}
-        className={danger ? 'idle-danger' : ''}
-        icon={<Clock size={16} />}
+        accent={s > 0 ? idleStyle.color : '#64748b'}
+        valueColor={show ? idleStyle.color : undefined}
+        className={show ? 'idle-danger' : ''}
+        icon={<Clock size={16} style={show ? { color: idleStyle.color } : undefined} />}
         innerRef={ref}
+        style={show ? { background: idleStyle.bg, boxShadow: `inset 0 0 0 1px ${idleStyle.border}` } : undefined}
       />
-      {danger && rect && createPortal(
+      {show && rect && createPortal(
         <>
           <div style={{
             position: 'fixed',
@@ -84,7 +89,7 @@ function IdleMetric({ value, idleSeconds, isIdle }) {
             top: rect.top - 3,
             width: rect.width + 6,
             height: rect.height + 6,
-            border: '2px solid rgba(127, 29, 29, .75)',
+            border: `2px solid ${idleStyle.color}cc`,
             borderRadius: 0,
             pointerEvents: 'none',
             zIndex: 99999,
@@ -97,7 +102,7 @@ function IdleMetric({ value, idleSeconds, isIdle }) {
             top: rect.top - 3,
             width: rect.width + 6,
             height: rect.height + 6,
-            border: '2px solid rgba(127, 29, 29, .75)',
+            border: `2px solid ${idleStyle.color}cc`,
             borderRadius: 0,
             pointerEvents: 'none',
             zIndex: 99999,

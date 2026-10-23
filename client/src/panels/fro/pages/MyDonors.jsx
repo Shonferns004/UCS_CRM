@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getDataVisibility } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonMyLeads } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
@@ -327,11 +327,25 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   }, [navigate]);
   const [donors, setDonors] = useState([]);
   const [total, setTotal] = useState(0);
+  // Full allotment for the current tab (pending + worked + held back), as
+  // reported by the backend's counts.allotted. Distinct from `total`, which is
+  // only the pending leads that appear in My Leads. Surfaced in the footer so
+  // an FRO can reconcile "X of Y pending" against the station's donor count
+  // instead of wondering where the rest went.
+  const [allottedTotal, setAllottedTotal] = useState(0);
+  // History view: when true, fetch disposed leads from ALL months (live + archived)
+  // instead of only the current billing month, so closed leads worked in previous
+  // months are also visible.
+  const [historyAllTime, setHistoryAllTime] = useState(false);
   const [dataTab, setDataTab] = useState('new');
   // High Tier tab is shown only to FROs who actually hold high-tier allotment.
   // Kept sticky per session (only ever turns on) so the tab cannot flicker away
   // while the FRO is working inside it.
   const [hasHighTier, setHasHighTier] = useState(false);
+  // The admin's "Hide Old Donors" switch. When it is on, the old stations'
+  // leads are gone from this list on purpose - the banner below explains that
+  // to the FRO instead of leaving them with a mysteriously empty queue.
+  const [oldDonorsHidden, setOldDonorsHidden] = useState(false);
   // High Tier batch accounting from the backend (counts.high_tier): raw rows the
   // admin distributed vs the unique (donor, ngo) rows this list can show, plus
   // how many are completed (behind "Hidden") or done today. Lets the footer
@@ -509,6 +523,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             setSelectedNgo(null);
             sortedDonors = broad;
             rTotal = broad.length;
+            if (br && !Array.isArray(br) && br.counts?.allotted) setAllottedTotal(br.counts.allotted);
           }
         }
         // Auto-fallback: if the current tab is genuinely empty, probe the other tab
@@ -543,6 +558,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         }
         setDonors(sortedDonors);
         setTotal(rTotal);
+        setAllottedTotal((r && !Array.isArray(r) && r.counts?.allotted) ? r.counts.allotted : rTotal);
         setMessage(null);
         let restored = false;
 
@@ -696,6 +712,15 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
+  // Why are the old stations' leads missing? Ask the backend.
+  useEffect(() => {
+    let cancelled = false;
+    getDataVisibility()
+      .then(r => { if (!cancelled) setOldDonorsHidden(!!r?.old_donors_hidden); })
+      .catch(() => { /* the banner is optional - never block the panel on it */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const stationOpts = (tab, station) => {
     const opts = { newOnly: tab === 'new', oldOnly: tab === 'old', highTierOnly: tab === 'high_tier' };
     // Ask the backend for the FULL allotted list. It returns every assigned donor
@@ -745,6 +770,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       }
       setDonors(merged);
       setTotal(rTotal);
+      if (r && !Array.isArray(r) && r.counts?.allotted) setAllottedTotal(r.counts.allotted);
     }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation, selectedNgo]);
 
@@ -761,6 +787,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     const opts = {};
     if (selectedStation !== 'all') opts.station = selectedStation;
     if (selectedNgo) opts.ngoId = selectedNgo;
+    if (historyAllTime) opts.allMonths = true;
     getMyDisposedLeads(opts).then(r => {
       if (cancelled) return;
       const arr = Array.isArray(r) ? r : r?.data || [];
@@ -768,7 +795,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     }).catch(() => { if (!cancelled) setHistoryLeads([]); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
-  }, [listView, activeDonor, selectedStation, selectedNgo, historyRefresh]);
+  }, [listView, activeDonor, selectedStation, selectedNgo, historyRefresh, historyAllTime]);
 
   // Follow-ups: scheduled contacts + callback assignments + money promises,
   // merged/deduplicated the same way the standalone Follow Ups page did.
@@ -1826,7 +1853,30 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
               </button>
             )}
+            {listView === 'history' && (
+              <button onClick={() => setHistoryAllTime(v => !v)}
+                title={historyAllTime
+                  ? "Show only this month's disposed leads"
+                  : 'Show disposed leads from all months (including closed/refused from previous months)'}
+                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: historyAllTime ? 'var(--sage)' : 'var(--bg)', color: historyAllTime ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
+                {historyAllTime ? 'All months' : 'This month'}
+              </button>
+            )}
           </div>
+
+          {/* The admin hid the old stations' donors. Say so, otherwise an FRO
+              whose queue just emptied has no idea whether the app lost their
+              leads or someone removed them on purpose. */}
+          {oldDonorsHidden && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px', borderRadius: 10,
+              background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e',
+              fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>visibility_off</span>
+              <span>Old station data is hidden right now — you can only work on the new stations. Ask your admin to show the old data again if you need it.</span>
+            </div>
+          )}
 
           <div style={{ position: 'relative', marginTop: 10 }}>
             <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--ink-soft)' }}>search</span>
@@ -2050,14 +2100,14 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
           {loading
             ? 'Loading leads…'
             : isHistory
-              ? `Showing ${renderedItems.length} of ${listItems.length} disposed lead(s)${searchQuery.trim() ? ' found' : ''}`
+              ? `Showing ${renderedItems.length} of ${listItems.length} disposed lead(s)${historyAllTime ? ' (all months)' : ''}${searchQuery.trim() ? ' found' : ''}`
               : isOverdueTab
                 ? `Showing ${renderedItems.length} of ${listItems.length} overdue lead(s)${searchQuery.trim() ? ' found' : ''}`
                 : isFollowUps
                   ? `Showing ${renderedItems.length} of ${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
-                  : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads (total: ${total || donors.length})`
+                  : `Showing ${renderedItems.length} of ${total || donors.length} pending leads (of ${allottedTotal || total || donors.length} allotted in this tab)`
                     + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
                     + (closedCount ? ` · ${closedCount} already worked${dataTab === 'high_tier' ? '' : ' — filter by status'}` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'}) \u2014 use "Hidden: ${suppressedCount}" to view` : '')

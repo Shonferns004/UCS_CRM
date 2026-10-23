@@ -11,17 +11,21 @@
 // mentions, and past 2h is urgent. No imports here so `node --test` can load
 // the module on its own.
 export const IDLE_ALERT_LEVELS = {
+  green: {
+    title: 'FIRST WARNING',
+    body: (name) => `Dear ${name || ''},\n\nIt has been observed that your idle time has exceeded *1 hour*. This is a serious concern, as every employee is expected to remain active, attentive, and focused on their assigned calling tasks during working hours.\n\nPlease note that *no deduction will be made from your remuneration at this stage. However, this message should be treated as your FIRST WARNING*.\n\nGoing forward, please ensure that you minimise unnecessary idle time, maintain proper concentration during calls, and utilise your working hours productively.\n\nWe expect immediate improvement in your performance and discipline. Please take this warning seriously and ensure that this issue does not recur.\n\nRegards,\nHR Department`,
+  },
   yellow: {
-    title: 'Idle warning · 1 hour',
-    body: (name) => `${name}, you have been idle for over an hour. Please resume working on your leads now — if it reaches 1 hour 30 minutes you will receive a warning letter.`,
+    title: 'FIRST WARNING',
+    body: (name) => `Dear ${name || ''},\n\nIt has been observed that your idle time has exceeded *1 hour*. This is a serious concern, as every employee is expected to remain active, attentive, and focused on their assigned calling tasks during working hours.\n\nPlease note that *no deduction will be made from your remuneration at this stage. However, this message should be treated as your FIRST WARNING*.\n\nGoing forward, please ensure that you minimise unnecessary idle time, maintain proper concentration during calls, and utilise your working hours productively.\n\nWe expect immediate improvement in your performance and discipline. Please take this warning seriously and ensure that this issue does not recur.\n\nRegards,\nHR Department`,
   },
   orange: {
-    title: 'Idle warning · 1 hour 30 minutes',
-    body: (name) => `${name}, you have been idle for over 1 hour 30 minutes, which qualifies for a warning letter. Please resume your work immediately.`,
+    title: 'SECOND WARNING',
+    body: (name) => `Dear ${name || ''},\n\nIt has been observed that your idle time has exceeded *1 hour and 41 minutes*. This is a serious concern, as everyone is expected to remain active, attentive, and focused on their assigned calling tasks during working hours.\n\nPlease note that *no deduction will be made from your remuneration at this stage. However, this message should be treated as your SECOND WARNING*.\n\nGoing forward, please ensure that you minimise unnecessary idle time, maintain proper concentration during calls, and utilise your working hours productively.\n\nPlease be aware that if your idle time exceeds *2 hours and 10 minutes*, remuneration deduction may apply.\n\nWe expect immediate improvement in your performance and discipline. Please take this warning seriously and ensure that this issue does not recur.\n\nRegards,\nHR Department`,
   },
   red: {
-    title: 'Urgent idle warning · 2 hours',
-    body: (name) => `${name}, you have been idle for over 2 hours. This is urgent — please resume your work immediately and report to your supervisor.`,
+    title: 'THIRD AND FINAL WARNING',
+    body: (name) => `Dear ${name || ''},\n\nIt has been observed that your idle time has exceeded *2 hours and 41 minutes*. This is a serious concern, as every volunteer is expected to remain active, attentive, and focused on their assigned calling responsibilities during working hours.\n\nPlease be informed that this is your THIRD AND FINAL WARNING. Crossing this idle-time limit will lead to a *deduction in remuneration* as per management policy.\n\nYou are expected to minimise unnecessary idle time, maintain proper concentration during calls, and utilise your working hours productively.\n\nPlease take this warning seriously and ensure immediate improvement to avoid further action.\n\nRegards,\nHR Department`,
   },
 };
 
