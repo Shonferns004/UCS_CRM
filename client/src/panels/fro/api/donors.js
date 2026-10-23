@@ -219,6 +219,7 @@ export async function getMyDisposedLeads(opts = {}) {
   const params = new URLSearchParams();
   if (opts.station) params.set('station', opts.station);
   if (opts.ngoId) params.set('ngo_id', opts.ngoId);
+  if (opts.allMonths) params.set('all_months', 'true');
   const qs = params.toString();
   return api(`/fro/my-disposed-leads${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }

@@ -7335,23 +7335,45 @@ export const getMyDisposedLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { station: stationFilter, ngo_id: ngoFilter } = req.query;
+    const allMonths = req.query.all_months === 'true' || req.query.lifetime === 'true';
 
-    let disposedQuery = db
-      .from('fro_donor_logs')
-      .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
-      .eq('fro_assignments.fro_worker_id', workerId);
-    if (req.user.impersonation && req.user.imposter_id != null) {
-      disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
+    let disposedLogs = [];
+    let logErr = null;
+    if (allMonths) {
+      try {
+        const { rows } = await db._pool.query(
+          `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at
+             FROM fro_donor_logs l
+             JOIN fro_assignments fa ON fa.id = l.assignment_id
+            WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
+           UNION ALL
+           SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
+             FROM fro_donor_logs_archive a
+             JOIN fro_assignments fa ON fa.id = a.assignment_id
+            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
+           ORDER BY created_at DESC
+           LIMIT 10000`,
+          [workerId]
+        );
+        disposedLogs = rows || [];
+      } catch (e) {
+        logErr = e;
+      }
+    } else {
+      let disposedQuery = db
+        .from('fro_donor_logs')
+        .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
+        .eq('fro_assignments.fro_worker_id', workerId);
+      if (req.user.impersonation && req.user.imposter_id != null) {
+        disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
+      }
+      const { data, error } = await disposedQuery
+        .gte('created_at', istMonthBounds(new Date()).month)
+        .order('created_at', { ascending: false })
+        .limit(10000);
+      disposedLogs = data || [];
+      logErr = error;
     }
-    const { data: disposedLogs, error: logErr } = await disposedQuery
-      // History is scoped to THIS billing month's work. The daily rollover
-      // archives the previous month's call logs out of fro_donor_logs anyway,
-      // but that runs at 04:00 IST — a hard clamp here keeps the 1st-of-month
-      // history clean even in the hours before the archive runs, and keeps
-      // "this month's disposed" true regardless of job timing.
-      .gte('created_at', istMonthBounds(new Date()).month)
-      .order('created_at', { ascending: false })
-      .limit(500);
     if (logErr) throw logErr;
     if (!disposedLogs || disposedLogs.length === 0) return res.json([]);
 
@@ -7380,7 +7402,7 @@ export const getMyDisposedLeads = async (req, res) => {
       .from('donor_profiles')
       .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
       .in('id', disposedDonorIds)
-      .limit(500);
+      .limit(5000);
     if (error) throw error;
     if (!donors || donors.length === 0) return res.json([]);
 
