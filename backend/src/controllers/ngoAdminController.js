@@ -1846,28 +1846,20 @@ export const getStations = async (req, res) => {
     // Get station assignments — only include null-NGO rows in the "all" view (no ngo_id filter)
     const assignments = await getStationAssignmentsByNgo(targetNgoIds, !ngo_id);
 
-    // Get donor counts per station from fro_assignments (deduplicated by donor_id)
-    const { data: faData, error: faErr } = await db
-      .from('fro_assignments')
-      .select('donor_id, station, ngo_id, fro_worker_id, assigned_at, batch_type')
-      .in('ngo_id', targetNgoIds)
-      .not('station', 'is', null)
-      .or('status.is.null,status.neq.reassigned')
-      .order('assigned_at', { ascending: false });
-
-    if (faErr) throw faErr;
-
-    // Build total donor count per station PER NGO and per-FRO count
+    // Get donor counts per station from fro_assignments (deduplicated by donor_id).
+    // Compute the aggregates in SQL instead of pulling every assignment row into
+    // Node and deduping in JS: the table is large enough that the full scan +
+    // sort previously exceeded the pool's query_timeout ("Query read timeout").
     const totalDonorCount = {}; // { station: { ngo_id: count } } (excludes high_tier)
     const highTierDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
     const seen = new Set();
-    const seenHt = new Set();    // Donor amount range per station (distinct donors, across all NGOs). Used
-    // by the Station Management screen to show "500 - 2000" next to a station.
-    // Sourced from ACTUAL COLLECTED receipts (receipts.amount joined via
-    // fro_donor_logs -> fro_assignments), not the pledged amount on
-    // donor_profiles (which is stale/inflated for some stations). Each donor's
-    // amount = sum of their receipts for that station.
+    const seenHt = new Set();
+
+    // Donor amount range per station (distinct donors, across all NGOs). Sourced
+    // from ACTUAL COLLECTED receipts (receipts.amount joined via fro_donor_logs
+    // -> fro_assignments), not the pledged amount on donor_profiles. Each
+    // donor's amount = sum of their receipts for that station.
     const amountSeen = new Set(); // `${station}::${donor_id}`
     const stationAmountMin = {};   // { station: min amount }
     const stationAmountMax = {};   // { station: max amount }
@@ -1881,7 +1873,7 @@ export const getStations = async (req, res) => {
           WHERE fa.ngo_id = ANY($1::uuid[])
             AND fa.station IS NOT NULL
           GROUP BY fa.station, fa.donor_id`,
-        [targetNgoIds]
+        [targetNgoIds],
       );
       for (const r of rows || []) {
         stationDonorAmount[`${String(r.station).trim()}::${r.donor_id}`] = Number(r.total_amount) || 0;
@@ -1889,7 +1881,6 @@ export const getStations = async (req, res) => {
     } catch (e) {
       console.warn('[getStations] receipts aggregation failed:', e?.message || String(e));
     }
-
 
     for (const d of faData || []) {
       const s = d.station.trim();
@@ -4540,8 +4531,7 @@ export const masterSearch = async (req, res) => {
         .from('fro_assignments')
         .select('station, id', { count: 'exact', head: false })
         .in('station', stationNames)
-        .or('status.is.null,status.neq.reassigned')
-        .not('batch_type', 'eq', 'high_tier');
+        .or('status.is.null,status.neq.reassigned');
       const countMap = {};
       for (const c of counts || []) {
         countMap[c.station] = (countMap[c.station] || 0) + 1;
@@ -5002,6 +4992,7 @@ export const convertStationToHighTier = async (req, res) => {
               SET batch_type = 'high_tier',
                   high_tier_source_station = $1,
                   high_tier_prev_batch_type = COALESCE(batch_type, 'old_data'),
+                  high_tier_distributed_at = now(),
                   updated_at = now()
             WHERE id = ANY($2)`,
           [sourceStation, ids],

@@ -344,15 +344,20 @@ export async function createTemporaryAccess(req, res) {
     // Overlap advisory: another FRO already works this station temporarily.
     const { data: overlaps } = await db
       .from('temporary_data_assignments')
-      .select('id, working_fro_worker_id, expires_at')
+      .select('id, working_fro_worker_id, starts_at, expires_at, scope_type, status')
       .eq('station', station)
       .neq('working_fro_worker_id', working_fro_worker_id)
       .in('status', ['SCHEDULED', 'ACTIVE'])
-      .gt('expires_at', new Date().toISOString());
+      .gt('expires_at', new Date().toISOString())
+      .order('starts_at', { ascending: true });
     const conflicts = (overlaps || []).map(o => ({
       assignment_id: o.id,
       working_fro_worker_id: o.working_fro_worker_id,
+      starts_at: o.starts_at,
       expires_at: o.expires_at,
+      scope_type: o.scope_type,
+      status: o.status,
+      is_incoming: o.starts_at ? new Date(o.starts_at).getTime() > Date.now() : false,
     }));
 
     // Slice control: compute auto-offset and validate allowed_count against the
@@ -434,7 +439,9 @@ export async function createTemporaryAccess(req, res) {
         if (targetStation) {
           await db._pool.query(
             `UPDATE fro_assignments
-                SET target_station = $1, updated_at = now()
+                SET target_station = $1,
+                    high_tier_distributed_at = COALESCE(high_tier_distributed_at, now()),
+                    updated_at = now()
               WHERE id IN (
                 SELECT id FROM fro_assignments
                  WHERE station = $2
@@ -693,11 +700,12 @@ export async function validateTemporaryAccess(req, res) {
       dup = dupData;
       const { data: overlapData } = await db
         .from('temporary_data_assignments')
-        .select('id, working_fro_worker_id, expires_at, scope_type')
+        .select('id, working_fro_worker_id, starts_at, expires_at, scope_type, status')
         .eq('station', station)
         .neq('working_fro_worker_id', working_fro_worker_id)
         .in('status', ['SCHEDULED', 'ACTIVE'])
-        .gt('expires_at', new Date().toISOString());
+        .gt('expires_at', new Date().toISOString())
+        .order('starts_at', { ascending: true });
       overlaps = overlapData || [];
     }
 
