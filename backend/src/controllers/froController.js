@@ -2642,6 +2642,17 @@ export const claimSuspenseReceipt = async (req, res) => {
     // donor ended up sitting in two stations at once. Reuse the donor's existing
     // row instead; the lead still credits the claimant because the log below
     // carries creditWorkerId, not the assignment's owner.
+    // Temporary Data Access: a working FRO acting under a grant must not become
+    // the permanent owner of a donor they claim. Detect it here so the creation
+    // path below can keep fro_worker_id null (credit still goes to the working
+    // FRO via the log) instead of stamping ownership onto them.
+    let isTempAccess = false;
+    try {
+      const { getActiveGrants } = await import('../services/temporaryAccessService.js');
+      const grants = await getActiveGrants(workerId);
+      isTempAccess = (grants || []).length > 0;
+    } catch { isTempAccess = false; }
+
     let { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id, status')
@@ -2679,7 +2690,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           .from('fro_assignments')
           .insert({
             donor_id: donorId,
-            fro_worker_id: workerId,
+            fro_worker_id: isTempAccess ? null : workerId,
             ngo_id: receiptNgoId,
             station: null,
             status: 'lead_done',
@@ -7405,17 +7416,13 @@ export const getMyDisposedLeads = async (req, res) => {
     let disposedLogs = [];
     let logErr = null;
     if (allMonths) {
+      // Live (current month) logs first.
       try {
         const { rows } = await db._pool.query(
           `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at
              FROM fro_donor_logs l
              JOIN fro_assignments fa ON fa.id = l.assignment_id
             WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
-           UNION ALL
-           SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
-             FROM fro_donor_logs_archive a
-             JOIN fro_assignments fa ON fa.id = a.assignment_id
-            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
            ORDER BY created_at DESC
            LIMIT 10000`,
           [workerId]
@@ -7424,6 +7431,23 @@ export const getMyDisposedLeads = async (req, res) => {
       } catch (e) {
         logErr = e;
       }
+      // Archived (previous months) logs are best-effort: the archive table may
+      // not exist yet on a fresh deploy, so never fail the whole request.
+      try {
+        const { rows } = await db._pool.query(
+          `SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
+             FROM fro_donor_logs_archive a
+             JOIN fro_assignments fa ON fa.id = a.assignment_id
+            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
+           ORDER BY created_at DESC
+           LIMIT 10000`,
+          [workerId]
+        );
+        if (rows && rows.length) disposedLogs = (disposedLogs || []).concat(rows);
+      } catch (e) {
+        console.warn('[getMyDisposedLeads] archive read skipped:', e?.message || String(e));
+      }
+      disposedLogs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     } else {
       let disposedQuery = db
         .from('fro_donor_logs')

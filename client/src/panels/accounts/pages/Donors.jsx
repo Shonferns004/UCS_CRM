@@ -866,6 +866,9 @@ export default function Donors() {
   }, [ngoOptions])
 
   useEffect(() => { load(search, page, ngoFilter, agentFilter, stationFilter) }, [load, search, page, ngoFilter, agentFilter, stationFilter])
+  // Live: keep the Master Data list fresh when donors/receipts change elsewhere.
+  useRealtime('donor_profiles', { event: '*', onInsert: () => load(search, 1, ngoFilter, agentFilter, stationFilter), onUpdate: () => load(search, 1, ngoFilter, agentFilter, stationFilter) })
+  useRealtime('receipts', { event: '*', onInsert: () => load(search, 1, ngoFilter, agentFilter, stationFilter), onUpdate: () => load(search, 1, ngoFilter, agentFilter, stationFilter) })
 
   useEffect(() => { loadNewData(ngoFilter) }, [loadNewData, ngoFilter])
 

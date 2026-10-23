@@ -8234,13 +8234,18 @@ export const notifyFroHandler = async (req, res) => {
       // Push is best-effort — the socket notification below is the guaranteed path.
       console.warn('idle alert push failed:', pushErr.message);
     }
+    // Broadcast on role:fro (not worker:<id>) so delivery does not depend on
+    // the FRO socket having joined the per-worker topic — which silently dropped
+    // the alert when the topic name did not match the authed worker id. Each FRO
+    // filters by targetWorkerId below, so only the intended recipient reacts.
     emitRealtime('fro:action', {
       type: 'idle_alert',
+      targetWorkerId: workerId,
       level: idleAlert ? idleAlert.level : null,
       title: alertTitle,
       body: alertBody,
       sent_at: new Date().toISOString(),
-    }, `worker:${workerId}`);
+    }, 'role:fro');
     return res.json({
       message: `Idle alert sent to ${name}`,
       level: idleAlert ? idleAlert.level : null,
