@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 import { deptLabel } from '../../../lib/labels';
+import { SHOW_NETWORK_DETAIL } from '../../../lib/networkDetail';
 import * as XLSX from 'xlsx-js-style';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
@@ -280,14 +281,24 @@ export default function Attendance() {
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
+  const yesterdayStr = getIstDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
   const merged = workers.map(w => {
     const record = todayRecords.find(r => r.worker_id === w.id);
+    const yesterdayRecord = (allRecords || []).find(r => {
+      if (r.worker_id !== w.id) return false;
+      const rd = r.date || (r.punch_in_time ? getIstDateStr(new Date(r.punch_in_time)) : '');
+      return rd === yesterdayStr;
+    });
     return {
       ...w,
       record: record || null,
+      yesterdayRecord: yesterdayRecord || null,
       hasPunch: !!record,
     };
   }).sort((a, b) => {
+    const aPresent = a.hasPunch ? 0 : 1;
+    const bPresent = b.hasPunch ? 0 : 1;
+    if (aPresent !== bPresent) return aPresent - bPresent;
     const nameA = (a.name || '').toLowerCase();
     const nameB = (b.name || '').toLowerCase();
     return nameA.localeCompare(nameB);
@@ -655,23 +666,55 @@ export default function Attendance() {
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Today's Attendance</h2>
-          <p style={{ margin: 0, fontSize: 13, color: '#6b7280', marginTop: 2 }}>
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
+    <div style={{ background: '#F3F7FB', minHeight: '100vh', padding: '28px 36px', fontFamily: 'Inter, "Segoe UI", Roboto, Arial, sans-serif' }}>
+      <div style={{ background: '#FFFFFF', border: '1px solid #DCE6F1', borderRadius: 14, boxShadow: '0 2px 10px rgba(16,37,68,.04)', padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #DCE6F1' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#102544' }}>Today's Attendance</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748B' }}>
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#087F8C', lineHeight: 1 }}>{punchedIn}</div>
+              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Punched In</div>
+            </div>
+            <div style={{ width: 1, height: 36, background: '#DCE6F1' }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#C62835', lineHeight: 1 }}>{noPunch}</div>
+              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>No Punch</div>
+            </div>
+            <div style={{ width: 1, height: 36, background: '#DCE6F1' }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: '#64748B', lineHeight: 1 }}>{filtered.length}</div>
+              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Total</div>
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>
-            {punchedIn} punched in · {noPunch} no punch · {filtered.length} total
-          </span>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13, background: 'white' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#F7FAFD', border: '1px solid #DCE6F1', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#087F8C' }}>Export Monthly Attendance Sheet</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748B' }}>
+            From
+            <input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, height: 40 }} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748B' }}>
+            To
+            <input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, height: 40 }} />
+          </label>
+          <button
+            onClick={handleExportSheet}
+            style={{ padding: '0 16px', height: 40, borderRadius: 6, border: 'none', background: '#087F8C', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            Export Sheet
+          </button>
+          <div style={{ flex: 1 }} />
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: '0 10px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, background: 'white' }}>
             <option value="active">Active</option>
             <option value="absconded">Absconded</option>
           </select>
-          <select value={attendanceFilter} onChange={e => setAttendanceFilter(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13, background: 'white' }}>
+          <select value={attendanceFilter} onChange={e => setAttendanceFilter(e.target.value)} style={{ padding: '0 10px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, background: 'white' }}>
             <option value="all">All</option>
             <option value="present">Present</option>
             <option value="halfday">Half Day</option>
@@ -682,34 +725,15 @@ export default function Attendance() {
             placeholder="Search name or department..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13, width: 220 }}
+            style={{ padding: '0 12px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, width: 220, background: 'white' }}
           />
           <button
             onClick={load}
-            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #e5e7eb', background: 'white', fontSize: 13, cursor: 'pointer' }}
+            style={{ padding: '0 14px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', background: 'white', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}
           >
             Refresh
           </button>
         </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', marginBottom: 16 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#0f766e' }}>Export Monthly Attendance Sheet</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280' }}>
-          From
-          <input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13 }} />
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280' }}>
-          To
-          <input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13 }} />
-        </label>
-        <button
-          onClick={handleExportSheet}
-          style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#0f766e', color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
-        >
-          Export Sheet
-        </button>
-      </div>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>Loading...</div>
@@ -717,15 +741,14 @@ export default function Attendance() {
         <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>No workers found</div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14, background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(15,23,42,.08)' }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-                <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Name</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Department</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Punch In</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Punch Out</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151' }}>Status</th>
-                {/* <th style={{ padding: '10px 12px', fontWeight: 600, color: '#374151', textAlign: 'center' }}>Actions</th> */}
+              <tr style={{ background: '#F7FAFD', borderBottom: '1px solid #DCE6F1', textAlign: 'left' }}>
+                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Name</th>
+                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Yesterday Punch Out</th>
+                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Today Punch In</th>
+                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Status</th>
+                {/* <th style={{ padding: '10px 14px', fontWeight: 600, color: '#374151', textAlign: 'center' }}>Actions</th> */}
               </tr>
             </thead>
             <tbody>
@@ -733,23 +756,27 @@ export default function Attendance() {
                 const r = w.record;
                 const isPending = r?.selfie_status === 'pending';
                 const hasSelfieIn = !!r?.punch_in_selfie_url && !brokenSelfies.has(r.punch_in_selfie_url);
-                const hasSelfieOut = !!r?.punch_out_selfie_url && !brokenSelfies.has(r.punch_out_selfie_url);
+                const hasSelfieOut = SHOW_NETWORK_DETAIL && !!r?.punch_out_selfie_url && !brokenSelfies.has(r.punch_out_selfie_url);
                 return (
                   <tr
                     key={w.id}
                     onClick={() => setSelectedWorker(w)}
-                    style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                    style={{ borderBottom: '1px solid #DCE6F1', cursor: 'pointer', transition: 'background .12s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#F7FAFD'}
                     onMouseLeave={e => e.currentTarget.style.background = 'white'}
                     title="Click to view detailed attendance"
                   >
-                    <td style={{ padding: '10px 12px' }}>
+                    <td style={{ padding: '10px 14px' }}>
                       <div style={{ fontWeight: 500 }}>{w.name || 'Unknown'}</div>
                     </td>
-                    <td style={{ padding: '10px 12px', color: '#6b7280' }}>
-                      {deptLabel(w.department) || '—'}
+                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                      {w.yesterdayRecord?.punch_out_time ? (
+                        <span>{fmt(w.yesterdayRecord.punch_out_time)}</span>
+                      ) : (
+                        <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
+                      )}
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                       {r ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {hasSelfieIn ? (
@@ -761,7 +788,15 @@ export default function Attendance() {
                               onError={() => markSelfieBroken(r.punch_in_selfie_url)}
                             />
                           ) : r.punch_in_time ? (
-                            <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
+                            <span style={{ color: '#10b981', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="3" y="3" width="7" height="7" />
+                                <rect x="14" y="3" width="7" height="7" />
+                                <rect x="3" y="14" width="7" height="7" />
+                                <path d="M14 14h3v3h-3zM17 17h4M14 21h7M21 14v3" />
+                              </svg>
+                              QR
+                            </span>
                           ) : null}
                           <span>{fmt(r.punch_in_time)}</span>
                         </div>
@@ -769,27 +804,7 @@ export default function Attendance() {
                         <span style={{ color: '#d1d5db', fontSize: 13 }}>No punch</span>
                       )}
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      {r?.punch_out_time ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {hasSelfieOut ? (
-                            <img
-                              src={r.punch_out_selfie_url}
-                              alt="selfie"
-                              style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
-                              onClick={(e) => { e.stopPropagation(); setPreviewImg(r.punch_out_selfie_url); }}
-                              onError={() => markSelfieBroken(r.punch_out_selfie_url)}
-                            />
-                          ) : (
-                            <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
-                          )}
-                          <span>{fmt(r.punch_out_time)}</span>
-                        </div>
-                      ) : (
-                        <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                       {!r ? (
                         <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontSize: 12, fontWeight: 500 }}>Absent</span>
                       ) : r.selfie_status === 'pending' ? (
@@ -802,7 +817,7 @@ export default function Attendance() {
                         <span style={{ padding: '2px 8px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontSize: 12, fontWeight: 500 }}>{r.status || 'present'}</span>
                       )}
                     </td>
-                    {/* <td style={{ padding: '10px 12px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                    {/* <td style={{ padding: '10px 14px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                       {isPending ? (
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                           <button
@@ -829,6 +844,7 @@ export default function Attendance() {
           </table>
         </div>
       )}
+      </div>
 
       {previewImg && (
         <div

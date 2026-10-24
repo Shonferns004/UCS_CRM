@@ -909,7 +909,7 @@ export default function ReceiptHistory() {
                   const dateStr = r.receipt_date ? formatReceiptDate(r.receipt_date) : '\u2014';
                   return (
                     <tr key={r.id || i} className="clickable-row" onClick={() => {
-                      setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: [r] });
+                      setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: donorMap[key]?.receipts || [r] });
                     }}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
