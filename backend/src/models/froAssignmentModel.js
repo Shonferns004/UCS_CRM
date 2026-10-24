@@ -269,7 +269,7 @@ export const getDashboardStats = async (workerId) => {
   return stats;
 };
 
-export const getDonorsByStationAndStatus = async (ngoId, station, status) => {
+export const getDonorsByStationAndStatus = async (ngoId, station, status, batchType) => {
   let query = db
     .from('fro_assignments')
     .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
@@ -279,6 +279,11 @@ export const getDonorsByStationAndStatus = async (ngoId, station, status) => {
 
   if (status) {
     query = query.eq('status', status);
+  }
+  if (batchType === 'high_tier') {
+    query = query.eq('batch_type', 'high_tier');
+  } else if (batchType === 'normal') {
+    query = query.or('batch_type.is.null,batch_type.neq.high_tier');
   }
 
   const { data, error } = await query;

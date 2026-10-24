@@ -338,6 +338,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // months are also visible.
   const [historyAllTime, setHistoryAllTime] = useState(false);
   const [dataTab, setDataTab] = useState('new');
+  const [isTempStationView, setIsTempStationView] = useState(false);
   // High Tier tab is shown only to FROs who actually hold high-tier allotment.
   // Kept sticky per session (only ever turns on) so the tab cannot flicker away
   // while the FRO is working inside it.
@@ -487,6 +488,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         // request). Sticky: once true it stays true so the tab never disappears
         // mid-session.
         if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
+      if (r && !Array.isArray(r) && r.is_temp_station_view) setIsTempStationView(true);
+        if (r && !Array.isArray(r) && r.is_temp_station_view) setIsTempStationView(true);
         setHighTierStats(tab === 'high_tier' && r && !Array.isArray(r) ? (r.counts?.high_tier || null) : null);
         // Saved High Tier tab but nothing allotted any more (admin moved it
         // away): fall back to New instead of stranding the FRO on a hidden tab.
@@ -501,7 +504,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
           return;
         }
         let { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-        let sortedDonors = filterAndSortDonors(loaded, tab === 'high_tier');
+        let sortedDonors = filterAndSortDonors(loaded, tab === 'high_tier' || isTempStationView);
         // Stale-filter escape: if this tab is filtered (NGO/station) and comes
         // back EMPTY, but the SAME tab with no filter has data, the previously
         // saved filter (localStorage view state) is stale — its leads were
@@ -740,9 +743,10 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     const currentNgo = current?.ngo_id;
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
+      if (r && !Array.isArray(r) && r.is_temp_station_view) setIsTempStationView(true);
       setHighTierStats(dataTab === 'high_tier' && r && !Array.isArray(r) ? (r.counts?.high_tier || null) : null);
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-      const fresh = filterAndSortDonors(loaded, dataTab === 'high_tier');
+      const fresh = filterAndSortDonors(loaded, dataTab === 'high_tier' || isTempStationView);
       // Preserve the current on-screen order so a background reload after a
       // save never re-sorts the queue and snaps the "#N of M" cursor to a
       // random value. Walk the existing list first (refreshing in place), then
@@ -1826,13 +1830,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                   style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'old' ? 'var(--sage)' : 'transparent', color: dataTab === 'old' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'old' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                   Old
                 </button>
-                {(hasHighTier || dataTab === 'high_tier') && (
-                  <button onClick={() => switchTab('high_tier')}
-                    style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'high_tier' ? 'var(--sage)' : 'transparent', color: dataTab === 'high_tier' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'high_tier' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>workspace_premium</span>
-                    High Tier
-                  </button>
-                )}
+                {/* High Tier tab removed — high-tier data now accessed via station selection (temp access / stacks). */}
               </div>
             <select value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }}
               style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: selectedNgo ? 'var(--sage)' : 'var(--bg)', color: selectedNgo ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
@@ -2020,13 +2018,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                             and reads as someone else's station (e.g. a BFD-x that
                             belongs to another operator). The bucket name takes that
                             slot instead, so the row still reads as High Tier data. */}
-                        {dataTab === 'high_tier' ? (
-                          <div style={{ marginTop: 3 }}>
-                            <span style={{ padding: '1px 6px', borderRadius: 999, background: '#b45309', color: '#fff', fontSize: 9, fontWeight: 800, letterSpacing: .5 }}>HIGH TIER</span>
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{d.station || '—'}</div>
-                        )}
+                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{d.station || '—'}</div>
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                         {d.type ? (
@@ -2145,9 +2137,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                   {dataTab === 'old' && (
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#7c3aed', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>OLD</span>
                   )}
-                  {dataTab === 'high_tier' && (
-                    <span style={{ padding: '1px 6px', borderRadius: 4, background: '#b45309', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>HIGH TIER</span>
-                  )}
+                  {/* HIGH TIER badge removed — FRO sees stack chip instead */}
                 {statusPill(donor.status || 'pending')}
                 {donor.rollover_from_status && (
                   <span title={`Monthly reset from ${String(donor.rollover_from_status).replace(/_/g, ' ')}${donor.rollover_at ? ' on ' + new Date(donor.rollover_at).toLocaleDateString('en-GB') : ''}`}

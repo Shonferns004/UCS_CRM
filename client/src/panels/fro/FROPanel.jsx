@@ -1119,7 +1119,7 @@ useEffect(() => {
                 title={s.ngo_name ? `${s.station} · ${s.ngo_name}` : s.station}
                 style={{ padding: '2px 9px', borderRadius: 999, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', fontSize: 11.5, fontWeight: 600 }}
               >
-                {s.station}{s.temp_allowed_count ? ` · ${s.temp_allowed_count} of high-tier` : ''}{s.temp_expires_at ? ` · until ${new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : ''}
+                {s.station}{s.temp_allowed_count ? ` · ${s.temp_allowed_count}` : ''}{s.temp_expires_at ? ` · until ${new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : ''}
               </span>
             ))}
             <span style={{ color: 'var(--ink-soft)', fontSize: 11 }}>Donor ownership stays with the permanent FRO.</span>

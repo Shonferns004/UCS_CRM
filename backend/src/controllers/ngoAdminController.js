@@ -2418,7 +2418,7 @@ export const getStationStats = async (req, res) => {
 
 export const getDonorsByStation = async (req, res) => {
   try {
-    const { station, status, ngo_id } = req.query;
+    const { station, status, ngo_id, batch_type } = req.query;
     if (!station) {
       return res.status(400).json({ message: 'station query param is required' });
     }
@@ -2473,7 +2473,7 @@ export const getDonorsByStation = async (req, res) => {
 
     const allDonors = [];
     for (const ngoId of ngoIds) {
-      const donors = await getDonorsByStationAndStatus(ngoId, station, status || null);
+      const donors = await getDonorsByStationAndStatus(ngoId, station, status || null, batch_type || null);
       allDonors.push(...donors);
     }
 
