@@ -28,9 +28,10 @@ export default function History() {
     getMyHistory().then(data => setLogs(Array.isArray(data) ? data : [])).catch(() => setLogs([])).finally(() => setLoading(false));
   }, []);
 
+  const sorted = [...logs].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
   const filtered = search
-    ? logs.filter(l => (l.donor_name || '').toLowerCase().includes(search.toLowerCase()) || (l.donor_mobile || '').includes(search))
-    : logs;
+    ? sorted.filter(l => (l.donor_name || '').toLowerCase().includes(search.toLowerCase()) || (l.donor_mobile || '').includes(search))
+    : sorted;
 
   if (loading) return <SkeletonTable rows={10} />;
 
