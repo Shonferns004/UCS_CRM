@@ -38,7 +38,7 @@ const NGO_THEMES = {
     accent: '#FFC72C',
     headingColor: '#204E8C',
     footerBg: '#204E8C',
-    banner: '/Letter%20Head%20BSCT%20(1).png',
+    banner: null,
     contact: {
       phone: '8879-035-035 / 8879-034-034',
       email: 'being.sevak@gmail.com',
@@ -194,7 +194,7 @@ function ReportBanner({ src, alt }) {
   )
 }
 
-function SafeImg({ src, alt, height, radius = 8, fallback }) {
+function SafeImg({ src, alt, height, radius = 8, fallback, fit = 'cover' }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => { setFailed(false) }, [src])
   if ((!src || failed) && fallback) {
@@ -202,7 +202,7 @@ function SafeImg({ src, alt, height, radius = 8, fallback }) {
       <img
         src={fallback}
         alt={alt || ''}
-        style={{ width: '100%', height, objectFit: 'cover', display: 'block', borderRadius: radius }}
+        style={{ width: '100%', height, objectFit: fit, display: 'block', borderRadius: radius }}
       />
     )
   }
@@ -222,7 +222,7 @@ function SafeImg({ src, alt, height, radius = 8, fallback }) {
       src={src}
       alt={alt || ''}
       onError={() => setFailed(true)}
-      style={{ width: '100%', height, objectFit: 'cover', display: 'block', borderRadius: radius }}
+      style={{ width: '100%', height, objectFit: fit, display: 'block', borderRadius: radius }}
     />
   )
 }
@@ -233,14 +233,14 @@ function SafeImg({ src, alt, height, radius = 8, fallback }) {
    the photo is read back through the same-origin server proxy and rendered as
    a blob / data URL. That both SHOWS it and lets the PDF CAPTURE it. Falls back
    to the raw URL for public / legacy images. */
-function ReportCardImage({ ev, height, radius = 0 }) {
+function ReportCardImage({ ev, height, radius = 0, fit = 'cover' }) {
   const raw = ev.image || ''
   const [src, setSrc] = useState(raw)
   useEffect(() => {
     let live = true
     let temp = ''
     if (!ev.image_event_id) { setSrc(raw); return }
-    ;(async () => {
+    ; (async () => {
       try {
         const resolved = ev.image_kind === 'banner'
           ? await fetchEventBannerObjectUrl(ev.image_event_id)
@@ -254,7 +254,7 @@ function ReportCardImage({ ev, height, radius = 0 }) {
     })()
     return () => { live = false; if (temp) { try { URL.revokeObjectURL(temp) } catch { /* already gone */ } } }
   }, [ev.image_event_id, ev.image_kind, ev.image_index, raw])
-  return <SafeImg src={src || EVENT_PHOTO_PLACEHOLDER} alt="" height={height} radius={radius} fallback={EVENT_PHOTO_PLACEHOLDER} />
+  return <SafeImg src={src || EVENT_PHOTO_PLACEHOLDER} alt="" height={height} radius={radius} fallback={EVENT_PHOTO_PLACEHOLDER} fit={fit} />
 }
 
 function Section({ title, children, right }) {
@@ -282,20 +282,20 @@ function Table({ cols, rows }) {
   if (!rows || !rows.length) return <div style={{ color: '#9ca3af', fontSize: 13 }}>No records</div>
   return (
     <div className="eh-table-scroll" style={{ overflowX: 'auto' }}>
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 660 }}>
-      <thead>
-        <tr>
-          {cols.map(c => <th key={c.key} style={{ textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid #d1d5db', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase' }}>{c.label}</th>)}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i}>
-            {cols.map(c => <td key={c.key} style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#1a1a2e' }}>{c.render ? c.render(r) : r[c.key] != null ? String(r[c.key]) : '—'}</td>)}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 660 }}>
+        <thead>
+          <tr>
+            {cols.map(c => <th key={c.key} style={{ textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid #d1d5db', background: '#f3f4f6', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase' }}>{c.label}</th>)}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {cols.map(c => <td key={c.key} style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#1a1a2e' }}>{c.render ? c.render(r) : r[c.key] != null ? String(r[c.key]) : '—'}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -365,7 +365,7 @@ function ActivityCard({ ev, theme, big, wide, badge = true, onPatched }) {
     let cancelled = false
     let obj = ''
     if (!evId || !evBanner || !/^https?:/i.test(evBanner)) { setBannerUrl(evBanner); return }
-    ;(async () => {
+    ; (async () => {
       try {
         obj = await fetchEventBannerObjectUrl(evId, bannerBust || undefined)
         if (cancelled) { URL.revokeObjectURL(obj); return }
@@ -432,7 +432,7 @@ function ActivityCard({ ev, theme, big, wide, badge = true, onPatched }) {
   return (
     <div className="eh-activity-card" style={{
       display: 'flex', flexDirection: 'column', background: '#fff', height: '100%',
-      border: `1.5px solid ${theme.accent || theme.colorLight}`,
+      border: `2px solid ${theme.accent || theme.colorLight}`,
       borderRadius: rounded ? 12 : 10, overflow: 'hidden',
       breakInside: 'avoid', pageBreakInside: 'avoid',
     }}>
@@ -673,6 +673,179 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
   )
 }
 
+/* BSCT monthly "Report Card" template (/bsct.jpeg, 1131 x 1600 px).
+   The artwork has 20 empty card slots (4 rows x 5 columns). Each slot is a
+   yellow-bordered rounded card: a glass "photo window" on top and a navy text
+   panel below. The slot coordinates below were measured from the image itself
+   (top-left of the yellow border, in image pixels; slot size 203 x 274), so a
+   programme card lands exactly on top of its slot. The columns drift a few
+   pixels from row to row in the artwork, hence one x per slot rather than a
+   fixed pitch. More than 20 programmes continue on a second template page. */
+const BSCT_W = 1131
+const BSCT_H = 1600
+const BSCT_SLOT_W = 203
+const BSCT_SLOT_H = 274
+const BSCT_SLOTS = [
+  [35, 250], [250, 250], [464, 250], [678, 250], [892, 250],
+  [31, 546], [245, 546], [459, 546], [674, 546], [888, 546],
+  [27, 841], [241, 841], [455, 841], [669, 841], [883, 841],
+  [22, 1136], [236, 1136], [450, 1136], [667, 1136], [883, 1136],
+]
+const BSCT_PER_PAGE = BSCT_SLOTS.length
+const BSCT_COLS = 5
+const BSCT_ROWS = 4
+const BSCT_ROW_PITCH = 295.33 // distance between two slot rows in the artwork
+const BSCT_FOOT_H = 180       // the footer band of the artwork (image rows 1420-1600)
+// Inside a slot (relative to the slot's top-left): 6px yellow border, photo
+// window down to y=159, navy text panel from y=160 to the bottom border.
+const BSCT_BORDER = 6
+const BSCT_PHOTO_H = 153
+const BSCT_TEXT_TOP = 158
+
+const BSCT_HEAD_FONT = "Impact, 'Arial Narrow', 'Oswald', sans-serif"
+const BSCT_NUM_FONT = "Georgia, 'Times New Roman', serif"
+// Width of `text` at a 1px font size, measured with the real font stack, so the
+// title and the footer count can be fitted to their space whatever font the
+// machine ends up using (Impact is narrow, the fallback fonts are not).
+function textEm(text, font, style = '800') {
+  try {
+    const c = textEm._c || (textEm._c = document.createElement('canvas'))
+    const ctx = c.getContext('2d')
+    ctx.font = `${style} 100px ${font}`
+    return ctx.measureText(text).width / 100
+  } catch { return String(text).length * 0.6 }
+}
+
+function useElWidth(ref) {
+  const [w, setW] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return undefined
+    const update = () => setW(el.getBoundingClientRect().width)
+    update()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return w
+}
+
+function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, overKey, startDrag, endDrag, dragOverCard, dropOnCard, dropAtEnd }) {
+  const ref = useRef(null)
+  const w = useElWidth(ref)
+  // Everything inside a slot is designed in image pixels and scaled by k, so
+  // the page looks the same at any on-screen width and in the exported PDF.
+  const k = (w || BSCT_W) / BSCT_W
+  const px = (n) => Math.round(n * k * 100) / 100
+  // The page is only as tall as the rows that are really used: the footer band
+  // moves up to sit right under the last row, so no empty space is left.
+  const nRows = Math.max(1, Math.min(BSCT_ROWS, Math.ceil(rows.length / BSCT_COLS)))
+  const cut = (BSCT_ROWS - nRows) * BSCT_ROW_PITCH
+  const Hp = BSCT_H - cut
+  const titleTxt = `${String(monthLabel || '').toUpperCase()} REPORT CARD ${yearLabel || ''}`.trim()
+  // Fit the title to the ribbon (690px wide in the artwork) and the footer
+  // line to the free space left of the count (590px).
+  const titleFs = Math.min(56, 690 / Math.max(0.1, textEm(titleTxt, BSCT_HEAD_FONT)))
+  // The count is whatever was typed in the "Happy Family count" box; a "+" is
+  // added unless it already ends with one. Empty box = the line is left out.
+  const typed = String(happyCount ?? '').trim()
+  const countTxt = typed ? (typed.endsWith('+') ? typed : `${typed}+`) : ''
+  const footW = 54 * textEm('HAPPY FAMILY', BSCT_HEAD_FONT) + 14 + 62 * textEm(countTxt, BSCT_NUM_FONT, 'italic 800')
+  const footK = Math.min(1, 590 / Math.max(1, footW))
+  const innerW = BSCT_SLOT_W - BSCT_BORDER * 2
+  const innerH = BSCT_SLOT_H - BSCT_BORDER * 2
+  return (
+    <div
+      ref={ref}
+      className="bsct-page"
+      style={{
+        position: 'relative', width: '100%', aspectRatio: `${BSCT_W} / ${Hp}`,
+        backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
+        backgroundColor: '#fff', overflow: 'hidden', borderRadius: 8,
+      }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+      onDrop={dropAtEnd}
+    >
+      {/* Footer band of the artwork (thanks line + contact bar), pinned to the
+          bottom so it follows the last used row. */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.png')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+      {/* Title on the denim ribbon. The ribbon in /bsct-blank.jpg is empty, so
+          the month and year come from the report that is being viewed. */}
+      <div style={{ position: 'absolute', left: `${(285 / BSCT_W) * 100}%`, width: `${(723 / BSCT_W) * 100}%`, top: `${(80 / Hp) * 100}%`, height: `${(62 / Hp) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <span style={{
+          fontFamily: BSCT_HEAD_FONT, fontWeight: 800, color: '#FFF200', whiteSpace: 'nowrap',
+          fontSize: px(titleFs), lineHeight: 1.1,
+          textShadow: [[-2, 0], [2, 0], [0, -2], [0, 2], [-2, -2], [2, -2], [-2, 2], [2, 2]].map(([a, b]) => `${px(a)}px ${px(b)}px 0 #0a1f44`).join(', ') + `, 0 ${px(3)}px ${px(4)}px rgba(0,0,0,0.35)`,
+        }}>{titleTxt}</span>
+      </div>
+      {/* "HAPPY FAMILY <count>" in the footer, right aligned like the artwork */}
+      {countTxt && (
+        <div style={{ position: 'absolute', right: `${((BSCT_W - 1108) / BSCT_W) * 100}%`, top: `${((1446 - cut) / Hp) * 100}%`, height: `${(90 / Hp) * 100}%`, display: 'flex', alignItems: 'center', gap: px(14 * footK), whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+          <span style={{ fontFamily: BSCT_HEAD_FONT, fontWeight: 800, fontSize: px(60 * footK), lineHeight: 1.1, color: '#2a6fc0' ,letterSpacing: '4px', }}>HAPPY FAMILY</span>
+          <span style={{ fontFamily: BSCT_NUM_FONT, fontStyle: 'italic', fontWeight: 800, fontSize: px(62 * footK), lineHeight: 1.1, color: '#0f2547' }}>{countTxt}</span>
+        </div>
+      )}
+      {rows.map((ev, i) => {
+        const [sx, sy] = BSCT_SLOTS[i]
+        const key = String(ev.id)
+        const badge = reportBadge(ev)
+        const d = ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00') : null
+        const dateTxt = d && !isNaN(d) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'
+        return (
+          <div
+            key={ev.id ?? i}
+            className={`eh-report-card${dragKey === key ? ' dragging' : ''}${overKey === key ? ' drag-over' : ''}`}
+            style={{
+              position: 'absolute',
+              left: `${(sx / BSCT_W) * 100}%`, top: `${(sy / Hp) * 100}%`,
+              width: `${(BSCT_SLOT_W / BSCT_W) * 100}%`, height: `${(BSCT_SLOT_H / Hp) * 100}%`,
+              // The page background is the artwork with every empty slot removed;
+              // this slot gets its own frame cut out of the original artwork.
+              backgroundImage: "url('/bsct.jpeg')", backgroundRepeat: 'no-repeat',
+              backgroundSize: `${(BSCT_W / BSCT_SLOT_W) * 100}% ${(BSCT_H / BSCT_SLOT_H) * 100}%`,
+              backgroundPosition: `${(sx / (BSCT_W - BSCT_SLOT_W)) * 100}% ${(sy / (BSCT_H - BSCT_SLOT_H)) * 100}%`,
+              borderRadius: px(30),
+            }}
+            onDragOver={(e) => dragOverCard(key)(e)}
+            onDrop={(e) => dropOnCard(key)(e)}
+          >
+            <div style={{ position: 'absolute', left: px(BSCT_BORDER), top: px(BSCT_BORDER), width: px(innerW), height: px(innerH), borderRadius: px(24), overflow: 'hidden' }}>
+              {/* Photo window */}
+              <div style={{ position: 'relative', height: px(BSCT_PHOTO_H), background: '#e5eef7', overflow: 'hidden' }}>
+                <ReportCardImage ev={ev} height={px(BSCT_PHOTO_H)} radius={0} fit="cover" />
+                <span style={{ position: 'absolute', top: px(10), right: px(12), fontSize: px(12), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(3)}px ${px(10)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
+                <span
+                  className="eh-drag-handle no-print"
+                  data-html2canvas-ignore="true"
+                  draggable
+                  onDragStart={startDrag(key)}
+                  onDragEnd={endDrag}
+                  title="Drag to reorder"
+                  aria-label="Drag to reorder"
+                >⠿</span>
+              </div>
+              {/* Text sits on the navy panel that is already part of the artwork */}
+              <div style={{ position: 'absolute', left: px(10), right: px(10), top: px(BSCT_TEXT_TOP), bottom: px(6), overflow: 'hidden', color: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: px(6), marginBottom: px(4) }}>
+                  <span style={{ background: '#FFC72C', color: '#16365f', borderRadius: px(6), padding: `${px(1)}px ${px(8)}px`, fontSize: px(13), lineHeight: 1.35, fontWeight: 800, whiteSpace: 'nowrap' }}>{dateTxt}</span>
+                  <span style={{ fontSize: px(12), lineHeight: 1.3, color: '#dbe7f7', whiteSpace: 'nowrap' }}>{ev.day || ''}</span>
+                </div>
+                <div style={{ fontSize: px(15), lineHeight: `${px(18)}px`, fontWeight: 700, maxHeight: px(54), overflow: 'hidden', overflowWrap: 'anywhere' }}>
+                  {ev.event_name || ev.festival || '—'}
+                </div>
+                {ev.venue && (
+                  <div style={{ marginTop: px(3), fontSize: px(11.5), lineHeight: `${px(15)}px`, height: px(15), color: '#dbe7f7', whiteSpace: 'nowrap', overflow: 'hidden' }}>📍 {ev.venue}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /* Monthly NGO card: the planner's SELECTED Festival / Day rows for the month,
    one line per programme (Date | Festival / Day | Programme | Beneficiary |
    Location). The report is driven by the planner, not by the events listing, so
@@ -683,7 +856,7 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
    photo). The order is not kept in the browser - it is handed to the parent,
    which saves it in the database, so it survives a reload and is the same for
    everyone who opens the report. */
-function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReorder }) {
+function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, cardRef, onReorder }) {
   // Every programme of the month is listed, not only the photographed ones: a
   // programme that was planned and run but has no photo uploaded yet is still
   // a programme of that month. It carries the placeholder and the "Pending"
@@ -691,7 +864,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
   // say "25 programmes" above a grid that showed only the photographed ones.
   const rows = (n.events || [])
   const headerBg = theme.color
-  const bannerSrc = n.banner || theme.banner
+  const bannerSrc = theme.name === 'BSCT' ? null : (n.banner || theme.banner)
   const rounded = theme.name === 'AFLF'
   // The card being dragged, and the card it is currently hovering over.
   const [dragKey, setDragKey] = useState(null)
@@ -740,9 +913,35 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
     next.push(next.splice(a, 1)[0])
     onReorder?.(next)
   }
+  // BSCT: the programmes are laid straight onto the report-card artwork, 20 per
+  // template page, instead of the generic 5-column grid.
+  if (theme.name === 'BSCT' && rows.length > 0) {
+    const pages = []
+    for (let i = 0; i < rows.length; i += BSCT_PER_PAGE) pages.push(rows.slice(i, i + BSCT_PER_PAGE))
+    return (
+      <div ref={cardRef} className="eh-ngo-card bsct-pages" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {pages.map((chunk, pi) => (
+          <BsctTemplatePage
+            key={pi}
+            monthLabel={monthLabel}
+            yearLabel={yearLabel}
+            happyCount={happyCount}
+            rows={chunk}
+            dragKey={dragKey}
+            overKey={overKey}
+            startDrag={startDrag}
+            endDrag={endDrag}
+            dragOverCard={dragOverCard}
+            dropOnCard={dropOnCard}
+            dropAtEnd={dropAtEnd}
+          />
+        ))}
+      </div>
+    )
+  }
   return (
-    <div ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
-      <ReportCardHeader logo={n.logo || theme.logo} theme={theme} ngoName={n.ngo_name} monthLabel={monthLabel} yearLabel={yearLabel} eventCount={n.events_count} />
+    <div ref={cardRef} className="eh-ngo-card" style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: theme.name === 'BSCT' ? "url('/bsct.jpeg') center top / 100% auto no-repeat" : '#fff', minHeight: theme.name === 'BSCT' ? 990 : undefined, position: 'relative', pageBreakInside: 'avoid' }}>
+      {theme.name !== 'BSCT' && <ReportCardHeader logo={n.logo || theme.logo} theme={theme} ngoName={n.ngo_name} monthLabel={monthLabel} yearLabel={yearLabel} eventCount={n.events_count} />}
 
       {/* Optional letterhead band */}
       {bannerSrc && (
@@ -751,12 +950,12 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
         </div>
       )}
 
-      <div style={{ padding: '14px 16px' }}>
+      <div style={{ padding: '14px 16px', marginTop: theme.name === 'BSCT' ? 210 : 0 }}>
         {rows.length === 0 ? (
           <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No completed programmes for this month.</div>
         ) : (
           <div
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
             onDrop={dropAtEnd}
           >
@@ -767,15 +966,14 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
                 <div
                   key={ev.id ?? i}
                   className={`eh-activity-card eh-report-card${dragKey === key ? ' dragging' : ''}${overKey === key ? ' drag-over' : ''}`}
-                  style={{ border: `1.5px solid ${theme.accent || theme.colorLight}`, borderRadius: rounded ? 12 : 10, background: '#fff', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+                  style={{ border: `2px solid ${theme.accent || theme.colorLight}`, borderRadius: rounded ? 12 : 10, background: '#fff', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
                   onDragOver={(e) => dragOverCard(key)(e)}
                   onDrop={(e) => dropOnCard(key)(e)}
                 >
-                  <div style={{ position: 'relative', height: 130, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
-                    <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} />
+                  <div style={{ position: 'relative', height: 110, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
+                    <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} fit="cover" />
                     <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
-                    {/* The drag handle is for the screen only - it must not end up
-                        in the PDF, which is a picture of this very card. */}
+
                     <span
                       className="eh-drag-handle no-print"
                       data-html2canvas-ignore="true"
@@ -811,7 +1009,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, cardRef, onReo
         )}
       </div>
 
-      <ReportCardFooter theme={theme} n={n} monthLabel={monthLabel} yearLabel={yearLabel} />
+      {theme.name !== 'BSCT' && <ReportCardFooter theme={theme} n={n} monthLabel={monthLabel} yearLabel={yearLabel} />}
     </div>
   )
 }
@@ -962,6 +1160,12 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const [monthlyNgo, setMonthlyNgo] = useState('')
   const [monthlyData, setMonthlyData] = useState(null)
   const [monthlyLoading, setMonthlyLoading] = useState(false)
+  // The number shown after "HAPPY FAMILY" on the BSCT report card. Typed by the
+  // user and remembered in this browser; 4290 is the figure the artwork had.
+  const [happyFamily, setHappyFamily] = useState(() => {
+    try { const v = localStorage.getItem('bsct_happy_family'); return v == null ? '4290' : v } catch { return '4290' }
+  })
+  useEffect(() => { try { localStorage.setItem('bsct_happy_family', happyFamily) } catch { /* storage unavailable */ } }, [happyFamily])
   const [ngos, setNgos] = useState([])
   // The order the programme cards were dragged into, per NGO. The saved order
   // lives in the database; this is only the arrangement the user has just
@@ -1179,6 +1383,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       // taller than one page is split at the gaps BETWEEN event cards, so no
       // event card is ever cut in half and pages never overlap.
       let firstPage = true
+      let deleteInitialPage = false
       for (const n of ngos) {
         const el = ngoCardRefs.current[String(n.ngo_id)]
         if (!el) continue
@@ -1187,12 +1392,28 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
             img.complete
               ? Promise.resolve()
               : new Promise(resolve => {
-                  img.onload = () => resolve()
-                  img.onerror = () => resolve()
-                })
+                img.onload = () => resolve()
+                img.onerror = () => resolve()
+              })
           )
         )
         await (document.fonts && document.fonts.ready)
+        // BSCT template pages: each one is a finished A4 poster, so it is
+        // captured on its own and placed full-bleed (no margins, no slicing).
+        const bsctPages = [...el.querySelectorAll('.bsct-page')]
+        if (bsctPages.length) {
+          for (const pg of bsctPages) {
+            const pageCanvas = await html2canvas(pg, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
+            // The page is as tall as its used rows, so the PDF page is cut to
+            // the same height (210mm wide) instead of leaving white space.
+            const pgMm = Math.round(pageW * (pageCanvas.height / pageCanvas.width) * 100) / 100
+            if (firstPage) deleteInitialPage = true
+            pdf.addPage([pageW, pgMm], 'p')
+            firstPage = false
+            pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, pageW, pgMm)
+          }
+          continue
+        }
         const canvas = await html2canvas(el, {
           scale: 2,
           useCORS: true,
@@ -1236,6 +1457,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           pdf.addImage(sliceData, 'JPEG', margin, margin, contentW, sliceHeightMm)
         }
       }
+      if (deleteInitialPage) pdf.deletePage(1)
       pdf.save(`monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.pdf`)
     } catch (err) {
       console.error('exportMonthlyPDF error:', err)
@@ -1281,17 +1503,17 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   useEffect(() => {
     let live = true
     const made = []
-    ;(async () => {
-      const out = []
-      for (const m of posterMedia) {
-        let src = m.url || ''
-        if (m.id && ev.id) {
-          try { src = await fetchMediaViewObjectUrl(ev.id, m.id); made.push(src) } catch { /* fall back to the raw url */ }
+      ; (async () => {
+        const out = []
+        for (const m of posterMedia) {
+          let src = m.url || ''
+          if (m.id && ev.id) {
+            try { src = await fetchMediaViewObjectUrl(ev.id, m.id); made.push(src) } catch { /* fall back to the raw url */ }
+          }
+          out.push(src)
         }
-        out.push(src)
-      }
-      if (live) setPosterPhotos(out)
-    })()
+        if (live) setPosterPhotos(out)
+      })()
     return () => { live = false; made.forEach(u => { try { URL.revokeObjectURL(u) } catch { /* gone */ } }) }
   }, [posterMediaKey, ev.id]) /* eslint-disable-line react-hooks/exhaustive-deps */
 
@@ -1563,6 +1785,10 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                 {ngos.map(n => <option key={n.id ?? n.ngo_id} value={n.id ?? n.ngo_id}>{n.name || n.ngo_name || n.code || `NGO ${n.id ?? n.ngo_id}`}</option>)}
               </select>
             </div>
+            <div>
+              <label style={labelStyle}>Happy Family count (BSCT)</label>
+              <input value={happyFamily} onChange={e => setHappyFamily(e.target.value)} placeholder="e.g. 4290" inputMode="numeric" maxLength={12} style={{ ...selectStyle, width: 150 }} />
+            </div>
             <button className="btn btn-primary btn-sm" onClick={generateMonthly} disabled={monthlyLoading}>
               {monthlyLoading ? 'Loading…' : 'Generate Monthly Report'}
             </button>
@@ -1582,50 +1808,50 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
             <h3>Monthly Report <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>· by NGO</span></h3>
           </div>
           <div className="card-pad" style={{ paddingTop: 8 }}>
-          {monthlyLoading && <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading monthly report…</div>}
-          {!monthlyLoading && !monthlyData && (
-            <div style={{ color: 'var(--ink-soft)', fontSize: 13, padding: 12 }}>
-              Select a month{monthlyNgo ? ' and NGO' : ''} and click <b>Generate Monthly Report</b> to see per-NGO activity.
-            </div>
-          )}
-          {!monthlyLoading && monthlyData && (
-            <div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-                <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
-                  {monthlyMonthLabel} {monthlyYearLabel}
-                </span>
-                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} completed programme{monthlyData.summary.totalEvents === 1 ? '' : 's'}</span>
-                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.ngos.length} NGO{monthlyData.ngos.length === 1 ? '' : 's'}</span>
-                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Beneficiaries: {monthlyData.summary.totalBeneficiaries.toLocaleString('en-IN')}</span>
-                <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Budget: {money(monthlyData.summary.totalBudget)}</span>
+            {monthlyLoading && <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading monthly report…</div>}
+            {!monthlyLoading && !monthlyData && (
+              <div style={{ color: 'var(--ink-soft)', fontSize: 13, padding: 12 }}>
+                Select a month{monthlyNgo ? ' and NGO' : ''} and click <b>Generate Monthly Report</b> to see per-NGO activity.
               </div>
-
-              {monthlyData.summary.totalEvents === 0 && (
-                <div style={{ color: '#9ca3af', fontSize: 13, padding: 12, marginBottom: 12 }}>
-                  No completed programmes for this month.
-                  {Number(monthlyData.summary.selectedSuggestions || 0) < Number(monthlyData.summary.suggestions || 0) && (
-                    <div style={{ marginTop: 6 }}>
-                      {Number(monthlyData.summary.suggestions || 0) - Number(monthlyData.summary.selectedSuggestions || 0)} programme
-                      {Number(monthlyData.summary.suggestions || 0) - Number(monthlyData.summary.selectedSuggestions || 0) === 1 ? ' was' : 's were'}
-                      {' '}generated for this month but not selected yet — select them in <b>Suggest Programmes</b>, and once they are completed they will be listed here.
-                    </div>
-                  )}
+            )}
+            {!monthlyLoading && monthlyData && (
+              <div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+                  <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
+                    {monthlyMonthLabel} {monthlyYearLabel}
+                  </span>
+                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} completed programme{monthlyData.summary.totalEvents === 1 ? '' : 's'}</span>
+                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.ngos.length} NGO{monthlyData.ngos.length === 1 ? '' : 's'}</span>
+                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Beneficiaries: {monthlyData.summary.totalBeneficiaries.toLocaleString('en-IN')}</span>
+                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Budget: {money(monthlyData.summary.totalBudget)}</span>
                 </div>
-              )}
 
-              <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
-                {orderedNgos.map(n => {
-                  const nameCode = codeForName(n.ngo_name)
-                  const rawCode = String(n.code || '').toLowerCase()
-                  const code = nameCode || (['aflf', 'bsct', 'mann'].includes(rawCode) ? rawCode : '')
-                  const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: nameCode || rawCode })
-                  const cardRef = el => { ngoCardRefs.current[String(n.ngo_id)] = el }
-                  const ngoKey = String(n.ngo_id ?? '')
-                  return <FestivalProgrammeCard key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} code={code} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} onReorder={(keys) => handleCardReorder(ngoKey, keys)} />
-                })}
+                {monthlyData.summary.totalEvents === 0 && (
+                  <div style={{ color: '#9ca3af', fontSize: 13, padding: 12, marginBottom: 12 }}>
+                    No completed programmes for this month.
+                    {Number(monthlyData.summary.selectedSuggestions || 0) < Number(monthlyData.summary.suggestions || 0) && (
+                      <div style={{ marginTop: 6 }}>
+                        {Number(monthlyData.summary.suggestions || 0) - Number(monthlyData.summary.selectedSuggestions || 0)} programme
+                        {Number(monthlyData.summary.suggestions || 0) - Number(monthlyData.summary.selectedSuggestions || 0) === 1 ? ' was' : 's were'}
+                        {' '}generated for this month but not selected yet — select them in <b>Suggest Programmes</b>, and once they are completed they will be listed here.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
+                  {orderedNgos.map(n => {
+                    const nameCode = codeForName(n.ngo_name)
+                    const rawCode = String(n.code || '').toLowerCase()
+                    const code = nameCode || (['aflf', 'bsct', 'mann'].includes(rawCode) ? rawCode : '')
+                    const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: nameCode || rawCode })
+                    const cardRef = el => { ngoCardRefs.current[String(n.ngo_id)] = el }
+                    const ngoKey = String(n.ngo_id ?? '')
+                    return <FestivalProgrammeCard key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} code={code} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} happyCount={happyFamily} onReorder={(keys) => handleCardReorder(ngoKey, keys)} />
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </div>
         </div>
       )}
