@@ -250,6 +250,13 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
           </label>
           <button
             type="button"
+            className="wa-btn wa-btn-outline"
+            onClick={() => { window.location.href = '/accounts/whatsapp/bulk'; }}
+          >
+            Bulk Send
+          </button>
+          <button
+            type="button"
             className="wa-btn wa-btn-primary"
             disabled={allProjectsTaken && !showForm}
             title={allProjectsTaken && !showForm ? 'All projects already have an account' : undefined}

@@ -759,15 +759,43 @@ export async function listTemplates(req, res) {
 
     const wabaId = whatsappConfig.wabaId || '2529840587470683';
     const tplRes = await fetch(
-      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
+      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${wabaId}/message_templates?fields=name,language,status,components`,
       { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } }
     );
     if (!tplRes.ok) { const e = await tplRes.text(); return res.status(400).json({ message: 'Meta API: ' + e }); }
 
     const { data } = await tplRes.json();
-    const templates = (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language }));
+    const templates = (data || []).filter(t => t.status === 'APPROVED').map(t => ({
+      name: t.name,
+      language: t.language,
+      components: t.components || [],
+    }));
     return res.json(templates);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function sendBulkTemplate(req, res) {
+  try {
+    const { accountId, to, templateName, templateLang, parameters } = req.body;
+    if (!to) return res.status(400).json({ success: false, message: 'Phone number is required' });
+
+    const account = accountId ? await getAccountById(accountId) : await resolveAccount();
+    if (!account) return res.status(400).json({ success: false, message: 'No WhatsApp account configured' });
+
+    const tpl = templateName || account.template_name;
+    if (!tpl) return res.status(400).json({ success: false, message: 'Template name is required' });
+
+    const params = Array.isArray(parameters) ? parameters : [];
+    const result = await sendTemplateMessage(to, tpl, params, templateLang || account.template_language || 'en', account);
+
+    return res.json({
+      success: true,
+      messageId: result?.messages?.[0]?.id || result?.id || null,
+      result,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 }
