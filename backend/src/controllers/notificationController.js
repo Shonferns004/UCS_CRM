@@ -204,6 +204,18 @@ export const sendSuspenseAlert = async (req, res) => {
         inserted += 1;
       } catch (e) { console.error('Failed to send suspense alert to worker', wid, ':', e.message); }
     }
+     // Realtime push so connected FROs ring immediately instead of waiting for
+     // the 8s notification poll (which also missed alerts when the poll's 90s
+     // window or localStorage dedup swallowed them).
+     if (inserted > 0) {
+       emitRealtime('fro:action', {
+         type: 'suspense_alert',
+         eventId: Date.now(),
+         title: (ngo ? `${ngo.toUpperCase()} ` : '') + 'Suspense Alert',
+         body: 'Please check the new suspense entries.',
+         sent_at: new Date().toISOString(),
+       }, 'role:fro');
+     }
     return res.json({ count: inserted, message: `Alert sent to ${inserted} FROs` });
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -179,7 +179,7 @@ function emitRealtimeRows(table, eventType, rows) {
       rec.last = row;
       rec.count += 1;
       if (!rec.timer) {
-        rec.timer = setTimeout(() => flushBulkEmit(table, eventType), Number(process.env.RT_BULK_FLUSH_MS || 2000));
+        rec.timer = setTimeout(() => flushBulkEmit(table, eventType), Number(process.env.RT_BULK_FLUSH_MS || 500));
         rec.timer.unref?.();
       }
     }

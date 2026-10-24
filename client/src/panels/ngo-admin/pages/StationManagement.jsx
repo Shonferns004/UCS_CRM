@@ -3010,11 +3010,7 @@ export default function StationManagement() {
           <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
             {Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)).toLocaleString('en-IN')} donor{Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)) === 1 ? '' : 's'}
           </div>
-          {s.donor_amount_min != null && s.donor_amount_max != null && (
-            <div style={{ fontSize: 9, color: '#7c3aed', marginTop: 1, lineHeight: 1.2, fontWeight: 600 }}>
-              ₹{Number(s.donor_amount_min).toLocaleString('en-IN')} – ₹{Number(s.donor_amount_max).toLocaleString('en-IN')}
-            </div>
-          )}
+          {/* amount range removed per request */}
           {at && (
             <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
               → {at.target_station}
@@ -3503,11 +3499,7 @@ export default function StationManagement() {
                         </td>
                         <td>
                           {renderDonorPills(s)}
-                          {s.donor_amount_min != null && s.donor_amount_max != null && (
-                            <div style={{ fontSize: 9, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
-                              ₹{Number(s.donor_amount_min).toLocaleString('en-IN')} – ₹{Number(s.donor_amount_max).toLocaleString('en-IN')}
-                            </div>
-                          )}
+                          {/* amount range removed per request */}
                         </td>
 
                         <td className="nga-actions">

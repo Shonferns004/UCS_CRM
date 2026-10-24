@@ -3,6 +3,7 @@ import { UcsProvider, useUcs } from './store'
 import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
 import { lazy, Suspense, Component } from 'react'
 import Login from './pages/Login'
+import TempPage from './pages/TempPage'
 import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
 import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
@@ -289,6 +290,7 @@ export default function App() {
           </ProtectedRoute>
         } />
 
+        <Route path="/temp" element={<TempPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </SalaryPrivacyProvider>
