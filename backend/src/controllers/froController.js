@@ -3765,6 +3765,8 @@ export const getMyDonors = async (req, res) => {
       // allotment somewhere in scope. Same response as the list, so the flag can
       // never disagree with the data on screen.
       has_high_tier: hasHighTier,
+      // Whether this view includes a temp-access station (so all statuses show).
+      is_temp_station_view: isTempStationView,
 
       counts: {
         // Raw allotment for this scope (what the dashboard reports).
@@ -7267,7 +7269,7 @@ export const searchDonors = async (req, res) => {
     if (donorIdsInScope === undefined) {
       const { data: donorIdsFromStation } = await db
         .from('fro_assignments')
-        .select('donor_id, ngo_id, station')
+        .select('id, donor_id, ngo_id, station, batch_type')
         .in('station', effStations)
         .or('status.is.null,status.neq.reassigned');
 
