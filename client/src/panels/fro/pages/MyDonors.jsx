@@ -442,6 +442,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
   const savedListScrollRef = useRef(0);
+  const savedVisibleCountRef = useRef(LEADS_PAGE_SIZE);
+  const restoreScrollPendingRef = useRef(false);
   // Incremental rendering window for the MY LEADS list. `visibleCount` is how
   // many leads are currently rendered; the list grows by LEADS_PAGE_SIZE as the
   // FRO scrolls toward the bottom. `hasMoreRef` mirrors "are there rows past the
@@ -669,15 +671,43 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   }, [index, donors, activeDonor, externalDonor, endDonorView, startDonorView]);
 
   // When returning to the list from an opened lead, restore the previously
-  // saved scroll position so the FRO doesn't get thrown back to the top.
+  // saved scroll position so the FRO lands exactly where they left off on any
+  // tab (Leads / Follow Ups / Overdue / History).
   useEffect(() => {
-    if (!activeDonor) {
-      const el = listScrollRef.current;
-      if (el && savedListScrollRef.current) {
-        el.scrollTop = savedListScrollRef.current;
+    if (activeDonor) return;
+    if (!restoreScrollPendingRef.current) return;
+    const savedCount = savedVisibleCountRef.current;
+    if (visibleCount < savedCount) {
+      setVisibleCount(savedCount);
+      return;
+    }
+    const target = savedListScrollRef.current;
+    if (target == null || target === 0) {
+      const el2 = listScrollRef.current;
+      if (el2 && el2.scrollTop === 0 && savedCount > visibleCount) {
+        setVisibleCount(savedCount);
+        return;
       }
     }
-  }, [activeDonor]);
+
+    let cancelled = false;
+    const apply = () => {
+      if (cancelled) return;
+      const el = listScrollRef.current;
+      if (el) {
+        el.scrollTop = target;
+      }
+    };
+    apply();
+    const timers = [0, 16, 50, 100, 200, 320, 450].map(ms => setTimeout(apply, ms));
+    timers.push(setTimeout(() => {
+      if (!cancelled) restoreScrollPendingRef.current = false;
+    }, 700));
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+  }, [activeDonor, visibleCount, listView]);
 
   // Tell the host (e.g. MyLeadsSuspense) when a donor detail is open, so the
   // performance strip can be hidden on the detail view and shown only on the
@@ -1771,8 +1801,13 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     hasMoreRef.current = renderedItems.length < listItems.length;
 
     const openLead = (d) => {
+      const el = listScrollRef.current;
+      if (el) {
+        savedListScrollRef.current = el.scrollTop; savedVisibleCountRef.current = visibleCount; restoreScrollPendingRef.current = true;
+        savedVisibleCountRef.current = visibleCount;
+        restoreScrollPendingRef.current = true;
+      }
       if (isHistory || isFollowUps || isOverdueTab) {
-        if (listScrollRef.current) savedListScrollRef.current = listScrollRef.current.scrollTop;
         setActiveDonor({ ...d, _fromList: listView });
         setSelected(null); setNotes(''); setLeadAmount('');
         return;
@@ -1785,9 +1820,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         : null;
       const found = donors.findIndex(x => x.id === d.id && x.ngo_id === d.ngo_id);
       if (found >= 0) setIndex(found);
-      // Remember where the FRO was before opening the lead so going back (or
-      // disposing) returns them to the same spot instead of the top of the list.
-      if (listScrollRef.current) savedListScrollRef.current = listScrollRef.current.scrollTop;
       setActiveDonor(keyed || d);
       setSelected(null); setNotes(''); setLeadAmount('');
     };
