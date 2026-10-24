@@ -1,5 +1,63 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { apiGet, apiPost, apiDelete } from '../api/auth.js';
+
+
+function SearchableSelect({ options, value, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [dropUp, setDropUp] = useState(false);
+  const ref = (typeof useRef !== 'undefined') ? useRef(null) : null;
+  // fallback if useRef not imported
+  useEffect(() => {
+    if (!open) { setSearch(''); return; }
+    const handler = (e) => { if (ref && ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+  const filtered = (options || []).filter(w =>
+    !search || (w.name || '').toLowerCase().includes(search.toLowerCase())
+  );
+  const selected = (options || []).find(w => String(w.id) === String(value));
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%' }}>
+      <div onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 6px', borderRadius: 4, fontSize: 10, cursor: 'pointer', background: '#fff', border: '1px solid #e5e7eb', minHeight: 24 }}>
+        <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.name : (placeholder || '— unassigned —')}
+        </span>
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', left: 0, right: 0, background: '#fff', borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 300, overflow: 'hidden', top: '100%', marginTop: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search FRO..."
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 10, fontFamily: 'inherit', background: 'transparent' }}
+              autoFocus />
+          </div>
+          <div style={{ maxHeight: 150, overflowY: 'auto' }}>
+            <div onClick={() => { onChange(''); setOpen(false); }}
+              style={{ padding: '4px 8px', fontSize: 11, cursor: 'pointer', color: '#9ca3af', borderBottom: '1px solid #e5e7eb' }}>
+              — unassigned —
+            </div>
+            {filtered.map(w => (
+              <div key={w.id} onClick={() => { onChange(w.id); setOpen(false); }}
+                style={{ padding: '4px 8px', fontSize: 11, cursor: 'pointer', background: String(w.id) === String(value) ? '#f0fdf4' : 'transparent' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+                onMouseLeave={e => e.currentTarget.style.background = String(w.id) === String(value) ? '#f0fdf4' : 'transparent'}>
+                {w.name}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ padding: '8px', fontSize: 10, color: '#64748b', textAlign: 'center' }}>No FROs match</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export default function DonorStacksModal({ target, froWorkers = [], onClose, onGranted }) {
   const [tab, setTab] = useState('normal');
@@ -20,13 +78,20 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
   const [detailMembers, setDetailMembers] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailFilter, setDetailFilter] = useState('all'); // all | pending
+  const [froSearch, setFroSearch] = useState('');
 
   const station = target?.station;
   const ngoId = target?.ngoId;
+  // Only active FROs, with search filter.
+  const activeFros = (froWorkers || []).filter(w => w.is_active !== false && w.employment_status !== 'terminated');
+  const filteredFros = froSearch.trim()
+    ? activeFros.filter(w => (w.name || '').toLowerCase().includes(froSearch.toLowerCase()))
+    : activeFros;
 
   const loadAll = async () => {
-    setLoading(true);
-    setError(null);
+    // NOTE: do NOT setLoading(true) here on refresh — it blanks the whole modal
+    // body ("Loading…") and reads as the modal closing/reopening. Only the
+    // initial mount uses the loading flag (set in the mount effect below).
     try {
       const [allRes, stacksRes] = await Promise.all([
         apiGet(`/ngo-admin/donors-by-station?station=${encodeURIComponent(station)}&ngo_id=${ngoId}`).catch(() => []),
@@ -113,6 +178,10 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
       });
     }
     let stackId = selectedStackId;
+    // Optimistic: bump stack count immediately
+    if (stackId) {
+      setStacks(prev => prev.map(st => st.id === stackId ? { ...st, member_count: (st.member_count || 0) + n } : st));
+    }
     setBusy(true);
     try {
       if (!stackId) {
@@ -146,14 +215,21 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
   };
 
   const assignFro = async (stackId, froId) => {
-    if (!froId) return;
+    if (froId === undefined || froId === null) return;
     setBusy(true);
+    // Optimistic update: immediately reflect the new FRO in the UI.
+    const selectedFro = froWorkers.find(w => String(w.id) === String(froId));
+    setStacks(prev => prev.map(st => st.id === stackId
+      ? { ...st, fro_worker_id: froId || null, fro_name: froId ? (selectedFro?.name || null) : null }
+      : st
+    ));
     try {
-      await apiPost(`/ngo-admin/stacks/${stackId}/assign-fro`, { fro_worker_id: froId });
-      await loadAll();
-      setCountMsg('Stack assigned to FRO');
+      await apiPost(`/ngo-admin/stacks/${stackId}/assign-fro`, { fro_worker_id: froId || null });
+      setCountMsg(froId ? 'Stack assigned to FRO' : 'Stack unassigned');
       onGranted?.();
-    } catch (e) { setError(e?.message || 'Failed'); }
+      // Background refresh to sync with server (non-blocking).
+      loadAll().catch(() => {});
+    } catch (e) { setError(e?.message || 'Failed'); loadAll().catch(() => {}); }
     finally { setBusy(false); }
   };
 
@@ -170,17 +246,25 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
 
   const removeMember = async (stackId, donorId) => {
     setBusy(true);
+    setDetailLoading(true); // spinner in drawer
+    // Optimistic: decrement stack count immediately
+    setStacks(prev => prev.map(st => st.id === stackId ? { ...st, member_count: Math.max(0, (st.member_count || 0) - 1) } : st));
+    // Optimistic: remove donor from stackedDonorMap so it becomes unstacked instantly
+    setStackedDonorMap(prev => { const m = { ...prev }; delete m[donorId]; return m; });
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || ''}/ngo-admin/stacks/${stackId}/members`, {
+      await fetch(`${import.meta.env.VITE_API_URL || ''}/ngo-admin/stacks/${stackId}/members?donor_ids=${donorId}`, {
         method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('ucs_token')}` },
-        body: JSON.stringify({ donor_ids: [donorId] }),
       });
-      await loadAll();
+      // Re-fetch ONLY the drawer members (no full loadAll — avoids modal refresh feel).
       const res = await apiGet(`/ngo-admin/stacks/${stackId}/members`);
       setDetailMembers(Array.isArray(res?.members) ? res.members : []);
-      setCountMsg('Donor removed from stack');
-    } catch (e) { setError(e?.message || 'Failed'); }
-    finally { setBusy(false); }
+      setCountMsg('Donor removed — now selectable in the All donors list');
+      // NO loadAll here: donors array unchanged (donor was already in it, just greyed).
+      // stackedDonorMap already updated optimistically → donor shows selectable instantly.
+    } catch (e) {
+      console.error('removeMember failed:', e);
+      setError(e?.message || 'Failed');
+    } finally { setBusy(false); setDetailLoading(false); }
   };
 
   const closeDetail = () => { setDetailStack(null); setDetailMembers([]); };
@@ -276,15 +360,19 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
               {/* RIGHT: stacks */}
               <div style={{ minWidth:0 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:'#64748b', marginBottom:8 }}>Stacks</div>
+                {/* Per-stack FRO search is inside each stack row below. */}
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   {stacks.map(st => (
                     <div key={st.id} data-stack-id={st.id} onClick={() => { setActiveStackId(st.id); setSelectedStackId(st.id); }} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border: activeStackId === st.id ? '2px solid #16a34a' : '1px solid #e5e7eb', borderRadius:8, background: activeStackId === st.id ? '#f0fdf4' : '#fff', cursor:'pointer', transition:'all .15s' }}>
                       <div style={{ fontWeight:700, fontSize:13, minWidth:80 }}>{st.name}</div>
+                      {/* Unassigned badge removed — dropdown already shows "— unassigned —" */}
                       <div style={{ fontSize:20, fontWeight:800, color:'#2563eb', minWidth:40, textAlign:'center' }}>{st.member_count || 0}</div>
-                      <select value={st.fro_worker_id ? String(st.fro_worker_id) : ''} onChange={e => assignFro(st.id, e.target.value)} style={{ flex:1, minWidth:140, padding:'5px 8px', fontSize:11, borderRadius:4, border:'1px solid #e5e7eb', background:'#fff' }}>
-                        <option value="">— unassigned —</option>
-                        {froWorkers.map(w => <option key={w.id} value={String(w.id)}>{w.name}</option>)}
-                      </select>
+                      <SearchableSelect
+                        options={activeFros}
+                        value={st.fro_worker_id || ''}
+                        onChange={(val) => assignFro(st.id, val)}
+                        placeholder="— unassigned —"
+                      />
                       <button onClick={() => viewStack(st)} title={`View ${st.member_count || 0} donors`} style={{ padding:'5px 12px', fontSize:11, borderRadius:6, border:'1px solid #bfdbfe', background:'#eff6ff', color:'#1d4ed8', cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>👁 View</button>
                       <button onClick={() => removeStack(st.id)} style={{ padding:'5px 10px', fontSize:11, borderRadius:6, border:'1px solid #fecaca', background:'#fef2f2', color:'#b91c1c', cursor:'pointer', fontWeight:600 }} title="Remove stack">✕</button>
                     </div>

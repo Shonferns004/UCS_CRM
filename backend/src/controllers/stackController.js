@@ -1,4 +1,21 @@
 import db from '../config/db.js';
+import { invalidateGrantCache } from '../services/temporaryAccessService.js';
+
+// Resolve acting admin to a valid users.id (super_admin id=0 is not a users row).
+async function resolveAdminId(user) {
+  if (user && user.id && user.id !== 0 && user.id !== -1 && user.email) {
+    try {
+      const { data } = await db.from('users').select('id').eq('id', user.id).maybeSingle();
+      if (data?.id) return data.id;
+    } catch { /* fall through */ }
+  }
+  // Fallback: first admin/super_admin user row.
+  try {
+    const { data } = await db.from('users').select('id').in('role', ['admin', 'super_admin']).limit(1).maybeSingle();
+    if (data?.id) return data.id;
+  } catch { /* fall through */ }
+  return null;
+}
 
 // ─── Stack CRUD + members + FRO assignment ────────────────────────────────────
 
@@ -103,6 +120,7 @@ export const deleteStack = async (req, res) => {
           WHERE station = $1 AND working_fro_worker_id = $2 AND status IN ('SCHEDULED','ACTIVE')`,
         [st[0].station, st[0].fro_worker_id],
       );
+      invalidateGrantCache(st[0].fro_worker_id);
     }
     const { rowCount } = await db._pool.query('DELETE FROM donor_stacks WHERE id = $1', [id]);
     if (rowCount === 0) return res.status(404).json({ message: 'stack not found' });
@@ -142,7 +160,11 @@ export const addMembers = async (req, res) => {
 export const removeMembers = async (req, res) => {
   try {
     const { id } = req.params;
-    const { donor_ids = [] } = req.body || {};
+    // Accept donor_ids from body OR query (DELETE with body is unreliable in some clients).
+    let donor_ids = req.body?.donor_ids;
+    if (!donor_ids && req.query?.donor_ids) {
+      donor_ids = Array.isArray(req.query.donor_ids) ? req.query.donor_ids : [req.query.donor_ids];
+    }
     if (!Array.isArray(donor_ids) || donor_ids.length === 0) return res.status(400).json({ message: 'donor_ids required' });
     await db._pool.query(
       'DELETE FROM donor_stack_members WHERE stack_id = $1 AND donor_id = ANY($2::int[])',
@@ -164,16 +186,21 @@ export const assignFroToStack = async (req, res) => {
     if (!st.length) return res.status(404).json({ message: 'stack not found' });
     const stack = st[0];
 
+    const oldFro = stack.fro_worker_id;
     // Revoke existing grant for old FRO on this station.
-    if (stack.fro_worker_id) {
+    if (oldFro) {
       await db._pool.query(
         `UPDATE temporary_data_assignments SET status='REVOKED', revoked_at=now(), updated_at=now()
           WHERE station = $1 AND working_fro_worker_id = $2 AND status IN ('SCHEDULED','ACTIVE')`,
-        [stack.station, stack.fro_worker_id],
+        [stack.station, oldFro],
       );
+      invalidateGrantCache(oldFro);
     }
 
     await db._pool.query('UPDATE donor_stacks SET fro_worker_id = $1, updated_at = now() WHERE id = $2', [fro_worker_id || null, id]);
+
+    // Invalidate new FRO's grant cache so they see the grant immediately.
+    if (fro_worker_id) invalidateGrantCache(fro_worker_id);
 
     if (fro_worker_id) {
       // get member assignment ids
@@ -203,7 +230,7 @@ export const assignFroToStack = async (req, res) => {
             allowed_count, allowed_offset, allowed_assignment_ids)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [
-          stack.ngo_id, stack.station, fro_worker_id, null,
+          stack.ngo_id, stack.station, fro_worker_id, await resolveAdminId(req.user),
           stack.stack_type === 'high_tier' ? 'STATION_HIGH_TIER' : 'STATION_ALL',
           start.toISOString(), expiry.toISOString(), 'ACTIVE', 'WORKLOAD_SUPPORT', `Stack: ${stack.name}`,
           count, 0, ids,
@@ -269,6 +296,7 @@ async function syncStackGrant(stackId) {
         WHERE station = $3 AND working_fro_worker_id = $4 AND status IN ('SCHEDULED','ACTIVE')`,
       [ids, ids.length, station, fro],
     );
+    invalidateGrantCache(fro);
   } catch (e) {
     console.warn('[stack] grant sync failed:', e?.message || String(e));
   }
