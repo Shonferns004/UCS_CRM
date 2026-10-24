@@ -795,6 +795,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     getMyDisposedLeads(opts).then(r => {
       if (cancelled) return;
       const arr = Array.isArray(r) ? r : r?.data || [];
+      arr.sort((a, b) => new Date(a.disposed_at || a.created_at || 0) - new Date(b.disposed_at || b.created_at || 0));
       setHistoryLeads(arr);
     }).catch(() => { if (!cancelled) setHistoryLeads([]); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });

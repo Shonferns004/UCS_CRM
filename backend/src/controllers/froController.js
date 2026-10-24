@@ -4934,7 +4934,13 @@ export const getFroScheduled = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
-    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
+    const monthStart = istMonthBounds(new Date()).month;
+    const isCurrentMonthActivity = (a) => {
+      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
+      if (!ts) return true;
+      return new Date(ts).getTime() >= new Date(monthStart).getTime();
+    };
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments) && isCurrentMonthActivity(c.fro_assignments));
 
     const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
@@ -5211,7 +5217,13 @@ export const getFroOverdue = async (req, res) => {
         assignmentById[a.id] = a;
       }
     }
-    const assignments = Object.values(assignmentById);
+    const monthStart = istMonthBounds(new Date()).month;
+    const isCurrentMonthActivity = (a) => {
+      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
+      if (!ts) return true;
+      return new Date(ts).getTime() >= new Date(monthStart).getTime();
+    };
+    const assignments = Object.values(assignmentById).filter(isCurrentMonthActivity);
 
     // Same-day rework rule: an assignment worked at any point today leaves
     // Overdue immediately instead of lingering on its old past follow-up date
@@ -5437,7 +5449,13 @@ export const getFollowUps = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
-    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
+    const monthStart = istMonthBounds(new Date()).month;
+    const isCurrentMonthActivity = (a) => {
+      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
+      if (!ts) return true;
+      return new Date(ts).getTime() >= new Date(monthStart).getTime();
+    };
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments) && isCurrentMonthActivity(c.fro_assignments));
 
     const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
@@ -7426,7 +7444,7 @@ export const getMyDisposedLeads = async (req, res) => {
              FROM fro_donor_logs l
              JOIN fro_assignments fa ON fa.id = l.assignment_id
             WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
-           ORDER BY created_at DESC
+           ORDER BY created_at ASC
            LIMIT 10000`,
           [workerId]
         );
@@ -7442,7 +7460,7 @@ export const getMyDisposedLeads = async (req, res) => {
              FROM fro_donor_logs_archive a
              JOIN fro_assignments fa ON fa.id = a.assignment_id
             WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
-           ORDER BY created_at DESC
+           ORDER BY created_at ASC
            LIMIT 10000`,
           [workerId]
         );
@@ -7450,7 +7468,7 @@ export const getMyDisposedLeads = async (req, res) => {
       } catch (e) {
         console.warn('[getMyDisposedLeads] archive read skipped:', e?.message || String(e));
       }
-      disposedLogs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      disposedLogs.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
     } else {
       let disposedQuery = db
         .from('fro_donor_logs')
@@ -7461,7 +7479,7 @@ export const getMyDisposedLeads = async (req, res) => {
       }
       const { data, error } = await disposedQuery
         .gte('created_at', istMonthBounds(new Date()).month)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: true })
         .limit(10000);
       disposedLogs = data || [];
       logErr = error;
@@ -7578,7 +7596,7 @@ export const getMyDisposedLeads = async (req, res) => {
       }
     }
     // Already ordered by disposedLogs desc via map insertion, but ensure sort
-    result.sort((a, b) => new Date(b.disposed_at || 0) - new Date(a.disposed_at || 0));
+    result.sort((a, b) => new Date(a.disposed_at || 0) - new Date(b.disposed_at || 0));
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
