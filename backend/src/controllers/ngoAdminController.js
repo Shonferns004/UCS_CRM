@@ -1,4 +1,5 @@
 import db, { sql } from '../config/db.js';
+import { receiptsForDonor } from '../services/receiptLookup.js';
 import { getDonorByMobile } from '../models/donorProfileModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
@@ -6044,14 +6045,14 @@ export const getDonorReceipts = async (req, res) => {
 
     if (!donorMobile) return res.json([]);
 
-    const { data, error } = await db
-      .from('receipts')
-      .select('*')
-      .eq('donor_mobile', donorMobile)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return res.json(data || []);
+    // Receipts reach a donor by linked donor_id OR by captured mobile only.
+    // Union both paths (shared helper) so a receipt stored under only one of
+    // the two keys is not hidden from the donor's view.
+    let donorObj = { mobile_number: donorMobile };
+    const parsedId = parseInt(id);
+    if (!isNaN(parsedId)) donorObj.id = parsedId;
+    const receipts = await receiptsForDonor(db, donorObj);
+    return res.json(receipts || []);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
