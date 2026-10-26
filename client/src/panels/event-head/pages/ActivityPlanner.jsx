@@ -3297,6 +3297,20 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return findExistingPlannedEvent(key, date, label)
   }
 
+  // Only events that are genuinely linked to this row (durable row link or a
+  // suggestion-level link) count as "already scheduled" for the Download
+  // button. The name+date+NGO fallback is intentionally NOT used here, because
+  // it also matches unrelated events that happen to share a name/date, which
+  // surfaced Download buttons on rows that never produced an event.
+  const findLinkedScheduledEvent = (key, date, label) => {
+    if (!key) return null
+    const rowLink = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
+    const linkedId = rowLink
+      ? rowLink.event_id
+      : (rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id ?? null)
+    if (!linkedId) return null
+    return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+  }
   const deleteScheduledProgramme = async (key, date, label) => {
     const ev = findScheduledEvent(key, date, label)
     if (!ev?.id) { showToast('No saved event to delete.'); return }
@@ -3630,7 +3644,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // deliverables are still done. An unsigned row never shows a download.
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
   const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-  const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
+   const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findLinkedScheduledEvent(key, date, label))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

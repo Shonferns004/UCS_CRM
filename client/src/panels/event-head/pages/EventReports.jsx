@@ -761,7 +761,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
       className="bsct-page"
       style={{
         position: 'relative', width: '100%', aspectRatio: `${BSCT_W} / ${Hp}`,
-        backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
+         backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
         backgroundColor: '#fff', overflow: 'hidden', borderRadius: 8,
       }}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
@@ -769,7 +769,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
     >
       {/* Footer band of the artwork (thanks line + contact bar), pinned to the
           bottom so it follows the last used row. */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.png')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.png')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
       {/* Title on the denim ribbon. The ribbon in /bsct-blank.jpg is empty, so
           the month and year come from the report that is being viewed. */}
       <div style={{ position: 'absolute', left: `${(285 / BSCT_W) * 100}%`, width: `${(723 / BSCT_W) * 100}%`, top: `${(80 / Hp) * 100}%`, height: `${(62 / Hp) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -814,7 +814,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
               {/* Photo window */}
               <div style={{ position: 'relative', height: px(BSCT_PHOTO_H), background: '#e5eef7', overflow: 'hidden' }}>
                 <ReportCardImage ev={ev} height={px(BSCT_PHOTO_H)} radius={0} fit="cover" />
-                <span style={{ position: 'absolute', top: px(10), right: px(12), fontSize: px(12), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(3)}px ${px(10)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
+                 <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: px(10), right: px(12), fontSize: px(12), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(3)}px ${px(10)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
                 <span
                   className="eh-drag-handle no-print"
                   data-html2canvas-ignore="true"
@@ -972,7 +972,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
                 >
                   <div style={{ position: 'relative', height: 110, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
                     <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} fit="cover" />
-                    <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
+                     <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
 
                     <span
                       className="eh-drag-handle no-print"
