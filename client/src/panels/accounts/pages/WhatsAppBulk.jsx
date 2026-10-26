@@ -223,7 +223,7 @@ export default function WhatsAppBulk() {
         results: batchResults.map((r, i) => ({ name: batch[i].name, status: r.status === 'fulfilled' ? 'sent' : 'failed', error: r.status === 'rejected' ? r.reason?.message : null })),
         previousBatches: [...prev.previousBatches, { batch: batchIdx + 1, sent: batchSent, failed: batchFailed }],
       }));
-      if (batchIdx < batches.length - 1) await new Promise(r => setTimeout(r, 2000));
+      if (batchIdx < batches.length - 1) await new Promise(r => setTimeout(r, 5000));
     }
 
     setBulkState(prev => ({ ...prev, active: false }));
