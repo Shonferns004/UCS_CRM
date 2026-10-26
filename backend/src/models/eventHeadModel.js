@@ -1078,6 +1078,63 @@ export const upsertPlannerEventLink = async ({ observance_date, festival, ngo_id
   return data;
 };
 
+// ─── MONTHLY PLANNER: typed/manual rows that survive a reload ───
+/* The planner's manual programme text, the event name typed on a row and the
+   extra rows added with "+ Add another programme" are stored here. A row is
+   identified exactly like the durable event link above: (date, festival, NGO).
+   ngo_id is the planner's NGO scope and is '' (never NULL) for "All NGOs";
+   row_ngo_id is the row's own NGO dropdown value, which an extra row may point
+   at a different NGO than the page-wide scope. */
+
+export const getPlannerManualRows = async ({ month, year, ngo_id = '' } = {}) => {
+  let query = db.from('event_head_planner_manual_rows')
+    .select('*')
+    .eq('report_month', Number(month))
+    .eq('report_year', Number(year))
+    .eq('ngo_id', String(ngo_id ?? ''))
+    .order('observance_date', { ascending: true });
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+export const upsertPlannerManualRow = async ({
+  month, year, observance_date, festival, ngo_id, row_ngo_id,
+  name, body_text, is_selected, mode, created_by,
+} = {}) => {
+  const row = {
+    report_month: Number(month),
+    report_year: Number(year),
+    observance_date: String(observance_date || '').slice(0, 10),
+    festival: String(festival ?? ''),
+    ngo_id: ngo_id != null && ngo_id !== '' ? String(ngo_id) : '',
+    row_ngo_id: row_ngo_id != null && row_ngo_id !== '' ? String(row_ngo_id) : '',
+    name: String(name ?? ''),
+    body_text: String(body_text ?? ''),
+    is_selected: Boolean(is_selected),
+    mode: mode ? String(mode) : null,
+    created_by: created_by != null && created_by !== '' ? String(created_by) : null,
+    updated_at: new Date(),
+  };
+  const { data, error } = await db.from('event_head_planner_manual_rows')
+    .upsert(row, { onConflict: 'observance_date,festival,ngo_id' })
+    .select().single();
+  if (error) throw error;
+  return data;
+};
+
+export const deletePlannerManualRow = async ({
+  observance_date, festival, ngo_id,
+} = {}) => {
+  const { error } = await db.from('event_head_planner_manual_rows')
+    .delete()
+    .eq('observance_date', String(observance_date || '').slice(0, 10))
+    .eq('festival', String(festival ?? ''))
+    .eq('ngo_id', ngo_id != null && ngo_id !== '' ? String(ngo_id) : '');
+  if (error) throw error;
+  return { message: 'Manual row deleted' };
+};
+
 // ─── MONTHLY REPORT: the order of the programme cards ───
 /* The Monthly Report prints one card per planned programme, grouped per NGO.
    The Social head drags those cards into the order they want the report to
