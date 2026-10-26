@@ -119,6 +119,12 @@ export async function getAllowedAssignmentIds(grant) {
   return ids;
 }
 
+/** Invalidate the slice (allowed ids) cache for a grant or all grants. */
+export function invalidateSliceCache(grantId) {
+  if (grantId) cacheDelPrefix(`${SLICE_CACHE_PREFIX}${grantId}`);
+  else cacheDelPrefix(SLICE_CACHE_PREFIX);
+}
+
 /** Call after any grant create/extend/revoke so the worker's next request re-reads. */
 export function invalidateGrantCache(workerId) {
   if (workerId) cacheDelPrefix(`${GRANT_CACHE_PREFIX}${workerId}`);

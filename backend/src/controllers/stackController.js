@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { invalidateGrantCache } from '../services/temporaryAccessService.js';
+import { invalidateGrantCache, invalidateSliceCache } from '../services/temporaryAccessService.js';
 
 // Resolve acting admin to a valid users.id (super_admin id=0 is not a users row).
 async function resolveAdminId(user) {
@@ -121,6 +121,7 @@ export const deleteStack = async (req, res) => {
         [st[0].station, st[0].fro_worker_id],
       );
       invalidateGrantCache(st[0].fro_worker_id);
+      invalidateSliceCache(null);
     }
     const { rowCount } = await db._pool.query('DELETE FROM donor_stacks WHERE id = $1', [id]);
     if (rowCount === 0) return res.status(404).json({ message: 'stack not found' });
@@ -201,6 +202,7 @@ export const assignFroToStack = async (req, res) => {
 
     // Invalidate new FRO's grant cache so they see the grant immediately.
     if (fro_worker_id) invalidateGrantCache(fro_worker_id);
+    invalidateSliceCache(null);
 
     if (fro_worker_id) {
       // get member assignment ids
@@ -322,6 +324,8 @@ async function syncStackGrant(stackId) {
       [ids, ids.length, station, fro],
     );
     invalidateGrantCache(fro);
+    // Invalidate slice cache for all grants on this station.
+    invalidateSliceCache(null);
   } catch (e) {
     console.warn('[stack] grant sync failed:', e?.message || String(e));
   }

@@ -203,6 +203,21 @@ export async function getTemporaryAccess(req, res) {
   }
 }
 
+// Resolve acting admin to a valid users.id (super_admin id=0 is not a users row).
+async function resolveAdminId(user) {
+  if (user && user.id && user.id !== 0 && user.id !== -1 && user.email) {
+    try {
+      const { data } = await db.from('users').select('id').eq('id', user.id).maybeSingle();
+      if (data?.id) return data.id;
+    } catch { /* fall through */ }
+  }
+  try {
+    const { data } = await db.from('users').select('id').in('role', ['admin', 'super_admin']).limit(1).maybeSingle();
+    if (data?.id) return data.id;
+  } catch { /* fall through */ }
+  return null;
+}
+
 // ─── POST /temporary-access ──────────────────────────────────────────────────
 export async function createTemporaryAccess(req, res) {
   try {
@@ -390,7 +405,7 @@ export async function createTemporaryAccess(req, res) {
     }
 
     // ── insert + audit in one transaction ──
-    const adminId = req.user?.id || null;
+    const adminId = await resolveAdminId(req.user);
     const adminRole = req.user?.role || null;
     const result = await db.transaction(async () => {
       const { rows, error } = await db._pool.query(
