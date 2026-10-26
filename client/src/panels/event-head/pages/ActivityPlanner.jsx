@@ -14,6 +14,7 @@ import {
   uploadEventBanner,
   fetchEventImageDataUrl,
   updateEvent,
+  deleteEvent,
   deleteActivity,
   updateActivity,
   suggestActivityPrograms,
@@ -3296,6 +3297,39 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return findExistingPlannedEvent(key, date, label)
   }
 
+  // Only events that are genuinely linked to this row (durable row link or a
+  // suggestion-level link) count as "already scheduled" for the Download
+  // button. The name+date+NGO fallback is intentionally NOT used here, because
+  // it also matches unrelated events that happen to share a name/date, which
+  // surfaced Download buttons on rows that never produced an event.
+  const findLinkedScheduledEvent = (key, date, label) => {
+    if (!key) return null
+    const rowLink = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
+    const linkedId = rowLink
+      ? rowLink.event_id
+      : (rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id ?? null)
+    if (!linkedId) return null
+    return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+  }
+
+
+  const deleteScheduledProgramme = async (key, date, label) => {
+    const ev = findScheduledEvent(key, date, label)
+    if (!ev?.id) { showToast('No saved event to delete.'); return }
+    if (!window.confirm(`Delete event "${ev.title || label}"? This cannot be undone.`)) return
+    try {
+      await deleteEvent(ev.id)
+      setMonthEvents((prev) => prev.filter((e) => String(e?.id) !== String(ev.id)))
+      const lk = linkMapKey(key, rowNgoId(key))
+      setCreatedKeys((cur) => { const next = new Set(cur); next.delete(lk); return next })
+      setRowEventNames((cur) => { const next = { ...cur }; delete next[lk]; return next })
+      setPdfCache((cur) => { const next = new Map(cur); next.delete(lk); return next })
+      showToast('Event deleted.')
+    } catch (e) {
+      showToast(e?.message || 'Could not delete event.')
+    }
+  }
+
   /* Is this row one of the month's FESTIVAL rows (its Festival / Day cell shows
      a festival) rather than a manual row (the cell holds an editable event
      name)? The two are told apart by the festival list of that date. */
@@ -3612,7 +3646,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // deliverables are still done. An unsigned row never shows a download.
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
   const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-  const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
+   const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findLinkedScheduledEvent(key, date, label))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -3699,7 +3733,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
               disabled={sheetBusy === key}
               onClick={() => downloadEventSheet(key, date, label)}
             >
-              {sheetBusy === key ? 'Downloading…' : 'Download'}
+              {sheetBusy === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
             </button>
             <button
               className="eh-btn"
@@ -3712,7 +3746,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 openEditEvent(key, date, label).finally(() => setEditLoadingKey(''))
               }}
             >
-              {editLoadingKey === key ? 'Loading…' : 'Edit'}
+              {editLoadingKey === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
+            </button>
+            <button
+              className="eh-btn"
+              style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#fee2e2', color: '#991b1b', border: 'none', cursor: 'pointer' }}
+              title="Delete this event"
+              onClick={() => deleteScheduledProgramme(key, date, label)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
             </button>
           </div>
         )}

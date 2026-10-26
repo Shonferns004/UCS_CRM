@@ -20,6 +20,7 @@ function Photo({ src }) {
   return (
     <div style={{
        width: '100%', height: '100%', boxSizing: 'border-box',
+       border: '2px solid #fff',
        background: src ? `#222 url("${src}") center / cover no-repeat` : '#4a4890',
     }} />
   )
