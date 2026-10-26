@@ -203,7 +203,12 @@ export async function isConversationInStationScope(pairs, conversationId) {
 
 /**
  * Derive allowed WhatsApp projects from station prefixes.
-  * BOD/BFD -> bsct2 | AOD/AFD -> aflf2 | MOD/MFD -> mann
+  * BOD/BFD -> bsct2 | AOD/AFD -> aflf2 | MOD/MFD -> mann 2
+  *
+  * Only the "2" numbers are mapped on purpose: the plain bsct / aflf / mann
+  * inboxes must NOT be exposed by station assignment. A FRO may still reach a
+  * plain number through an explicit WhatsApp Accounts grant or temp access;
+  * this function only decides what the station itself carries.
   */
  export function getAllowedProjectsByStations(pairs) {
    const allowed = new Set();
@@ -216,7 +221,7 @@ export async function isConversationInStationScope(pairs, conversationId) {
      } else if (['AOD', 'AFD'].includes(prefix)) {
        allowed.add('aflf2');
      } else if (['MOD', 'MFD'].includes(prefix)) {
-       allowed.add('mann');
+       allowed.add('mann 2');
      }
    }
    return allowed;

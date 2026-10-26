@@ -17,6 +17,7 @@ import {
 } from '../services/froWhatsAppService.js';
 import { froActPairs } from './froController.js';
 import { getTempWhatsappAccess } from '../services/temporaryWhatsappScope.js';
+import { resolveInboxScope } from '../services/froStationScope.js';
 import { retryMessageNow } from '../services/messageRetryScheduler.js';
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
@@ -292,6 +293,27 @@ export async function listMyAccounts(req, res) {
     for (const a of [...(froAssignments || []), ...(crmAssignments || []), ...workerAccounts]) {
       const acct = a.whatsapp_accounts || a;
       if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
+    }
+
+    // STATION-DERIVED ACCESS: the WhatsApp number a station maps to is readable
+    // as soon as the station is assigned (see getAllowedProjectsByStations).
+    // Surface those accounts here too so the inbox renders the project tab and
+    // its conversations instead of filtering them out client-side because the
+    // number was never granted under WhatsApp Accounts.
+    try {
+      const scope = await resolveInboxScope(userId);
+      if (scope?.hasStations && scope.allowedProjects?.size > 0) {
+        const { data: stationAccounts } = await db
+          .from('whatsapp_accounts')
+          .select('id, name, phone_number_id, project, is_active')
+          .in('project', [...scope.allowedProjects])
+          .eq('is_active', true);
+        for (const acct of stationAccounts || []) {
+          if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
+        }
+      }
+    } catch (e) {
+      console.error('[listMyAccounts] station accounts load failed:', e?.message || e);
     }
 
     // TEMPORATORY ACCESS: derive, don't store. Accounts mapped to this
