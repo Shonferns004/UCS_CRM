@@ -5,7 +5,7 @@ import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from '
 import config from '../config/whatsappConfig.js';
 import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
 import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
-import { resolveInboxScope, isConversationInStationScope, getFroStationPairs } from './froStationScope.js';
+import { resolveInboxScope, isConversationInStationScope, getFroStationPairs, resolveScopeWorkerId } from './froStationScope.js';
 import { froActPairs } from '../controllers/froController.js';
 
 // Object keys under the shared media bucket. Meta fetches these URLs itself, so
@@ -82,11 +82,9 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
       const temp = await getTempWhatsappAccess(froWorkerId);
       if (temp.projects.size > 0) {
         let tempProjects = [...temp.projects].map(p => String(p).toLowerCase());
-        // Also enforce prefix filter for temp access? User says "fro joo station allocated hai usse ka hi whatsapp dekhe"
-        // but temp access is special - Archna gives full access to Laxmi on granted stations. Keep as-is for now but apply prefix filter.
-        if (allowedProjects.size > 0) {
-          tempProjects = tempProjects.filter(p => allowedProjects.has(p));
-        }
+        // Temp access is explicit: do not drop granted projects because of the
+        // station-prefix allowlist, which is only a defence-in-depth filter for
+        // the FRO's own permanent stations.
         if (tempProjects.length > 0) {
           const { data: tempConvs, error: tempErr } = await db
             .from('conversations')
@@ -95,9 +93,6 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
             .order('last_message_at', { ascending: false });
           if (!tempErr && tempConvs) {
             for (const c of tempConvs) {
-              if (allowedProjects.size > 0 && c.project && !allowedProjects.has(String(c.project).toLowerCase())) {
-                continue;
-              }
               if (!seenIds.has(c.id)) {
                 seenIds.add(c.id);
                 resultConvs.push({ ...c, _scope: 'temp' });
@@ -181,21 +176,48 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
   return resultConvs;
 }
 
+async function isConversationAccessible(froWorkerId, conversationId) {
+  // A conversation explicitly assigned to this caller (or to the same worker
+  // behind an agent token) is always accessible, even when its contact is not
+  // in the station-donor list (e.g. FRO-initiated or routed threads).
+  try {
+    const { data: conv } = await db.from('conversations').select('assigned_agent_id').eq('id', conversationId).maybeSingle();
+    if (conv?.assigned_agent_id) {
+      if (String(conv.assigned_agent_id) === String(froWorkerId)) return true;
+      const assignedWorker = await resolveScopeWorkerId(conv.assigned_agent_id);
+      const callerWorker = await resolveScopeWorkerId(froWorkerId);
+      if (assignedWorker && callerWorker && String(assignedWorker) === String(callerWorker)) return true;
+    }
+  } catch { /* fall through to station checks */ }
+
+  const scope = await resolveInboxScope(froWorkerId);
+  if (!scope.hasStations || scope.pairs.length === 0) return true;
+  if (scope.stationConversationIds && scope.stationConversationIds.has(conversationId)) return true;
+  try {
+    const stationAllowed = await isConversationInStationScope(scope.pairs, conversationId);
+    if (stationAllowed) return true;
+  } catch { /* fall through to temp check */ }
+  try {
+    const temp = await getTempWhatsappAccess(froWorkerId);
+    if (temp && temp.projects && temp.projects.size > 0) {
+      const { data } = await db.from('conversations').select('project').eq('id', conversationId).maybeSingle();
+      if (data?.project && temp.projects.has(String(data.project).toLowerCase())) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 export async function getConversationMessages(conversationId, froWorkerId = null) {
   if (froWorkerId) {
     try {
-      const scope = await resolveInboxScope(froWorkerId);
-      if (scope.hasStations && scope.pairs.length > 0) {
-        const allowed = await isConversationInStationScope(scope.pairs, conversationId);
-        if (!allowed) {
-          const err = new Error('Unauthorized');
-          err.statusCode = 403;
-          throw err;
-        }
+      const allowed = await isConversationAccessible(froWorkerId, conversationId);
+      if (!allowed) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
       }
     } catch (e) {
-      if (e.statusCode === 403) throw e;
-      // fall through if scope check fails
+      if (e && e.statusCode === 403) throw e;
     }
   }
   const { data, error } = await db
@@ -220,15 +242,17 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   try {
     const scope = await resolveInboxScope(froWorkerId);
     if (scope.hasStations && scope.pairs.length > 0) {
-      const allowed = await isConversationInStationScope(scope.pairs, conversationId);
+      const allowed = await isConversationAccessible(froWorkerId, conversationId);
       if (!allowed) {
         const err = new Error('Unauthorized');
         err.statusCode = 403;
         throw err;
       }
-      // Enforce project prefix
-      const { data: convChk } = await db.from('conversations').select('project').eq('id', conversationId).maybeSingle();
-      if (convChk?.project && scope.allowedProjects?.size > 0 && !scope.allowedProjects.has(String(convChk.project).toLowerCase())) {
+      // Enforce project prefix (skip for conversations explicitly assigned to
+      // this caller, e.g. FRO-initiated or routed threads).
+      const { data: convChk } = await db.from('conversations').select('project, assigned_agent_id').eq('id', conversationId).maybeSingle();
+      const assignedToCaller = convChk?.assigned_agent_id && (String(convChk.assigned_agent_id) === String(froWorkerId) || (await resolveScopeWorkerId(convChk.assigned_agent_id)) === (await resolveScopeWorkerId(froWorkerId)));
+      if (!assignedToCaller && convChk?.project && scope.allowedProjects?.size > 0 && !scope.allowedProjects.has(String(convChk.project).toLowerCase())) {
         const err = new Error('Unauthorized');
         err.statusCode = 403;
         throw err;
@@ -669,14 +693,11 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
 
 export async function markConversationRead(conversationId, froWorkerId) {
   try {
-    const scope = await resolveInboxScope(froWorkerId);
-    if (scope.hasStations && scope.pairs.length > 0) {
-      const allowed = await isConversationInStationScope(scope.pairs, conversationId);
-      if (!allowed) {
-        const err = new Error('Unauthorized');
-        err.statusCode = 403;
-        throw err;
-      }
+    const allowed = await isConversationAccessible(froWorkerId, conversationId);
+    if (!allowed) {
+      const err = new Error('Unauthorized');
+      err.statusCode = 403;
+      throw err;
     }
   } catch (e) {
     if (e.statusCode === 403) throw e;
@@ -738,7 +759,21 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
       myProjects = (accts || []).map(a => a.project).filter(Boolean);
     }
 
-    console.log('[getAgentConversations] myProjects (permanent)=', myProjects);
+    // STATION-DERIVED ACCESS: a station is the ownership record. When an admin
+    // assigns a station to this FRO, the WhatsApp number that station maps to
+    // (BOD/BFD -> bsct2, AOD/AFD -> aflf2, MOD/MFD -> mann 2) must be
+    // readable immediately - even if the number was never granted separately in
+    // WhatsApp Accounts. Without this the post-query allowedProjects filter below
+    // had nothing to allow: the number's conversations were never fetched.
+    const stationProjects = scope?.hasStations ? [...(scope.allowedProjects || [])] : [];
+    for (const p of stationProjects) {
+      const proj = String(p || '').toLowerCase();
+      if (proj && !myProjects.some(existing => String(existing).toLowerCase() === proj)) {
+        myProjects.push(proj);
+      }
+    }
+
+    console.log('[getAgentConversations] myProjects (permanent + station)=', myProjects);
 
     const orParts = [`assigned_agent_id.eq.${agentUserId}`];
     if (myProjects.length > 0) {
@@ -873,11 +908,18 @@ async function cachedHeaderMedia(storageKey) {
  */
 async function cacheTemplateHeader(project, templateName, headerComponent) {
   if (!headerComponent) return null;
+  const key = templateHeaderKey(project, templateName);
+  // If the object is already in our bucket, reuse it without re-downloading
+  // Meta's (short-lived) sample URL.
+  try {
+    const existing = await cachedHeaderMedia(key);
+    if (existing?.url) {
+      cachedHeaderKeys.add(key);
+      return key;
+    }
+  } catch { /* fall through to download */ }
   const sampleUrl = headerComponent?.example?.header_handle?.[0];
   if (!sampleUrl) return null;
-
-  const key = templateHeaderKey(project, templateName);
-  if (cachedHeaderKeys.has(key)) return key;
 
   try {
     const response = await fetch(sampleUrl);

@@ -17,14 +17,18 @@ const PROJECT_TABS = [
   { id: 'bsct', label: 'Being Sevak', color: '#3b82f6' },
   { id: 'bsct2', label: 'BSCT2', color: '#8b5cf6' },
   { id: 'aflf', label: 'Ashray Life', color: '#22c55e' },
+  { id: 'aflf2', label: 'Ashray Life 2', color: '#14b8a6' },
   { id: 'mann', label: 'Mann Care', color: '#ec4899' },
+  { id: 'mann 2', label: 'Mann Care 2', color: '#f97316' },
 ]
 
 const PROJECT_TAB_COLORS = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' },
   bsct2: { bg: '#ede9fe', text: '#6d28d9', border: '#c4b5fd' },
   aflf: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
+  aflf2: { bg: '#ccfbf1', text: '#0f766e', border: '#5eead4' },
   mann: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+  'mann 2': { bg: '#ffedd5', text: '#c2410c', border: '#fdba74' },
 }
 
 const FALLBACK_PROJECT_COLOR = '#64748b'
@@ -274,9 +278,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     const projectParam = searchParams.get('project')
     const nameParam = searchParams.get('name')
     const routeTarget = `${projectParam || ''}:${phoneParam || ''}`
-    if (projectParam && PROJECT_TAB_COLORS[projectParam]) {
+    if (projectParam && PROJECT_TAB_COLORS[projectParam] && activeTab !== projectParam) {
       setActiveTab(projectParam)
-      if (activeTab !== projectParam) return
+      return
     }
     setNewConvProject(projectParam || (activeTab !== 'all' ? activeTab : ''))
     if (!phoneParam) {
@@ -359,6 +363,20 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       },
     })
   }, [activeConv?.id, agentToken, queryClient])
+
+  // Meta delivery-status updates (sent -> delivered -> read / failed) arrive via
+  // the webhook and land as an UPDATE on the messages row. Refresh the thread so
+  // the ticks and failure reason reflect the new status without waiting for the
+  // 5-second poll.
+  useEffect(() => {
+    if (!activeConv?.id) return
+    return onDbChange({
+      table: 'messages',
+      event: 'UPDATE',
+      filter: parseFilter(`conversation_id=eq.${activeConv.id}`),
+      onUpdate: () => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] }),
+    })
+  }, [activeConv?.id, queryClient])
 
   useEffect(() => {
     return onDbChange({
