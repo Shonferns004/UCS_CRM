@@ -26,6 +26,9 @@ import {
   setFestivalSuggestionSelected,
   getPlannerEventLinks,
   setPlannerEventLink,
+  getPlannerManualRows,
+  savePlannerManualRow,
+  deletePlannerManualRow,
   setFestivalSuggestionsBeneficiary,
   setFestivalSuggestionsLocation,
   mergeProgrammeRows,
@@ -1387,7 +1390,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
                         border: i === 0 ? '2px solid var(--eh-primary, #4f46e5)' : '1px solid var(--eh-line-strong, #ddd9f0)',
                       }}
                     >
-                      <img src={im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
+                      <img src={im.dataUrl || im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
                       {i === 0 && (
                         <span
                           title="Default image — shown on the Monthly Report"
@@ -1939,6 +1942,55 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
   useEffect(() => { setFestExtra({}) }, [ngoId, month])
   useEffect(() => { setExtraRowDate(`${month}-01`) }, [month])
+  /* Restore the typed/manual rows for this NGO + month from the server. Loaded
+     rows are merged over what is already in memory, so a slow load can never
+     wipe text the user is typing right now. */
+  useEffect(() => {
+    const [y, m] = month.split('-').map(Number)
+    let cancelled = false
+    getPlannerManualRows({ month: m, year: y, ngo_id: ngoId || '' })
+      .then((rows) => {
+        if (cancelled) return
+        const prefix = `${ngoId || 'all'}|${month}|`
+        setFestManual((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            const date = String(r?.observance_date || '').slice(0, 10)
+            const festival = String(r?.festival ?? '')
+            next[`${prefix}${date}::${festival}`] = {
+              text: String(r?.body_text || ''),
+              selected: Boolean(r?.is_selected),
+              ...(r?.mode ? { mode: r.mode } : {}),
+              ...(r?.name ? { name: String(r.name) } : {}),
+            }
+          }
+          return next
+        })
+        setFestExtra((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            const festival = String(r?.festival ?? '')
+            if (!festival.startsWith('+')) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            const list = next[date] || []
+            if (!list.includes(festival)) next[date] = [...list, festival]
+          }
+          return next
+        })
+        setFestNgo((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            const rowNgo = String(r?.row_ngo_id || '')
+            if (!rowNgo) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            next[`${date}::${String(r?.festival ?? '')}`] = rowNgo
+          }
+          return next
+        })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [month, ngoId])
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
 
@@ -1990,6 +2042,72 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     },
     [scopedManual]
   )
+
+  /* A manual planner row survives a reload: the typed programme, the event name
+     and the "+ Add another programme" rows are written to the server as they
+     change, then loaded back below. The row's identity is (date, festival, NGO
+     scope), exactly like the durable row -> event link. */
+  const manualKeyParts = useCallback((key) => {
+    const sep = String(key || '').indexOf('::')
+    return {
+      date: String(sep >= 0 ? key.slice(0, sep) : key).slice(0, 10),
+      festival: sep >= 0 ? key.slice(sep + 2) : '',
+    }
+  }, [])
+
+  const persistManualRow = useCallback((key, override = {}) => {
+    if (!key) return Promise.resolve(null)
+    const [y, m] = month.split('-').map(Number)
+    const { date, festival } = manualKeyParts(key)
+    const entry = { ...(scopedManual[key] || {}), ...override }
+    const scopeNgo = ngoId || ''
+    const rowNgo = override.row_ngo_id !== undefined ? override.row_ngo_id : (festNgo[key] || '')
+    const isExtra = festival.startsWith('+')
+    const name = String(entry.name || '')
+    const body = String(entry.text || '')
+    const selected = Boolean(entry.selected)
+    const mode = entry.mode ? String(entry.mode) : null
+    // A normal festival row with nothing typed and no tick needs no stored row.
+    // An extra row is kept even while empty: its existence IS the row.
+    if (!isExtra && !name && !body && !selected && !mode) {
+      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch(() => null)
+    }
+    return savePlannerManualRow({
+      month: m,
+      year: y,
+      observance_date: date,
+      festival,
+      ngo_id: scopeNgo,
+      row_ngo_id: rowNgo,
+      name,
+      body_text: body,
+      is_selected: selected,
+      mode,
+    }).catch(() => null)
+  }, [month, ngoId, scopedManual, festNgo, manualKeyParts])
+
+  const deleteManualRow = useCallback((key) => {
+    const { date, festival } = manualKeyParts(key)
+    return deletePlannerManualRow({ observance_date: date, festival, ngo_id: ngoId || '' }).catch(() => null)
+  }, [ngoId, manualKeyParts])
+
+  const extraRowsByDate = useMemo(() => {
+    const out = {}
+    const add = (date, festival) => {
+      if (!date || !String(festival || '').startsWith('+')) return
+      const list = out[date] || []
+      if (!list.includes(festival)) out[date] = [...list, festival]
+    }
+    for (const key of Object.keys(scopedManual)) {
+      const sep = key.indexOf('::')
+      if (sep < 0) continue
+      add(key.slice(0, sep), key.slice(sep + 2))
+    }
+    for (const date of Object.keys(festExtra)) {
+      for (const festival of festExtra[date] || []) add(date, festival)
+    }
+    return out
+  }, [scopedManual, festExtra])
 
   /* A festival the user already decided about (an AI tick or a typed programme)
      opens itself, so "what is in the download?" is answered on screen without a
@@ -2075,6 +2193,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestNgo((cur) => ({ ...cur, [key]: value }))
     setFestBenef((cur) => { const next = { ...cur }; delete next[key]; return next })
     setFestLoc((cur) => { const next = { ...cur }; delete next[key]; return next })
+    if (String(key).slice(String(key).indexOf('::') + 2).startsWith('+')) {
+      persistManualRow(key, { row_ngo_id: value })
+    }
     if (prevId && String(value) !== String(prevId)) {
       const stale = (festivalSuggestionsByKey[key] || [])
         .filter((s) => s.is_selected && String(s.ngo_id ?? '') === prevId)
@@ -2212,6 +2333,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // Fresh ideas are meant to be picked from: leave manual-only mode so
         // the new batch is offered as options again.
         updateFestivalManual(key, { mode: false })
+        persistManualRow(key, { mode: false })
         showToast(`${added.length} programme${added.length === 1 ? '' : 's'} suggested for ${shortDate(date)} · ${festivalName}.`)
       } else if (res?.ai && res.ai.available === false) {
         setFestivalError(res.ai.reason || 'AI suggestions are not available on this server yet.')
@@ -3418,12 +3540,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const seed = key ? rowNgoId(key) : ''
     setFestExtra((cur) => ({ ...cur, [date]: [...(cur[date] || []), suffix] }))
     if (seed) setFestNgo((cur) => ({ ...cur, [extraKey]: String(seed) }))
+    persistManualRow(extraKey, { row_ngo_id: seed || '' })
   }
   const removeExtraRow = (date, key) => {
     setFestExtra((cur) => ({ ...cur, [date]: (cur[date] || []).filter((s) => `${date}::${s}` !== key) }))
     setFestNgo((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
+    deleteManualRow(key)
   }
   /* A user-added programme row: same columns as every other row, with an
      editable name in the Festival / Day column, an NGO that starts on the row it
@@ -3442,6 +3566,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             placeholder="Event name (e.g. Community kitchen drive)…"
             title="Name this programme — it is what the downloads call it"
             onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
+            onBlur={() => persistManualRow(key)}
             style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
           />
           <button
@@ -3481,6 +3606,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             placeholder="Type your own programme for this row…"
             title="Your own programme for this row"
             onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+            onBlur={() => persistManualRow(key)}
           />
         </td>
         <td className="lc divider">
@@ -3498,7 +3624,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             checked={manualChecked}
             disabled={festBusy}
             title={manualChecked ? 'Included in the download. Untick to leave it out.' : 'Include this programme in the download.'}
-            onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
+            onChange={(e) => {
+              updateFestivalManual(key, { selected: e.target.checked })
+              persistManualRow(key, { selected: e.target.checked })
+            }}
           />
         </td>
         {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
@@ -3537,7 +3666,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           })
           /* A manual row carries its event name in the Festival / Day cell —
              keep that cell in step with the name the event was saved under. */
-          if (!isFestivalRow(key)) updateFestivalManual(key, { name: savedName })
+          if (!isFestivalRow(key)) {
+            updateFestivalManual(key, { name: savedName })
+            persistManualRow(key, { name: savedName })
+          }
         }
         const link = {
           observance_date,
@@ -4046,6 +4178,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           placeholder="Event name (e.g. Community kitchen drive)…"
                           title="Name the event you are planning for this date — it is what the downloads call it"
                           onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
+                          onBlur={() => persistManualRow(key)}
                           style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
                         />
                       </td>
@@ -4076,6 +4209,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           placeholder="Type your own programme for this date…"
                           title="Your own programme for this date"
                           onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+                          onBlur={() => persistManualRow(key)}
                         />
                         {manualChecked && !on && (
                           <div className="fest-manual-hint">Type your programme above — an empty box exports nothing.</div>
@@ -4099,7 +4233,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           checked={manualChecked}
                           disabled={festBusy}
                           title={manualChecked ? 'This date is in the download. Untick to leave it out.' : 'Include this date’s programme in the download.'}
-                          onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
+                          onChange={(e) => {
+                            updateFestivalManual(key, { selected: e.target.checked })
+                            persistManualRow(key, { selected: e.target.checked })
+                          }}
                         />
                       </td>
                       {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
@@ -4298,6 +4435,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               if (!manual?.mode) updateFestivalManual(key, { mode: true })
                             }}
                             onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+                            onBlur={() => persistManualRow(key)}
                           />
                           {manualChecked && manualOn && (
                             <div className="fest-manual-hint">
@@ -4321,7 +4459,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               style={{ marginTop: 6 }}
                               disabled={festBusy}
                               title="Show the stored AI suggestions as options again"
-                              onClick={() => updateFestivalManual(key, { mode: false })}
+                              onClick={() => {
+                                updateFestivalManual(key, { mode: false })
+                                persistManualRow(key, { mode: false })
+                              }}
                             >
                               ← Show AI suggestions
                             </button>
@@ -4340,6 +4481,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               // ideas step out of view while that is true.
                               if (e.target.checked && !manual?.mode) patch.mode = true
                               updateFestivalManual(key, patch)
+                              persistManualRow(key, patch)
                             }}
                           />
                         </td>
@@ -4453,7 +4595,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     return trs
                   }
                 }))
-                for (const suffix of (festExtra[date] || [])) {
+                for (const suffix of (extraRowsByDate[date] || [])) {
                   rows.push(festExtraRow(date, `${date}::${suffix}`))
                 }
                 

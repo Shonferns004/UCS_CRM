@@ -167,7 +167,7 @@ export default function CreateEvent() {
         const url = (res && res.url) || ''
         if (!url) { setBannerError('Upload finished but the server sent no image URL. Please try again.'); return }
         releaseLocalUrl()
-        setBannerLocalUrl('')
+        setBannerLocalUrl((res && res.previewUrl) || '')
         setForm(prev => ({ ...prev, banner: url }))
         if (bannerFileRef.current) bannerFileRef.current.value = ''
       })

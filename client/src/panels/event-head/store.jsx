@@ -704,6 +704,36 @@ export const setPlannerEventLink = async (payload = {}) => {
   return res?.link || null
 }
 
+/* The planner's typed/manual rows for a month. This is what makes the "Write
+   manually" text, the row's event name and the extra "+ Add another programme"
+   rows survive a reload instead of living only in React state. */
+export const getPlannerManualRows = async (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString()
+  const res = await apiGet('/event-head/planner/manual-rows' + (q ? '?' + q : ''))
+  return Array.isArray(res) ? res : (res?.rows || [])
+}
+
+export const savePlannerManualRow = async (payload = {}) => {
+  const res = await apiPut('/event-head/planner/manual-rows', {
+    month: payload.month,
+    year: payload.year,
+    observance_date: payload.observance_date,
+    festival: payload.festival,
+    ngo_id: payload.ngo_id,
+    row_ngo_id: payload.row_ngo_id,
+    name: payload.name,
+    body_text: payload.body_text,
+    is_selected: payload.is_selected,
+    mode: payload.mode,
+  })
+  return res?.row || null
+}
+
+export const deletePlannerManualRow = async (payload = {}) => {
+  const q = new URLSearchParams(Object.entries(payload).filter(([, v]) => v != null)).toString()
+  return apiDelete('/event-head/planner/manual-rows' + (q ? '?' + q : ''))
+}
+
 /* Saves the row's Beneficiary dropdown choice onto that festival's stored
    suggestions, so the screen, the value shown after a reload and the Excel/PDF
    Beneficiary column all read the category the user actually picked — even
