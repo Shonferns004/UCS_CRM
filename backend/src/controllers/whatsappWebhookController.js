@@ -235,10 +235,11 @@ export async function whatsappWebhookEntry(req, res) {
         // Each row type tracks this wamid on its own state, so each is
         // guarded separately: a redelivered or out-of-order frame must not
         // walk a read receipt back to "sent" or erase a failure_reason.
-        const [{ data: msgRows }, { data: bcRows }, { data: rcRows }] = await Promise.all([
+        const [{ data: msgRows }, { data: bcRows }, { data: rcRows }, { data: bulkRows }] = await Promise.all([
           db.from('messages').select('id, status').eq('wa_message_id', status.id).limit(1),
           db.from('whatsapp_broadcast_recipients').select('status').eq('wa_message_id', status.id).limit(1),
           db.from('receipts').select('wa_status').eq('wa_message_id', status.id).limit(1),
+          db.from('whatsapp_bulk_recipients').select('status').eq('wa_message_id', status.id).limit(1),
         ]);
 
         const update = {
@@ -294,6 +295,17 @@ export async function whatsappWebhookEntry(req, res) {
           await db
             .from('receipts')
             .update(receiptPatch)
+            .eq('wa_message_id', status.id);
+        }
+
+        if (bulkRows?.length && shouldApplyStatus(bulkRows?.[0]?.status, status.status)) {
+          await db
+            .from('whatsapp_bulk_recipients')
+            .update({
+              status: status.status,
+              failure_reason: status.status === 'failed' ? (update.failure_reason || null) : null,
+              status_updated_at: new Date().toISOString(),
+            })
             .eq('wa_message_id', status.id);
         }
       }

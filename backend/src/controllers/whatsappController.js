@@ -778,7 +778,7 @@ export async function listTemplates(req, res) {
 
 export async function sendBulkTemplate(req, res) {
   try {
-    const { accountId, to, templateName, templateLang, parameters } = req.body;
+    const { accountId, to, templateName, templateLang, parameters, headerImageUrl } = req.body;
     if (!to) return res.status(400).json({ success: false, message: 'Phone number is required' });
 
     const account = accountId ? await getAccountById(accountId) : await resolveAccount();
@@ -788,11 +788,26 @@ export async function sendBulkTemplate(req, res) {
     if (!tpl) return res.status(400).json({ success: false, message: 'Template name is required' });
 
     const params = Array.isArray(parameters) ? parameters : [];
-    const result = await sendTemplateMessage(to, tpl, params, templateLang || account.template_language || 'en', account);
+    const result = await sendTemplateMessage(to, tpl, params, templateLang || account.template_language || 'en', account, headerImageUrl);
+    const messageId = result?.messages?.[0]?.id || result?.id || null;
+
+    try {
+      const { error: insertErr } = await db.from('whatsapp_bulk_recipients').insert({
+        account_id: account.id,
+        template_name: tpl,
+        recipient_name: req.body.recipientName || null,
+        phone: String(to).replace(/[^0-9]/g, ''),
+        wa_message_id: messageId,
+        status: 'sent',
+      });
+      if (insertErr) console.error('Bulk recipient log insert failed:', insertErr.message);
+    } catch (e) {
+      console.error('Bulk recipient log insert failed:', e?.message || e);
+    }
 
     return res.json({
       success: true,
-      messageId: result?.messages?.[0]?.id || result?.id || null,
+      messageId,
       result,
     });
   } catch (error) {
