@@ -176,7 +176,7 @@ export default function WhatsAppBulk() {
   const handleConfirmBulkSend = async () => {
     setConfirmBulk({ visible: false, donorCount: 0 });
     const batches = [];
-    for (let i = 0; i < validRecipients.length; i += 10) batches.push(validRecipients.slice(i, i + 10));
+    for (let i = 0; i < validRecipients.length; i += 5) batches.push(validRecipients.slice(i, i + 5));
     cancelBulkRef.current = false;
     setBulkState({ active: true, total: validRecipients.length, sent: 0, failed: 0, currentBatch: 0, totalBatches: batches.length, results: [], previousBatches: [] });
 
@@ -223,6 +223,7 @@ export default function WhatsAppBulk() {
         results: batchResults.map((r, i) => ({ name: batch[i].name, status: r.status === 'fulfilled' ? 'sent' : 'failed', error: r.status === 'rejected' ? r.reason?.message : null })),
         previousBatches: [...prev.previousBatches, { batch: batchIdx + 1, sent: batchSent, failed: batchFailed }],
       }));
+      if (batchIdx < batches.length - 1) await new Promise(r => setTimeout(r, 2000));
     }
 
     setBulkState(prev => ({ ...prev, active: false }));
