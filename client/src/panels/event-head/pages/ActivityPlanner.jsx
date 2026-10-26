@@ -2091,6 +2091,24 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return deletePlannerManualRow({ observance_date: date, festival, ngo_id: ngoId || '' }).catch(() => null)
   }, [ngoId, manualKeyParts])
 
+  const extraRowsByDate = useMemo(() => {
+    const out = {}
+    const add = (date, festival) => {
+      if (!date || !String(festival || '').startsWith('+')) return
+      const list = out[date] || []
+      if (!list.includes(festival)) out[date] = [...list, festival]
+    }
+    for (const key of Object.keys(scopedManual)) {
+      const sep = key.indexOf('::')
+      if (sep < 0) continue
+      add(key.slice(0, sep), key.slice(sep + 2))
+    }
+    for (const date of Object.keys(festExtra)) {
+      for (const festival of festExtra[date] || []) add(date, festival)
+    }
+    return out
+  }, [scopedManual, festExtra])
+
   /* A festival the user already decided about (an AI tick or a typed programme)
      opens itself, so "what is in the download?" is answered on screen without a
      click. The merge only ever ADDS keys: a block the user opened but has not
@@ -4577,7 +4595,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     return trs
                   }
                 }))
-                for (const suffix of (festExtra[date] || [])) {
+                for (const suffix of (extraRowsByDate[date] || [])) {
                   rows.push(festExtraRow(date, `${date}::${suffix}`))
                 }
                 
