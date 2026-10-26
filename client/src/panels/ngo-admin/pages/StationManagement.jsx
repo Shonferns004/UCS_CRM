@@ -3005,7 +3005,20 @@ export default function StationManagement() {
         <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             <strong style={{ fontSize: 14, letterSpacing: '.2px', cursor: 'pointer', color: 'var(--sage)' }} onClick={() => setDonorListTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) })}>{s.station}</strong>
-            {/* Stacks summary moved to modal — station card keeps only count + button */}
+            {liveGrantsFor(s).filter(g => g.scope_type !== 'STATION_HIGH_TIER').map(g => (
+              <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                <span
+                  title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
+                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                  {g.working_fro_name || 'FRO'}
+                </span>
+                <button
+                  onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
+                >✕</button>
+              </span>
+            ))}
           </div>
           <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
             {Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)).toLocaleString('en-IN')} donor{Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)) === 1 ? '' : 's'}
@@ -3043,7 +3056,7 @@ export default function StationManagement() {
             <button
               title="Manage donor stacks"
               onClick={() => setStacksModalTarget({ station: s.station, ngoId: ngoScopeForRow(s) })}
-              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', cursor: 'pointer', flexShrink: 0, fontSize: 12, fontWeight: 800 }}
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: (allStacks || []).some(st => st.station === s.station) ? '2px solid #16a34a' : '1px solid #bbf7d0', background: (allStacks || []).some(st => st.station === s.station) ? '#16a34a' : '#f0fdf4', color: (allStacks || []).some(st => st.station === s.station) ? '#fff' : '#166534', cursor: 'pointer', flexShrink: 0, fontSize: 12, fontWeight: 800 }}
             >
               S
             </button>
