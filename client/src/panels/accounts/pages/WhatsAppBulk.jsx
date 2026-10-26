@@ -181,6 +181,9 @@ export default function WhatsAppBulk() {
     setBulkState({ active: true, total: validRecipients.length, sent: 0, failed: 0, currentBatch: 0, totalBatches: batches.length, results: [], previousBatches: [] });
 
     const paramsArr = variables.split(',').map(v => v.trim()).filter(Boolean);
+    const selectedTpl = templates.find(t => t.name === selectedTemplate);
+    const headerComp = (selectedTpl?.components || []).find(c => String(c.type || '').toUpperCase() === 'HEADER');
+    const headerImageUrl = headerComp?.format === 'IMAGE' ? (headerComp.example?.header_handle?.[0] || '') : '';
     let totalSent = 0, totalFailed = 0;
     const failedRows = [];
 
@@ -195,6 +198,8 @@ export default function WhatsAppBulk() {
           to: r.phone,
           templateName: selectedTemplate,
           templateLang,
+          headerImageUrl,
+          recipientName: r.name,
           parameters: paramsArr.map(v => v === '{{name}}' ? r.name : v),
         });
         if (!res?.success) throw new Error(res?.message || 'Send failed');
@@ -278,6 +283,18 @@ export default function WhatsAppBulk() {
               {templates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>
           </label>
+          {(() => {
+            const tpl = templates.find(t => t.name === selectedTemplate);
+            const body = (tpl?.components || []).find(c => String(c.type || '').toUpperCase() === 'BODY')?.text || '';
+            const fallback = !body && tpl?.components ? JSON.stringify(tpl.components) : '';
+            if (!body && !fallback) return null;
+            return (
+              <div className="wa-f" style={{ gridColumn: '1 / -1' }}>
+                <span className="wa-f-label">Template Body</span>
+                <div style={{ padding: 8, border: '1px solid #d1d5db', borderRadius: 8, background: '#f8fafc', fontSize: 12, whiteSpace: 'pre-wrap' }}>{body || fallback}</div>
+              </div>
+            );
+          })()}
           <label className="wa-f">
             <span className="wa-f-label">Language</span>
             <input className="wa-input" value={templateLang} onChange={e => setTemplateLang(e.target.value)} />

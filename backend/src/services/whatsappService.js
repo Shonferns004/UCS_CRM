@@ -51,7 +51,7 @@ export async function sendTextMessage(to, text, account) {
   return sendViaFacebook(to, 'text', { text: { body: text } }, resolved);
 }
 
-export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account) {
+export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null) {
   if (!config.enabled && !account) throw new Error('WhatsApp not configured');
 
   const resolved = account || await resolveAccount();
@@ -59,17 +59,28 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
 
   const tplLang = lang || getTemplateLanguage(resolved);
 
+  const components = [];
+  if (headerImageUrl) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: 'image', image: { link: headerImageUrl } }],
+    });
+  }
+  if (Array.isArray(parameters) && parameters.length > 0) {
+    components.push({
+      type: 'body',
+      parameters: parameters.map(p => ({ type: 'text', text: String(p) })),
+    });
+  }
+
+  const templatePayload = {
+    name: templateName,
+    language: { code: tplLang },
+  };
+  if (components.length > 0) templatePayload.components = components;
+
   return sendViaFacebook(to, 'template', {
-    template: {
-      name: templateName,
-      language: { code: tplLang },
-      components: [
-        {
-          type: 'body',
-          parameters: parameters.map(p => ({ type: 'text', text: String(p) })),
-        },
-      ],
-    },
+    template: templatePayload,
   }, resolved);
 }
 
@@ -234,11 +245,11 @@ export async function listTemplatesForAccount(account) {
   const token = getAccessToken(account);
 
   const tplRes = await fetch(
-    `https://graph.facebook.com/${config.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
+    `https://graph.facebook.com/${config.apiVersion}/${wabaId}/message_templates?fields=name,language,status,components`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!tplRes.ok) { const e = await tplRes.text(); throw new Error('Meta API: ' + e); }
 
   const { data } = await tplRes.json();
-  return (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language }));
+  return (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language, components: t.components || [] }));
 }
