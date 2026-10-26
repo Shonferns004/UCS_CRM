@@ -2717,6 +2717,7 @@ export const claimSuspenseReceipt = async (req, res) => {
         // operator_id, which carries no FK (see createDonorLogHandler).
         fro_worker_id: workerId,
         operator_id: creditWorkerId === workerId ? null : creditWorkerId,
+        target_station: assignment?.target_station || null,
         action: 'disposition',
         disposition_detail: 'lead_done',
         // Marks a lead created by claiming an Unclaimed-tab receipt so Accounts'

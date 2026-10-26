@@ -1494,6 +1494,7 @@ export const manualVerifyEntry = async (req, res) => {
           assignment_id: assignment.id,
           donor_id: donorId,
           fro_worker_id: fro_worker_id,
+          target_station: assignment.target_station || null,
           action: 'donation',
           amount_collected: amount,
           payment_mode: entry.mode || (entry.payment_id ? 'UPI' : 'Bank Transfer'),
@@ -1767,6 +1768,7 @@ export const linkSuspenseToDonor = async (req, res) => {
         assignment_id: assignment.id,
         donor_id: donor_id,
         fro_worker_id: assignment.fro_worker_id,
+        target_station: assignment.target_station || null,
         action: 'donation',
         amount_collected: entry.amount,
         accounts_status: 'verified',
@@ -1863,6 +1865,7 @@ export const resolveSuspenseEntry = async (req, res) => {
             await db.from('fro_donor_logs').insert({
               assignment_id: assignment.id,
               fro_worker_id: assignment.fro_worker_id,
+              target_station: assignment.target_station || null,
               action: disposition_detail === 'lead_done' ? 'donation' : disposition_category || 'follow_up',
               disposition_category: disposition_category || 'other',
               disposition_detail: disposition_detail || 'resolved_suspense',
