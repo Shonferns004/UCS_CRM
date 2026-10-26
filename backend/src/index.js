@@ -145,6 +145,7 @@ import { ensureTemporaryDataAccessSchema } from './bootstrap/ensureTemporaryData
 import { ensureSettingsSchema } from './bootstrap/ensureSettingsSchema.js';
 import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSchema.js';
 import { ensureWhatsAppConversationSchema } from './bootstrap/ensureWhatsAppConversationSchema.js';
+import { ensureWhatsAppBulkSchema } from './bootstrap/ensureWhatsAppBulkSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config({ override: true });
@@ -1261,6 +1262,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureSettingsSchema().catch(e => console.error('ensureSettingsSchema failed:', e?.message || e));
     await ensureWhatsAppAccountSchema().catch(e => console.error('ensureWhatsAppAccountSchema failed:', e?.message || e));
     await ensureWhatsAppConversationSchema().catch(e => console.error('ensureWhatsAppConversationSchema failed:', e?.message || e));
+    await ensureWhatsAppBulkSchema().catch(e => console.error('ensureWhatsAppBulkSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
