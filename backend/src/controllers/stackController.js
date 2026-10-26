@@ -223,19 +223,44 @@ export const assignFroToStack = async (req, res) => {
       // Create temp grant with explicit allowed_assignment_ids.
       const start = new Date();
       const expiry = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
-      await db._pool.query(
-        `INSERT INTO temporary_data_assignments
-           (ngo_id, station, working_fro_worker_id, granted_by_admin_id, scope_type,
-            starts_at, expires_at, status, reason_code, reason_note,
-            allowed_count, allowed_offset, allowed_assignment_ids)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [
-          stack.ngo_id, stack.station, fro_worker_id, await resolveAdminId(req.user),
-          stack.stack_type === 'high_tier' ? 'STATION_HIGH_TIER' : 'STATION_ALL',
-          start.toISOString(), expiry.toISOString(), 'ACTIVE', 'WORKLOAD_SUPPORT', `Stack: ${stack.name}`,
-          count, 0, ids,
-        ],
+      const adminId = await resolveAdminId(req.user);
+      // One FRO can only have ONE active grant per station (unique constraint).
+      // If a grant already exists for this FRO on this station, MERGE the new
+      // slice ids into it instead of inserting a duplicate.
+      const { rows: existing } = await db._pool.query(
+        `SELECT id, allowed_assignment_ids FROM temporary_data_assignments
+          WHERE station = $1 AND working_fro_worker_id = $2 AND status IN ('SCHEDULED','ACTIVE')
+          ORDER BY created_at DESC LIMIT 1`,
+        [stack.station, fro_worker_id],
       );
+      if (existing.length > 0) {
+        const grant = existing[0];
+        const oldIds = grant.allowed_assignment_ids || [];
+        const merged = [...new Set([...oldIds, ...ids])];
+        await db._pool.query(
+          `UPDATE temporary_data_assignments
+              SET allowed_assignment_ids = $1,
+                  allowed_count = $2,
+                  expires_at = $3,
+                  updated_at = now()
+            WHERE id = $4`,
+          [merged, merged.length, expiry.toISOString(), grant.id],
+        );
+      } else {
+        await db._pool.query(
+          `INSERT INTO temporary_data_assignments
+             (ngo_id, station, working_fro_worker_id, granted_by_admin_id, scope_type,
+              starts_at, expires_at, status, reason_code, reason_note,
+              allowed_count, allowed_offset, allowed_assignment_ids)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [
+            stack.ngo_id, stack.station, fro_worker_id, adminId,
+            stack.stack_type === 'high_tier' ? 'STATION_HIGH_TIER' : 'STATION_ALL',
+            start.toISOString(), expiry.toISOString(), 'ACTIVE', 'WORKLOAD_SUPPORT', `Stack: ${stack.name}`,
+            count, 0, ids,
+          ],
+        );
+      }
       return res.json({ ok: true, fro_worker_id, member_count: count, target_station: targetStation });
     }
     return res.json({ ok: true, fro_worker_id: null });
