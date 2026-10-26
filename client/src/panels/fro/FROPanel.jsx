@@ -71,15 +71,34 @@ callLessAudio.preload = 'auto';
 entertainAudio.preload = 'auto';
 congratsAudio.preload = 'auto';
 const SUSPENSE_RING_WINDOW_MS = 90 * 1000;
+const suspensePendingRef = { current: false };
 function playSuspenseAlert(title) {
+  toast(title || 'Suspense Alert', 'info');
   try {
     suspenseAlertAudio.currentTime = 0;
     const p = suspenseAlertAudio.play();
-    if (p && p.then) p.catch(() => {});
-  } catch {}
-  toast(title || 'Suspense Alert', 'info');
+    if (p && p.catch) p.catch(() => {
+      suspensePendingRef.current = true;
+      console.warn('[fro] suspense audio autoplay blocked; will play on next interaction');
+    });
+  } catch (e) { console.warn('[fro] suspense audio play threw:', e?.message || e); }
 }
+if (typeof window !== 'undefined') {
+  const unlockSuspense = () => {
+    if (!suspensePendingRef.current) return;
+    suspensePendingRef.current = false;
+    try {
+      suspenseAlertAudio.currentTime = 0;
+      suspenseAlertAudio.play().catch(() => {});
+    } catch {}
+  };
+  window.addEventListener('pointerdown', unlockSuspense);
+  window.addEventListener('keydown', unlockSuspense);
+  window.addEventListener('touchstart', unlockSuspense);
+}
+const froActionPendingRef = { current: null };
 function playFroAction(type, title, audioUrl) {
+  toast(title || 'FRO action', 'info');
   let audio = type === 'fro_action_follow_up' ? followDueAudio : (type === 'fro_action_less_calls' ? callLessAudio : entertainAudio);
   if (type === 'fro_action_entertain' && audioUrl) {
     if (!customEntertainAudioCache.has(audioUrl)) {
@@ -92,9 +111,22 @@ function playFroAction(type, title, audioUrl) {
   try {
     audio.currentTime = 0;
     const p = audio.play();
-    if (p && p.then) p.catch(() => {});
-  } catch {}
-  toast(title || 'FRO action', 'info');
+    if (p && p.catch) p.catch(() => {
+      froActionPendingRef.current = audio;
+      console.warn('[fro] fro-action audio autoplay blocked; will play on next interaction');
+    });
+  } catch (e) { console.warn('[fro] fro-action audio play threw:', e?.message || e); }
+}
+if (typeof window !== 'undefined') {
+  const unlockFroAction = () => {
+    if (!froActionPendingRef.current) return;
+    const audio = froActionPendingRef.current;
+    froActionPendingRef.current = null;
+    try { audio.currentTime = 0; audio.play().catch(() => {}); } catch {}
+  };
+  window.addEventListener('pointerdown', unlockFroAction);
+  window.addEventListener('keydown', unlockFroAction);
+  window.addEventListener('touchstart', unlockFroAction);
 }
 function playTeamCongratsAudio() {
   try {
@@ -780,12 +812,22 @@ const showIdleWarning = useCallback((action) => {
   } catch (e) {}
 }, []);
 useEffect(() => onFroAction((action) => {
+    console.info('[fro] fro:action received', action?.type)
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
       playFroAction(action.type, action.title, action.audioUrl);
+    } else if (action?.type === 'suspense_alert') {
+      const eid = action.eventId || action.sent_at || Date.now();
+      if (!rungAlertIds.current.has(eid)) {
+        markRungAlert(eid);
+        playSuspenseAlert(action.title);
+      }
     } else if (action?.type === 'idle_alert') {
+      // Only react if this alert is for us (or untargeted).
+      const me = (user && (user.id || user.worker_id)) || null;
+      if (action.targetWorkerId && me && String(action.targetWorkerId) !== String(me)) return;
       showIdleWarning(action);
     }
-  }), [showIdleWarning]);
+  }), [showIdleWarning, user]);
 
 // Direct socket listener as a fallback - some builds/environments don't route
 // through onFroAction consistently.
@@ -796,6 +838,8 @@ useEffect(() => {
     if (sock) {
       const handler = (action) => {
         if (action?.type === 'idle_alert') {
+          const me = (user && (user.id || user.worker_id)) || null;
+          if (action.targetWorkerId && me && String(action.targetWorkerId) !== String(me)) return;
           showIdleWarning(action);
         }
       };
@@ -808,7 +852,7 @@ useEffect(() => {
   return () => {
     if (typeof unsub === 'function') unsub();
   };
-}, [showIdleWarning]);
+}, [showIdleWarning, user]);
 
 useEffect(() => {
   const handler = (e) => {
@@ -1119,7 +1163,7 @@ useEffect(() => {
                 title={s.ngo_name ? `${s.station} · ${s.ngo_name}` : s.station}
                 style={{ padding: '2px 9px', borderRadius: 999, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', fontSize: 11.5, fontWeight: 600 }}
               >
-                {s.station}{s.temp_allowed_count ? ` · ${s.temp_allowed_count} of high-tier` : ''}{s.temp_expires_at ? ` · until ${new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : ''}
+                {s.station}{s.temp_allowed_count ? ` · ${s.temp_allowed_count}` : ''}{s.temp_expires_at ? ` · until ${new Date(s.temp_expires_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : ''}
               </span>
             ))}
             <span style={{ color: 'var(--ink-soft)', fontSize: 11 }}>Donor ownership stays with the permanent FRO.</span>

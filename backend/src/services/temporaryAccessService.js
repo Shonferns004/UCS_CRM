@@ -54,7 +54,7 @@ export async function getActiveGrants(workerId) {
     try {
       const { rows: dbRows, error } = await db._pool.query(
         `SELECT id, ngo_id, station, scope_type, starts_at, expires_at, status,
-            allowed_count, allowed_offset
+            allowed_count, allowed_offset, allowed_assignment_ids
            FROM temporary_data_assignments
           WHERE working_fro_worker_id = $1
             AND status IN ('SCHEDULED', 'ACTIVE')`,
@@ -89,7 +89,12 @@ export async function getActiveGrantPairs(workerId) {
 const SLICE_CACHE_PREFIX = 'tda:slice:';
 const SLICE_CACHE_TTL_MS = 15 * 1000;
 export async function getAllowedAssignmentIds(grant) {
-  if (!grant || grant.allowed_count == null) return null;
+  if (!grant) return null;
+  // Explicit list (stack-based) takes precedence over offset window.
+  if (Array.isArray(grant.allowed_assignment_ids) && grant.allowed_assignment_ids.length > 0) {
+    return grant.allowed_assignment_ids;
+  }
+  if (grant.allowed_count == null) return null;
   const cacheKey = `${SLICE_CACHE_PREFIX}${grant.id}`;
   let ids = cacheGet(cacheKey, SLICE_CACHE_TTL_MS);
   if (ids === undefined) {
@@ -112,6 +117,12 @@ export async function getAllowedAssignmentIds(grant) {
     }
   }
   return ids;
+}
+
+/** Invalidate the slice (allowed ids) cache for a grant or all grants. */
+export function invalidateSliceCache(grantId) {
+  if (grantId) cacheDelPrefix(`${SLICE_CACHE_PREFIX}${grantId}`);
+  else cacheDelPrefix(SLICE_CACHE_PREFIX);
 }
 
 /** Call after any grant create/extend/revoke so the worker's next request re-reads. */

@@ -169,6 +169,7 @@ export function initRealtime(server) {
     upgrade: (res, req, context) => {
       const origin = req.getHeader('origin');
       if (!originAllowed(origin)) {
+        console.warn('[uws] origin rejected:', origin);
         res.writeStatus('403 Forbidden');
         res.end();
         return;
@@ -220,10 +221,12 @@ export function initRealtime(server) {
         }
         const user = verifyToken(msg.payload.token);
         if (!user) {
+          console.warn('[uws] auth failed: invalid token');
           send(ws, { type: 'auth:error', payload: { message: 'unauthorized' } });
           try { ws.close(); } catch {}
           return;
         }
+        console.info('[uws] auth ok:', user.id, user.role);
         if (m.authTimer) { clearTimeout(m.authTimer); m.authTimer = null; }
         m.authed = true;
         m.user = user;
@@ -300,6 +303,7 @@ export function initRealtime(server) {
 
 export function emitDbChange(payload) {
   if (!app) return;
+  if (payload && payload.table) console.info('[uws] emit db:change', payload.table, payload.eventType || '');
   broadcastAll({ type: 'db:change', payload });
 }
 export function emitChat(conversationId, payload) {
@@ -319,8 +323,14 @@ export function emitChatToUsers(uids, payload) {
 export function emitRealtime(event, payload, room) {
   if (!app) return;
   const msg = { type: event, payload };
-  if (room) broadcastTopic(room, msg);
-  else broadcastAll(msg);
+  if (room) {
+    const set = topics.get(room);
+    console.info('[uws] emit', event, '-> room', room, 'recipients:', set ? set.size : 0);
+    broadcastTopic(room, msg);
+  } else {
+    console.info('[uws] emit', event, '-> all', clients.size, 'clients');
+    broadcastAll(msg);
+  }
 }
 export function isRealtimeInitialized() {
   return !!app;

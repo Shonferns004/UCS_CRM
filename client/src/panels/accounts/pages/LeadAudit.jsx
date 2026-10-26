@@ -50,6 +50,7 @@ export default function LeadAudit() {
   const [selectedTeams, setSelectedTeams] = useState([]);
   const [teamSending, setTeamSending] = useState(false);
   const [collections, setCollections] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const workspaceRef = useRef(null);
 
   useEffect(() => {
@@ -67,6 +68,7 @@ export default function LeadAudit() {
       const res = await apiPost('/accounts/bank-audit/entries/' + selectedEntry.id + '/manual-match', { log_id: selectedLead.log_id });
       setSelectedLead(null);
       setSelectedEntry(null);
+      setRefreshTick(t => t + 1);
       alert(res?.match_no ? `Matched manually \u00B7 ${res.match_no}` : 'Matched manually');
     } catch (err) {
       alert(err.message);
@@ -298,11 +300,11 @@ export default function LeadAudit() {
         <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
           <div style={{ alignSelf: 'flex-start' }}>
             <SectionTitle>Lead Verification</SectionTitle>
-            <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} />
+            <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} onAfterAction={() => setRefreshTick(t => t + 1)} refreshKey={refreshTick} />
           </div>
           <div>
             <SectionTitle>Bank Audit</SectionTitle>
-            <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
+            <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} refreshKey={refreshTick} onAfterAction={() => setRefreshTick(t => t + 1)} />
           </div>
         </div>
 

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Donor Stacks — Interactive Mockup</title>
+<style>
+  :root { --bg:#f1f5f9; --card:#fff; --line:#e5e7eb; --ink:#0f172a; --soft:#64748b;
+    --blue:#2563eb; --blue-soft:#eff6ff; --green:#16a34a; --green-soft:#dcfce7;
+    --amber:#d97706; --amber-soft:#fef3c7; --red:#dc2626; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Inter','Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--ink); padding:20px; line-height:1.5; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:var(--soft); font-size:13px; margin-bottom:20px; }
+  h2 { font-size:16px; margin:0 0 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .badge { font-size:10px; padding:3px 9px; border-radius:999px; font-weight:700; }
+  .badge.admin { background:#fef3c7; color:#92400e; }
+  .badge.fro { background:#dcfce7; color:#166534; }
+  .badge.step { background:var(--blue); color:#fff; }
+  .section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:24px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .modal { background:#fff; border-radius:14px; width:960px; max-width:95vw; max-height:92vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(0,0,0,.3); margin:0 auto 24px; }
+  .modal-head { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+  .modal-head h3 { font-size:17px; font-weight:700; }
+  .modal-body { padding:18px 20px; overflow:auto; flex:1; }
+  .modal-foot { padding:12px 20px; border-top:1px solid var(--line); display:flex; gap:8px; justify-content:flex-end; background:#f8fafc; }
+  .countbar { display:flex; gap:20px; padding:12px 16px; background:#f8fafc; border:1px solid var(--line); border-radius:10px; margin-bottom:16px; }
+  .countbar .stat { display:flex; flex-direction:column; min-width:80px; }
+  .countbar .stat b { font-size:22px; font-weight:800; transition:transform .3s; }
+  .countbar .stat span { color:var(--soft); font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+  .countbar .stat.total b { color:var(--blue); }
+  .countbar .stat.stacked b { color:var(--green); }
+  .countbar .stat.remaining b { color:var(--amber); }
+  .countbar .stat.bump b { transform:scale(1.3); }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:14px; }
+  .tab { padding:9px 16px; border:none; background:transparent; cursor:pointer; font-size:13px; font-weight:600; color:var(--soft); border-bottom:2px solid transparent; transition:all .15s; }
+  .tab:hover { color:var(--ink); }
+  .tab.active { color:var(--blue); border-bottom-color:var(--blue); }
+  .toolbar { display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap; }
+  .toolbar input[type=text] { flex:1; min-width:180px; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font-size:12px; font-family:inherit; }
+  .toolbar select, .toolbar input[type=number] { padding:7px 10px; border:1px solid var(--line); border-radius:6px; font-size:12px; font-family:inherit; }
+  .btn { padding:7px 12px; border-radius:6px; border:1px solid var(--line); background:#fff; font-size:11.5px; font-weight:600; cursor:pointer; transition:all .15s; }
+  .btn:hover { background:#f1f5f9; }
+  .btn.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .btn.primary:hover { background:#1d4ed8; }
+  .btn.primary:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.danger { background:var(--red-soft); color:var(--red); border-color:#fecaca; }
+  .layout { display:grid; grid-template-columns: 1fr 44px 1fr; gap:0; }
+  .left-col { min-width:0; }
+  .arrow-col { display:flex; align-items:center; justify-content:center; }
+  .arrow-btn { width:36px; height:36px; border-radius:50%; border:2px solid var(--blue); background:var(--blue); color:#fff; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:transform .15s; }
+  .arrow-btn:hover { transform:scale(1.1); }
+  .arrow-btn:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+  .right-col { min-width:0; background: linear-gradient(135deg, rgba(37,99,235,.03) 1px, transparent 1px), linear-gradient(45deg, rgba(37,99,235,.03) 1px, transparent 1px); background-size: 20px 20px; border-radius:8px; padding:8px; }
+  .donor-list { border:1px solid var(--line); border-radius:8px; max-height:300px; overflow:auto; position:relative; }
+  .donor-row { display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid #f1f5f9; font-size:12.5px; transition:all .25s; }
+  .donor-row:hover { background:#f8fafc; }
+  .donor-row.selected { background:#eff6ff; }
+  .donor-row.removing { opacity:0; transform:translateX(-30px); height:0; padding:0; margin:0; border:none; overflow:hidden; }
+  .donor-row .name { flex:1; font-weight:500; }
+  .donor-row .meta { color:var(--soft); font-size:11px; }
+  .donor-row .status { font-size:10px; padding:2px 7px; border-radius:4px; font-weight:600; }
+  .stacks { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; }
+  .stack { width:170px; border:2px solid var(--blue); border-radius:10px; padding:12px; background:var(--blue-soft); transition:transform .2s; position:relative; overflow:visible; cursor:pointer; transform-style:preserve-3d; perspective:600px; }
+  .stack::before, .stack::after { content:''; position:absolute; inset:0; border-radius:10px; border:1px solid rgba(37,99,235,.25); background:rgba(37,99,235,.04); transform:translateZ(-6px) translateY(4px); z-index:-1; }
+  .stack::after { transform:translateZ(-12px) translateY(8px); opacity:.6; }
+  .stack:hover { transform:translateY(-4px) rotateX(4deg); }
+  .stack:hover::before { transform:translateZ(-6px) translateY(6px); }
+  .stack:hover::after { transform:translateZ(-12px) translateY(12px); }
+  .stack.pulse { animation: pulse .4s ease; }
+  .stack .title { font-weight:700; font-size:13px; }
+  .stack .count { font-size:28px; font-weight:800; color:var(--blue); margin:6px 0; transition:transform .3s; }
+  .stack .count.bump { transform:scale(1.4); color:var(--green); }
+  .stack .fro { font-size:11px; color:var(--soft); margin-bottom:8px; }
+  .stack .actions { display:flex; gap:6px; }
+  .stack .actions button { flex:1; padding:4px 6px; font-size:10px; border-radius:4px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  .stack .actions button.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .new-stack { border:2px dashed #94a3b8; background:#f8fafc; display:flex; align-items:center; justify-content:center; color:var(--soft); font-size:12px; cursor:pointer; min-height:100px; border-radius:10px; width:170px; transition:all .15s; }
+  .new-stack:hover { border-color:var(--blue); color:var(--blue); background:var(--blue-soft); }
+  .flying-card { position:fixed; pointer-events:none; z-index:999; background:#fff; border:1px solid var(--blue); border-radius:6px; padding:6px 10px; font-size:12px; box-shadow:0 4px 12px rgba(0,0,0,.15); transition: all .4s cubic-bezier(.2,.8,.2,1); }
+  .detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; align-items:center; justify-content:center; z-index:200; }
+  .detail-overlay.open { display:flex; }
+  .detail { background:#fff; border-radius:14px; width:600px; max-width:95vw; max-height:80vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(0,0,0,.3); }
+  .detail-head { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+  .detail-body { padding:16px 20px; overflow:auto; flex:1; }
+  .detail-foot { padding:12px 20px; border-top:1px solid var(--line); display:flex; gap:8px; justify-content:flex-end; background:#f8fafc; }
+  .fro-view { border:1px solid var(--line); border-radius:10px; padding:14px; background:#fff; max-width:460px; margin-top:16px; }
+  .fro-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:var(--blue-soft); border:1px solid #bfdbfe; color:#1e40af; font-size:11.5px; font-weight:600; margin:4px 4px 4px 0; }
+  .fro-chip.stack { background:var(--green-soft); border-color:#bbf7d0; color:#166534; }
+  .fro-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #f1f5f9; font-size:12.5px; }
+  .flow { display:flex; flex-direction:column; gap:8px; }
+  .flow-step { display:flex; gap:12px; align-items:flex-start; padding:10px 12px; background:#f8fafc; border-radius:8px; border-left:3px solid var(--blue); }
+  .flow-step .num { background:var(--blue); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+  .flow-step .txt { font-size:12.5px; line-height:1.5; }
+  pre { background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:11.5px; overflow:auto; line-height:1.5; margin:0; }
+  @keyframes pulse { 0%{transform:scale(1) rotateX(0)} 50%{transform:scale(1.1) rotateX(6deg)} 100%{transform:scale(1) rotateX(0)} }
+  @keyframes zuup { 0%{transform:scale(1) translateY(0)} 30%{transform:scale(1.15) translateY(-8px)} 100%{transform:scale(1) translateY(0)} }
+  @keyframes slotRoll { 0%{transform:translateY(0)} 50%{transform:translateY(-100%);opacity:0} 51%{transform:translateY(100%);opacity:0} 100%{transform:translateY(0);opacity:1} }
+  .stack.zuup { animation: zuup .5s cubic-bezier(.2,.8,.2,1); }
+  .count.roll { animation: slotRoll .4s ease; }
+  @keyframes countBump { 0%{transform:scale(1)} 50%{transform:scale(1.4);color:var(--green)} 100%{transform:scale(1)} }
+  .bump { animation: countBump .4s ease; }
+  @media (prefers-reduced-motion: reduce) { .anim, .bump, .stack.pulse { animation:none !important; } }
+</style>
+</head>
+<body>
+
+<h1>📦 Donor Stacks — Interactive Mockup</h1>
+<p class="sub">Admin station management → Donor Stacks modal → FRO view. Interactive: select donors → click → (zuup) animate into stack. Click stack → detail view.</p>
+
+<div class="section">
+  <h2><span class="badge admin">ADMIN</span> Station Management</h2>
+  <div style="display:flex; gap:14px; flex-wrap:wrap;">
+    <div style="width:250px; border:1px solid var(--line); border-radius:10px; padding:14px; background:#fff;">
+      <div style="font-weight:700; font-size:14px;">BOD-2 <span style="font-size:10px;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;margin-left:6px;">High Tier</span></div>
+      <div style="font-size:11px; color:var(--soft); margin-top:3px;">627 donors · 0 normal + 627 high-tier</div>
+      <div style="font-size:11px; color:var(--soft); margin-top:6px;">FRO: (unassigned) · BSCT</div>
+      <button onclick="openModal()" style="margin-top:10px; padding:6px 10px; border-radius:6px; border:1px solid #bbf7d0; background:#f0fdf4; color:#166534; font-size:11px; font-weight:600; cursor:pointer; width:100%;">📦 Open Donor Stacks modal</button>
+    </div>
+    <div style="width:250px; border:1px solid var(--line); border-radius:10px; padding:14px; background:#fff;">
+      <div style="font-weight:700; font-size:14px;">BOD-1</div>
+      <div style="font-size:11px; color:var(--soft); margin-top:3px;">977 donors · 965 old + 12 legacy</div>
+      <div style="font-size:11px; color:var(--soft); margin-top:6px;">FRO: Hiral Waghela · BSCT</div>
+      <button onclick="openModal()" style="margin-top:10px; padding:6px 10px; border-radius:6px; border:1px solid #bbf7d0; background:#f0fdf4; color:#166534; font-size:11px; font-weight:600; cursor:pointer; width:100%;">📦 Open Donor Stacks modal</button>
+    </div>
+  </div>
+  <div style="font-size:12px; color:var(--soft); margin-top:10px;">Family total: <b>BSCT · 22 stations · 18,479 donors</b> (normal + high-tier combined)</div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Donor Stacks — BOD-2</h3>
+      <button onclick="closeModal()" style="border:none;background:transparent;font-size:22px;cursor:pointer;color:var(--soft);line-height:1;">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="countbar">
+        <div class="stat total"><b id="totalCount">627</b><span>Total donors</span></div>
+        <div class="stat stacked"><b id="stackedCount">140</b><span>In stacks</span></div>
+        <div class="stat remaining"><b id="remainingCount">487</b><span>Remaining (unstacked)</span></div>
+      </div>
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('normal',this)">Normal donors</button>
+        <button class="tab" onclick="switchTab('high',this)">High-tier donors</button>
+        <button class="tab" onclick="switchTab('stacks',this)">Stacks (3)</button>
+      </div>
+      <div class="layout">
+        <div class="left-col" id="leftCol">
+          <div class="toolbar">
+            <input type="text" placeholder="Search donor..." />
+            <button class="btn" onclick="toggleAll()">Select all</button>
+            <select id="stackSelect">
+              <option value="s1">→ Stack 1 (70)</option>
+              <option value="s2">→ Stack 2 (70)</option>
+              <option value="s3">→ Stack 3 (69)</option>
+              <option value="">+ New stack</option>
+            </select>
+            <input type="text" id="newStackName" placeholder="New stack name" style="width:120px;" />
+            <button class="btn primary" onclick="moveSelected()">→ Move to stack</button>
+          </div>
+          <div class="donor-list" id="donorList">
+            <div class="donor-row" data-id="1"><input type="checkbox" onchange="onCheck(1,this)" /><span class="name">Ramesh Patil</span><span class="meta">BOD-2 · pending</span><span class="status" style="background:#e2e8f0;color:#334155;">new_data</span></div>
+            <div class="donor-row" data-id="2"><input type="checkbox" onchange="onCheck(2,this)" /><span class="name">Sunita Sharma</span><span class="meta">BOD-2 · ringing</span><span class="status" style="background:#e2e8f0;color:#334155;">new_data</span></div>
+            <div class="donor-row" data-id="3"><input type="checkbox" onchange="onCheck(3,this)" /><span class="name">Vijay Kumar</span><span class="meta">BOD-2 · pending</span><span class="status" style="background:#e2e8f0;color:#334155;">new_data</span></div>
+            <div class="donor-row" data-id="4"><input type="checkbox" onchange="onCheck(4,this)" /><span class="name">Anita Desai</span><span class="meta">BOD-2 · pending</span><span class="status" style="background:#e2e8f0;color:#334155;">old_data</span></div>
+            <div class="donor-row" data-id="5"><input type="checkbox" onchange="onCheck(5,this)" /><span class="name">Rajesh Mehta</span><span class="meta">BOD-2 · not_interested</span><span class="status" style="background:#e2e8f0;color:#334155;">old_data</span></div>
+            <div class="donor-row" data-id="6"><input type="checkbox" onchange="onCheck(6,this)" /><span class="name">Pooja Verma</span><span class="meta">BOD-2 · pending</span><span class="status" style="background:#e2e8f0;color:#334155;">new_data</span></div>
+            <div class="donor-row" data-id="7"><input type="checkbox" onchange="onCheck(7,this)" /><span class="name">Amit Singh</span><span class="meta">BOD-2 · ringing</span><span class="status" style="background:#e2e8f0;color:#334155;">new_data</span></div>
+          </div>
+          <div style="font-size:11px; color:var(--soft); margin-top:6px;">Showing 7 of 487 remaining normal donors · 140 already in stacks · Select donors → pick stack in dropdown → click → (zuup) moves them. To move back: open stack detail (View) → ✕ Remove.</div>
+        </div>
+        <div class="arrow-col">
+          <button class="arrow-btn" id="moveBtn" onclick="moveSelected()" title="Move selected to stack">→</button>
+        </div>
+        <div class="right-col">
+          <div style="font-size:12px; font-weight:700; color:var(--soft); margin-bottom:8px;">Stacks</div>
+          <div class="stacks" id="stacksContainer">
+            <div class="stack" id="stack-s1" data-count="70">
+              <div class="title">Stack 1</div>
+              <div class="count" id="count-s1">70</div>
+              <div class="fro">FRO: Hiral Waghela</div>
+              <select style="width:100%; padding:4px 6px; font-size:10px; border-radius:4px; border:1px solid var(--line); margin-bottom:6px; background:#fff;">
+                <option>Hiral Waghela</option>
+                <option>Pooja Pal</option>
+                <option>Sakshi Singh</option>
+                <option>Mahima Redkar</option>
+                <option>(unassigned)</option>
+              </select>
+              <div class="actions">
+                <button class="primary" onclick="openDetail('s1')">View (70)</button>
+                <button>Reassign</button>
+              </div>
+            </div>
+            <div class="stack" id="stack-s2" data-count="70">
+              <div class="title">Stack 2</div>
+              <div class="count" id="count-s2">70</div>
+              <div class="fro">FRO: Pooja Pal</div>
+              <select style="width:100%; padding:4px 6px; font-size:10px; border-radius:4px; border:1px solid var(--line); margin-bottom:6px; background:#fff;">
+                <option>Hiral Waghela</option>
+                <option selected>Pooja Pal</option>
+                <option>Sakshi Singh</option>
+                <option>Mahima Redkar</option>
+                <option>(unassigned)</option>
+              </select>
+              <div class="actions">
+                <button class="primary" onclick="openDetail('s2')">View (70)</button>
+                <button>Reassign</button>
+              </div>
+            </div>
+            <div class="stack" id="stack-s3" data-count="69">
+              <div class="title">Stack 3</div>
+              <div class="count" id="count-s3">69</div>
+              <div class="fro">FRO: Sakshi Singh</div>
+              <select style="width:100%; padding:4px 6px; font-size:10px; border-radius:4px; border:1px solid var(--line); margin-bottom:6px; background:#fff;">
+                <option>Hiral Waghela</option>
+                <option>Pooja Pal</option>
+                <option selected>Sakshi Singh</option>
+                <option>Mahima Redkar</option>
+                <option>(unassigned)</option>
+              </select>
+              <div class="actions">
+                <button class="primary" onclick="openDetail('s3')">View (69)</button>
+                <button>Reassign</button>
+              </div>
+            </div>
+            <div class="new-stack" onclick="createStack()">+ New empty stack</div>
+          </div>
+        </div>
+      </div>
+      <div id="tab-high" style="display:none;">
+        <div class="donor-list">
+          <div class="donor-row"><input type="checkbox" /><span class="name">Donor X (high-tier)</span><span class="meta">BOD-2 · pending</span><span class="status" style="background:var(--amber-soft);color:var(--amber);">high_tier</span></div>
+          <div class="donor-row"><input type="checkbox" /><span class="name">Donor Y (high-tier)</span><span class="meta">BOD-2 · ringing</span><span class="status" style="background:var(--amber-soft);color:var(--amber);">high_tier</span></div>
+        </div>
+        <div style="font-size:11px; color:var(--soft); margin-top:6px;">627 high-tier donors on BOD-2 · slice 0-69→Hiral, 70-139→Pooja, 140-209→Chhaya, 210-278→Ravina, 279-347→Sakshi, 348-417→Priya, 418-486→Sonali, 487-556→Mittal, 557-626→Mahima</div>
+      </div>
+      <div id="tab-stacks" style="display:none;">
+        <div class="stacks">
+          <div class="stack"><div class="title">Stack 1</div><div class="count">70</div><div class="fro">FRO: Hiral Waghela</div><div class="actions"><button class="primary">Reassign FRO</button><button>Remove</button></div></div>
+          <div class="stack"><div class="title">Stack 2</div><div class="count">70</div><div class="fro">FRO: Pooja Pal</div><div class="actions"><button class="primary">Reassign FRO</button><button>Remove</button></div></div>
+          <div class="stack"><div class="title">Stack 3</div><div class="count">69</div><div class="fro">FRO: Sakshi Singh</div><div class="actions"><button class="primary">Reassign FRO</button><button>Remove</button></div></div>
+          <div class="new-stack">+ New empty stack</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button style="padding:8px 14px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer;" onclick="closeModal()">Close</button>
+      <button style="padding:8px 14px; border-radius:6px; background:var(--blue); color:#fff; border:none; cursor:pointer; font-weight:600;">Save stacks</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2><span class="badge fro">FRO</span> FRO Panel — My Donors (Hiral Waghela, BOD-1)</h2>
+  <div class="fro-view">
+    <div style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
+      <span class="fro-chip">BOD-2 · High Tier · 70 of high-tier · until 11:49 IST</span>
+      <span class="fro-chip stack">Stack 1 · 70 donors · BOD-2</span>
+    </div>
+    <div style="font-size:12px; color:var(--soft); margin-bottom:8px;">Tabs: New (965) · Old (12) · High Tier (70)</div>
+    <div class="fro-row"><span style="flex:1;">Ramesh Patil</span><span style="color:var(--soft);font-size:11px;">BOD-2 · pending</span><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--amber-soft);color:var(--amber);">high_tier</span></div>
+    <div class="fro-row"><span style="flex:1;">Sunita Sharma</span><span style="color:var(--soft);font-size:11px;">BOD-2 · ringing</span><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--amber-soft);color:var(--amber);">high_tier</span></div>
+    <div class="fro-row"><span style="flex:1;">Anita Desai</span><span style="color:var(--soft);font-size:11px;">BOD-1 · pending</span><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#e2e8f0;">old_data</span></div>
+    <div style="font-size:11px; color:var(--soft); margin-top:8px;">Stack filter: [ All ] [ Stack 1 (70) ]  ← FRO can narrow to their stack</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Full Flow (step by step)</h2>
+  <div class="flow">
+    <div class="flow-step"><div class="num">1</div><div class="txt"><b>Admin</b> opens StationManagement → clicks station row → opens DonorStacksModal (green "S" button).</div></div>
+    <div class="flow-step"><div class="num">2</div><div class="txt">Modal shows count bar: <b>627 total · 140 in stacks · 487 remaining</b>. 3 tabs: Normal donors / High-tier donors / Stacks.</div></div>
+    <div class="flow-step"><div class="num">3</div><div class="txt">Admin checks donors in Tab 1/2 → clicks <b>→ Move to stack</b> → selected rows slide out (left) → fly to stack box (right) → stack count rolls up → remaining decrements.</div></div>
+    <div class="flow-step"><div class="num">4</div><div class="txt">Count bar updates live. Donors move from "Normal donors" tab to "Stacks" tab.</div></div>
+    <div class="flow-step"><div class="num">5</div><div class="txt">Admin clicks stack → <b>View (70)</b> opens detail drawer with donor list + "✕ Remove" per row. Remove animates row back to left pool.</div></div>
+    <div class="flow-step"><div class="num">6</div><div class="txt">Admin clicks <b>Reassign FRO</b> → pick FRO. Backend creates temp grant (scope = stack type, allowed_count = stack size, auto-offset).</div></div>
+    <div class="flow-step"><div class="num">7</div><div class="txt">Backend stamps <code>target_station</code> on stack member rows (for collection attribution).</div></div>
+    <div class="flow-step"><div class="num">8</div><div class="txt"><b>FRO</b> opens My Donors → sees stack chip. Donor list filtered to stack members only.</div></div>
+    <div class="flow-step"><div class="num">9</div><div class="txt">FRO works donors → collection credits to FRO's permanent station. High-tier money shows in admin High Tier view per-target.</div></div>
+    <div class="flow-step"><div class="num">10</div><div class="txt">Admin can revoke/reassign stacks anytime; unassigned members return to "remaining" pool.</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Data model (DB)</h2>
+  <pre style="background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:11.5px; overflow:auto; line-height:1.5;">
+CREATE TABLE donor_stacks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ngo_id UUID NOT NULL,
+  station TEXT NOT NULL,
+  name TEXT NOT NULL,
+  stack_type TEXT NOT NULL DEFAULT 'normal',
+  fro_worker_id UUID REFERENCES workers(id),
+  created_by UUID,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE donor_stack_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stack_id UUID NOT NULL REFERENCES donor_stacks(id) ON DELETE CASCADE,
+  donor_id INTEGER NOT NULL REFERENCES donor_profiles(id),
+  assignment_id UUID REFERENCES fro_assignments(id),
+  added_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (stack_id, donor_id)
+);
+  </pre>
+</div>
+
+<!-- Detail overlay -->
+<div class="detail-overlay" id="detailOverlay">
+  <div class="detail">
+    <div class="detail-head">
+      <h3 id="detailTitle">Stack 1 — 70 donors</h3>
+      <button onclick="closeDetail()" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--soft);">✕</button>
+    </div>
+    <div class="detail-body">
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <input type="text" placeholder="Search in stack..." style="flex:1; padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:12px;" />
+      </div>
+      <div class="donor-list" style="max-height:400px;">
+        <div class="donor-row"><span style="flex:1; font-weight:500;">Ramesh Patil</span><span style="color:var(--soft);font-size:11px;">BOD-2 · pending</span><button class="btn danger" style="padding:2px 8px; font-size:10px;" onclick="removeFromStack(this)">✕ Remove</button></div>
+        <div class="donor-row"><span style="flex:1; font-weight:500;">Anita Desai</span><span style="color:var(--soft);font-size:11px;">BOD-2 · pending</span><button class="btn danger" style="padding:2px 8px; font-size:10px;" onclick="removeFromStack(this)">✕ Remove</button></div>
+        <div class="donor-row"><span style="flex:1; font-weight:500;">Sunita Sharma</span><span style="color:var(--soft);font-size:11px;">BOD-2 · ringing</span><button class="btn danger" style="padding:2px 8px; font-size:10px;" onclick="removeFromStack(this)">✕ Remove</button></div>
+      </div>
+      <div style="font-size:11px; color:var(--soft); margin-top:6px;">Showing 3 of 70 (demo subset)</div>
+    </div>
+    <div class="detail-foot">
+      <button style="padding:8px 14px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer;" onclick="closeDetail()">Close</button>
+      <button style="padding:8px 14px; border-radius:6px; background:var(--blue); color:#fff; border:none; cursor:pointer; font-weight:600;">Reassign FRO</button>
+      <button style="padding:8px 14px; border-radius:6px; border:1px solid #fecaca; background:#fef2f2; color:#dc2626; cursor:pointer; font-weight:600;">Delete stack</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let selected = new Set();
+let total = 627, stacked = 140, remaining = 487;
+
+function openModal(){ document.getElementById('modalOverlay')?.remove(); document.querySelector('.modal').parentElement.style.display='flex'; document.querySelector('.modal').parentElement.classList.add('open'); }
+function closeModal(){ document.querySelector('.modal').parentElement.classList.remove('open'); document.querySelector('.modal').parentElement.style.display='none'; }
+function switchTab(t, btn){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-normal').style.display = t==='normal'?'block':'none';
+  document.getElementById('tab-high').style.display = t==='high'?'block':'none';
+  document.getElementById('tab-stacks').style.display = t==='stacks'?'block':'none';
+}
+function onCheck(id, cb){
+  const row = cb.closest('.donor-row');
+  if (cb.checked) { selected.add(id); row.classList.add('selected'); }
+  else { selected.delete(id); row.classList.remove('selected'); }
+}
+function toggleAll(){
+  const boxes = document.querySelectorAll('#donorList input[type=checkbox]');
+  const allChecked = [...boxes].every(b=>b.checked);
+  boxes.forEach(b=>{ b.checked = !allChecked; b.dispatchEvent(new Event('change')); });
+}
+function moveSelected(){
+  if (selected.size === 0) { alert('Select at least one donor'); return; }
+  const stackId = document.getElementById('stackSelect').value || 's1';
+  const stack = document.getElementById('stack-' + stackId);
+  if (!stack) { alert('Pick a stack first'); return; }
+  stack.classList.add('zuup');
+  setTimeout(() => stack.classList.remove('zuup'), 500);
+  const btn = document.getElementById('moveBtn');
+  btn.disabled = true;
+  const rows = [...document.querySelectorAll('#donorList .donor-row')].filter(r => r.querySelector('input').checked);
+  rows.forEach((row) => {
+    const rect = row.getBoundingClientRect();
+    const token = document.createElement('div');
+    token.className = 'flying-card';
+    token.textContent = row.querySelector('.name').textContent;
+    token.style.left = rect.left + 'px';
+    token.style.top = rect.top + 'px';
+    document.body.appendChild(token);
+    const srect = stack.getBoundingClientRect();
+    requestAnimationFrame(() => {
+      token.style.left = (srect.left + 20) + 'px';
+      token.style.top = (srect.top + 20) + 'px';
+      token.style.opacity = '0';
+      token.style.transform = 'scale(0.3)';
+    });
+    setTimeout(() => token.remove(), 450);
+    row.classList.add('removing');
+  });
+  const n = selected.size;
+  setTimeout(() => {
+    stacked += n; remaining -= n;
+    const sc = document.getElementById('stackedCount'); const rc = document.getElementById('remainingCount');
+    sc.textContent = stacked; rc.textContent = remaining;
+    sc.classList.add('bump'); rc.classList.add('bump');
+    setTimeout(() => { sc.classList.remove('bump'); rc.classList.remove('bump'); }, 400);
+    stack.classList.add('pulse');
+    const cnt = document.getElementById('count-' + stackId);
+    const cur = parseInt(cnt.textContent);
+    cnt.textContent = cur + n;
+    cnt.classList.add('bump');
+    setTimeout(() => { stack.classList.remove('pulse'); cnt.classList.remove('bump'); }, 400);
+    // update view button label
+    const viewBtn = stack.querySelector('.actions button.primary');
+    if (viewBtn) viewBtn.textContent = 'View (' + cnt.textContent + ')';
+    selected.clear();
+    document.querySelectorAll('#donorList input[type=checkbox]').forEach(b => { b.checked = false; b.closest('.donor-row').classList.remove('selected'); });
+    btn.disabled = false;
+  }, 450);
+}
+function removeFromStack(btn){
+  const row = btn.closest('.donor-row');
+  // animate back to pool (conceptually)
+  row.classList.add('removing');
+  const stack = row.closest('.detail') ? null : null;
+  setTimeout(() => {
+    row.remove();
+    // decrement stack count, increment remaining
+    const cnt = document.getElementById('count-s1');
+    if (cnt) { const c = parseInt(cnt.textContent); cnt.textContent = Math.max(0, c-1); }
+    const rc = document.getElementById('remainingCount');
+    if (rc) { rc.textContent = parseInt(rc.textContent) + 1; }
+    const sc = document.getElementById('stackedCount');
+    if (sc) { sc.textContent = Math.max(0, parseInt(sc.textContent) - 1); }
+  }, 300);
+}
+function createStack(){ alert('Demo: would create a new empty stack box.'); }
+function openDetail(id){ document.getElementById('detailTitle').textContent = 'Stack 1 — 70 donors'; document.getElementById('detailOverlay').classList.add('open'); }
+function closeDetail(){ document.getElementById('detailOverlay').classList.remove('open'); }
+function removeFromStack(btn){ const row = btn.closest('.donor-row'); row.classList.add('removing'); setTimeout(() => row.remove(), 300); }
+
+// open modal on load for demo
+window.addEventListener('load', () => { document.getElementById('modalOverlay').style.display='flex'; document.getElementById('modalOverlay').classList.add('open'); });
+
+// Override removeFromStack: reverse zuup + re-add to left list
+function removeFromStack(btn){
+  const row = btn.closest('.donor-row');
+  const name = row.querySelector('span').textContent;
+  const meta = row.querySelectorAll('span')[1]?.textContent || 'BOD-2 · pending';
+  row.style.transition = 'all .3s ease';
+  row.style.opacity = '0';
+  row.style.transform = 'translateX(30px)';
+  setTimeout(() => {
+    row.remove();
+    const cnt = document.getElementById('count-s1');
+    if (cnt) { const c = parseInt(cnt.textContent); cnt.textContent = Math.max(0, c-1); const vb = cnt.parentElement.querySelector('.actions button.primary'); if (vb) vb.textContent = 'View (' + cnt.textContent + ')'; }
+    const rc = document.getElementById('remainingCount');
+    if (rc) { rc.textContent = parseInt(rc.textContent) + 1; rc.classList.add('bump'); setTimeout(()=>rc.classList.remove('bump'),400); }
+    const sc = document.getElementById('stackedCount');
+    if (sc) { sc.textContent = Math.max(0, parseInt(sc.textContent) - 1); sc.classList.add('bump'); setTimeout(()=>sc.classList.remove('bump'),400); }
+    const list = document.getElementById('donorList');
+    const newRow = document.createElement('div');
+    newRow.className = 'donor-row anim';
+    newRow.style.opacity = '0';
+    newRow.style.transform = 'translateX(-30px)';
+    newRow.innerHTML = '<input type="checkbox" onchange="onCheck(0,this)" /><span class="name">' + name + '</span><span class="meta">' + meta + '</span><span class="status" style="background:#dcfce7;color:#166534;">returned</span>';
+    list.insertBefore(newRow, list.firstChild);
+    requestAnimationFrame(() => {
+      newRow.style.transition = 'all .35s cubic-bezier(.2,.8,.2,1)';
+      newRow.style.opacity = '1';
+      newRow.style.transform = 'translateX(0)';
+    });
+    showToast(name + ' returned to donor pool');
+  }, 300);
+}
+function showToast(msg){
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id='toast'; t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#16a34a;color:#fff;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;opacity:0;transition:opacity .3s;'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; }, 2000);
+}
+</script>
+</body>
+</html>

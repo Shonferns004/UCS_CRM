@@ -64,7 +64,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView, amountFilter = '', dateFilter = '', listRef, onListScroll, onAmounts, locked = false }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView, amountFilter = '', dateFilter = '', listRef, onListScroll, onAmounts, locked = false, onAfterAction, refreshKey = 0 }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,6 +126,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   }, [statusFilter]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (refreshKey) load(); }, [refreshKey]);
   useEffect(() => { onAmounts?.(allLeads.map(l => Number(l.amount)).filter(Number.isFinite)); }, [allLeads, onAmounts]);
 
   const rtTimerRef = useRef(null);
@@ -254,6 +255,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       await apiDelete('/accounts/leads/' + deleteConfirm.log_id);
       setDeleteConfirm(null);
       load();
+      if (onAfterAction) onAfterAction();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -267,6 +269,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       await apiDelete('/accounts/leads');
       setDeleteAllConfirm(false);
       load();
+      if (onAfterAction) onAfterAction();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -284,6 +287,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       toast('Verified under ' + (quickVerifyName || 'Priyank Shah'), 'success');
       setQuickVerifyLead(null);
       load();
+      if (onAfterAction) onAfterAction();
     } catch (err) {
       alert(err.message);
     } finally {

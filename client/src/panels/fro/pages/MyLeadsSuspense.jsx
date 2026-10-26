@@ -195,7 +195,7 @@ export default function MyLeadsSuspense() {
           height: stripH,
           minWidth: 0,
           position: 'relative',
-          zIndex: 9999,
+          zIndex: 2,
           background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
           borderBottom: '1px solid #e6eaf2',
           overflow: 'visible',

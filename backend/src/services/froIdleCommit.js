@@ -181,6 +181,22 @@ export async function stampLapsedIdle(workerId, nowMs = Date.now(), opts = {}) {
     if (open && isHeldState(open.state)) return false;
   } catch (_) { /* no ledger → legacy behaviour */ }
 
+  // A deadline that lapsed while a MEETING interval was open (even one that has
+  // since ended) must never be backdated into idle — that would bill the meeting
+  // time as idle. The ledger is the authority for which seconds were meeting.
+  try {
+    const { rows } = await db._pool.query(
+      `SELECT 1 FROM fro_time_sessions
+        WHERE worker_id = $1
+          AND state IN ('MEETING', 'PAUSED', 'INTERNET_PROBLEM')
+          AND started_at <= $2::timestamptz
+          AND (ended_at IS NULL OR ended_at > $2::timestamptz)
+        LIMIT 1`,
+      [id, new Date(due).toISOString()]
+    );
+    if (rows && rows.length > 0) return false;
+  } catch (_) { /* table missing → legacy behaviour */ }
+
   const due = dispositionDueMs(row);
   if (!Number.isFinite(due) || nowMs < due) return false;
   // A deadline from a previous IST day is stale, not an open period today.

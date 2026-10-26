@@ -761,7 +761,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
       className="bsct-page"
       style={{
         position: 'relative', width: '100%', aspectRatio: `${BSCT_W} / ${Hp}`,
-        backgroundImage: "url('/bsct-blank.jpg')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
+         backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
         backgroundColor: '#fff', overflow: 'hidden', borderRadius: 8,
       }}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
@@ -769,7 +769,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
     >
       {/* Footer band of the artwork (thanks line + contact bar), pinned to the
           bottom so it follows the last used row. */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.jpg')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(BSCT_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/bsct-blank.png')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(BSCT_H / BSCT_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
       {/* Title on the denim ribbon. The ribbon in /bsct-blank.jpg is empty, so
           the month and year come from the report that is being viewed. */}
       <div style={{ position: 'absolute', left: `${(285 / BSCT_W) * 100}%`, width: `${(723 / BSCT_W) * 100}%`, top: `${(80 / Hp) * 100}%`, height: `${(62 / Hp) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>

@@ -7,6 +7,7 @@ import { isFreshStation } from '../../../lib/stations';
 import { istMonthKey } from '../../../utils/istDate';
 import { dispositionGroupOf, dispositionLabelOf } from '../../../lib/dispositions';
 import TemporaryAccessModal from './TemporaryAccessModal';
+import DonorStacksModal from './DonorStacksModal';
 
 // IST (Asia/Kolkata) helpers for temporary-access badges: the grant stores
 // UTC timestamptz; admins read IST, so every display goes through the zone
@@ -68,7 +69,7 @@ function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, r
               });
         // Total donors across all stations of this NGO (stable regardless of search).
         const allNgoRows = base.filter(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g));
-        const totalDonors = allNgoRows.reduce((sum, s) => sum + (Number(s.donor_count?.[ngoId]) || 0), 0);
+        const totalDonors = allNgoRows.reduce((sum, s) => sum + (Number(s.donor_count?.[ngoId]) || 0) + (Number(s.high_tier_donor_count?.[ngoId]) || 0), 0);
         return (
           <div key={g} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 0, overflow: 'hidden', background: '#fff' }}>
             <div style={{ background: color, color: '#fff', padding: '8px 12px', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2732,6 +2733,8 @@ export default function StationManagement() {
   // Separate from editNgoStation/permanent-assignment state on purpose — the
   // grant flow must never route through the permanent FRO dropdown.
   const [tempAccessTarget, setTempAccessTarget] = useState(null);
+  const [stacksModalTarget, setStacksModalTarget] = useState(null);
+  const [allStacks, setAllStacks] = useState([]);
   // Live grants for the whole table: rendered as a per-station badge so the
   // admin SEES who currently has temporary access without leaving this page,
   // and can revoke it inline. Refetched after every grant/revoke.
@@ -2899,6 +2902,12 @@ export default function StationManagement() {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('fetchData transfers error:', err));
     loadTempGrants();
+    const stacksNgo = selectedNgoId !== 'all' ? selectedNgoId : (ngoIds[0] || '');
+    if (stacksNgo) {
+      apiGet('/ngo-admin/stacks?ngo_id=' + stacksNgo).then(s => {
+        setAllStacks(Array.isArray(s?.stacks) ? s.stacks : (Array.isArray(s) ? s : []));
+      }).catch(() => setAllStacks([]));
+    }
     const ngoParam = selectedNgoId !== 'all' ? '&ngo_id=' + selectedNgoId : '';
     apiGet('/ngo-admin/targets?month=' + m + ngoParam).then(t => {
       if (Array.isArray(t)) setTargets(t);
@@ -2996,29 +3005,12 @@ export default function StationManagement() {
         <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             <strong style={{ fontSize: 14, letterSpacing: '.2px', cursor: 'pointer', color: 'var(--sage)' }} onClick={() => setDonorListTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) })}>{s.station}</strong>
-            {liveGrantsFor(s).map(g => (
-              <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <span
-                  title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
-                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                >
-                  {g.working_fro_name || 'FRO'}
-                </span>
-                <button
-                  onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
-                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
-                >✕</button>
-              </span>
-            ))}
+            {/* Stacks summary moved to modal — station card keeps only count + button */}
           </div>
           <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
-            {Number(s.donor_count?.[ngo?.id] || 0).toLocaleString('en-IN')} donor{Number(s.donor_count?.[ngo?.id] || 0) === 1 ? '' : 's'}
+            {Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)).toLocaleString('en-IN')} donor{Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)) === 1 ? '' : 's'}
           </div>
-          {s.donor_amount_min != null && s.donor_amount_max != null && (
-            <div style={{ fontSize: 9, color: '#7c3aed', marginTop: 1, lineHeight: 1.2, fontWeight: 600 }}>
-              ₹{Number(s.donor_amount_min).toLocaleString('en-IN')} – ₹{Number(s.donor_amount_max).toLocaleString('en-IN')}
-            </div>
-          )}
+          {/* amount range removed per request */}
           {at && (
             <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
               → {at.target_station}
@@ -3047,6 +3039,13 @@ export default function StationManagement() {
               style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', flexShrink: 0 }}
             >
               <Unlink size={13} />
+            </button>
+            <button
+              title="Manage donor stacks"
+              onClick={() => setStacksModalTarget({ station: s.station, ngoId: ngoScopeForRow(s) })}
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', cursor: 'pointer', flexShrink: 0, fontSize: 12, fontWeight: 800 }}
+            >
+              S
             </button>
           </div>
         </td>
@@ -3500,11 +3499,7 @@ export default function StationManagement() {
                         </td>
                         <td>
                           {renderDonorPills(s)}
-                          {s.donor_amount_min != null && s.donor_amount_max != null && (
-                            <div style={{ fontSize: 9, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
-                              ₹{Number(s.donor_amount_min).toLocaleString('en-IN')} – ₹{Number(s.donor_amount_max).toLocaleString('en-IN')}
-                            </div>
-                          )}
+                          {/* amount range removed per request */}
                         </td>
 
                         <td className="nga-actions">
@@ -3680,6 +3675,15 @@ export default function StationManagement() {
           onClose={() => setTempAccessTarget(null)}
           // Granting changes no station field on this page (ownership untouched),
           // but the temp-access badges must reflect the new/changed grant.
+          onGranted={() => loadTempGrants()}
+        />
+      )}
+
+      {stacksModalTarget && (
+        <DonorStacksModal
+          target={stacksModalTarget}
+          froWorkers={froWorkers}
+          onClose={() => setStacksModalTarget(null)}
           onGranted={() => loadTempGrants()}
         />
       )}

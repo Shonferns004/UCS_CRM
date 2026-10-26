@@ -2,7 +2,8 @@ import db from '../config/db.js';
 import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { enrichDonorProfileFromReceipt, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { enrichDonorProfileFromReceipt, isBlankSuspenseValue, canonicalProject, projectCodeFromNgoId } from '../models/bankAuditModel.js';
+import { receiptsForDonor } from '../services/receiptLookup.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -2642,6 +2643,17 @@ export const claimSuspenseReceipt = async (req, res) => {
     // donor ended up sitting in two stations at once. Reuse the donor's existing
     // row instead; the lead still credits the claimant because the log below
     // carries creditWorkerId, not the assignment's owner.
+    // Temporary Data Access: a working FRO acting under a grant must not become
+    // the permanent owner of a donor they claim. Detect it here so the creation
+    // path below can keep fro_worker_id null (credit still goes to the working
+    // FRO via the log) instead of stamping ownership onto them.
+    let isTempAccess = false;
+    try {
+      const { getActiveGrants } = await import('../services/temporaryAccessService.js');
+      const grants = await getActiveGrants(workerId);
+      isTempAccess = (grants || []).length > 0;
+    } catch { isTempAccess = false; }
+
     let { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id, status')
@@ -2679,7 +2691,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           .from('fro_assignments')
           .insert({
             donor_id: donorId,
-            fro_worker_id: workerId,
+            fro_worker_id: isTempAccess ? null : workerId,
             ngo_id: receiptNgoId,
             station: null,
             status: 'lead_done',
@@ -3753,6 +3765,8 @@ export const getMyDonors = async (req, res) => {
       // allotment somewhere in scope. Same response as the list, so the flag can
       // never disagree with the data on screen.
       has_high_tier: hasHighTier,
+      // Whether this view includes a temp-access station (so all statuses show).
+      is_temp_station_view: isTempStationView,
 
       counts: {
         // Raw allotment for this scope (what the dashboard reports).
@@ -4920,7 +4934,13 @@ export const getFroScheduled = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
-    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
+    const monthStart = istMonthBounds(new Date()).month;
+    const isCurrentMonthActivity = (a) => {
+      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
+      if (!ts) return true;
+      return new Date(ts).getTime() >= new Date(monthStart).getTime();
+    };
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments) && isCurrentMonthActivity(c.fro_assignments));
 
     const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
@@ -5197,7 +5217,13 @@ export const getFroOverdue = async (req, res) => {
         assignmentById[a.id] = a;
       }
     }
-    const assignments = Object.values(assignmentById);
+    const monthStart = istMonthBounds(new Date()).month;
+    const isCurrentMonthActivity = (a) => {
+      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
+      if (!ts) return true;
+      return new Date(ts).getTime() >= new Date(monthStart).getTime();
+    };
+    const assignments = Object.values(assignmentById).filter(isCurrentMonthActivity);
 
     // Same-day rework rule: an assignment worked at any point today leaves
     // Overdue immediately instead of lingering on its old past follow-up date
@@ -5423,7 +5449,13 @@ export const getFollowUps = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
-    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
+    const monthStart = istMonthBounds(new Date()).month;
+    const isCurrentMonthActivity = (a) => {
+      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
+      if (!ts) return true;
+      return new Date(ts).getTime() >= new Date(monthStart).getTime();
+    };
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments) && isCurrentMonthActivity(c.fro_assignments));
 
     const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
@@ -7255,7 +7287,7 @@ export const searchDonors = async (req, res) => {
     if (donorIdsInScope === undefined) {
       const { data: donorIdsFromStation } = await db
         .from('fro_assignments')
-        .select('donor_id, ngo_id, station')
+        .select('id, donor_id, ngo_id, station, batch_type')
         .in('station', effStations)
         .or('status.is.null,status.neq.reassigned');
 
@@ -7405,18 +7437,14 @@ export const getMyDisposedLeads = async (req, res) => {
     let disposedLogs = [];
     let logErr = null;
     if (allMonths) {
+      // Live (current month) logs first.
       try {
         const { rows } = await db._pool.query(
           `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at
              FROM fro_donor_logs l
              JOIN fro_assignments fa ON fa.id = l.assignment_id
             WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
-           UNION ALL
-           SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
-             FROM fro_donor_logs_archive a
-             JOIN fro_assignments fa ON fa.id = a.assignment_id
-            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
-           ORDER BY created_at DESC
+           ORDER BY created_at ASC
            LIMIT 10000`,
           [workerId]
         );
@@ -7424,6 +7452,23 @@ export const getMyDisposedLeads = async (req, res) => {
       } catch (e) {
         logErr = e;
       }
+      // Archived (previous months) logs are best-effort: the archive table may
+      // not exist yet on a fresh deploy, so never fail the whole request.
+      try {
+        const { rows } = await db._pool.query(
+          `SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
+             FROM fro_donor_logs_archive a
+             JOIN fro_assignments fa ON fa.id = a.assignment_id
+            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
+           ORDER BY created_at ASC
+           LIMIT 10000`,
+          [workerId]
+        );
+        if (rows && rows.length) disposedLogs = (disposedLogs || []).concat(rows);
+      } catch (e) {
+        console.warn('[getMyDisposedLeads] archive read skipped:', e?.message || String(e));
+      }
+      disposedLogs.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
     } else {
       let disposedQuery = db
         .from('fro_donor_logs')
@@ -7434,7 +7479,7 @@ export const getMyDisposedLeads = async (req, res) => {
       }
       const { data, error } = await disposedQuery
         .gte('created_at', istMonthBounds(new Date()).month)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: true })
         .limit(10000);
       disposedLogs = data || [];
       logErr = error;
@@ -7551,7 +7596,7 @@ export const getMyDisposedLeads = async (req, res) => {
       }
     }
     // Already ordered by disposedLogs desc via map insertion, but ensure sort
-    result.sort((a, b) => new Date(b.disposed_at || 0) - new Date(a.disposed_at || 0));
+    result.sort((a, b) => new Date(a.disposed_at || 0) - new Date(b.disposed_at || 0));
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -7841,18 +7886,28 @@ export const getDonorReceipts = async (req, res) => {
       .eq('id', ngoId)
       .maybeSingle();
     const project = ngo?.name ? ngo.name.toLowerCase() : null;
+    const canonicalNgo = (await projectCodeFromNgoId(ngoId)) || (project ? canonicalProject(project) : null);
 
-    let receipts = [];
-    if (project) {
-      const { data, error } = await db
-        .from('receipts')
-        .select('*')
-        .eq('donor_id', donorId)
-        .eq('project_id', project)
-        .order('receipt_date', { ascending: false });
-      if (error) throw error;
-      receipts = data || [];
+    // Receipts reach a donor by linked donor_id OR by captured mobile only, and
+    // project_id may be stored under any of the NGO's alias spellings ('ashray',
+    // 'aflf2', ...). Union both paths and canonicalise the project so a receipt
+    // stored under an alias spelling is not hidden from the donor's view.
+    const { data: donor } = await db
+      .from('donor_profiles')
+      .select('mobile_number')
+      .eq('id', donorId)
+      .maybeSingle();
+
+    let receipts = await receiptsForDonor(db, { id: donorId, mobile_number: donor?.mobile_number });
+    if (canonicalNgo) {
+      receipts = (receipts || []).filter((r) => canonicalProject(r.project_id) === canonicalNgo);
     }
+    receipts.sort((a, b) => {
+      const da = a.receipt_date || a.created_at || '';
+      const dbb = b.receipt_date || b.created_at || '';
+      if (da === dbb) return (b.id || 0) - (a.id || 0);
+      return da < dbb ? 1 : -1;
+    });
 
     const totalAmount = receipts.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
 

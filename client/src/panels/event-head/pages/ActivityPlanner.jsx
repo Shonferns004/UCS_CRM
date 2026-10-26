@@ -3311,8 +3311,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     if (!linkedId) return null
     return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
   }
-
-
   const deleteScheduledProgramme = async (key, date, label) => {
     const ev = findScheduledEvent(key, date, label)
     if (!ev?.id) { showToast('No saved event to delete.'); return }
