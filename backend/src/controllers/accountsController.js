@@ -3383,6 +3383,7 @@ export const importReceipts = async (req, res) => {
                 assignment_id: assignment.id,
                 donor_id: donorId,
                 fro_worker_id: froWorkerId,
+                target_station: assignment.target_station || null,
                 action: 'donation',
                 amount_collected: amount,
                 accounts_status: 'verified',
