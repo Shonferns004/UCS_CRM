@@ -35,6 +35,7 @@ export default function WhatsAppBulk() {
   const [templateLang, setTemplateLang] = useState('en');
   const [variables, setVariables] = useState('');
   const [recipients, setRecipients] = useState([]);
+  const [deliveryStatuses, setDeliveryStatuses] = useState([]);
   const [loadingStations, setLoadingStations] = useState(false);
   const [fetchingRecipients, setFetchingRecipients] = useState(false);
   const [confirmBulk, setConfirmBulk] = useState({ visible: false, donorCount: 0 });
@@ -54,6 +55,7 @@ export default function WhatsAppBulk() {
       }
     }).catch(() => {});
     apiGet('/whatsapp/bulk/ngos').then(data => setNgos(Array.isArray(data) ? data : [])).catch(() => {});
+    loadDeliveryStatuses();
   }, []);
 
   useEffect(() => {
@@ -162,6 +164,13 @@ export default function WhatsAppBulk() {
     const name = s.station || s.name || String(s);
     return name.toLowerCase().includes(stationSearch.trim().toLowerCase());
   });
+  const loadDeliveryStatuses = async () => {
+    try {
+      const data = await apiGet('/whatsapp/bulk/statuses?limit=20');
+      setDeliveryStatuses(Array.isArray(data) ? data : []);
+    } catch {}
+  };
+
   const validRecipients = recipients.filter(r => r.valid);
   const invalidCount = recipients.filter(r => !r.valid).length;
 
@@ -227,6 +236,7 @@ export default function WhatsAppBulk() {
     }
 
     setBulkState(prev => ({ ...prev, active: false }));
+    loadDeliveryStatuses();
     // keep failed rows in recipients for export/retry
     if (failedRows.length) {
       setRecipients(prev => {
@@ -398,6 +408,38 @@ export default function WhatsAppBulk() {
               ))}
               {recipients.length === 0 && (
                 <tr><td colSpan="6" style={{ padding: 12, textAlign: 'center', color: '#6b7280' }}>No recipients loaded</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="wa-form" style={{ marginBottom: 12 }}>
+        <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong>Recent Delivery Status</strong>
+          <button className="wa-btn wa-btn-outline" onClick={loadDeliveryStatuses}>Refresh</button>
+        </div>
+        <div style={{ maxHeight: 220, overflow: 'auto', padding: '0 12px 12px' }}>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: 6 }}>Phone</th>
+                <th style={{ textAlign: 'left', padding: 6 }}>Template</th>
+                <th style={{ textAlign: 'left', padding: 6 }}>Status</th>
+                <th style={{ textAlign: 'left', padding: 6 }}>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveryStatuses.map(r => (
+                <tr key={r.wa_message_id} style={{ borderTop: '1px solid #eee' }}>
+                  <td style={{ padding: 6 }}>{r.phone}</td>
+                  <td style={{ padding: 6 }}>{r.template_name}</td>
+                  <td style={{ padding: 6 }}>{r.status}</td>
+                  <td style={{ padding: 6 }}>{r.failure_reason || '—'}</td>
+                </tr>
+              ))}
+              {deliveryStatuses.length === 0 && (
+                <tr><td colSpan="4" style={{ padding: 12, textAlign: 'center', color: '#6b7280' }}>No recent sends</td></tr>
               )}
             </tbody>
           </table>
