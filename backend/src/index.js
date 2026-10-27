@@ -1267,6 +1267,9 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
     import('./services/froMonthlyRollover.js').then((m) => m.start?.());
     import('./services/froIdleReconcileScheduler.js').then((m) => m.start?.());
+    // Automatic HR warnings at the board's own idle bands (1:00 / 1:41 / 2:11),
+    // once per tier per IST day. See services/froIdleWarningScheduler.js.
+    import('./services/froIdleWarningScheduler.js').then((m) => m.start?.());
     // Re-sends outbound WhatsApp messages Meta failed after accepting them
     // (130429 and other transient codes), with a 1m/5m/15m ladder — see
     // services/messageRetryScheduler.js.
