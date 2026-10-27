@@ -1476,6 +1476,9 @@ function resolveS3(accountOrBucket, maybeBucket) {
   } else if (getS3Client('head')) {
     s3 = getS3Client('head');
     accountName = 'head';
+  } else if (getS3Client('upstream')) {
+    s3 = getS3Client('upstream');
+    accountName = 'upstream';
   } else {
     s3 = getS3();
     accountName = 'legacy';
@@ -1588,7 +1591,7 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
     return this.from(account, bucket);
   },
   async createBucket(name, opts = {}) {
-    const target = opts.account ? getS3Client(opts.account) : (getS3Client('head') || getS3());
+    const target = opts.account ? getS3Client(opts.account) : (getS3Client('head') || getS3Client('upstream') || getS3());
     if (!target) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
     try {
       await target.client.send(new HeadBucketCommand({ Bucket: target.bucket }));
@@ -1605,7 +1608,7 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
     return { data: { name: String(name) }, error: null };
   },
   async listBuckets(account) {
-    const s3 = account ? getS3Client(account) : (getS3Client('head') || getS3());
+    const s3 = account ? getS3Client(account) : (getS3Client('head') || getS3Client('upstream') || getS3());
     if (!s3) return { data: [], error: null };
     try {
       const r = await s3.client.send(new ListObjectsV2Command({ Bucket: s3.bucket, Delimiter: '/' }));
@@ -1639,6 +1642,9 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
     } else if (getS3Client('head')) {
       s3 = getS3Client('head');
       name = 'head';
+    } else if (getS3Client('upstream')) {
+      s3 = getS3Client('upstream');
+      name = 'upstream';
     } else {
       s3 = getS3();
       name = 'legacy';
