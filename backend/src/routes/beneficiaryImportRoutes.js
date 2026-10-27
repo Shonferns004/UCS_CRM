@@ -259,8 +259,10 @@ router.post('/upload', authenticate, upload.single('file'), async (req, res) => 
 // The NGO is not a sheet column. The panel asks which NGO the import is for and
 // sends ngo_id once; every member in the file is linked to it.
 //
-// Sheet columns: Member Name, Number, % of Disability, Type of Disability,
-// Alternate Number, Location, Needed Type, State, Age, DOB, Gender.
+// Sheet columns: Member Name, Number, Alternate Number, Email, Gender, DOB, Age,
+// Occupation, Address, Area, City, District, State, Pincode, Location, Aadhaar,
+// Needed Type, Monthly Family Income, Income Category, Total Family Members,
+// Status, % of Disability, Type of Disability (plus ignored extras).
 router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), async (req, res) => {
   const { rows, file_name: fileName, ngo_id: requestedNgoId } = req.body || {};
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -369,14 +371,50 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
     if (!toDob(row.date_of_birth) && row.age && !dob) {
       warnings.push('Age could not be read, DOB left empty');
     }
-    const location = text(row.location);
+
+    // Build a full Location from the address parts when the sheet has no
+    // dedicated Location column (or it is empty), so the whole address is kept.
+    const addrRaw = text(row.address || row.address_line_1);
+    const area = text(row.area);
+    const city = text(row.city);
+    const district = text(row.district);
     const state = text(row.state);
+    const pincode = text(row.pincode);
+    let location = text(row.location);
+    const addrParts = [];
+    if (addrRaw) addrParts.push(addrRaw);
+    if (area && location && !location.toLowerCase().includes(area.toLowerCase())) addrParts.push(area);
+    if (city && location && !location.toLowerCase().includes(city.toLowerCase())) addrParts.push(city);
+    if (district && location && !location.toLowerCase().includes(district.toLowerCase())) addrParts.push(district);
+    if (!location && addrParts.length) {
+      location = addrParts.join(', ');
+    } else if (location) {
+      const lower = location.toLowerCase();
+      for (const p2 of [area, city, district]) {
+        if (p2 && !lower.includes(p2.toLowerCase())) location = location ? location + ', ' + p2 : p2;
+      }
+    }
+    if (pincode && location && !location.toLowerCase().includes(pincode.toLowerCase())) {
+      location = location ? location + ', ' + pincode : pincode;
+    }
+
     // "Needed Type" (what the member needs) is a plain text field of its own;
     // "NGO" (who serves them) resolves to ngo_id. They are separate columns.
     const needed = text(row.needed);
     const disabilityType = text(row.disability_type);
     const disabilityPercentage = pct(row.disability_percentage);
     const g = gender(row.gender);
+    const email = text(row.email);
+    const occupation = text(row.occupation);
+    const aadhaarNumber = text(row.aadhaar_number || row.aadhaar || row.uid).replace(/\s+/g, '');
+    const monthlyFamilyIncomeRaw = row.monthly_family_income || row.family_income || row.monthly_income;
+    const monthlyFamilyIncome = Number.isFinite(Number(monthlyFamilyIncomeRaw)) && String(monthlyFamilyIncomeRaw).trim() !== ''
+      ? Number(monthlyFamilyIncomeRaw) : null;
+    const incomeCategory = text(row.income_category || row.category);
+    const totalFamilyMembersRaw = row.total_family_members || row.family_members || row.family_size;
+    const totalFamilyMembers = Number.isInteger(Number(totalFamilyMembersRaw)) && String(totalFamilyMembersRaw).trim() !== ''
+      ? Number(totalFamilyMembersRaw) : null;
+    const statusVal = text(row.status).toUpperCase() || null;
 
     // The NGO comes from the picker at the top of the page, not the sheet.
     const ngoId = importNgoId;
@@ -394,6 +432,8 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       row, rowNumber, name, mobile, alternateMobile, warnings,
       dob, location, state, needed, ngoId, ngoName,
       disabilityType, disabilityPercentage, gender: g,
+      email, occupation, aadhaarNumber, area, city, district, pincode,
+      monthlyFamilyIncome, incomeCategory, totalFamilyMembers, statusVal,
     });
   }
 
@@ -423,19 +463,34 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
 
     if (existing) {
       // Merge: only fill the blanks so nothing already on file is overwritten.
-      const patch = {};
-      const fill = (column, value) => {
-        if (value != null && value !== '' && !text(existing[column])) patch[column] = value;
-      };
-      fill('full_name', p.name);
-      fill('mobile', p.mobile);
-      fill('alternate_mobile', p.alternateMobile);
-      fill('date_of_birth', p.dob);
-      fill('gender', p.gender);
-      fill('address_line_1', p.location);
-      fill('state', p.state);
-      fill('needed', p.needed);
-      fill('ngo_id', p.ngoId);
+       const patch = {};
+       const fill = (column, value) => {
+         // Fill blanks AND overwrite when the imported value actually differs,
+         // so a changed Occupation (or any other field) in a re-imported sheet
+         // is reflected instead of being silently kept as-is.
+         if (value == null || value === '') return;
+         if (String(value) !== String(existing[column] ?? '').trim()) patch[column] = value;
+       };
+       fill('full_name', p.name);
+       fill('mobile', p.mobile);
+       fill('alternate_mobile', p.alternateMobile);
+       fill('date_of_birth', p.dob);
+       fill('gender', p.gender);
+       fill('email', p.email);
+       fill('occupation', p.occupation);
+       fill('aadhaar_number', p.aadhaarNumber);
+       fill('address_line_1', p.location);
+       fill('area', p.area);
+       fill('city', p.city);
+       fill('district', p.district);
+       fill('state', p.state);
+       fill('pincode', p.pincode);
+       fill('needed', p.needed);
+       fill('monthly_family_income', p.monthlyFamilyIncome);
+       fill('income_category', p.incomeCategory);
+       fill('total_family_members', p.totalFamilyMembers);
+       fill('status', p.statusVal);
+       fill('ngo_id', p.ngoId);
 
       let willPatch = false;
       if (Object.keys(patch).length > 0) {
@@ -461,7 +516,7 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
         row: p.rowNumber, status: changed ? 'updated' : 'no_change', name: p.name,
         mobile: p.mobile, beneficiary_id: existing.id, beneficiary_code: existing.beneficiary_code,
         needed: p.needed, ngo_name: p.ngoName,
-        message: changed ? 'Existing member updated with the missing details' : 'Already up to date',
+         message: changed ? 'Existing member updated' : 'Already up to date',
         warnings: p.warnings,
       });
       staging.push({
@@ -536,12 +591,22 @@ router.post('/members', authenticateRole('super_admin', 'admin', 'ngo', 'account
       gender: p.gender,
       mobile: p.mobile,
       alternate_mobile: p.alternateMobile,
+      email: p.email || null,
+      occupation: p.occupation || null,
+      aadhaar_number: p.aadhaarNumber || null,
       address_line_1: p.location || null,
+      area: p.area || null,
+      city: p.city || null,
+      district: p.district || null,
       state: p.state || null,
+      pincode: p.pincode || null,
       needed: p.needed || null,
-      ngo_id: p.ngoId,
-      status: 'ACTIVE',
+      monthly_family_income: p.monthlyFamilyIncome,
+      income_category: p.incomeCategory || null,
+      total_family_members: p.totalFamilyMembers,
+      status: p.statusVal || 'ACTIVE',
       fingerprint_status: 'NOT_REGISTERED',
+      ngo_id: p.ngoId,
       created_by,
       updated_by: created_by,
     }, bColumns);

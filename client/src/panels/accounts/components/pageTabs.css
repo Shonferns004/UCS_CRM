@@ -6,8 +6,7 @@
    SIM's own blue, so it reads as part of the panel it sits in. Extracted as its
    own rule rather than reusing .sim-page-tab, which is scoped to .sim-scope and
    cannot be shared without dragging SIM's palette along. */
-.panel-accounts .page-tabs,
-.panel-beneficiaries .page-tabs {
+.page-tabs {
   display: flex;
   gap: 4px;
   margin-bottom: 16px;
@@ -22,8 +21,7 @@
   flex-wrap: wrap;
 }
 
-.panel-accounts .page-tab,
-.panel-beneficiaries .page-tab {
+.page-tab {
   border: 1px solid transparent;
   background: transparent;
   border-radius: 9px;
@@ -37,14 +35,12 @@
   transition: background .15s ease, color .15s ease;
 }
 
-.panel-accounts .page-tab:hover,
-.panel-beneficiaries .page-tab:hover {
+.page-tab:hover {
   color: var(--ink, #1a1a2e);
   background: rgba(255, 255, 255, .7);
 }
 
-.panel-accounts .page-tab.is-on,
-.panel-beneficiaries .page-tab.is-on {
+.page-tab.is-on {
   background: var(--card-bg, #fff);
   color: var(--sage, #5B6B4E);
   font-weight: 700;
@@ -52,8 +48,7 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
 }
 
-.panel-accounts .page-tab:focus-visible,
-.panel-beneficiaries .page-tab:focus-visible {
+.page-tab:focus-visible {
   outline: 2px solid var(--sage, #5B6B4E);
   outline-offset: 1px;
 }

@@ -333,7 +333,7 @@ export const listKitGivenEvents = async () => {
 // web panel can download every matching beneficiary in one request. Rows are
 // pulled in 1000-row pages so a PostgREST row cap can never silently truncate
 // the file.
-export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, created_by } = {}) => {
+export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, event_name, created_by } = {}) => {
   let searchOr = null;
   if (search) {
     const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -348,6 +348,7 @@ export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, cr
     if (status) query = query.eq('status', status);
     if (ngo_id) query = query.eq('ngo_id', ngo_id);
     if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
+    if (event_name) query = query.eq('kit_event_name', event_name);
     return query.order('created_at', { ascending: false });
   };
 
