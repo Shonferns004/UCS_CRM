@@ -1737,12 +1737,28 @@ export const generateNgoMonthlyReport = async (req, res) => {
       start: `${year}-${mm}-01`,
       end: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`,
     }).catch(() => []);
+    // Drop stale / demo links so they never resurface as report cards. A link
+    // whose event no longer exists (or is a demo) is removed both here and in
+    // the store, and the in-memory list is filtered so this report is clean.
+    const staleLinks = (Array.isArray(links) ? links : []).filter((l) => {
+      const ev = eventById.get(String(l?.event_id));
+      if (!ev) return true;
+      return String(ev?.name || '').toLowerCase().includes('demo');
+    });
+    for (const l of staleLinks) {
+      EventHead.deletePlannerEventLink({
+        observance_date: l?.observance_date,
+        festival: l?.festival,
+        ngo_id: l?.ngo_id,
+      }).catch(() => {});
+    }
+    const cleanLinks = (Array.isArray(links) ? links : []).filter((l) => !staleLinks.includes(l));
     // Keyed by NGO as well as date + festival: BSCT and MANN may both plan the
     // same festival on the same date, and one NGO's event must never resolve
     // onto the other's row (which is what showed a MANN programme as completed
     // under BSCT). A link with no NGO is stored as '' and only ever matches a
     // row that also has none.
-    const linkMap = new Map(links.map(l => [
+    const linkMap = new Map(cleanLinks.map(l => [
       `${String(l.ngo_id ?? '')}|${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
       l.event_id,
     ]));
@@ -1880,6 +1896,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const cellDone = plannerDoneCell(d, f.festival);
       if (!cellDone) continue;
       if (!linked) continue;
+      if (String(linked?.name || '').toLowerCase().includes('demo')) continue;
       const img = imageForEvent(linked);
       // The name the event was SAVED under — the Social head can rename it in
       // the Create / Edit form, and that is the name the report must carry.
@@ -1999,8 +2016,9 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const ngoKey = String(n.ngo_id ?? '');
       const extras = events
         .filter(e => String(e.ngo_id ?? '') === ngoKey
-          && !claimedEventIds.has(String(e.id))
-          && linkedEventIds.has(String(e.id)))
+           && !claimedEventIds.has(String(e.id))
+           && linkedEventIds.has(String(e.id))
+           && !String(e.name || '').toLowerCase().includes('demo'))
         .filter(e => {
           const k = programmeKey(e);
           if (!k) return true;
@@ -4027,6 +4045,25 @@ export const setPlannerEventLink = async (req, res) => {
     return res.json({ link: row });
   } catch (error) {
     console.error('setPlannerEventLink error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deletePlannerEventLink = async (req, res) => {
+  try {
+    const observance_date = String(req.body?.observance_date || req.query?.observance_date || '').trim();
+    const festival = String(req.body?.festival ?? req.query?.festival ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(observance_date)) {
+      return res.status(400).json({ message: 'observance_date (YYYY-MM-DD) is required' });
+    }
+    await EventHead.deletePlannerEventLink({
+      observance_date,
+      festival,
+      ngo_id: req.body?.ngo_id ?? req.query?.ngo_id ?? null,
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('deletePlannerEventLink error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

@@ -762,7 +762,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
       style={{
         position: 'relative', width: '100%', aspectRatio: `${BSCT_W} / ${Hp}`,
          backgroundImage: "url('/bsct-blank.png')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
-        backgroundColor: '#fff', overflow: 'hidden', borderRadius: 8,
+        backgroundColor: '#fff', overflow: 'hidden',
       }}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
       onDrop={dropAtEnd}
