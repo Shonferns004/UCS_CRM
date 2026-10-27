@@ -29,9 +29,11 @@ export default function History() {
   }, []);
 
   const sorted = [...logs].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
-  const filtered = search
-    ? sorted.filter(l => (l.donor_name || '').toLowerCase().includes(search.toLowerCase()) || (l.donor_mobile || '').includes(search))
-    : sorted;
+  const filtered = sorted
+    .filter(l => l.action !== 'donation')
+    .filter(l => search
+      ? ((l.donor_name || '').toLowerCase().includes(search.toLowerCase()) || (l.donor_mobile || '').includes(search))
+      : true);
 
   if (loading) return <SkeletonTable rows={10} />;
 

@@ -1753,6 +1753,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     }) : visible;
     const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
     const historyFiltered = isHistory ? historyScoped.filter(d => {
+      if (d.has_donated_current_month || d.has_verified_donation_current_month) return false;
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
       return (d.donor_name || '').toLowerCase().includes(q)

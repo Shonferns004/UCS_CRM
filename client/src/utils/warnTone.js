@@ -4,11 +4,11 @@
 // 1:00-1:40 -> green
 // 1:41-2:10 -> orange
 // 2:11+     -> red
-export const WARN_AFTER_SECONDS = 3600;
-export const WARN_GREEN_MAX_SECONDS = 6000;   // 1h 40m
-export const WARN_ORANGE_AFTER_SECONDS = 6060; // 1h 41m
-export const WARN_ORANGE_MAX_SECONDS = 7800;  // 2h 10m
-export const WARN_RED_AFTER_SECONDS = 7810;    // 2h 11m
+export const WARN_AFTER_SECONDS = 3600;          // exactly 1:00 stays hidden
+export const WARN_GREEN_MAX_SECONDS = 6059;      // 1:40:59
+export const WARN_ORANGE_AFTER_SECONDS = 6060;   // 1:41:00
+export const WARN_ORANGE_MAX_SECONDS = 7859;     // 2:10:59
+export const WARN_RED_AFTER_SECONDS = 7860;      // 2:11:00
 
 export const WARN_TONES = {
   // `soft`/`ink` are the FRO-side modal's badge palette: same tier, a tint the

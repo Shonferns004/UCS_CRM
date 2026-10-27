@@ -163,8 +163,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // duplication.
 const LOCAL_UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
 
+const MIME_EXT = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'text/plain': 'txt', 'text/csv': 'csv',
+  'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov',
+};
 async function uploadAttachment(file) {
-  const key = `${CHAT_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+  const ext = MIME_EXT[file.mimetype] || (file.originalname?.split('.').pop()?.toLowerCase() || '');
+  const key = `${CHAT_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 12)}${ext ? '.' + ext : ''}`;
   const { error } = await db.storage
     .from(CHAT_BUCKET)
     .upload(key, file.buffer, { contentType: file.mimetype, upsert: false });
@@ -175,8 +187,8 @@ async function uploadAttachment(file) {
     // requiring AWS credentials.
     if (error.code === 'STORAGE_NOT_CONFIGURED') {
       try {
-        fs.mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true });
         const filePath = path.join(LOCAL_UPLOAD_DIR, key);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, file.buffer);
         return {
           url: `/uploads/${key}`,
@@ -198,6 +210,22 @@ async function uploadAttachment(file) {
     e.upload = true;
     e.status = 500;
     throw e;
+  }
+  // Prefer a presigned URL so private S3 buckets still serve the image. Fall
+  // back to the raw public URL (works for public buckets / local dev where the
+  // presign helper is unavailable).
+  try {
+    const pres = await db.storage.from(CHAT_BUCKET).presignDownload(key, 7 * 24 * 3600);
+    if (pres?.data?.url) {
+      return {
+        url: pres.data.url,
+        name: file.originalname,
+        type: file.mimetype,
+        size: file.size,
+      };
+    }
+  } catch (e) {
+    console.warn('[chat] presign failed, falling back to public URL:', e?.message || e);
   }
   const { data } = db.storage.from(CHAT_BUCKET).getPublicUrl(key);
   return {

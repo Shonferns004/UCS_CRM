@@ -1,18 +1,17 @@
 import { useEffect } from 'react'
 import { WARN_TONES, WARN_NEUTRAL } from '../../../utils/warnTone'
 
-// The admin's Warn button lands here.
+// Both the admin's Warn button and the server's automatic band sweep land here.
 //
-// Clicking Warn on the Telecaller Performance board makes the server push
-// `fro:action { type: 'idle_alert', level }` straight into this FRO's own
-// `worker:<id>` room, so this modal appears within the socket round-trip — no
-// waiting for the 8s notification poll.
+// The alert travels as `fro:action { type: 'idle_alert', level }` on the
+// `role:fro` broadcast, filtered by targetWorkerId in FROPanel, so the modal
+// appears within the socket round-trip — no waiting for the 8s notification poll.
 //
-// Colour and wording escalate together: yellow is a heads-up, orange is a
-// warning, red is urgent. The copy is resolved server-side (one canonical text
-// per level for the modal, the web bell and the FCM push); this component only
-// owns the presentation. A missing/unknown level falls back to a neutral tone so
-// an older sender still gets a modal rather than silence.
+// Colour and wording escalate together: green is the first warning, orange the
+// second, red the final one. The copy is resolved server-side (the same text for
+// manual and automatic alerts); this component only owns the presentation. A
+// missing/unknown level falls back to a neutral tone so an older sender still
+// gets a modal rather than silence.
 export default function IdleWarningModal({ warning, onClose }) {
   useEffect(() => {
     if (!warning) return undefined
@@ -24,8 +23,8 @@ export default function IdleWarningModal({ warning, onClose }) {
   if (!warning) return null
 
   const tone = WARN_TONES[warning.level] || WARN_NEUTRAL
-  // Above IdleNoticeHost and the broadcast popup (both 99996): an admin's
-  // explicit warning must never sit behind another modal.
+  // Above the broadcast popup (99996): an idle warning must never sit behind
+  // another modal.
   return (
     <div
       role="alertdialog"

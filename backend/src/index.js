@@ -587,6 +587,28 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
   }
 });
 
+// Serve extensionless chat uploads (legacy files stored without an extension)
+// with a sniffed image Content-Type so browsers render them. New uploads now
+// carry an extension and go through express.static below.
+app.get('/uploads/*', (req, res, next) => {
+  const rel = String(req.params[0] || '');
+  if (path.extname(rel)) return next();
+  const root = path.resolve(__dirname, '../uploads');
+  const full = path.resolve(root, rel);
+  if (!full.startsWith(root + path.sep) && full !== root) return next();
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return next();
+  let mime = 'application/octet-stream';
+  try {
+    const buf = fs.readFileSync(full).slice(0, 12);
+    if (buf[0] === 0xFF && buf[1] === 0xD8) mime = 'image/jpeg';
+    else if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) mime = 'image/png';
+    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif';
+    else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+             buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) mime = 'image/webp';
+  } catch (_) {}
+  res.setHeader('Content-Type', mime);
+  res.sendFile(full);
+});
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 // ---------------------------------------------------------------------------
@@ -1269,6 +1291,9 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
     import('./services/froMonthlyRollover.js').then((m) => m.start?.());
     import('./services/froIdleReconcileScheduler.js').then((m) => m.start?.());
+    // Automatic HR warnings at the board's own idle bands (1:00 / 1:41 / 2:11),
+    // once per tier per IST day. See services/froIdleWarningScheduler.js.
+    import('./services/froIdleWarningScheduler.js').then((m) => m.start?.());
     // Re-sends outbound WhatsApp messages Meta failed after accepting them
     // (130429 and other transient codes), with a 1m/5m/15m ladder — see
     // services/messageRetryScheduler.js.

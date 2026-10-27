@@ -28,7 +28,16 @@ export default function MessageAttachment({ attachment }) {
           }}
           aria-label={`Open image ${attachment.name} full size`}
         >
-          <img className="chat-att-image" src={attachment.url} alt={attachment.name} loading="lazy" />
+          <img className="chat-att-image" src={attachment.url} alt={attachment.name} loading="lazy"
+          onError={(e) => {
+            const img = e.currentTarget;
+            if (img.dataset.fallbackTried) return;
+            img.dataset.fallbackTried = '1';
+            fetch(attachment.url).then(r => r.blob()).then(blob => {
+              const u = URL.createObjectURL(blob);
+              img.src = u;
+            }).catch(() => {});
+          }} />
         </button>
         {lightbox && <Lightbox attachment={attachment} onClose={() => setLightbox(false)} />}
       </>
@@ -93,6 +102,15 @@ export function Lightbox({ attachment, onClose }) {
         src={attachment.url}
         alt={attachment.name}
         onClick={(e) => e.stopPropagation()}
+        onError={(e) => {
+          const img = e.currentTarget;
+          if (img.dataset.fallbackTried) return;
+          img.dataset.fallbackTried = '1';
+          fetch(attachment.url).then(r => r.blob()).then(blob => {
+            const u = URL.createObjectURL(blob);
+            img.src = u;
+          }).catch(() => {});
+        }}
         style={{ maxWidth: '92vw', maxHeight: '88dvh', borderRadius: 12, objectFit: 'contain' }}
       />
     </div>

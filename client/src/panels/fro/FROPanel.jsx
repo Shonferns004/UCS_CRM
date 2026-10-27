@@ -30,9 +30,7 @@ import LeadIncentive from './pages/LeadIncentive'
 import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive, { SidebarIncentive, useSpecialIncentive } from '../../components/SpecialIncentive'
 import RangeRulePopup from '../../components/RangeRulePopup'
-import IdleNoticeHost from './components/IdleNoticeHost'
 import IdleWarningModal from './components/IdleWarningModal'
-import * as socketModule from '../../lib/socket'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
@@ -792,25 +790,45 @@ export default function FROPanel() {
     return () => clearInterval(poll);
   }, [user?.id]);
 
-// Admin "Warn" on the Telecaller Performance board arrives on this socket as an
-// idle_alert. It must open a modal on this panel immediately (not a toast that
-// scrolls away): the admin clicked a specific FRO, at a specific escalation
-// level, and the telecaller has to acknowledge it.
+// An idle warning reaches this panel on the `fro:action` socket: either an admin
+// pressed Warn on the Telecaller Performance board, or the server's idle sweep
+// detected that this FRO entered a band on their own. Both are delivered with
+// the same canonical copy from backend/src/utils/idleAlert.js, so this panel
+// only has to show it.
 const [idleWarning, setIdleWarning] = useState(null)
+
+// Automatic warnings arrive once per tier per IST day. The server already
+// dedupes its sends; this is the screen-level guard so a backend restart in the
+// middle of a band cannot pop the same FIRST WARNING twice. Manual Warn clicks
+// carry no `auto` flag, so an admin can still warn again deliberately.
+const autoWarnSeenKey = (userId) => `fro_idle_auto_warn_v1_${userId}`
+const autoWarnAlreadyShown = (action) => {
+  const me = (user && (user.id || user.worker_id)) || null
+  if (!action?.auto || !me || !action?.level) return false
+  const day = istDateString()
+  const stamp = `${day}:${action.level}`
+  const key = autoWarnSeenKey(me)
+  let seen = []
+  try { seen = JSON.parse(localStorage.getItem(key) || '[]') } catch (_) { /* private mode */ }
+  if (!Array.isArray(seen)) seen = []
+  if (seen.includes(stamp)) return true
+  // Keep only today's tiers so the key cannot grow across days.
+  const next = [...seen.filter((v) => typeof v === 'string' && v.startsWith(`${day}:`)), stamp]
+  try { localStorage.setItem(key, JSON.stringify(next)) } catch (_) { /* private mode */ }
+  return false
+}
+
 const showIdleWarning = useCallback((action) => {
-  const warning = {
+  setIdleWarning({
     level: action?.level || null,
     title: action?.title || 'You are idle',
     body: action?.body || '',
     // Re-keying on a fresh timestamp re-runs the pop animation when a second
     // warning arrives while the first modal is still open.
     at: Date.now(),
-  };
-  setIdleWarning(warning);
-  try {
-    window.dispatchEvent(new CustomEvent('ucs:idle-alert', { detail: warning }));
-  } catch (e) {}
-}, []);
+  })
+}, [])
+
 useEffect(() => onFroAction((action) => {
     console.info('[fro] fro:action received', action?.type)
     if (action?.type === 'fro_action_follow_up' || action?.type === 'fro_action_less_calls' || action?.type === 'fro_action_entertain') {
@@ -825,44 +843,10 @@ useEffect(() => onFroAction((action) => {
       // Only react if this alert is for us (or untargeted).
       const me = (user && (user.id || user.worker_id)) || null;
       if (action.targetWorkerId && me && String(action.targetWorkerId) !== String(me)) return;
+      if (autoWarnAlreadyShown(action)) return;
       showIdleWarning(action);
     }
   }), [showIdleWarning, user]);
-
-// Direct socket listener as a fallback - some builds/environments don't route
-// through onFroAction consistently.
-useEffect(() => {
-  let unsub = null;
-  try {
-    const sock = (typeof socketModule?.getSocket === 'function' ? socketModule.getSocket() : null);
-    if (sock) {
-      const handler = (action) => {
-        if (action?.type === 'idle_alert') {
-          const me = (user && (user.id || user.worker_id)) || null;
-          if (action.targetWorkerId && me && String(action.targetWorkerId) !== String(me)) return;
-          showIdleWarning(action);
-        }
-      };
-      sock.on('fro:action', handler);
-      unsub = () => {
-        try { sock.off('fro:action', handler); } catch (e) {}
-      };
-    }
-  } catch (e) {}
-  return () => {
-    if (typeof unsub === 'function') unsub();
-  };
-}, [showIdleWarning, user]);
-
-useEffect(() => {
-  const handler = (e) => {
-    const d = e?.detail;
-    if (!d) return;
-    showIdleWarning({ level: d.level, title: d.title, body: d.body });
-  };
-  window.addEventListener('ucs:idle-alert', handler);
-  return () => window.removeEventListener('ucs:idle-alert', handler);
-}, [showIdleWarning]);
 
   const [froBroadcast, setFroBroadcast] = useState(null);
   const [froBroadcastMin, setFroBroadcastMin] = useState(false);
@@ -1319,7 +1303,6 @@ useEffect(() => {
       />
       <SpecialIncentive si={si} />
       <RangeRulePopup />
-      <IdleNoticeHost />
       {idleWarning && (
         <IdleWarningModal
           key={idleWarning.at}
