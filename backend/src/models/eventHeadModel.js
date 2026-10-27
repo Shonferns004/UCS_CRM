@@ -1078,6 +1078,18 @@ export const upsertPlannerEventLink = async ({ observance_date, festival, ngo_id
   return data;
 };
 
+export const deletePlannerEventLink = async ({ observance_date, festival, ngo_id } = {}) => {
+  let query = db.from('event_head_planner_event_links')
+    .delete()
+    .eq('observance_date', String(observance_date || '').slice(0, 10))
+    .eq('festival', String(festival ?? ''));
+  const ngoKey = ngo_id != null && ngo_id !== '' ? String(ngo_id) : '';
+  query = query.eq('ngo_id', ngoKey);
+  const { error } = await query;
+  if (error) throw error;
+  return true;
+};
+
 // ─── MONTHLY PLANNER: typed/manual rows that survive a reload ───
 /* The planner's manual programme text, the event name typed on a row and the
    extra rows added with "+ Add another programme" are stored here. A row is

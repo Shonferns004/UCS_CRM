@@ -6,41 +6,57 @@ import { apiGet, apiPost } from '../store'
 // every other header is matched loosely so real-world sheets (Member Name vs
 // Name, Number vs Mobile No., ...) still import without hand-editing.
 const COLUMNS = [
-  { key: 'full_name', label: 'Member Name', required: true, type: 'text', width: 22, aliases: ['member name', 'membername', 'name of member', 'beneficiary name', 'full name', 'name', 'member'] },
-  { key: 'mobile', label: 'Number', type: 'phone', width: 15, aliases: ['number', 'mobile number', 'mobile no', 'mobileno', 'mobile', 'phone number', 'phone no', 'phone', 'contact number', 'contact no', 'contact'] },
-  { key: 'disability_percentage', label: '% of Disability', type: 'number', width: 12, aliases: ['of disability', 'disability percentage', 'disability percent', 'disability %', 'percent disability', 'percentage of disability', '% disability', 'disability'] },
-  { key: 'disability_type', label: 'Type of Disability', type: 'text', width: 20, aliases: ['type of disability', 'disability type', 'type disability', 'disability category', 'nature of disability', 'disability'] },
-  { key: 'alternate_mobile', label: 'Alternate Number', type: 'phone', width: 15, aliases: ['alternate number', 'alternate mobile', 'alternate mobile number', 'alternate no', 'alt number', 'alt mobile', 'secondary number', 'second number'] },
-  { key: 'location', label: 'Location', type: 'text', width: 22, aliases: ['location', 'address', 'address line 1', 'village', 'area', 'place'] },
-  { key: 'needed', label: 'Needed Type', type: 'text', width: 20, aliases: ['needed type', 'neededtype', 'type of need', 'need type', 'needed', 'requirement', 'requirement type', 'service needed', 'support needed'] },
+  { key: 'full_name', label: 'Member Name', required: true, type: 'text', width: 26, aliases: ['member name', 'membername', 'name of member', 'beneficiary name', 'full name', 'fullname', 'name', 'applicant name', 'applicant', 'naam', 'mamber name', 'benificiary name'] },
+  { key: 'aadhaar_number', label: 'Aadhaar Number', type: 'text', width: 18, aliases: ['aadhaar number', 'aadhar number', 'aadhaar no', 'aadhar no', 'uid', 'uid no', 'aadhaar card no', 'aadhar'] },
+  { key: 'alternate_mobile', label: 'Alternate Number', type: 'phone', width: 15, aliases: ['alternate number', 'alternatenumber', 'alternate mobile', 'alternate mobile number', 'alternatemobileno', 'alternate no', 'alternateno', 'alt number', 'altnumber', 'alt mobile', 'altmob', 'alt no', 'secondary number', 'second number', 'other number', 'other mobile', 'family number', 'guardian mobile', 'guardian number'] },
+  { key: 'monthly_family_income', label: 'Monthly Family Income', type: 'text', width: 18, aliases: ['monthly family income', 'family income', 'monthly income', 'income', 'household income', 'total income'] },
+  { key: 'total_family_members', label: 'Total Family Members', type: 'text', width: 16, aliases: ['total family members', 'family members', 'no of family members', 'family size', 'members in family'] },
+  { key: 'income_category', label: 'Income Category', type: 'text', width: 16, aliases: ['income category', 'economic category', 'bpl/apl'] },
+  { key: 'disability_percentage', label: '% of Disability', type: 'number', width: 12, aliases: ['disability percentage', 'disability percent', 'disability %', '% disability', 'percent disability', 'percentage of disability', 'pwd percentage', '% of pwd', 'pwd %', 'of disability'] },
+  { key: 'disability_type', label: 'Type of Disability', type: 'text', width: 20, aliases: ['type of disability', 'disability type', 'type disability', 'disability category', 'nature of disability', 'disability nature', 'category of disability', 'pwd type'] },
+  { key: 'date_of_birth', label: 'DOB', type: 'date', width: 14, aliases: ['dob', 'd o b', 'date of birth', 'dateofbirth', 'birth date', 'birthdate', 'date birth'] },
+  { key: 'email', label: 'Email', type: 'text', width: 22, aliases: ['email', 'e mail', 'email id', 'emailid', 'mail', 'mail id'] },
+  { key: 'occupation', label: 'Occupation', type: 'text', width: 16, aliases: ['occupation', 'profession', 'work', 'job', 'business', 'occupation/profession'] },
+  { key: 'address', label: 'Address', type: 'text', width: 40, aliases: ['address', 'address line 1', 'address1', 'full address', 'residential address', 'permanent address', 'c/o', 'co address'] },
+  { key: 'area', label: 'Area', type: 'text', width: 18, aliases: ['area', 'locality', 'society', 'ward', 'ward no', 'colony', 'mohalla', 'village', 'village name', 'gram', 'gaon'] },
+  { key: 'city', label: 'City', type: 'text', width: 16, aliases: ['city', 'town', 'taluka city', 'municipality'] },
+  { key: 'district', label: 'District', type: 'text', width: 16, aliases: ['district', 'dist'] },
   { key: 'state', label: 'State', type: 'text', width: 16, aliases: ['state', 'state name'] },
-  { key: 'age', label: 'Age', type: 'number', width: 8, aliases: ['age', 'age in years', 'years'] },
-  { key: 'date_of_birth', label: 'DOB', type: 'date', width: 14, aliases: ['dob', 'date of birth', 'dateofbirth', 'birth date', 'birthdate'] },
-  { key: 'gender', label: 'Gender', type: 'text', width: 10, aliases: ['gender', 'sex'] },
+  { key: 'pincode', label: 'Pincode', type: 'text', width: 10, aliases: ['pincode', 'pin code', 'pincode no', 'postal code', 'zip', 'zip code'] },
+  { key: 'location', label: 'Location', type: 'text', width: 26, aliases: ['location', 'place', 'block', 'tehsil', 'taluka', 'mandal', 'post', 'panchayat'] },
+  { key: 'needed', label: 'Needed Type', type: 'text', width: 20, aliases: ['needed type', 'neededtype', 'type of need', 'need type', 'needed', 'requirement', 'requirement type', 'service needed', 'support needed', 'aid', 'aid type', 'assistance', 'assistance type', 'help needed', 'kit type', 'item needed'] },
+  { key: 'status', label: 'Status', type: 'text', width: 12, aliases: ['status'] },
+  { key: 'ngo', label: 'NGO (from sheet)', type: 'text', width: 16, aliases: ['ngo', 'ngo name', 'organization', 'organisation', 'agency'] },
+  { key: 'age', label: 'Age', type: 'number', width: 8, aliases: ['age', 'age in years', 'age(yrs)', 'years', 'yr'] },
+  { key: 'gender', label: 'Gender', type: 'text', width: 10, aliases: ['gender', 'sex', 'male female', 'm/f'] },
+  { key: 'mobile', label: 'Number', type: 'phone', width: 15, aliases: ['number', 'mobile number', 'mobilenumber', 'mobile no', 'mobileno', 'mobile', 'mob no', 'mob', 'phone number', 'phonenumber', 'phone no', 'phoneno', 'phone', 'contact number', 'contactno', 'contact no', 'contact', 'cell', 'cell no', 'cellno', 'primary mobile', 'primary number', 'mob number'] },
 ]
 
-const normHeader = (h) => String(h).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+const normHeader = (h) => String(h).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
 
 // How many columns this header row names outright. Used to tell a real header
 // row from a banner above it: "NGO member list 2026" loosely matches the word
 // "member", but only a true header matches several columns exactly.
 const exactMatchCount = (headers) => {
   const normalized = headers.map(normHeader)
-  return COLUMNS.reduce((n, col) => n + (col.aliases.some((a) => normalized.includes(a)) ? 1 : 0), 0)
+  return COLUMNS.reduce((n, col) => n + (col.aliases.some((a) => normalized.some((nh) => nh === a || nh.includes(a))) ? 1 : 0), 0)
 }
 
 // Longest alias wins, so "needed type" is claimed before a bare "needed" and
 // "alternate number" before a bare "number". Returns a column index per key.
+const wordBoundary = (text, alias) => {
+  try { return new RegExp('(^|\\s)' + alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\s|$)').test(' ' + text + ' ') } catch { return text.includes(alias) }
+}
 const matchColumns = (headers) => {
   const map = {}
-  const normalized = headers.map((h, i) => ({ i, n: normHeader(h) }))
+  const normalized = headers.map((h, i) => ({ i, n: normHeader(h), raw: String(h || '') }))
   const taken = new Set()
   for (const col of COLUMNS) {
     const aliases = [...col.aliases].sort((a, b) => b.length - a.length)
-    let hit = normalized.find((h) => aliases.includes(h.n))
+    let hit = normalized.find((h) => !taken.has(h.i) && aliases.includes(h.n))
     if (!hit) {
       for (const alias of aliases) {
-        hit = normalized.find((h) => h.n.includes(alias))
+        hit = normalized.find((h) => !taken.has(h.i) && (h.n === alias || wordBoundary(h.n, alias)))
         if (hit) break
       }
     }
@@ -145,6 +161,19 @@ const readSheet = (workbook) => {
     // member - dropping it keeps the count equal to the file's row count.
     if (!COLUMNS.some((c) => row[c.key] !== '')) continue
 
+    // Build a single Location from the address parts when the sheet has no
+    // dedicated Location column (or it is empty), so the full address is kept.
+    if (!row.location) {
+      const parts = [row.address, row.area, row.city, row.district, row.state, row.pincode]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean)
+      const uniq = []
+      for (const p of parts) {
+        if (!uniq.some((u) => u.toLowerCase() === p.toLowerCase())) uniq.push(p)
+      }
+      row.location = uniq.join(', ')
+    }
+
     if (row.alternate_mobile === '' && row.mobile !== '') {
       const both = numbersIn(row.mobile)
       row.mobile = both[0] ?? ''
@@ -227,6 +256,18 @@ export default function ImportMembers() {
   }, [])
 
   const selectedNgo = ngoOptions.find((o) => String(o.id) === String(ngoId)) || null
+
+  // Auto-select the NGO when the sheet names one that matches the master list,
+  // so the Import button is enabled without a manual pick.
+  useEffect(() => {
+    if (ngoId || rows.length === 0 || ngoOptions.length === 0) return
+    const candidate = rows.map((r) => String(r.ngo || '').trim()).find(Boolean)
+    if (!candidate) return
+    const key = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+    const cKey = key(candidate)
+    const match = ngoOptions.find((o) => key(o.name) === cKey || key(o.code) === cKey || key(o.name).includes(cKey) || cKey.includes(key(o.name)))
+    if (match) setNgoId(String(match.id))
+  }, [rows, ngoOptions, ngoId])
 
   const processFile = (file) => {
     setError(null); setResult(null); setRows([]); setColMap({}); setFileName(''); setParsing(true)
@@ -345,8 +386,9 @@ export default function ImportMembers() {
           <h2 style={styles.title}>Import Members</h2>
           <div style={styles.sub}>
             Choose the NGO first &mdash; every member in the file is linked to it. Then upload an Excel sheet.
-            Columns: <strong>Member Name</strong> (required), Number, % of Disability,
-            Type of Disability, Alternate Number, Location, Needed Type, State, Age, DOB, Gender.
+            Columns: <strong>Member Name</strong> (required), Number, Alternate Number, Email, Gender, DOB, Age,
+            Occupation, Address, Area, City, District, State, Pincode, Location, Aadhaar Number, Needed Type,
+            Monthly Family Income, Income Category, Total Family Members, Status, % of Disability, Type of Disability.
             A member already registered under the same number is updated with the missing details instead of being duplicated,
             and <em>Age</em> is converted to DOB when DOB is blank.
           </div>
@@ -390,7 +432,10 @@ export default function ImportMembers() {
               ? <><strong style={{ color: 'var(--ink)' }}>{readyCount}</strong> of {rows.length} row(s) ready to import{selectedNgo ? <> &rarr; <strong style={{ color: 'var(--ink)' }}>{selectedNgo.name}</strong></> : ' (choose an NGO to continue)'}</>
               : 'No file loaded yet'}
           </div>
-          {rows.length > 0 && (
+            {rows.length > 0 && !ngoId && (
+              <span style={{ fontSize: 12, color: '#b91c1c', marginLeft: 'auto' }}>Select an NGO above to enable import</span>
+            )}
+            {rows.length > 0 && (
             <button
               onClick={handleImport}
               disabled={importing || readyCount === 0 || !ngoId}
@@ -401,7 +446,7 @@ export default function ImportMembers() {
                 cursor: readyCount === 0 || !ngoId ? 'not-allowed' : 'pointer',
               }}
             >
-              {importing ? 'Importing...' : `Import ${readyCount} Member${readyCount === 1 ? '' : 's'}`}
+              {importing ? 'Importing / Updating...' : `Import / Update ${readyCount} Member${readyCount === 1 ? '' : 's'}`}
             </button>
           )}
         </div>

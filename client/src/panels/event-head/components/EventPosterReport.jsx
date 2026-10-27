@@ -123,7 +123,7 @@ const EventPosterReport = forwardRef(function EventPosterReport({
             height: 48, background: 'linear-gradient(180deg, #3d9be0, #1b78c4)', display: 'flex',
             alignItems: 'center', justifyContent: 'center', padding: '0 12px', overflow: 'hidden',
           }}>
-           <div style={{ color: GOLD, fontWeight: 900, fontSize: bandText.length > 46 ? 21 : 25, letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{bandText}</div>
+            <div style={{ color: '#fff', fontWeight: 900, fontSize: bandText.length > 46 ? 21 : 25, letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{bandText}</div>
            </div>
          </div>
 

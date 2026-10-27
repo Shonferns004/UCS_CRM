@@ -31,6 +31,7 @@ router.put('/planner/festival-suggestions/:id/select', eh, ctrl.setFestivalSugge
 // its Download button survives a reload and shows on every device.
 router.get('/planner/event-links', eh, ctrl.getPlannerEventLinks);
 router.put('/planner/event-links', eh, ctrl.setPlannerEventLink);
+router.delete('/planner/event-links', eh, ctrl.deletePlannerEventLink);
 // Monthly Planner: typed/manual rows and "+ Add another programme" rows, kept
 // so a reload (or another device) restores them instead of losing them.
 router.get('/planner/manual-rows', eh, ctrl.getPlannerManualRows);

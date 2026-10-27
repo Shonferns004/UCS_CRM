@@ -547,7 +547,7 @@ export const listKitGivenEventsController = async (_req, res) => {
 // as the Donors export in accountsController).
 export const exportBeneficiariesController = async (req, res) => {
   try {
-    const { search, status, ngo_id, event_id } = req.query;
+    const { search, status, ngo_id, event_id, event_name } = req.query;
 
     let created_by;
     if (isBeneficiariesAppSession(req.user)) {
@@ -561,7 +561,7 @@ export const exportBeneficiariesController = async (req, res) => {
     }
 
     const rows = await exportBeneficiaries({
-      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, created_by,
+      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, event_name, created_by,
     });
 
     const data = rows.map((b) => ({
@@ -608,7 +608,7 @@ export const exportBeneficiariesController = async (req, res) => {
 // survive intact. Used for migrating beneficiaries to another database.
 export const downloadBeneficiariesController = async (req, res) => {
   try {
-    const { search, status, ngo_id, event_id } = req.query;
+    const { search, status, ngo_id, event_id, event_name } = req.query;
     let created_by;
     if (isBeneficiariesAppSession(req.user)) {
       let operator = null;
@@ -616,7 +616,7 @@ export const downloadBeneficiariesController = async (req, res) => {
       created_by = operator?.name || req.user?.name || null;
     }
     const rows = await exportBeneficiaries({
-      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, created_by,
+      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, event_name, created_by,
     });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="beneficiaries_${new Date().toISOString().slice(0, 10)}.json"`);

@@ -704,6 +704,15 @@ export const setPlannerEventLink = async (payload = {}) => {
   return res?.link || null
 }
 
+export const deletePlannerEventLink = async (payload = {}) => {
+  const params = new URLSearchParams()
+  if (payload.observance_date) params.set('observance_date', payload.observance_date)
+  if (payload.festival != null) params.set('festival', payload.festival)
+  if (payload.ngo_id != null && payload.ngo_id !== '') params.set('ngo_id', payload.ngo_id)
+  const q = params.toString()
+  return apiDelete('/event-head/planner/event-links' + (q ? '?' + q : ''))
+}
+
 /* The planner's typed/manual rows for a month. This is what makes the "Write
    manually" text, the row's event name and the extra "+ Add another programme"
    rows survive a reload instead of living only in React state. */

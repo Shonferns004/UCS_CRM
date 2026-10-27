@@ -26,6 +26,7 @@ import {
   setFestivalSuggestionSelected,
   getPlannerEventLinks,
   setPlannerEventLink,
+  deletePlannerEventLink,
   getPlannerManualRows,
   savePlannerManualRow,
   deletePlannerManualRow,
@@ -1270,6 +1271,10 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
           // The event is created either way; only the planner link is less precise.
         }
       }
+      // Hand the created event back to the planner immediately, so the row's
+      // "Download" button appears without waiting for the PDF to finish. The
+      // PDF is still built below and cached when it is ready.
+      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit })
       // The detail sheet is the download the head asked for. A PDF failure must
       // never lose the event that was already created. The same payload is handed
       // back to the planner so the row's "Download" button can re-issue it later.
@@ -1291,7 +1296,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       } catch (pdfErr) {
         console.error('Event detail PDF failed', pdfErr)
       }
-      onSaved({ key: entry?.key, event, pdf: pdfArgs, ngoId, editing: isEdit })
+      // Event already handed back to the planner above; the PDF is cached on demand.
     } catch (e) {
       setError(e?.message || (isEdit ? 'Could not save the changes.' : 'Could not create the event.'))
     } finally {
@@ -1830,6 +1835,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             l?.ngo_id,
           )
           map[k] = l
+          const fest = String(l?.festival ?? '')
+          const dt = String(l?.observance_date || '').slice(0, 10)
+          if (fest && dt && l?.ngo_id != null && String(l.ngo_id) !== '') {
+            setFestNgo((cur) => ({ ...cur, [`${dt}::${fest}`]: String(l.ngo_id) }))
+          }
         }
         setPlannerLinkMap(map)
       })
@@ -3439,11 +3449,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     if (!window.confirm(`Delete event "${ev.title || label}"? This cannot be undone.`)) return
     try {
       await deleteEvent(ev.id)
-      setMonthEvents((prev) => prev.filter((e) => String(e?.id) !== String(ev.id)))
-      const lk = linkMapKey(key, rowNgoId(key))
-      setCreatedKeys((cur) => { const next = new Set(cur); next.delete(lk); return next })
-      setRowEventNames((cur) => { const next = { ...cur }; delete next[lk]; return next })
-      setPdfCache((cur) => { const next = new Map(cur); next.delete(lk); return next })
+       setMonthEvents((prev) => prev.filter((e) => String(e?.id) !== String(ev.id)))
+       const lk = linkMapKey(key, rowNgoId(key))
+       setCreatedKeys((cur) => { const next = new Set(cur); next.delete(lk); return next })
+       setRowEventNames((cur) => { const next = { ...cur }; delete next[lk]; return next })
+       setPdfCache((cur) => { const next = new Map(cur); next.delete(lk); return next })
+       setPlannerLinkMap((cur) => { const next = { ...cur }; delete next[lk]; return next })
+       // Remove the durable row → event link on the server too, otherwise the
+       // Monthly Report keeps showing this event as an "extra" card.
+       const delObs = String(key || '').slice(0, (key || '').indexOf('::') >= 0 ? (key || '').indexOf('::') : (key || '').length).slice(0, 10)
+       const delFest = (key || '').includes('::') ? String(key).slice(String(key).indexOf('::') + 2) : ''
+       deletePlannerEventLink({ observance_date: delObs || String(ev?.extendedProps?.date || '').slice(0, 10), festival: delFest, ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || ev?.extendedProps?.ngo_id }).catch(() => {})
+       // Drop the programme from the Monthly Report too: unselect any suggestion
+       // that pointed at this event so the report no longer lists it.
+       const linkedSuggs = (key ? rowSuggestionsFor(key) : []).filter((s) =>
+         Number(s?.suggested_event_id) === Number(ev.id) || Boolean(s?.is_selected)
+       )
+       linkedSuggs.forEach((s) => { if (s?.id) setFestivalSuggestionSelected(Number(s.id), false).catch(() => {}) })
       showToast('Event deleted.')
     } catch (e) {
       showToast(e?.message || 'Could not delete event.')
@@ -3677,10 +3699,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           ngo_id: linkNgo || null,
           event_id: event.id,
         }
-        setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
-        setPlannerEventLink(link).catch(() => {
-          // The event exists either way; only the cross-device link is missing.
-        })
+         setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
+         if (linkNgo) setFestNgo((cur) => ({ ...cur, [key]: String(linkNgo) }))
+         setPlannerEventLink(link).catch(() => {
+           // The event exists either way; only the cross-device link is missing.
+         })
       }
     }
     setCreateEventFor(null)
@@ -3776,7 +3799,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // deliverables are still done. An unsigned row never shows a download.
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
   const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-   const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findLinkedScheduledEvent(key, date, label))
+    const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
