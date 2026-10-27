@@ -1723,6 +1723,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       eventsByNgoDate.get(k).push(e);
     }
     const claimedEventIds = new Set();
+    const includedEventIds = new Set();
     const eventBannerMap = {};
     try {
       const bannerRows = await EventHead.getBannerMediaByEvents(events.map(e => e.id).filter(Boolean));
@@ -1834,10 +1835,22 @@ export const generateNgoMonthlyReport = async (req, res) => {
     // even while its event record is still a Draft waiting for the head's
     // approval — the work is what the report is about.
     const plannerCells = await loadPlannerDoneCells(month, year);
-    const plannerDoneCell = (date, festival) => {
-      const c = plannerCells.get(`${String(date || '').slice(0, 10)}::${String(festival || '').trim()}`);
-      return Boolean(c && c.allDone);
-    };
+     const normalizeName = (s) => String(s || '').trim().toLowerCase().replace(/[.\s]+$/g, '').replace(/\s+/g, ' ');
+     const plannerDoneCell = (date, festival) => {
+       const d = String(date || '').slice(0, 10);
+       const f = String(festival || '').trim();
+       const c = plannerCells.get(`${d}::${f}`);
+       if (c && c.allDone) return true;
+       // Tolerate trailing punctuation / whitespace differences between the
+       // event name and the planner task title.
+       for (const [k, v] of plannerCells) {
+         if (!v || !v.allDone) continue;
+         const [kd, kf] = k.split('::');
+         if (kd !== d) continue;
+         if (normalizeName(kf) === normalizeName(f)) return true;
+       }
+       return false;
+     };
 
     const byNgo = new Map();
     // Seed a card for every report NGO (BSCT / MANN / AFLF) up front, so an NGO
@@ -1929,11 +1942,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
         image_event_id: img.event_id || null,
         image_kind: img.kind || null,
         image_index: img.index || 0,
-        banner: null,
-      });
-    }
+         banner: null,
+       });
+       if (linked?.id != null) includedEventIds.add(String(linked.id));
+     }
 
-    const ngos = [...byNgo.values()]
+     const ngos = [...byNgo.values()]
       .map(n => ({ ...n, budget: Math.round(n.budget) }))
       .sort((a, b) => a.ngo_name.localeCompare(b.ngo_name));
 
@@ -2016,8 +2030,8 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const ngoKey = String(n.ngo_id ?? '');
       const extras = events
         .filter(e => String(e.ngo_id ?? '') === ngoKey
-           && !claimedEventIds.has(String(e.id))
-           && linkedEventIds.has(String(e.id))
+           && !includedEventIds.has(String(e.id))
+           && (linkedEventIds.has(String(e.id)) || isComplete(e) || plannerDoneCell(e.date, e.name))
            && !String(e.name || '').toLowerCase().includes('demo'))
         .filter(e => {
           const k = programmeKey(e);
@@ -2027,8 +2041,13 @@ export const generateNgoMonthlyReport = async (req, res) => {
           return true;
         })
         .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-      if (!extras.length) continue;
-      const extraCards = extras.map(e => {
+       if (!extras.length) continue;
+       for (const e of extras) {
+         const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
+         const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';
+         seedNgoCard(e.ngo_id, ctx.ngoMap[e.ngo_id], code);
+       }
+       const extraCards = extras.map(e => {
         const d = e.date ? String(e.date).slice(0, 10) : null;
         const img = imageForEvent(e);
         return {

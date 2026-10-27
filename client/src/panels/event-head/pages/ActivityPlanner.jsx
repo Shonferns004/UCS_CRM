@@ -1271,6 +1271,10 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
           // The event is created either way; only the planner link is less precise.
         }
       }
+      // Hand the created event back to the planner immediately, so the row's
+      // "Download" button appears without waiting for the PDF to finish. The
+      // PDF is still built below and cached when it is ready.
+      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit })
       // The detail sheet is the download the head asked for. A PDF failure must
       // never lose the event that was already created. The same payload is handed
       // back to the planner so the row's "Download" button can re-issue it later.
@@ -1292,7 +1296,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       } catch (pdfErr) {
         console.error('Event detail PDF failed', pdfErr)
       }
-      onSaved({ key: entry?.key, event, pdf: pdfArgs, ngoId, editing: isEdit })
+      // Event already handed back to the planner above; the PDF is cached on demand.
     } catch (e) {
       setError(e?.message || (isEdit ? 'Could not save the changes.' : 'Could not create the event.'))
     } finally {
