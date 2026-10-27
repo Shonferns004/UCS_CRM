@@ -61,13 +61,21 @@ export async function whatsappWebhookEntry(req, res) {
       if (account?.project) accountProject = account.project;
     }
 
-    await db.from('whatsapp_webhook_logs').insert({
-      direction: 'inbound',
-      event_type: changes?.field || 'unknown',
-      payload: body,
-      processed: false,
-      account_project: accountProject,
-    });
+    const { data: webhookLog, error: logError } = await db
+      .from('whatsapp_webhook_logs')
+      .insert({
+        direction: 'inbound',
+        event_type: changes?.field || 'unknown',
+        payload: body,
+        processed: false,
+        account_project: accountProject,
+      })
+      .select('id')
+      .single();
+
+    if (logError) {
+      console.error('Webhook log insert failed:', logError.message);
+    }
 
     if (changes?.field === 'messages' && value?.messages) {
       for (const message of value.messages) {
@@ -299,24 +307,37 @@ export async function whatsappWebhookEntry(req, res) {
         }
 
         if (bulkRows?.length && shouldApplyStatus(bulkRows?.[0]?.status, status.status)) {
-          await db
+          const { data: updatedBulk, error: bulkUpdateError } = await db
             .from('whatsapp_bulk_recipients')
             .update({
               status: status.status,
               failure_reason: status.status === 'failed' ? (update.failure_reason || null) : null,
               status_updated_at: new Date().toISOString(),
             })
-            .eq('wa_message_id', status.id);
+            .eq('wa_message_id', status.id)
+            .select('wa_message_id, status');
+
+          if (bulkUpdateError) {
+            console.error('Bulk recipient status update failed:', bulkUpdateError.message);
+          } else if (!updatedBulk?.length) {
+            console.warn('No bulk recipient matched webhook message ID:', status.id);
+          } else {
+            console.log('Bulk recipient status updated:', updatedBulk);
+          }
         }
       }
     }
 
-    await db
-      .from('whatsapp_webhook_logs')
-      .update({ processed: true, processed_at: new Date().toISOString() })
-      .eq('processed', false)
-      .order('created_at', { ascending: false })
-      .limit(1);
+    if (webhookLog?.id) {
+      const { error: updateError } = await db
+        .from('whatsapp_webhook_logs')
+        .update({ processed: true, processed_at: new Date().toISOString() })
+        .eq('id', webhookLog.id);
+
+      if (updateError) {
+        console.error('Webhook log update failed:', updateError.message);
+      }
+    }
 
     res.json({ success: true });
   } catch (error) {

@@ -776,12 +776,47 @@ export async function listTemplates(req, res) {
   }
 }
 
+export async function getAccountHealth(req, res) {
+  try {
+    const account = await getAccountById(req.params.accountId);
+    if (!account) return res.status(404).json({ message: 'Account not found' });
+
+    let meta = {};
+    try {
+      const r = await fetch(`https://graph.facebook.com/v18.0/${account.phone_number_id}?fields=quality_rating,verified_name,display_phone_number`, {
+        headers: { Authorization: `Bearer ${account.access_token}` },
+      });
+      meta = await r.json();
+    } catch (e) {
+      meta = { error: e.message };
+    }
+
+    const { data: usage } = await db
+      .from('whatsapp_bulk_recipients')
+      .select('status')
+      .eq('account_id', String(account.id));
+
+    const sentToday = (usage || []).filter(x => x.status === 'sent' || x.status === 'delivered' || x.status === 'read').length;
+    const failedToday = (usage || []).filter(x => x.status === 'failed').length;
+
+    return res.json({
+      account: { id: account.id, name: account.name, project: account.project },
+      quality: meta.quality_rating || 'N/A',
+      verifiedName: meta.verified_name || account.name,
+      displayPhone: meta.display_phone_number || null,
+      usage: { sent: sentToday, failed: failedToday, total: (usage || []).length },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function listBulkRecipientStatuses(req, res) {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
     const { data, error } = await db
       .from('whatsapp_bulk_recipients')
-      .select('wa_message_id, phone, recipient_name, template_name, status, failure_reason, status_updated_at, created_at')
+      .select('wa_message_id, account_id, phone, recipient_name, template_name, status, failure_reason, status_updated_at, created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
@@ -791,9 +826,62 @@ export async function listBulkRecipientStatuses(req, res) {
   }
 }
 
+export async function createCampaign(req, res) {
+  try {
+    const { name, accountId, templateName } = req.body || {};
+    const { data, error } = await db.from('campaigns').insert({
+      name: name || `Bulk Campaign ${new Date().toISOString().slice(0, 10)}`,
+      channel: 'whatsapp',
+      status: 'sending',
+      account_id: accountId ? String(accountId) : null,
+      template_name: templateName || null,
+      started_at: new Date().toISOString(),
+    }).select().single();
+    if (error) throw error;
+    return res.status(201).json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function listCampaigns(req, res) {
+  try {
+    const { data, error } = await db
+      .from('campaigns')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function getCampaign(req, res) {
+  try {
+    const { data: campaign, error } = await db
+      .from('campaigns')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (error) throw error;
+    if (!campaign) return res.status(404).json({ message: 'Campaign not found' });
+
+    const { data: recipients } = await db
+      .from('whatsapp_bulk_recipients')
+      .select('*')
+      .eq('campaign_id', req.params.id);
+
+    return res.json({ campaign, recipients: recipients || [] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function sendBulkTemplate(req, res) {
   try {
-    const { accountId, to, templateName, templateLang, parameters, headerImageUrl } = req.body;
+    const { accountId, to, templateName, templateLang, parameters, headerImageUrl, headerFormat, recipientName, campaignId } = req.body;
     if (!to) return res.status(400).json({ success: false, message: 'Phone number is required' });
 
     const account = accountId ? await getAccountById(accountId) : await resolveAccount();
@@ -803,25 +891,35 @@ export async function sendBulkTemplate(req, res) {
     if (!tpl) return res.status(400).json({ success: false, message: 'Template name is required' });
 
     const params = Array.isArray(parameters) ? parameters : [];
-    const result = await sendTemplateMessage(to, tpl, params, templateLang || account.template_language || 'en', account, headerImageUrl);
+    const result = await sendTemplateMessage(to, tpl, params, templateLang || account.template_language || 'en', account, headerImageUrl, headerFormat);
     const messageId = result?.messages?.[0]?.id || result?.id || null;
 
-    try {
-      const { error: insertErr } = await db.from('whatsapp_bulk_recipients').insert({
-        account_id: account.id,
-        template_name: tpl,
-        recipient_name: req.body.recipientName || null,
-        phone: String(to).replace(/[^0-9]/g, ''),
-        wa_message_id: messageId,
-        status: 'sent',
+    if (!messageId) {
+      console.error('WhatsApp API returned no message ID:', result);
+      return res.status(502).json({
+        success: false,
+        message: 'No WhatsApp message ID returned',
+        result,
       });
-      if (insertErr) console.error('Bulk recipient log insert failed:', insertErr.message);
-    } catch (e) {
-      console.error('Bulk recipient log insert failed:', e?.message || e);
+    }
+
+    const { error: insertErr } = await db.from('whatsapp_bulk_recipients').insert({
+      account_id: account.id,
+      campaign_id: campaignId || null,
+      template_name: tpl,
+      recipient_name: req.body.recipientName || null,
+      phone: String(to).replace(/[^0-9]/g, ''),
+      wa_message_id: messageId,
+      status: 'accepted',
+    });
+
+    if (insertErr) {
+      console.error('Bulk recipient log insert failed:', insertErr.message);
     }
 
     return res.json({
       success: true,
+      status: 'accepted',
       messageId,
       result,
     });

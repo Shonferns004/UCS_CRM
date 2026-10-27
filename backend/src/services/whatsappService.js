@@ -51,7 +51,34 @@ export async function sendTextMessage(to, text, account) {
   return sendViaFacebook(to, 'text', { text: { body: text } }, resolved);
 }
 
-export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null) {
+async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
+  const token = getAccessToken(account);
+  const phoneNumberId = account.phone_number_id;
+  if (!token || !phoneNumberId) throw new Error('WhatsApp account not configured');
+
+  const mediaRes = await fetch(mediaUrl);
+  if (!mediaRes.ok) throw new Error('Failed to download media for upload');
+  const buffer = Buffer.from(await mediaRes.arrayBuffer());
+  const contentType = mediaRes.headers.get('content-type') || (mediaType === 'image' ? 'image/jpeg' : 'application/pdf');
+
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', contentType);
+  form.append('file', new Blob([buffer], { type: contentType }), mediaType === 'image' ? 'image.jpg' : 'document.pdf');
+
+  const uploadRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const uploadData = await uploadRes.json();
+  if (!uploadRes.ok || !uploadData?.id) {
+    throw new Error(uploadData?.error?.message || 'Media upload to Meta failed');
+  }
+  return uploadData.id;
+}
+
+export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null, headerFormat = 'IMAGE') {
   if (!config.enabled && !account) throw new Error('WhatsApp not configured');
 
   const resolved = account || await resolveAccount();
@@ -61,9 +88,11 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
 
   const components = [];
   if (headerImageUrl) {
+    const mediaType = String(headerFormat || 'IMAGE').toUpperCase() === 'DOCUMENT' ? 'document' : 'image';
+    const mediaId = await uploadMediaToMeta(resolved, headerImageUrl, mediaType);
     components.push({
       type: 'header',
-      parameters: [{ type: 'image', image: { link: headerImageUrl } }],
+      parameters: [{ type: mediaType, [mediaType]: { id: mediaId } }],
     });
   }
   if (Array.isArray(parameters) && parameters.length > 0) {
