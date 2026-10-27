@@ -15,7 +15,7 @@ export default function ConfirmBulkModal({ visible, donorCount, projectName, onC
             You are about to send donation receipts to <strong>{donorCount} donors</strong> via WhatsApp using the <strong>{projectName}</strong> template.
           </p>
           <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:12, fontSize:12, color:'#92400e', marginBottom:16 }}>
-            This action cannot be undone once started. Sending will be done in batches of 10 at a time.
+            This action cannot be undone once started. Sending will be done in batches of 5 at a time with a short delay to avoid rate limits.
           </div>
           <div style={{ marginBottom:16 }}>
             <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'4px 0' }}>
@@ -28,7 +28,7 @@ export default function ConfirmBulkModal({ visible, donorCount, projectName, onC
             </div>
             <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'4px 0' }}>
               <span style={{ color:'#6b7280' }}>Batch size:</span>
-              <span style={{ fontWeight:600 }}>10 at a time</span>
+              <span style={{ fontWeight:600 }}>5 at a time</span>
             </div>
           </div>
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>

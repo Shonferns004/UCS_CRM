@@ -37,16 +37,6 @@ const NOT_CONNECTED_OPTIONS = [
 ];
 const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
 
-// Keys and labels mirror the Recruiter Overview date filter so the two panels
-// describe the same window the same way.
-const DATE_RANGES = [
-  { value: 'all', label: 'All Time' },
-  { value: 'today', label: 'Today' },
-  { value: 'yesterday', label: 'Yesterday' },
-  { value: '7days', label: 'Last 7 Days' },
-  { value: 'month', label: 'This Month' },
-];
-
 const formatDT = (ts) => {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -70,7 +60,8 @@ export default function Recruiters() {
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [search, setSearch] = useState('');
-  const [rangeKey, setRangeKey] = useState('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
@@ -87,7 +78,7 @@ export default function Recruiters() {
 
   // Reset the progressive list when any filter changes so we don't show a
   // stale "Load more" tail.
-  useEffect(() => { setVisibleCount(8); }, [recruiterFilter, statusFilter, sourceFilter, search, rangeKey, tab]);
+  useEffect(() => { setVisibleCount(8); }, [recruiterFilter, statusFilter, sourceFilter, search, fromDate, toDate, tab]);
 
   // The date range is the widest filter on the page, so it narrows the raw lead
   // list first and everything downstream — stat cards, leaderboard and both tab
@@ -95,31 +86,29 @@ export default function Recruiters() {
   // stored ISO string buckets by UTC, exactly as the Recruiter Overview filter
   // does, so the two panels always report the same window.
   const scopedLeads = useMemo(() => {
-    if (rangeKey === 'all') return leads;
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-    if (rangeKey === 'today') return leads.filter(l => l.created_at?.slice(0, 10) === todayStr);
-    if (rangeKey === 'yesterday') {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const ys = yesterday.toISOString().slice(0, 10);
-      return leads.filter(l => l.created_at?.slice(0, 10) === ys);
+    let out = leads;
+    if (fromDate || toDate) {
+      out = out.filter(l => {
+        const d = l.created_at?.slice(0, 10);
+        if (!d) return false;
+        if (fromDate && d < fromDate) return false;
+        if (toDate && d > toDate) return false;
+        return true;
+      });
     }
-    if (rangeKey === '7days') {
-      const since = new Date(now);
-      since.setDate(since.getDate() - 7);
-      const sinceStr = since.toISOString().slice(0, 10);
-      return leads.filter(l => l.created_at?.slice(0, 10) >= sinceStr);
+    if (recruiterFilter) {
+      const r = recruiters.find(x => String(x.id) === recruiterFilter);
+      if (r) out = out.filter(l => belongsToLead(l, r));
+      else out = [];
     }
-    if (rangeKey === 'month') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      return leads.filter(l => l.created_at?.slice(0, 10) >= monthStart);
-    }
-    return leads;
-  }, [leads, rangeKey]);
+    return out;
+  }, [leads, fromDate, toDate, recruiterFilter, recruiters]);
 
   const filteredLeads = scopedLeads.filter(l => {
-    if (recruiterFilter && String(l.recruiter_id) !== recruiterFilter) return false;
+    if (recruiterFilter) {
+      const r = recruiters.find(x => String(x.id) === recruiterFilter);
+      if (!r || !belongsToLead(l, r)) return false;
+    }
     if (statusFilter && l.status !== statusFilter) return false;
     if (sourceFilter && l.source !== sourceFilter) return false;
     if (search) {
@@ -306,15 +295,17 @@ export default function Recruiters() {
             <option value="">All Sources</option>
             {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select
-            className="ro-filter-select"
-            value={rangeKey}
-            onChange={e => setRangeKey(e.target.value)}
-            aria-label="Filter leads by date"
-          >
-            {DATE_RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          <select className="ro-filter-select" value={recruiterFilter} onChange={e => setRecruiterFilter(e.target.value)} aria-label="Filter by recruiter">
+            <option value="">All Recruiters</option>
+            {recruiters.filter(isActiveRecruiter).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-          <button className="btn btn-sm" onClick={() => { setSearch(''); setStatusFilter(''); setSourceFilter(''); setRangeKey('all'); setRecruiterFilter(''); }} style={{ padding: '6px 12px' }}>Reset</button>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: 'var(--ink-soft)' }}>From
+            <input type="date" className="ro-filter-select" value={fromDate} onChange={e => setFromDate(e.target.value)} aria-label="Filter leads from date" />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: 'var(--ink-soft)' }}>To
+            <input type="date" className="ro-filter-select" value={toDate} onChange={e => setToDate(e.target.value)} aria-label="Filter leads to date" />
+          </label>
+          <button className="btn btn-sm" onClick={() => { setSearch(''); setStatusFilter(''); setSourceFilter(''); setFromDate(''); setToDate(''); setRecruiterFilter(''); }} style={{ padding: '6px 12px' }}>Reset</button>
         </div>
       </div>
 

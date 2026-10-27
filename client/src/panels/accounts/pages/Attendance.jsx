@@ -98,15 +98,15 @@ export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
       .filter(w => String(w.employment_status || '').toLowerCase().trim() !== 'absconded')
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-    const totalCols = 3 + days.length + 4;
+    const totalCols = 3 + days.length + 5;
     const wsData = [
-      ['No. ', 'Week ', rangeLabel, ...days.map(d => WEEKDAYS[new Date(d + 'T12:00:00Z').getUTCDay()]), 'Present', 'Absent', 'Sunday', 'Half Day'],
-      ['Sr.', 'Name of the Staff', 'Day ', ...days.map(d => parseInt(d.slice(8), 10)), '', '', '', ''],
+      ['No. ', 'Week ', rangeLabel, ...days.map(d => WEEKDAYS[new Date(d + 'T12:00:00Z').getUTCDay()]), 'Present', 'Absent', 'Sunday', 'Half Day', 'Total Late Minutes'],
+      ['Sr.', 'Name of the Staff', 'Day ', ...days.map(d => parseInt(d.slice(8), 10)), '', '', '', '', ''],
     ];
 
     activeWorkers.forEach((w, idx) => {
       const joinDate = (w.created_at || '').slice(0, 10);
-      let present = 0, absent = 0, sunday = 0, halfDay = 0;
+      let present = 0, absent = 0, sunday = 0, halfDay = 0, lateMinutes = 0;
       const inCells = [];
       const outCells = [];
       for (const ds of days) {
@@ -116,6 +116,7 @@ export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
         if (dow === 0) { sunday++; inCells.push(''); outCells.push(''); continue; }
         const rec = recCache[`${w.id}|${ds}`];
         if (!rec) { absent++; inCells.push('A'); outCells.push(''); continue; }
+        lateMinutes += (rec.late_minutes || 0);
         if (rec.status === 'present' || rec.status === 'late') {
           present++;
           inCells.push(istTimeStr(rec.punch_in_time) || 'P');
@@ -132,13 +133,13 @@ export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
           inCells.push('A'); outCells.push('');
         }
       }
-      wsData.push([idx + 1, w.name || `Worker ${w.id}`, 'In ', ...inCells, present, absent, sunday, halfDay]);
-      wsData.push(['', '', 'Out', ...outCells, '', '', '', '']);
+      wsData.push([idx + 1, w.name || `Worker ${w.id}`, 'In ', ...inCells, present, absent, sunday, halfDay, lateMinutes]);
+      wsData.push(['', '', 'Out', ...outCells, '', '', '', '', '']);
       wsData.push(Array(totalCols).fill(''));
     });
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 4 }, { wch: 26 }, { wch: 7 }, ...days.map(() => ({ wch: 8 })), { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 9 }];
+    ws['!cols'] = [{ wch: 4 }, { wch: 26 }, { wch: 7 }, ...days.map(() => ({ wch: 8 })), { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 9 }, { wch: 12 }];
 
     for (let r = 0; r < 2; r++) {
       for (let c = 0; c < totalCols; c++) {
@@ -166,7 +167,7 @@ export async function exportAttendanceSheet(exportFrom, exportTo, preload) {
         else if (v === 'L') cell.s = { fill: { fgColor: { rgb: 'FFFEF3C7' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
         else if (v === 'HD') cell.s = { fill: { fgColor: { rgb: 'FFFFEDD5' } }, font: { bold: true, color: { rgb: 'FFC2410C' } } };
       }
-      for (let c = totalCols - 4; c < totalCols; c++) {
+      for (let c = totalCols - 5; c < totalCols; c++) {
         const addr = XLSX.utils.encode_cell({ r: rowNum, c });
         if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8F5E9' } } };
       }

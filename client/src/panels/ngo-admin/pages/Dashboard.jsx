@@ -3052,10 +3052,11 @@ idle: {
                       // number, so a glance down the row catches it.
                       const idl = p.status === 'idle';
                       const highlighted = live || met || idl;
-                      // The Warn button escalates with the idle time: yellow
-                      // after an hour, orange after an hour and a half, red at
-                      // two hours. warnToneFor returns null until the hour is
-                      // passed, which is the same rule the button always used.
+                      // The Warn button escalates with the idle time: green at
+                      // 1:00-1:40, orange at 1:41-2:10, red at 2:11+. The
+                      // server's automatic sweep uses the same bands, so the
+                      // button and the FRO's warning never disagree.
+                      // warnToneFor returns null until the hour is passed.
                       const warnTone = warnToneFor(p.today_idle_seconds);
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -3085,8 +3086,8 @@ idle: {
                                     try {
                                       // Send the tier, not the text: the server
                                       // resolves the canonical wording for this
-                                      // level so the FRO's modal, bell and push
-                                      // all read the same message.
+                                      // level, so a manual Warn and the
+                                      // automatic band sweep read the same.
                                       const r = await apiPost('/ngo-admin/notify-fro', { workerId: p.fro_id, level: warnTone.level });
                                       toast(r?.message || `Warning sent to ${p.fro_name}`, 'success');
                                     } catch (err) {

@@ -222,7 +222,7 @@ async function wrappedRun(nowMs = Date.now()) {
 
 export function start(intervalMs = DEFAULT_INTERVAL_MS) {
   if (_job) return _job;
-  const nonOverlap = makeNonOverlap(wrappedRun, '[froIdleReconcile]');
+  const nonOverlap = makeNonOverlap('[froIdleReconcile]', wrappedRun);
   _job = setInterval(() => {
     nonOverlap(Date.now()).catch(() => {});
   }, intervalMs);

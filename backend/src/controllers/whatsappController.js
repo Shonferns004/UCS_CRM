@@ -776,6 +776,21 @@ export async function listTemplates(req, res) {
   }
 }
 
+export async function listBulkRecipientStatuses(req, res) {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
+    const { data, error } = await db
+      .from('whatsapp_bulk_recipients')
+      .select('wa_message_id, phone, recipient_name, template_name, status, failure_reason, status_updated_at, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function sendBulkTemplate(req, res) {
   try {
     const { accountId, to, templateName, templateLang, parameters, headerImageUrl } = req.body;

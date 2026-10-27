@@ -8187,8 +8187,9 @@ export const updateFollowupDate = async (req, res) => {
   }
 };
 
-// Nudge an FRO who is sitting idle. Bell + realtime + FCM so it lands on the
-// phone too — the whole point is they are away from the desk.
+// Nudge an FRO who is sitting idle. Modal-only by product decision: the alert
+// goes out on the realtime socket and nothing is pushed to the phone or shown as
+// a desktop notification. The same modal is used by the automatic band sweep.
 export const notifyFroHandler = async (req, res) => {
   try {
     const { workerId, message, level } = req.body;
@@ -8211,30 +8212,19 @@ export const notifyFroHandler = async (req, res) => {
       return res.status(403).json({ message: 'Worker not in your NGO(s)' });
     }
 
-    const name = worker.name || 'Telecaller';
+    const name = worker.name || '';
     // `level` is the tier the admin saw on the board. Resolving the copy here
-    // keeps the FRO modal, the bell row and the FCM push identical, and leaves
-    // the original free-text `message` path working for older callers.
+    // keeps the FRO modal identical to the automatic band sweep, and leaves the
+    // original free-text `message` path working for older callers.
     const idleAlert = idleAlertFor(level, name);
     const alertTitle = idleAlert ? idleAlert.title : 'You are idle';
     const alertBody = idleAlert
       ? idleAlert.body
       : (typeof message === 'string' && message.trim())
         ? message.trim()
-        : `${name}, your disposition timer ran out. Please resume your work.`;
-    try {
-      const { notifyWorker } = await import('../services/fcmService.js');
-      await notifyWorker(
-        workerId,
-        alertTitle,
-        alertBody,
-        'idle_alert',
-        String(workerId)
-      );
-    } catch (pushErr) {
-      // Push is best-effort — the socket notification below is the guaranteed path.
-      console.warn('idle alert push failed:', pushErr.message);
-    }
+        : `${name ? `${name}, ` : ''}your disposition timer ran out. Please resume your work.`;
+    // No FCM/desktop notification for idle alerts: the modal on the FRO's own
+    // panel is the only delivery channel (same as the automatic band sweep).
     // Broadcast on role:fro (not worker:<id>) so delivery does not depend on
     // the FRO socket having joined the per-worker topic — which silently dropped
     // the alert when the topic name did not match the authed worker id. Each FRO
@@ -8248,7 +8238,7 @@ export const notifyFroHandler = async (req, res) => {
       sent_at: new Date().toISOString(),
     }, 'role:fro');
     return res.json({
-      message: `Idle alert sent to ${name}`,
+      message: `Idle alert sent to ${name || 'FRO'}`,
       level: idleAlert ? idleAlert.level : null,
     });
   } catch (error) {
