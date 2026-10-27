@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sendReceipt, sendDirect, serveReceiptFile, listTemplates, sendBulkTemplate, listBulkRecipientStatuses } from '../controllers/whatsappController.js';
+import { sendReceipt, sendDirect, serveReceiptFile, listTemplates, sendBulkTemplate, listBulkRecipientStatuses, getAccountHealth, listCampaigns, getCampaign, createCampaign } from '../controllers/whatsappController.js';
 import { getStations, getDonorsByStation, getAccessibleNgos } from '../controllers/ngoAdminController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
@@ -9,6 +9,10 @@ router.post('/send-direct', authenticateRole('accounts', 'super_admin'), sendDir
 router.get('/templates', authenticateRole('accounts', 'super_admin', 'admin'), listTemplates);
 router.post('/send-bulk-template', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), sendBulkTemplate);
 router.get('/bulk/statuses', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listBulkRecipientStatuses);
+router.post('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), createCampaign);
+router.get('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listCampaigns);
+router.get('/campaigns/:id', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getCampaign);
+router.get('/accounts/:accountId/health', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getAccountHealth);
 router.get('/bulk/stations', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getStations);
 router.get('/bulk/ngos', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getAccessibleNgos);
 router.get('/bulk/donors-by-station', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getDonorsByStation);

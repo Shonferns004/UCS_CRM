@@ -3,6 +3,15 @@ import { Check, Copy, Download, Pencil, Trash2, Users } from 'lucide-react';
 
 const MASK = '••••••••••••••••';
 
+const ACCENT = {
+  bsct: '#0866FF',
+  bsct2: '#4B8DFF',
+  aflf: '#7B5CFA',
+  aflf2: '#A78BFA',
+  mann: '#0E9F6E',
+  'mann 2': '#34D399',
+};
+
 function initialsOf(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';
@@ -59,12 +68,16 @@ export default function AccountCard({
 
   const connected = Boolean(account.is_active);
   const quality = account.quality ?? account.quality_rating ?? 'N/A';
+  const qualityLabel = quality === 'N/A' ? 'Not available' : quality;
   const phone = account.phone_number_id || '';
   const waba = account.waba_id || '';
   const token = account.access_token || '';
 
+  const accent = ACCENT[String(account.project || '').toLowerCase()] || '#0866FF';
+
   return (
-    <article className="wa-card">
+    <article className="wa-card" style={{ overflow: 'hidden' }}>
+      <div style={{ height: 5, background: accent }} />
       <div className="wa-card-top">
         <span className="wa-avatar" aria-hidden="true">{initialsOf(account.name)}</span>
         <div className="wa-card-id">
@@ -72,7 +85,7 @@ export default function AccountCard({
           <div className="wa-card-chips">
             <span className="wa-chip wa-chip-code">{account.project}</span>
             {account.is_default && <span className="wa-chip wa-chip-default">Default</span>}
-            <span className="wa-chip wa-chip-quality">Quality {quality}</span>
+            <span className="wa-chip wa-chip-quality">Quality {qualityLabel}</span>
           </div>
         </div>
         <span className={`wa-status ${connected ? 'is-on' : 'is-off'}`}>
