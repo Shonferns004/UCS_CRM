@@ -4,6 +4,8 @@ import { apiGet, apiPost } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import BulkProgressModal from '../components/BulkProgressModal';
 import ConfirmBulkModal from '../components/ConfirmBulkModal';
+import TemplatePreview from '../components/TemplatePreview';
+import StatusBadge from '../components/StatusBadge';
 
 function normalizePhone(raw) {
   const digits = String(raw || '').replace(/[^0-9]/g, '');
@@ -267,7 +269,7 @@ export default function WhatsAppBulk() {
   const removeRecipient = (phone) => setRecipients(prev => prev.filter(r => r.phone !== phone));
 
   return (
-    <div className="wa-page">
+    <div className="wa-page" style={{ background: '#f0f2f5', minHeight: '100vh', padding: 16 }}>
       <header className="wa-header">
         <div>
           <h1 className="wa-h1">WhatsApp Bulking</h1>
@@ -294,18 +296,10 @@ export default function WhatsAppBulk() {
               {templates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>
           </label>
-          {(() => {
-            const tpl = templates.find(t => t.name === selectedTemplate);
-            const body = (tpl?.components || []).find(c => String(c.type || '').toUpperCase() === 'BODY')?.text || '';
-            const fallback = !body && tpl?.components ? JSON.stringify(tpl.components) : '';
-            if (!body && !fallback) return null;
-            return (
-              <div className="wa-f" style={{ gridColumn: '1 / -1' }}>
-                <span className="wa-f-label">Template Body</span>
-                <div style={{ padding: 8, border: '1px solid #d1d5db', borderRadius: 8, background: '#f8fafc', fontSize: 12, whiteSpace: 'pre-wrap' }}>{body || fallback}</div>
-              </div>
-            );
-          })()}
+          <div className="wa-f" style={{ gridColumn: '1 / -1' }}>
+            <span className="wa-f-label">Template Preview</span>
+            <TemplatePreview template={templates.find(t => t.name === selectedTemplate)} />
+          </div>
           <label className="wa-f">
             <span className="wa-f-label">Language</span>
             <input className="wa-input" value={templateLang} onChange={e => setTemplateLang(e.target.value)} />
@@ -434,7 +428,7 @@ export default function WhatsAppBulk() {
                 <tr key={r.wa_message_id} style={{ borderTop: '1px solid #eee' }}>
                   <td style={{ padding: 6 }}>{r.phone}</td>
                   <td style={{ padding: 6 }}>{r.template_name}</td>
-                  <td style={{ padding: 6 }}>{r.status}</td>
+                  <td style={{ padding: 6 }}><StatusBadge status={r.status} /></td>
                   <td style={{ padding: 6 }}>{r.failure_reason || '—'}</td>
                 </tr>
               ))}
