@@ -130,7 +130,7 @@ export const getLeadList = async (req, res) => {
           status,
           ngos!left(id, name),
           donor_profiles!inner(id, name, mobile_number, city, pan_number, address_1, email, project_supported, donation_count, total_amount, birth_date, donors_bank_name),
-          workers!inner(id, name, login_id)
+          workers!left(id, name, login_id)
         )
       `)
       .eq('action', 'disposition')

@@ -586,6 +586,28 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
   }
 });
 
+// Serve extensionless chat uploads (legacy files stored without an extension)
+// with a sniffed image Content-Type so browsers render them. New uploads now
+// carry an extension and go through express.static below.
+app.get('/uploads/*', (req, res, next) => {
+  const rel = String(req.params[0] || '');
+  if (path.extname(rel)) return next();
+  const root = path.resolve(__dirname, '../uploads');
+  const full = path.resolve(root, rel);
+  if (!full.startsWith(root + path.sep) && full !== root) return next();
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return next();
+  let mime = 'application/octet-stream';
+  try {
+    const buf = fs.readFileSync(full).slice(0, 12);
+    if (buf[0] === 0xFF && buf[1] === 0xD8) mime = 'image/jpeg';
+    else if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) mime = 'image/png';
+    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif';
+    else if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+             buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) mime = 'image/webp';
+  } catch (_) {}
+  res.setHeader('Content-Type', mime);
+  res.sendFile(full);
+});
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 // ---------------------------------------------------------------------------
