@@ -37,6 +37,7 @@ export default function WhatsAppBulk() {
   const [templateLang, setTemplateLang] = useState('en');
   const [variables, setVariables] = useState('');
   const [recipients, setRecipients] = useState([]);
+  const [recipientSearch, setRecipientSearch] = useState('');
   const [selectedRecipients, setSelectedRecipients] = useState([]);
   const [keepCount, setKeepCount] = useState('');
   const [testNumber, setTestNumber] = useState('');
@@ -117,35 +118,47 @@ export default function WhatsAppBulk() {
     }
   };
 
+  const handleSheetFiles = async (files) => {
+    const fileList = Array.from(files || []);
+    if (!fileList.length) return;
+    const allRows = [];
+    for (const file of fileList) {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const sourceRows = wb.SheetNames.map(sn => XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '', raw: false })).find(r => r.length > 0) || [];
+      const rows = sourceRows.map((row, index) => {
+        const keys = Object.keys(row);
+        const nameKey = keys.find(k => /name/i.test(k));
+        let phoneKey = keys.find(k => /phone|mobile|contact|cell/i.test(k));
+        if (!phoneKey && keys.length === 1) phoneKey = keys[0];
+        if (!phoneKey) {
+          const candidate = keys.find(k => normalizePhone(row[k]).length >= 10);
+          if (candidate) phoneKey = candidate;
+        }
+        const stationKey = keys.find(k => /station/i.test(k));
+        const ngoKey = keys.find(k => /ngo|project/i.test(k));
+        const phone = normalizePhone(phoneKey ? row[phoneKey] : '');
+        const rawName = nameKey ? String(row[nameKey] || '').trim() : '';
+        return {
+          name: rawName || (phone ? `Recipient ${index + 1}` : 'Unknown'),
+          phone,
+          station: stationKey ? String(row[stationKey] || '').trim() : '',
+          ngo: ngoKey ? String(row[ngoKey] || '').trim() : '',
+          source: 'sheet',
+          valid: phone.length >= 10,
+        };
+      }).filter(r => r.phone);
+      allRows.push(...rows);
+    }
+    setRecipients(dedupeByPhone(allRows));
+    setSelectedRecipients([]);
+    return;
+  };
+
+  // Backward-compatible single-file handler
   const handleSheet = async (file) => {
     if (!file) return;
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
-    const sourceRows = wb.SheetNames.map(sn => XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '', raw: false })).find(r => r.length > 0) || [];
-    const rows = sourceRows.map((row, index) => {
-      const keys = Object.keys(row);
-      const nameKey = keys.find(k => /name/i.test(k));
-      let phoneKey = keys.find(k => /phone|mobile|contact|cell/i.test(k));
-      if (!phoneKey && keys.length === 1) phoneKey = keys[0];
-      if (!phoneKey) {
-        const candidate = keys.find(k => normalizePhone(row[k]).length >= 10);
-        if (candidate) phoneKey = candidate;
-      }
-      const stationKey = keys.find(k => /station/i.test(k));
-      const ngoKey = keys.find(k => /ngo|project/i.test(k));
-      const phone = normalizePhone(phoneKey ? row[phoneKey] : '');
-      const rawName = nameKey ? String(row[nameKey] || '').trim() : '';
-      return {
-        name: rawName || (phone ? `Recipient ${index + 1}` : 'Unknown'),
-        phone,
-        station: stationKey ? String(row[stationKey] || '').trim() : '',
-        ngo: ngoKey ? String(row[ngoKey] || '').trim() : '',
-        source: 'sheet',
-        valid: phone.length >= 10,
-      };
-    }).filter(r => r.phone);
-    setRecipients(dedupeByPhone(rows));
-    setSelectedRecipients([]);
+    await handleSheetFiles([file]);
   };
 
   const fetchStationRecipients = async () => {
@@ -383,7 +396,7 @@ export default function WhatsAppBulk() {
       {mode === 'sheet' && (
         <section className="wa-form" style={{ marginBottom: 12, background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(20,30,60,.10)' }}>
           <div style={{ padding: 12 }}>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { if (e.target.files[0]) handleSheet(e.target.files[0]); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" multiple onChange={e => { if (e.target.files?.length) handleSheetFiles(e.target.files); e.target.value = ''; }} />
             <p style={{ fontSize: 12, color: '#5B6070', marginTop: 6 }}>Upload sheet with Name and Phone columns. Accepted: .xlsx, .xls, .csv</p>
           </div>
         </section>
@@ -467,6 +480,23 @@ export default function WhatsAppBulk() {
               setRecipients(prev => prev.filter(r => !selectedRecipients.includes(r.phone)));
               setSelectedRecipients([]);
             }} disabled={!selectedRecipients.length}>Remove Selected</button>
+            <button className="wa-btn wa-btn-outline" onClick={async () => {
+              try {
+                const res = await apiPost('/whatsapp/validate-contacts', {
+                  accountId: selectedAccountId,
+                  phones: recipients.map(r => r.phone),
+                });
+                const validSet = new Set((res.valid || []).map(String));
+                setRecipients(prev => prev.map(r => ({ ...r, valid: validSet.has(String(r.phone)) })));
+                if (res.validationUnavailable) {
+                  toast('warning', `Validation unavailable (Meta): ${res.metaError || ''}. All recipients kept as valid.`);
+                } else {
+                  toast('success', `${res.valid?.length || 0} WhatsApp-active, ${res.invalid?.length || 0} not on WhatsApp`);
+                }
+              } catch (e) {
+                toast('error', e.message || 'Validation failed');
+              }
+            }} disabled={!recipients.length || !selectedAccountId}>Validate WhatsApp</button>
             <button className="wa-btn wa-btn-outline" onClick={exportFailed} disabled={!recipients.length}>Export Failed/Invalid</button>
             <button className="wa-btn wa-btn-primary" onClick={handleSendAll} disabled={!validRecipients.length || bulkState.active}>
               {bulkState.active ? (
@@ -477,6 +507,9 @@ export default function WhatsAppBulk() {
               ) : 'Send Bulk'}
             </button>
           </div>
+        </div>
+        <div style={{ padding: '0 12px 8px' }}>
+          <input placeholder="Search recipients by name/phone/station..." value={recipientSearch} onChange={e => setRecipientSearch(e.target.value)} style={{ width: '100%', maxWidth: 360, height: 34, padding: '0 10px', border: '1px solid #cbd0dc', borderRadius: 8, fontSize: 13 }} />
         </div>
         <div style={{ maxHeight: 320, overflow: 'auto', padding: '0 12px 12px' }}>
           <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
@@ -496,7 +529,11 @@ export default function WhatsAppBulk() {
               </tr>
             </thead>
             <tbody>
-              {recipients.map(r => (
+              {recipients.filter(r => {
+                const q = recipientSearch.trim().toLowerCase();
+                if (!q) return true;
+                return [r.name, r.phone, r.station, r.source].some(v => String(v || '').toLowerCase().includes(q));
+              }).map(r => (
                 <tr key={r.phone} style={{ borderTop: '1px solid #ebdef3', opacity: r.valid ? 1 : 0.5 }}>
                   <td style={{ padding: 6 }}>
                     <input type="checkbox" checked={selectedRecipients.includes(r.phone)} onChange={() => {
@@ -589,7 +626,14 @@ export default function WhatsAppBulk() {
 
       {bulkState.active && (
         <BulkProgressModal
-          bulkState={bulkState}
+          visible={bulkState.active}
+          total={bulkState.total}
+          sent={bulkState.sent}
+          failed={bulkState.failed}
+          currentBatch={bulkState.currentBatch}
+          totalBatches={bulkState.totalBatches}
+          results={bulkState.results}
+          previousBatches={bulkState.previousBatches}
           onCancel={() => { cancelBulkRef.current = true; }}
         />
       )}
