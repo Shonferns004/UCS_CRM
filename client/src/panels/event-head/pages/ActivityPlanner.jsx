@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PageHeader, Select, SearchInput, Badge, StatusPill, Empty } from '../components/ui.jsx'
 import MonthlyCalendarView from '../components/planner/MonthlyCalendarView.jsx'
@@ -760,6 +760,26 @@ export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refresh
   const [dismissed, setDismissed] = useState(() => new Set())
   // Ticks live server-side; this is only the optimistic mirror of them.
   const [selected, setSelected] = useState(() => new Set())
+  const generatedRef = useRef('')
+
+  const run = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await suggestActivityPrograms({ activityId: activity.id, ngoId: ngo?.id, month })
+      setData(res)
+      setDismissed(new Set())
+      // Newly returned rows carry their own is_selected, so ticks that were
+      // already saved survive regenerating the batch.
+      setSelected(new Set((res?.suggestions || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
+      // The batch may have changed which ideas exist, so the page re-reads its
+      // own selected list rather than reporting a stale one.
+      onSelectionChange?.()
+    } catch (e) {
+      setData({ suggestions: [], observances: [], ai: { available: false, reason: e?.message || 'Could not reach the server.' } })
+    } finally {
+      setLoading(false)
+    }
+  }, [activity?.id, ngo?.id, month])
 
   const monthNum = Number(String(month).split('-')[1])
   const yearNum = Number(String(month).split('-')[0])
@@ -774,7 +794,39 @@ export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refresh
     fetchPlannerSuggestions({ ngo_id: ngo?.id, activity_id: activity?.id, month: monthNum, year: yearNum })
       .then((list) => {
         if (!alive) return
-        setSelected(new Set((list || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
+        const rows = Array.isArray(list) ? list : []
+        setSelected(new Set(rows.filter((s) => s?.is_selected).map((s) => Number(s.id))))
+        // Surface the month's already-stored suggestions automatically, so changing
+        // the month shows that month's ideas without a manual re-run.
+        if (rows.length) {
+          setData((prev) => prev || {
+            suggestions: rows.map((r) => ({
+              id: r.id,
+              title: r.title,
+              format: r.format,
+              priority: r.priority,
+              audience: r.audience,
+              duration: r.duration,
+              objective: r.objective,
+              rationale: r.rationale,
+              materials: Array.isArray(r.materials) ? r.materials : [],
+              is_selected: Boolean(r.is_selected),
+              suggested_event_id: r.suggested_event_id ?? null,
+              activity_id: r.activity_id,
+              batch_no: r.batch_no,
+            })),
+            observances: [],
+            ai: { available: true, model: null, provider: null, dates_from_ai: false, truncated: false },
+          })
+        } else {
+          // No stored ideas for this month yet — generate them automatically so
+          // switching the month surfaces that month's suggestions.
+          const key = `${activity?.id}-${month}`
+          if (generatedRef.current !== key) {
+            generatedRef.current = key
+            run()
+          }
+        }
       })
       .catch(() => { /* keep whatever is on screen */ })
     return () => { alive = false }
@@ -804,25 +856,6 @@ export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refresh
       })
     }
   }
-
-  const run = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await suggestActivityPrograms({ activityId: activity.id, ngoId: ngo?.id, month })
-      setData(res)
-      setDismissed(new Set())
-      // Newly returned rows carry their own is_selected, so ticks that were
-      // already saved survive regenerating the batch.
-      setSelected(new Set((res?.suggestions || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
-      // The batch may have changed which ideas exist, so the page re-reads its
-      // own selected list rather than reporting a stale one.
-      onSelectionChange?.()
-    } catch (e) {
-      setData({ suggestions: [], observances: [], ai: { available: false, reason: e?.message || 'Could not reach the server.' } })
-    } finally {
-      setLoading(false)
-    }
-  }, [activity?.id, ngo?.id, month])
 
   const ai = data?.ai
   // Keep the server-side index alongside each card so dismissing one does not
@@ -1575,13 +1608,19 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 
 export default function ActivityPlanner({ taskAssignment = false }) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialMonth = searchParams.get('month') || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
   // Resolved to BSCT once the NGO list arrives (see defaultNgoId) — the tabs
   // have nothing to highlight before that, and an empty scope is the honest
   // state until the list says which tab to land on.
   const [ngoId, setNgoId] = useState('')
-  const [month, setMonth] = useState(currentMonthYmd)
+  const [month, setMonth] = useState(() => initialMonth)
+  useEffect(() => {
+    const m = searchParams.get('month')
+    if (m && m !== month) setMonth(m)
+  }, [searchParams])
   const [sectorFilter, setSectorFilter] = useState('')
   const [beneficiaryFilter, setBeneficiaryFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -1592,6 +1631,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
 
   const [monthEvents, setMonthEvents] = useState([])
   const [loadingEvents, setLoadingEvents] = useState(false)
+  const [eventsError, setEventsError] = useState('')
 
   const [toast, setToast] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -1692,7 +1732,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // Land on BSCT's tab. A tab the user already clicked (or a scope that
         // still matches) is never overridden, so a late response cannot yank
         // the page away from a choice made while it loaded.
-        setNgoId((cur) => (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list))
+        setNgoId((cur) => {
+          const wanted = searchParams.get('ngo')
+          if (wanted && list.some((n) => String(n.id) === String(wanted))) return String(wanted)
+          return (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list)
+        })
       })
       .catch(() => setNgos([]))
     fetchSectors().then((l) => setSectors(Array.isArray(l) ? l : [])).catch(() => setSectors([]))
@@ -1814,9 +1858,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const loadMonthEvents = useCallback(() => {
     const [start, end] = monthBounds(month)
     setLoadingEvents(true)
+    setEventsError('')
     fetchCalendarEvents({ start, end, ngoId })
       .then((l) => setMonthEvents(Array.isArray(l) ? l : []))
-      .catch(() => setMonthEvents([]))
+      .catch((e) => { setMonthEvents([]); setEventsError(e?.message || 'Could not load programmes.') })
       .finally(() => setLoadingEvents(false))
   }, [ngoId, month])
 
