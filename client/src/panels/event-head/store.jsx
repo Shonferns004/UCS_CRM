@@ -734,6 +734,8 @@ export const savePlannerManualRow = async (payload = {}) => {
     body_text: payload.body_text,
     is_selected: payload.is_selected,
     mode: payload.mode,
+    beneficiary: payload.beneficiary,
+    location: payload.location,
   })
   return res?.row || null
 }

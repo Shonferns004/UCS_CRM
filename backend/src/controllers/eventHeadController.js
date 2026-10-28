@@ -4134,6 +4134,8 @@ export const savePlannerManualRow = async (req, res) => {
       body_text: req.body?.body_text ?? '',
       is_selected: req.body?.is_selected,
       mode: req.body?.mode ?? null,
+      beneficiary: req.body?.beneficiary ?? null,
+      location: req.body?.location ?? null,
       created_by: req.user?.id ?? req.user?.email ?? null,
     });
     return res.json({ row });

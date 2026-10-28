@@ -2042,6 +2042,24 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           }
           return next
         })
+        setFestBenef((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            if (r?.beneficiary == null) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            next[`${date}::${String(r?.festival ?? '')}`] = String(r.beneficiary)
+          }
+          return next
+        })
+        setFestLoc((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            if (r?.location == null) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            next[`${date}::${String(r?.festival ?? '')}`] = String(r.location)
+          }
+          return next
+        })
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -2122,9 +2140,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const body = String(entry.text || '')
     const selected = Boolean(entry.selected)
     const mode = entry.mode ? String(entry.mode) : null
+    const beneficiary = entry.beneficiary !== undefined ? entry.beneficiary : (festBenef[key] || null)
+    const location = entry.location !== undefined ? entry.location : (festLoc[key] || null)
     // A normal festival row with nothing typed and no tick needs no stored row.
     // An extra row is kept even while empty: its existence IS the row.
-    if (!isExtra && !name && !body && !selected && !mode) {
+    if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
       return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch(() => null)
     }
     return savePlannerManualRow({
@@ -2138,8 +2158,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       body_text: body,
       is_selected: selected,
       mode,
+      beneficiary,
+      location,
     }).catch(() => null)
-  }, [month, ngoId, scopedManual, festNgo, manualKeyParts])
+  }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
 
   const deleteManualRow = useCallback((key) => {
     const { date, festival } = manualKeyParts(key)
@@ -2286,7 +2308,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestBenef((cur) => ({ ...cur, [key]: value }))
     const ownerId = rowNgoId(key)
     const stored = rowSuggestionsFor(key)
-    if (!stored.length || !ownerId) return // nothing stored yet — the choice travels with the next generation
+    const isExtra = String(key.split('::')[1] || '').startsWith('+')
+    if (!stored.length || !ownerId) {
+      if (isExtra) {
+        console.log('persist beneficiary extra', key, value)
+        persistManualRow(key, { beneficiary: value })
+      }
+      return // nothing stored yet — the choice travels with the next generation
+    }
     const [date, ...rest] = key.split('::')
     const festival = rest.join('::')
     const [y, m] = month.split('-').map(Number)
@@ -2325,7 +2354,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const prevFor = festivalLocationFor(key)
     setFestLoc((cur) => ({ ...cur, [key]: value }))
     const stored = rowSuggestionsFor(key)
-    if (!stored.length) return // nothing stored yet — the choice travels with the next generation
+    const isExtra = String(key.split('::')[1] || '').startsWith('+')
+    if (!stored.length) {
+      if (isExtra) {
+        console.log('persist location extra', key, value)
+        persistManualRow(key, { location: value })
+      }
+      return // nothing stored yet — the choice travels with the next generation
+    }
     const ownerNgoId = rowNgoId(key) || stored[0]?.ngo_id
     if (!ownerNgoId) return
     const [date, ...rest] = key.split('::')
@@ -3032,27 +3068,40 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         image: Number.isFinite(evId) ? (bannerByEvent.get(String(evId)) || null) : null,
       })
     }
-    for (const k of Object.keys(scopedManual)) {
-      const e = scopedManual[k]
-      const text = manualText(k)
-      if (!text) continue
-      const d = k.slice(0, 10)
-      const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '') || e?.name || 'No important day'
-      const rn = rowNgo(k)
+    // Pull manual rows for every planning NGO so the PDF is not limited to the
+    // NGO currently selected on screen (the previous code only read the current
+    // tab's rows).
+    const manualRowsAll = []
+    for (const n of reportNgos) {
+      try {
+        const res = await getPlannerManualRows({ month: m, year: y, ngo_id: n.id })
+        const list = Array.isArray(res) ? res : (res?.rows || [])
+        for (const r of list) manualRowsAll.push({ ngo: n, row: r })
+      } catch { /* skip */ }
+    }
+    for (const { ngo: n, row: r } of manualRowsAll) {
+      const festivalKey = String(r?.festival || '')
+      const festival = festivalKey && !festivalKey.startsWith('+')
+        ? festivalKey
+        : (String(r?.name || '').trim() || 'No important day')
+      const programme = String(r?.body_text || r?.name || '').trim()
+      if (!programme) continue
+      const d = String(r?.observance_date || '').slice(0, 10)
       rows.push({
-        ngoId: rn ? rn.id : null,
-        ngoLabel: rn ? ngoShortLabel(rn) : '—',
+        ngoId: r?.row_ngo_id || r?.ngo_id || n.id,
+        ngoLabel: ngoShortLabel(n),
         date: d,
         dateLabel: shortDate(d),
         weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
-        festival: festival || '—',
-        beneficiary: rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
-        location: rowSuggestionsFor(k).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
-        programme: text,
+        festival,
+        beneficiary: String(r?.beneficiary || '—'),
+        location: String(r?.location || '—'),
+        programme,
         status: 'Draft',
         image: null,
       })
     }
+
     rows.sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1
       return String(a.festival || '').localeCompare(String(b.festival || ''))
@@ -3072,7 +3121,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         rows: ngoRows,
       }
     })
-  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos, rowNgo, rowNgoId, rowSuggestionsFor])
+  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos, rowNgo, rowNgoId, rowSuggestionsFor, importantDays])
 
 
   /* Loads the cut-down rows once, mirrors them into state (which the off-screen
@@ -3173,7 +3222,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const downloadPdf = async () => {
     setDownloading('pdf')
     try {
-      const pages = await prepareNgoReportPages()
+      const allPages = await prepareNgoReportPages()
+      const pages = ngoId
+        ? allPages.filter((p) => String(p.ngo?.id) === String(ngoId))
+        : allPages
       if (!pages.some((p) => p.rows.length)) {
         setToast('Nothing to export — select a suggestion or write a programme first.')
         setDownloading('')

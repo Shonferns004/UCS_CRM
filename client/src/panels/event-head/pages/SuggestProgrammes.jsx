@@ -103,8 +103,8 @@ export default function SuggestProgrammes() {
       ngo_id: ngoId || null,
       row_ngo_id: ngoId || '',
       name,
-      body_text: suggestion?.objective || '',
-      is_selected: false,
+      body_text: suggestion?.objective || name,
+      is_selected: true,
       mode: null,
     }).catch(() => { /* manual row is best-effort; the event is already saved */ })
     setToast(`“${name}” added to ${monthLabel(month)} — it is on the Monthly Planner.`)

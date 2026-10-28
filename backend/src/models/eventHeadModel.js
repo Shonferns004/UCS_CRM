@@ -1112,7 +1112,7 @@ export const getPlannerManualRows = async ({ month, year, ngo_id = '' } = {}) =>
 
 export const upsertPlannerManualRow = async ({
   month, year, observance_date, festival, ngo_id, row_ngo_id,
-  name, body_text, is_selected, mode, created_by,
+  name, body_text, is_selected, mode, created_by, beneficiary, location,
 } = {}) => {
   const row = {
     report_month: Number(month),
@@ -1125,6 +1125,8 @@ export const upsertPlannerManualRow = async ({
     body_text: String(body_text ?? ''),
     is_selected: Boolean(is_selected),
     mode: mode ? String(mode) : null,
+    beneficiary: beneficiary != null ? String(beneficiary) : null,
+    location: location != null ? String(location) : null,
     created_by: created_by != null && created_by !== '' ? String(created_by) : null,
     updated_at: new Date(),
   };
