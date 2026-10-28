@@ -5,15 +5,15 @@ export default function BulkProgressModal({ visible, total, sent, failed, curren
   const pct = total > 0 ? Math.round((done / total) * 100) : 0
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 1000 }} onClick={() => {}}>
-      <div className="modal" style={{ maxWidth: 500, width: '90%' }}>
+    <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => {}}>
+      <div className="modal" style={{ maxWidth: 500, width: '90%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h3 style={{ display:'flex', alignItems:'center', gap:8 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
             Sending WhatsApp Messages
           </h3>
         </div>
-        <div className="modal-body" style={{ padding: 20 }}>
+        <div className="modal-body" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>
           <div style={{ width:'100%', background:'#e5e7eb', borderRadius:8, height:12, overflow:'hidden', marginBottom:12 }}>
             <div style={{ height:'100%', background:'linear-gradient(90deg,#059669,#10b981)', borderRadius:8, transition:'width .5s ease-out', width:`${pct}%` }} />
           </div>

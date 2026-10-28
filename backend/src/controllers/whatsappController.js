@@ -4,6 +4,8 @@ import { getAccountById, getActiveAccounts } from '../models/whatsappAccountMode
 import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
 import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } from '../services/receiptFileLink.js';
 import db from '../config/db.js';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const TEMPLATE_PROJECT_MAP = {
   bsct_receipt_2: 'bsct',
@@ -811,6 +813,147 @@ export async function getAccountHealth(req, res) {
   }
 }
 
+export async function getConversationByPhone(req, res) {
+  try {
+    const phone = String(req.params.phone || '').replace(/[^0-9]/g, '');
+    const accountId = req.query.accountId ? String(req.query.accountId) : null;
+    if (!phone) return res.status(400).json({ message: 'phone required' });
+    // find contact
+    const { data: contacts } = await db.from('contacts').select('id').or(`phone.eq.${phone},phone_normalized.eq.${phone}`).limit(1);
+    const contactId = contacts && contacts[0] ? contacts[0].id : null;
+    // resolve account -> project for filtering
+    let accountProject = null;
+    if (accountId) {
+      const { data: acc } = await db.from('whatsapp_accounts').select('project').eq('id', accountId).limit(1);
+      if (acc && acc[0]) accountProject = acc[0].project || null;
+    }
+    let convIds = [];
+    const convProjectMap = {};
+    if (contactId) {
+      const { data: convs } = await db.from('conversations').select('id,project,whatsapp_account_id').eq('contact_id', contactId).order('last_message_at', { ascending: false }).limit(20);
+      if (convs) {
+        for (const c of convs) {
+          // if accountId filter, only include conversations matching that account's project or whatsapp_account_id
+          if (accountId) {
+            const matchAccount = (c.whatsapp_account_id && String(c.whatsapp_account_id) === accountId);
+            const matchProject = accountProject && c.project === accountProject;
+            if (!matchAccount && !matchProject) continue;
+          }
+          convIds.push(c.id);
+          convProjectMap[c.id] = c.project || '';
+        }
+      }
+    }
+    let messages = [];
+    if (convIds.length) {
+      const { data: msgs } = await db.from('messages').select('id,direction,body_text,message_type,status,failure_reason,created_at,wa_message_id,media_url,media_mime_type,conversation_id').in('conversation_id', convIds).order('created_at', { ascending: true }).limit(200);
+      messages = (msgs || []).map(m => ({ ...m, project: convProjectMap[m.conversation_id] || '' }));
+    }
+    // Also include bulk-sent template messages (stored in whatsapp_bulk_recipients)
+    let bulkQ = db.from('whatsapp_bulk_recipients').select('id,template_name,phone,status,failure_reason,created_at,wa_message_id,status_updated_at,account_id').eq('phone', phone);
+    if (accountId) bulkQ = bulkQ.eq('account_id', accountId);
+    const { data: bulk } = await bulkQ.order('created_at', { ascending: true }).limit(200);
+    // Pre-fetch template bodies for display
+    const tplNames = [...new Set((bulk || []).map(b => b.template_name).filter(Boolean))];
+    const tplMap = {};
+    if (tplNames.length) {
+      const { data: tpls } = await db.from('whatsapp_templates').select('name,components').in('name', tplNames);
+      if (tpls) {
+        for (const t of tpls) {
+          const bodyComp = (t.components || []).find(c => String(c.type || '').toUpperCase() === 'BODY');
+          const headerComp = (t.components || []).find(c => String(c.type || '').toUpperCase() === 'HEADER');
+          const buttonsComp = (t.components || []).find(c => String(c.type || '').toUpperCase() === 'BUTTONS');
+          tplMap[t.name] = {
+            body: bodyComp ? (bodyComp.text || '') : '',
+            header: headerComp || null,
+            buttons: buttonsComp ? (buttonsComp.buttons || []) : [],
+          };
+        }
+      }
+    }
+    if (bulk && bulk.length) {
+      for (const b of bulk) {
+        const tpl = tplMap[b.template_name] || {};
+        const body = tpl.body || `[Template: ${b.template_name}]`;
+        messages.push({
+          id: b.id,
+          direction: 'outbound',
+          body_text: body,
+          message_type: 'template',
+          status: b.status || 'accepted',
+          failure_reason: b.failure_reason || null,
+          created_at: b.created_at,
+          wa_message_id: b.wa_message_id,
+          template_name: b.template_name,
+          template_header: tpl.header || null,
+          template_buttons: tpl.buttons || [],
+        });
+      }
+    }
+    // Presign S3 media URLs so the browser can load private objects
+    const s3 = new S3Client({ region: process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1', credentials: process.env.AWS_ACCESS_KEY_ID ? { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY } : undefined });
+    const BUCKET = process.env.S3_BUCKET || 'ucs-crm-uploads-mumbai';
+    const HOST = `${BUCKET}.s3.${process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com`;
+    await Promise.all(messages.map(async (m) => {
+      if (m.media_url && m.media_url.includes(HOST)) {
+        try {
+          const key = new URL(m.media_url).pathname.replace(/^\//, '');
+          const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn: 3600 });
+          m.media_url = url;
+        } catch (e) { /* keep original */ }
+      }
+    }));
+    messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    return res.json({ phone, contactId, conversationId: convIds[0] || null, messages });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function validateWhatsAppContacts(req, res) {
+  try {
+    const { accountId, phones } = req.body || {};
+    const account = await getAccountById(accountId);
+    if (!account) return res.status(404).json({ message: 'Account not found' });
+
+    const list = Array.isArray(phones) ? phones : [];
+    if (!list.length) return res.json({ valid: [], invalid: [] });
+
+    const r = await fetch(`https://graph.facebook.com/v18.0/${account.phone_number_id}/contacts`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${account.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        blocking: 'wait',
+        contacts: list,
+        force_check: true,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      // Meta may reject the contacts-check operation for this number/token
+      // (e.g. missing permission, on-premises number, restricted WABA).
+      // Don't fail the whole request — fall back to "unknown" so the UI keeps working.
+      console.warn('[validateWhatsAppContacts] Meta rejected contacts check:', data?.error?.message);
+      // Meta contacts-check unavailable for this number/token. Don't mark everyone invalid —
+      // keep all recipients as valid so bulk send still works; Meta will reject bad numbers at send time.
+      return res.json({ valid: list, invalid: [], unknown: list, raw: [], validationUnavailable: true, metaError: data?.error?.message || 'Meta contact check failed' });
+    }
+
+    const valid = [];
+    const invalid = [];
+    for (const c of data.contacts || []) {
+      if (c.status === 'valid') valid.push(c.input || c.wa_id);
+      else invalid.push(c.input || c.input);
+    }
+    return res.json({ valid, invalid, raw: data.contacts || [] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
 export async function listBulkRecipientStatuses(req, res) {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
@@ -852,7 +995,20 @@ export async function listCampaigns(req, res) {
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) throw error;
-    return res.json(data || []);
+    const campaigns = data || [];
+    // attach recipient counts
+    await Promise.all(campaigns.map(async (c) => {
+      try {
+        const { count } = await db
+          .from('whatsapp_bulk_recipients')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', c.id);
+        c.recipient_count = count || 0;
+      } catch {
+        c.recipient_count = 0;
+      }
+    }));
+    return res.json(campaigns);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
