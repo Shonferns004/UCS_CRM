@@ -22,6 +22,7 @@ async function callApi(path, { method = 'GET', body, agentToken } = {}) {
     headers: {
       ...(t ? { Authorization: `Bearer ${t}` } : {}),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
+      'ngrok-skip-browser-warning': 'true',
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })

@@ -97,7 +97,7 @@ function formatTempExpiry(iso) {
   } catch { return 'ends soon' }
 }
 
-function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new Set(), activeTab = 'all') {
+function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new Set(), activeTab = 'all', role = '') {
   const assignedAgentId = conversation?.assigned_agent_id
     ?? conversation?.assignedAgentId
     ?? conversation?.assigned_to_agent_id
@@ -114,6 +114,11 @@ function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new 
   // (the backend already scoped them; this avoids over-filtering when
   // myAccounts hasn't loaded yet or tempProjects is stale).
   if (activeTab !== 'all' && project === activeTab) return true
+
+  if (role === 'fro') {
+    if (myProjects.size === 0) return true
+    return project != null && myProjects.has(project)
+  }
 
   if (assignedAgentId != null) return String(assignedAgentId) === String(agentId)
 
@@ -180,8 +185,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [activeProject])
 
   const filteredByTab = useMemo(() => {
-    const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean))
-    const tempProjects = new Set((myAccounts || []).filter(a => a?.temporary).map(a => a?.project).filter(Boolean))
+    const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean).map(p => String(p).toLowerCase()))
+    const tempProjects = new Set((myAccounts || []).filter(a => a?.temporary).map(a => a?.project).filter(Boolean).map(p => String(p).toLowerCase()))
     return conversations.filter(conversation => {
       // Station-prefix filter on client side too
       const proj = (conversation?.project ?? (conversation?.contact?.project || '')).toLowerCase();
@@ -190,9 +195,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
         // For now, if server scoped it with _scope, trust it
         if (conversation._scope === 'station' || conversation._scope === 'temp') return true;
       }
-      return isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab)
+      return isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab, waUser?.role)
     })
-  }, [conversations, waUser?.id, myAccounts, activeTab])
+  }, [conversations, waUser?.id, waUser?.role, myAccounts, activeTab])
 
   // Project chips come from the accounts this FRO actually holds, so a chip for
   // an account they don't have is never shown.

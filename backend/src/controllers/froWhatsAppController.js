@@ -1,7 +1,6 @@
 import {
   getFroConversations,
   getAgentConversations,
-  getAgentUnreadCount,
   getConversationMessages,
   sendFroReply,
   sendDirectMessage,
@@ -16,8 +15,7 @@ import {
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
 import { froActPairs } from './froController.js';
-import { getTempWhatsappAccess } from '../services/temporaryWhatsappScope.js';
-import { resolveInboxScope } from '../services/froStationScope.js';
+import { resolveInboxScope, resolveScopeWorkerId } from '../services/froStationScope.js';
 import { retryMessageNow } from '../services/messageRetryScheduler.js';
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
@@ -99,8 +97,17 @@ export async function listAgentConversations(req, res) {
 
 export async function agentUnreadCount(req, res) {
   try {
-    const count = await getAgentUnreadCount(req.user.id, req.user.role);
-    return res.json({ count });
+    const project = req.query.project || null;
+    const conversations = await getAgentConversations(req.user.id, project, req.user.role);
+    const projects = {};
+    let count = 0;
+    for (const conversation of conversations) {
+      const unread = conversation.unread_count || 0;
+      count += unread;
+      const key = String(conversation.project || '').toLowerCase();
+      if (key) projects[key] = (projects[key] || 0) + unread;
+    }
+    return res.json({ count, projects });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -262,38 +269,10 @@ export async function uploadMedia(req, res) {
 export async function listMyAccounts(req, res) {
   try {
     const userId = req.user.id;
-    console.log('[listMyAccounts] userId=', userId, 'role=', req.user.role);
-    const { data: froAssignments } = await db
-      .from('fro_whatsapp_assignments')
-      .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
-      .eq('fro_worker_id', userId)
-      .eq('is_active', true);
-
-    const { data: crmAssignments } = await db
-      .from('agent_phone_assignments')
-      .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
-      .eq('user_id', userId);
-
-    const { data: workerAssignments } = await db
-      .from('worker_agent_assignments')
-      .select('account_id')
-      .eq('user_id', userId);
-
-    const workerAccountIds = (workerAssignments || []).map(a => a.account_id).filter(Boolean);
-    let workerAccounts = [];
-    if (workerAccountIds.length > 0) {
-      const { data } = await db
-        .from('whatsapp_accounts')
-        .select('id, name, phone_number_id, project')
-        .in('id', workerAccountIds);
-      workerAccounts = data || [];
-    }
+    const workerId = await resolveScopeWorkerId(userId) || userId;
+    console.log('[listMyAccounts] userId=', userId, 'workerId=', workerId, 'role=', req.user.role);
 
     const seen = new Map();
-    for (const a of [...(froAssignments || []), ...(crmAssignments || []), ...workerAccounts]) {
-      const acct = a.whatsapp_accounts || a;
-      if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
-    }
 
     // STATION-DERIVED ACCESS: the WhatsApp number a station maps to is readable
     // as soon as the station is assigned (see getAllowedProjectsByStations).
@@ -316,23 +295,7 @@ export async function listMyAccounts(req, res) {
       console.error('[listMyAccounts] station accounts load failed:', e?.message || e);
     }
 
-    // TEMPORATORY ACCESS: derive, don't store. Accounts mapped to this
-    // worker's ACTIVE grants appear as extra identities tagged
-    // temporary=true (with expires_at so the chat UI can label them). A
-    // permanent row always wins the dedupe above — the temporary tag can
-    // never land on an identity the worker already holds permanently.
-    try {
-      const { resolveTempScopeWorkerId } = await import('../services/temporaryWhatsappScope.js');
-      const workerId = await resolveTempScopeWorkerId(userId);
-      console.log('[listMyAccounts] resolved workerId=', workerId);
-      const temp = await getTempWhatsappAccess(workerId);
-      console.log('[listMyAccounts] temp accounts=', temp.accounts, 'projects=', [...temp.projects]);
-      for (const a of temp.accounts) {
-        if (a?.id && !seen.has(a.id)) seen.set(a.id, a);
-      }
-    } catch (e) {
-      console.error('[listMyAccounts] temp accounts load failed:', e?.message || e, e?.stack);
-    }
+    // Temporary access disabled for all FROs - only station mapping applies now.
     return res.json(Array.from(seen.values()));
   } catch (error) {
     return res.status(500).json({ message: error.message });

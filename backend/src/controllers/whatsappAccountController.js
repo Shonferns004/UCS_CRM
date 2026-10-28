@@ -1,4 +1,5 @@
 import { listAccounts, getAccountById, createAccount, updateAccount, deleteAccount } from '../models/whatsappAccountModel.js';
+import { createTemplateForAccount, listTemplatesForAccountAll, deleteTemplateForAccount } from '../services/templateSyncService.js';
 
 export async function list(req, res) {
   try {
@@ -55,5 +56,32 @@ export async function remove(req, res) {
     return res.json({ success: true, message: 'Account deleted' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function createTemplate(req, res) {
+  try {
+    const result = await createTemplateForAccount(req.params.accountId, req.body || {});
+    return res.status(201).json(result);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function listAccountTemplates(req, res) {
+  try {
+    const templates = await listTemplatesForAccountAll(req.params.accountId);
+    return res.json(templates);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function deleteAccountTemplate(req, res) {
+  try {
+    await deleteTemplateForAccount(req.params.accountId, req.params.name);
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
   }
 }

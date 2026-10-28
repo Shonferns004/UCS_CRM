@@ -4,16 +4,31 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import StatCard from './StatCard.jsx';
 import AccountCard from './AccountCard.jsx';
-import AgentsDrawer from './AgentsDrawer.jsx';
 import './whatsappAccounts.css';
 
 const PROJECT_OPTIONS = [
   { value: 'bsct', label: 'Being Sevak' },
   { value: 'bsct2', label: 'Being Sevak 2' },
+  { value: 'bsct3', label: 'Being Sevak 3' },
   { value: 'mann', label: 'Mann Care' },
   { value: 'aflf', label: 'Ashray' },
   { value: 'aflf2', label: 'Ashray 2' },
+  { value: 'mann 2', label: 'Mann Care 2' },
 ];
+
+const CUSTOM_PROJECTS_KEY = 'wa_custom_projects';
+
+// Extra projects the user added from the "Add new project" option in the
+// dropdown. Kept in localStorage so they survive reloads on this browser.
+function loadCustomProjects() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PROJECTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(p => p && p.value) : [];
+  } catch {
+    return [];
+  }
+}
 
 const emptyForm = {
   name: '', project: 'bsct', phone_number_id: '', access_token: '',
@@ -30,15 +45,30 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [form, setForm] = useState(emptyForm);
   const [fetchingTemplates, setFetchingTemplates] = useState(null);
   const [templateOptions, setTemplateOptions] = useState({});
-  const [agents, setAgents] = useState({});
-  const [agentsLoading, setAgentsLoading] = useState({});
-  const [agentsError, setAgentsError] = useState({});
-  const [drawerAccount, setDrawerAccount] = useState(null);
-  const [assigning, setAssigning] = useState(false);
+  const [templateFormAccount, setTemplateFormAccount] = useState(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templatesModalAccount, setTemplatesModalAccount] = useState(null);
+  const [accountTemplates, setAccountTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateForm, setTemplateForm] = useState({
+    name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', body: '', footer: '',
+    buttons: [],
+  });
   const [revealToken, setRevealToken] = useState({});
   const [showToken, setShowToken] = useState(false);
   const [search, setSearch] = useState('');
   const [loadError, setLoadError] = useState(null);
+  const [customProjects, setCustomProjects] = useState(loadCustomProjects);
+  const [addingProject, setAddingProject] = useState(false);
+  const [newProjectCode, setNewProjectCode] = useState('');
+  const [newProjectLabel, setNewProjectLabel] = useState('');
+
+  const projectOptions = [...PROJECT_OPTIONS, ...customProjects];
+  // If an account was saved with a project code that isn't in the list (e.g.
+  // entered directly in the DB), keep it selectable while editing.
+  const selectOptions = form.project && !projectOptions.some(o => String(o.value).toLowerCase() === String(form.project).toLowerCase())
+    ? [...projectOptions, { value: form.project, label: form.project }]
+    : projectOptions;
 
   // `project` is UNIQUE in whatsapp_accounts (one number per project, and
   // send-time routing picks the number from the donor's project). So a project
@@ -52,9 +82,35 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     return !editing || String(editing.project || '').toLowerCase() !== code;
   };
   const firstFreeProject = () => (PROJECT_OPTIONS.find(o => !occupiedProjects.has(o.value)) || PROJECT_OPTIONS[0]).value;
-  // Every known project already has a number: adding is impossible until one
-  // is deleted (the UNIQUE index on `project` allows exactly one row each).
+  // Allow adding more accounts with custom project codes when predefined ones are taken
   const allProjectsTaken = PROJECT_OPTIONS.every(o => occupiedProjects.has(o.value));
+
+  const persistCustomProjects = (list) => {
+    setCustomProjects(list);
+    try { localStorage.setItem(CUSTOM_PROJECTS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  };
+
+  const handleAddProject = () => {
+    const code = newProjectCode.trim().toLowerCase().replace(/\s+/g, '-');
+    const label = newProjectLabel.trim() || newProjectCode.trim();
+    if (!code) { alert('Project code is required'); return; }
+    if (projectOptions.some(o => String(o.value).toLowerCase() === code)) {
+      alert(`Project "${code}" already exists in the list`);
+      return;
+    }
+    const next = [...customProjects, { value: code, label }];
+    persistCustomProjects(next);
+    setForm(p => ({ ...p, project: code }));
+    setAddingProject(false);
+    setNewProjectCode('');
+    setNewProjectLabel('');
+  };
+
+  const cancelAddProject = () => {
+    setAddingProject(false);
+    setNewProjectCode('');
+    setNewProjectLabel('');
+  };
 
   async function loadAccounts() {
     setLoading(true);
@@ -85,6 +141,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     setEditing(null);
     setShowForm(false);
     setShowToken(false);
+    cancelAddProject();
   };
 
   const handleSave = async () => {
@@ -93,7 +150,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
       return;
     }
     if (isTaken(form.project)) {
-      const label = PROJECT_OPTIONS.find(o => o.value === form.project)?.label || form.project;
+      const label = projectOptions.find(o => o.value === form.project)?.label || form.project;
       alert(`${label} already has a WhatsApp account. Each project can have only one number — edit the existing account or pick another project.`);
       return;
     }
@@ -161,62 +218,79 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const setAccountTemplate = async (account, templateName) => {
     try {
       await apiPut(`/whatsapp/accounts/${account.id}`, { template_name: templateName || null });
-      setForm(prev => ({ ...prev, template_name: templateName }));
+      setForm(prev => ({ ...p, template_name: templateName }));
       await loadAccounts();
     } catch (err) { alert(err.message); }
   };
 
+  const openTemplateForm = (account) => {
+    setTemplateForm({ name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', body: '', footer: '', buttons: [] });
+    setTemplateFormAccount(account);
+  };
+
+  const closeTemplateForm = () => {
+    setTemplateFormAccount(null);
+    setCreatingTemplate(false);
+  };
+
+  const handleCreateTemplate = async () => {
+    if (!templateFormAccount) return;
+    if (!templateForm.name.trim() || !templateForm.body.trim()) {
+      alert('Template name and body are required');
+      return;
+    }
+    setCreatingTemplate(true);
+    try {
+      const res = await apiPost(`/whatsapp/accounts/${templateFormAccount.id}/templates`, {
+        name: templateForm.name.trim(),
+        language: templateForm.language.trim() || 'en',
+        category: templateForm.category,
+        headerType: templateForm.headerType,
+        headerText: templateForm.headerText.trim() || undefined,
+        body: templateForm.body.trim(),
+        footer: templateForm.footer.trim() || undefined,
+        buttons: (templateForm.buttons || [])
+          .filter(b => String(b.text || '').trim())
+          .map(b => ({ type: b.type, text: b.text.trim(), url: b.url?.trim(), phone_number: b.phone?.trim() })),
+      });
+      toast(`Template submitted to Meta (${res?.status || 'PENDING'})`, 'success');
+      await fetchTemplates(templateFormAccount);
+      closeTemplateForm();
+    } catch (err) {
+      toast(err.message || 'Could not submit template', 'error');
+    } finally {
+      setCreatingTemplate(false);
+    }
+  };
+
+  const openTemplatesModal = async (account) => {
+    setTemplatesModalAccount(account);
+    setTemplatesLoading(true);
+    try {
+      const list = await apiGet(`/whatsapp/accounts/${account.id}/templates`);
+      setAccountTemplates(Array.isArray(list) ? list : []);
+    } catch (err) {
+      toast(err.message || 'Could not load templates', 'error');
+      setAccountTemplates([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (name) => {
+    if (!templatesModalAccount) return;
+    if (!confirm(`Delete template "${name}" from Meta?`)) return;
+    try {
+      await apiDelete(`/whatsapp/accounts/${templatesModalAccount.id}/templates/${encodeURIComponent(name)}`);
+      setAccountTemplates(prev => prev.filter(t => t.name !== name));
+      toast('Template deleted', 'success');
+      await fetchTemplates(templatesModalAccount);
+    } catch (err) {
+      toast(err.message || 'Could not delete template', 'error');
+    }
+  };
+
   const toggleField = (field) => setForm(p => ({ ...p, [field]: !p[field] }));
-
-  const loadAgents = async (accountId) => {
-    setAgentsLoading(prev => ({ ...prev, [accountId]: true }));
-    setAgentsError(prev => ({ ...prev, [accountId]: null }));
-    try {
-      const data = await apiGet(`/whatsapp/accounts/${accountId}/agents`);
-      setAgents(prev => ({ ...prev, [accountId]: data || [] }));
-    } catch (err) {
-      console.error(err);
-      setAgentsError(prev => ({ ...prev, [accountId]: 'Could not load assigned agents. Please try again.' }));
-    } finally {
-      setAgentsLoading(prev => ({ ...prev, [accountId]: false }));
-    }
-  };
-
-  const openAgents = (account) => {
-    setDrawerAccount(account);
-    if (!agents[account.id]) loadAgents(account.id);
-  };
-
-  // Assign runs as a single request: the API takes the whole list of worker
-  // ids and inserts them in one statement. The previous one-POST-per-agent
-  // loop cost a round trip per agent, so assigning a handful of FROs sat on a
-  // spinner for as many network hops as there were agents.
-  const assignAgents = async (accountId, workerIds) => {
-    if (!workerIds.length) return false;
-    setAssigning(true);
-    try {
-      const res = await apiPost(`/whatsapp/accounts/${accountId}/agents`, { froWorkerIds: workerIds });
-      await loadAgents(accountId);
-      const done = typeof res?.assigned === 'number' ? res.assigned : workerIds.length;
-      toast(done === 1 ? '1 agent assigned' : `${done} agents assigned`, 'success');
-      return true;
-    } catch (err) {
-      await loadAgents(accountId);
-      toast(err.message || 'Could not assign agent', 'error');
-      return false;
-    } finally {
-      setAssigning(false);
-    }
-  };
-
-  // Confirmation lives in the drawer row, so this only performs the call.
-  const removeAgent = async (accountId, froId) => {
-    try {
-      await apiDelete(`/whatsapp/accounts/${accountId}/agents/${froId}`);
-      await loadAgents(accountId);
-      toast('Agent removed', 'success');
-    } catch (err) { toast(err.message || 'Could not remove agent', 'error'); }
-  };
 
   const query = search.trim().toLowerCase();
   const visibleAccounts = query
@@ -258,8 +332,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
           <button
             type="button"
             className="wa-btn wa-btn-primary"
-            disabled={allProjectsTaken && !showForm}
-            title={allProjectsTaken && !showForm ? 'All projects already have an account' : undefined}
+            disabled={false}
+            title={undefined}
             onClick={() => {
               if (showForm) { resetForm(); return; }
               resetForm();
@@ -273,7 +347,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
         </div>
         {allProjectsTaken && !showForm && (
           <p className="wa-form-hint">
-            All five projects already have a WhatsApp account. Delete one to add another, or edit an existing account.
+            All predefined projects have accounts. You can still add another by using a custom project code (e.g., bsct3, custom1).
           </p>
         )}
       </header>
@@ -306,12 +380,43 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
             </label>
             <label className="wa-f">
               <span className="wa-f-label">Project</span>
-              <select className="wa-select" value={form.project} onChange={e => setForm(p => ({ ...p, project: e.target.value }))}>
-                {PROJECT_OPTIONS.map(o => {
+              <select
+                className="wa-select"
+                value={addingProject ? '__add__' : form.project}
+                onChange={e => {
+                  if (e.target.value === '__add__') {
+                    setAddingProject(true);
+                    setNewProjectLabel('');
+                    setNewProjectCode('');
+                    return;
+                  }
+                  setForm(p => ({ ...p, project: e.target.value }));
+                }}
+              >
+                {selectOptions.map(o => {
                   const taken = isTaken(o.value);
                   return <option key={o.value} value={o.value} disabled={taken}>{taken ? `${o.label} (already added)` : o.label}</option>;
                 })}
+                <option value="__add__">+ Add new project…</option>
               </select>
+              {addingProject && (
+                <span className="wa-input-group" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+                  <input
+                    className="wa-input"
+                    value={newProjectLabel}
+                    onChange={e => setNewProjectLabel(e.target.value)}
+                    placeholder="Project name (e.g. Being Sevak 4)"
+                  />
+                  <input
+                    className="wa-input"
+                    value={newProjectCode}
+                    onChange={e => setNewProjectCode(e.target.value)}
+                    placeholder="code (e.g. bsct4)"
+                  />
+                  <button type="button" className="wa-ghost-btn" onClick={handleAddProject} title="Add project">Add</button>
+                  <button type="button" className="wa-ghost-btn" onClick={cancelAddProject} title="Cancel">✕</button>
+                </span>
+              )}
             </label>
             <label className="wa-f">
               <span className="wa-f-label">Phone Number ID</span>
@@ -409,31 +514,158 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
               account={acc}
               revealed={Boolean(revealToken[acc.id])}
               onToggleReveal={() => setRevealToken(prev => ({ ...prev, [acc.id]: !prev[acc.id] }))}
-              fetchingTemplates={fetchingTemplates === acc.id}
-              onFetchTemplates={() => fetchTemplates(acc)}
-              templates={templateOptions[acc.id]}
-              onSelectTemplate={(value) => setAccountTemplate(acc, value)}
-              agentCount={agents[acc.id] ? agents[acc.id].length : null}
-              onOpenAgents={() => openAgents(acc)}
-              onEdit={() => openEdit(acc)}
+               fetchingTemplates={fetchingTemplates === acc.id}
+               onFetchTemplates={() => fetchTemplates(acc)}
+               onAddTemplate={() => openTemplateForm(acc)}
+               onOpenTemplates={() => openTemplatesModal(acc)}
+               templates={templateOptions[acc.id]}
+               onSelectTemplate={(value) => setAccountTemplate(acc, value)}
+               onEdit={() => openEdit(acc)}
               onDelete={() => handleDelete(acc.id, acc.name)}
             />
           ))}
         </div>
       )}
 
-      {drawerAccount && (
-        <AgentsDrawer
-          account={drawerAccount}
-          agents={agents[drawerAccount.id]}
-          loading={Boolean(agentsLoading[drawerAccount.id])}
-          loadError={agentsError[drawerAccount.id] || null}
-          assigning={assigning}
-          onClose={() => setDrawerAccount(null)}
-          onReload={() => loadAgents(drawerAccount.id)}
-          onRemove={(froId) => removeAgent(drawerAccount.id, froId)}
-          onAssign={(workerIds) => assignAgents(drawerAccount.id, workerIds)}
-        />
+      {templateFormAccount && (
+        <div className="wa-drawer-overlay" onClick={closeTemplateForm}>
+          <div className="wa-form" style={{ maxWidth: 520, margin: '40px auto' }} onClick={e => e.stopPropagation()}>
+            <h3 className="wa-h1" style={{ fontSize: 18 }}>Add Template — {templateFormAccount.name}</h3>
+            <p className="wa-sub">Submit a new template to Meta for approval.</p>
+            <div className="wa-form-grid">
+              <label className="wa-f">
+                <span className="wa-f-label">Name</span>
+                <input className="wa-input" value={templateForm.name} onChange={e => setTemplateForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. welcome_message" />
+              </label>
+              <label className="wa-f">
+                <span className="wa-f-label">Language</span>
+                <input className="wa-input" value={templateForm.language} onChange={e => setTemplateForm(p => ({ ...p, language: e.target.value }))} placeholder="en" />
+              </label>
+              <label className="wa-f">
+                <span className="wa-f-label">Category</span>
+                <select className="wa-select" value={templateForm.category} onChange={e => setTemplateForm(p => ({ ...p, category: e.target.value }))}>
+                  <option value="UTILITY">Utility</option>
+                  <option value="MARKETING">Marketing</option>
+                  <option value="AUTHENTICATION">Authentication</option>
+                </select>
+              </label>
+              <label className="wa-f">
+                <span className="wa-f-label">Header type</span>
+                <select className="wa-select" value={templateForm.headerType} onChange={e => setTemplateForm(p => ({ ...p, headerType: e.target.value }))}>
+                  <option value="NONE">None</option>
+                  <option value="TEXT">Text</option>
+                  <option value="IMAGE">Image</option>
+                  <option value="VIDEO">Video</option>
+                  <option value="DOCUMENT">Document</option>
+                </select>
+              </label>
+              {templateForm.headerType === 'TEXT' && (
+                <label className="wa-f wa-field-wide">
+                  <span className="wa-f-label">Header text</span>
+                  <input className="wa-input" value={templateForm.headerText} onChange={e => setTemplateForm(p => ({ ...p, headerText: e.target.value }))} placeholder="Header text" />
+                </label>
+              )}
+              <label className="wa-f wa-field-wide">
+                <span className="wa-f-label">Body</span>
+                <textarea className="wa-input" rows={4} value={templateForm.body} onChange={e => setTemplateForm(p => ({ ...p, body: e.target.value }))} placeholder="Hello {{1}}, welcome to {{2}}!" />
+              </label>
+              <label className="wa-f wa-field-wide">
+                <span className="wa-f-label">Footer (optional)</span>
+                <input className="wa-input" value={templateForm.footer} onChange={e => setTemplateForm(p => ({ ...p, footer: e.target.value }))} placeholder="Footer text" />
+              </label>
+            </div>
+            <div className="wa-field-wide" style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span className="wa-f-label">Buttons (optional)</span>
+                <button type="button" className="wa-btn-outline" onClick={() => setTemplateForm(p => ({ ...p, buttons: [...(p.buttons || []), { type: 'QUICK_REPLY', text: '', url: '', phone: '' }] }))}>
+                  + Add button
+                </button>
+              </div>
+              {(templateForm.buttons || []).map((btn, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <select className="wa-select" value={btn.type} onChange={e => setTemplateForm(p => {
+                    const buttons = [...(p.buttons || [])];
+                    buttons[idx] = { ...buttons[idx], type: e.target.value };
+                    return { ...p, buttons };
+                  })}>
+                    <option value="QUICK_REPLY">Quick reply</option>
+                    <option value="URL">URL</option>
+                    <option value="PHONE_NUMBER">Phone</option>
+                    <option value="COPY_CODE">Copy code</option>
+                  </select>
+                  <input className="wa-input" style={{ flex: 1, minWidth: 120 }} value={btn.text} onChange={e => setTemplateForm(p => {
+                    const buttons = [...(p.buttons || [])];
+                    buttons[idx] = { ...buttons[idx], text: e.target.value };
+                    return { ...p, buttons };
+                  })} placeholder="Button text" />
+                  {btn.type === 'URL' && (
+                    <input className="wa-input" style={{ flex: 2, minWidth: 160 }} value={btn.url || ''} onChange={e => setTemplateForm(p => {
+                      const buttons = [...(p.buttons || [])];
+                      buttons[idx] = { ...buttons[idx], url: e.target.value };
+                      return { ...p, buttons };
+                    })} placeholder="https://example.com/{{1}}" />
+                  )}
+                  {btn.type === 'PHONE_NUMBER' && (
+                    <input className="wa-input" style={{ flex: 2, minWidth: 160 }} value={btn.phone || ''} onChange={e => setTemplateForm(p => {
+                      const buttons = [...(p.buttons || [])];
+                      buttons[idx] = { ...buttons[idx], phone: e.target.value };
+                      return { ...p, buttons };
+                    })} placeholder="+91..." />
+                  )}
+                  <button type="button" className="wa-btn-outline wa-btn-danger" onClick={() => setTemplateForm(p => {
+                    const buttons = [...(p.buttons || [])];
+                    buttons.splice(idx, 1);
+                    return { ...p, buttons };
+                  })}>Remove</button>
+                </div>
+              ))}
+            </div>
+            <div className="wa-form-foot">
+              <button type="button" className="wa-btn wa-btn-ghost" onClick={closeTemplateForm} disabled={creatingTemplate}>Cancel</button>
+              <button type="button" className="wa-btn wa-btn-primary" onClick={handleCreateTemplate} disabled={creatingTemplate}>
+                {creatingTemplate ? 'Submitting...' : 'Submit to Meta'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {templatesModalAccount && (
+        <div className="wa-drawer-overlay" onClick={() => setTemplatesModalAccount(null)}>
+          <div className="wa-form" style={{ maxWidth: 560, margin: '40px auto', maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <h3 className="wa-h1" style={{ fontSize: 18 }}>Templates — {templatesModalAccount.name}</h3>
+            {templatesLoading ? (
+              <p>Loading...</p>
+            ) : accountTemplates.length === 0 ? (
+              <p>No templates found.</p>
+            ) : (
+              <table style={{ width: '100%', fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Name</th>
+                    <th style={{ textAlign: 'left' }}>Language</th>
+                    <th style={{ textAlign: 'left' }}>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accountTemplates.map(t => (
+                    <tr key={`${t.name}-${t.language}`}>
+                      <td>{t.name}</td>
+                      <td>{t.language}</td>
+                      <td>{t.status}</td>
+                      <td>
+                        <button type="button" className="wa-btn wa-btn-danger wa-btn-sm" onClick={() => handleDeleteTemplate(t.name)}>Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="wa-form-foot">
+              <button type="button" className="wa-btn wa-btn-ghost" onClick={() => setTemplatesModalAccount(null)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

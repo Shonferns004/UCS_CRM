@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, requireWhatsAppAdmin } from '../middleware/authMiddleware.js';
 import {
-  list, getById, create, update, remove,
+  list, getById, create, update, remove, createTemplate, listAccountTemplates, deleteAccountTemplate,
 } from '../controllers/whatsappAccountController.js';
 import {
   listAgents, assignAgent, removeAgent, searchAgents, listAssignableAgents,
@@ -46,5 +46,9 @@ router.delete('/:accountId', remove);
 router.get('/:accountId/agents', listAgents);
 router.post('/:accountId/agents', assignAgent);
 router.delete('/:accountId/agents/:froId', removeAgent);
+
+router.post('/:accountId/templates', createTemplate);
+router.get('/:accountId/templates', listAccountTemplates);
+router.delete('/:accountId/templates/:name', deleteAccountTemplate);
 
 export default router;

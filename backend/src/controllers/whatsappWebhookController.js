@@ -4,7 +4,11 @@ import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
+// Read at request time, not module load: this module is imported before
+// dotenv.config() runs in index.js, so a module-level read would capture
+// undefined and break webhook verification (and thus delivery status updates).
+// No hardcoded fallback: a missing/empty token must fail verification safely.
+const getVerifyToken = () => String(process.env.WHATSAPP_VERIFY_TOKEN || '').trim();
 
 // WhatsApp group threads use a `...@g.us` JID. Cloud API puts the group id in
 // `to` on most payloads and in `from` on others, so check both. The group id
@@ -40,7 +44,8 @@ export function verifyWhatsAppWebhook(req, res) {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  const expectedToken = getVerifyToken();
+  if (mode === 'subscribe' && expectedToken && token === expectedToken) {
     res.status(200).send(challenge);
   } else {
     res.status(403).send('Forbidden');

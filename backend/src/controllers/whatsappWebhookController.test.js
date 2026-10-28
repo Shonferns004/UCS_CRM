@@ -111,4 +111,45 @@ test('a replay that includes a stale failure still ends on read', () => {
     if (shouldApplyStatus(status, f)) status = f;
   }
   assert.equal(status, 'read');
+});import { verifyWhatsAppWebhook } from './whatsappWebhookController.js';
+
+function mockWebhookRes() {
+  const res = { statusCode: 200, body: null };
+  res.status = (code) => { res.statusCode = code; return res; };
+  res.send = (body) => { res.body = body; return res; };
+  res.json = (body) => { res.body = body; return res; };
+  return res;
+}
+
+test('verifyWhatsAppWebhook accepts a valid subscription', () => {
+  process.env.WHATSAPP_VERIFY_TOKEN = 'verify-secret';
+  const req = { query: { 'hub.mode': 'subscribe', 'hub.verify_token': 'verify-secret', 'hub.challenge': 'challenge-ok' } };
+  const res = mockWebhookRes();
+  verifyWhatsAppWebhook(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, 'challenge-ok');
+});
+
+test('verifyWhatsAppWebhook rejects an invalid token', () => {
+  process.env.WHATSAPP_VERIFY_TOKEN = 'verify-secret';
+  const req = { query: { 'hub.mode': 'subscribe', 'hub.verify_token': 'wrong-token', 'hub.challenge': 'challenge-ok' } };
+  const res = mockWebhookRes();
+  verifyWhatsAppWebhook(req, res);
+  assert.equal(res.statusCode, 403);
+});
+
+test('verifyWhatsAppWebhook rejects an invalid mode', () => {
+  process.env.WHATSAPP_VERIFY_TOKEN = 'verify-secret';
+  const req = { query: { 'hub.mode': 'unsubscribe', 'hub.verify_token': 'verify-secret', 'hub.challenge': 'challenge-ok' } };
+  const res = mockWebhookRes();
+  verifyWhatsAppWebhook(req, res);
+  assert.equal(res.statusCode, 403);
+});
+
+test('verifyWhatsAppWebhook fails safely when the token is missing', () => {
+  delete process.env.WHATSAPP_VERIFY_TOKEN;
+  const req = { query: { 'hub.mode': 'subscribe', 'hub.verify_token': 'anything', 'hub.challenge': 'challenge-ok' } };
+  const res = mockWebhookRes();
+  verifyWhatsAppWebhook(req, res);
+  assert.equal(res.statusCode, 403);
 });
