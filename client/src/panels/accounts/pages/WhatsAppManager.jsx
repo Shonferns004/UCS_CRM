@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import ConversationViewer from '../components/ConversationViewer';
 import { apiGet } from '../api/auth';
 import WhatsAppBulk from './WhatsAppBulk';
 import WhatsAppAccountsManager from '../components/WhatsAppAccountsManager';
@@ -12,6 +13,9 @@ export default function WhatsAppManager() {
   const [templates, setTemplates] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [campaignSearch, setCampaignSearch] = useState('');
+  const [campaignRecipientSearch, setCampaignRecipientSearch] = useState('');
+  const [viewChatPhone, setViewChatPhone] = useState(null);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [campaignRecipients, setCampaignRecipients] = useState([]);
   const [campaignLoading, setCampaignLoading] = useState(false);
@@ -80,7 +84,7 @@ export default function WhatsAppManager() {
     <div style={{ background: '#eef1f8', minHeight: '100vh', padding: 16, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
       <div style={{ background: 'linear-gradient(120deg, #0866FF 0%, #6A4DF4 60%, #B13CE0 100%)', color: '#fff', borderRadius: 16, padding: '18px 20px', marginBottom: 16 }}>
         <div style={{ fontSize: 22, fontWeight: 700 }}>WhatsApp Center</div>
-        <div style={{ fontSize: 13, opacity: .9 }}>Meta Business Platform · Accounts, templates, bulk sending and delivery</div>
+        <div style={{ fontSize: 13, opacity: .9 }}>Meta Business Platform Â· Accounts, templates, bulk sending and delivery</div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -116,6 +120,7 @@ export default function WhatsAppManager() {
 
       {tab === 'Campaigns' && (
         <div style={{ background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(20,30,60,.10)' }}>
+          <input placeholder="Search campaigns..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} style={{ marginBottom: 12, width: '100%', maxWidth: 420, height: 36, padding: '0 10px', border: '1px solid #cbd0dc', borderRadius: 8, fontSize: 13 }} />
           <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f4f6fb' }}>
@@ -123,11 +128,17 @@ export default function WhatsAppManager() {
                 <th style={{ textAlign: 'left', padding: 6 }}>Account</th>
                 <th style={{ textAlign: 'left', padding: 6 }}>Template</th>
                 <th style={{ textAlign: 'left', padding: 6 }}>Status</th>
+                <th style={{ textAlign: 'left', padding: 6 }}>Recipients</th>
                 <th style={{ textAlign: 'left', padding: 6 }}>Created</th>
               </tr>
             </thead>
             <tbody>
-              {campaigns.map(c => (
+              {campaigns.filter(c => {
+                const q = campaignSearch.trim().toLowerCase();
+                if (!q) return true;
+                const acc = accounts.find(a => String(a.id) === String(c.account_id))?.name || '';
+                return [c.name, acc, c.template_name, c.status].some(v => String(v || '').toLowerCase().includes(q));
+              }).map(c => (
                 <tr key={c.id} style={{ borderTop: '1px solid #EBEDF3', cursor: 'pointer' }} onClick={async () => {
                   setSelectedCampaign(c);
                   setCampaignLoading(true);
@@ -144,7 +155,8 @@ export default function WhatsAppManager() {
                   <td style={{ padding: 6 }}>{accounts.find(a => String(a.id) === String(c.account_id))?.name || c.account_id}</td>
                   <td style={{ padding: 6 }}>{c.template_name}</td>
                   <td style={{ padding: 6 }}>{c.status}</td>
-                  <td style={{ padding: 6 }}>{c.created_at ? new Date(c.created_at).toLocaleString() : '—'}</td>
+                  <td style={{ padding: 6 }}>{c.recipient_count ?? 'â€”'}</td>
+                  <td style={{ padding: 6 }}>{c.created_at ? new Date(c.created_at).toLocaleString() : 'â€”'}</td>
                 </tr>
               ))}
               {campaigns.length === 0 && (
@@ -204,8 +216,8 @@ export default function WhatsAppManager() {
                     <td style={{ padding: 6 }}>{r.phone}</td>
                     <td style={{ padding: 6 }}>{r.template_name}</td>
                     <td style={{ padding: 6 }}><StatusBadge status={r.status} /></td>
-                    <td style={{ padding: 6 }}>{r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td>
-                    <td style={{ padding: 6 }}>{r.failure_reason || '—'}</td>
+                    <td style={{ padding: 6 }}>{r.created_at ? new Date(r.created_at).toLocaleString() : 'â€”'}</td>
+                    <td style={{ padding: 6 }}>{r.failure_reason || 'â€”'}</td>
                   </tr>
                 ))}
                 {pagedLogs.length === 0 && (
@@ -225,7 +237,7 @@ export default function WhatsAppManager() {
       )}
 
       {selectedCampaign && (
-        <div className="modal-overlay" style={{ zIndex: 1000 }} onClick={() => setSelectedCampaign(null)}>
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setSelectedCampaign(null)}>
           <div className="modal" style={{ maxWidth: 720, width: '95%' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Campaign Details</h3>
@@ -235,6 +247,12 @@ export default function WhatsAppManager() {
               <div style={{ marginBottom: 8 }}><strong>Account:</strong> {accounts.find(a => String(a.id) === String(selectedCampaign.account_id))?.name || selectedCampaign.account_id}</div>
               <div style={{ marginBottom: 8 }}><strong>Template:</strong> {selectedCampaign.template_name}</div>
               <div style={{ marginBottom: 8 }}><strong>Status:</strong> {selectedCampaign.status}</div>
+               <div style={{ marginBottom: 8, display: 'flex', gap: 16, fontSize: 13, flexWrap: 'wrap' }}>
+                 <span><strong>Total:</strong> {campaignRecipients.length}</span>
+                 <span style={{ color: '#059669' }}><strong>Accepted:</strong> {campaignRecipients.filter(r => String(r.status).toLowerCase() === 'accepted').length}</span>
+                 <span style={{ color: '#dc2626' }}><strong>Failed:</strong> {campaignRecipients.filter(r => String(r.status).toLowerCase() === 'failed').length}</span>
+                 <span style={{ color: '#d97706' }}><strong>Pending:</strong> {campaignRecipients.filter(r => !['accepted', 'failed', 'delivered', 'read'].includes(String(r.status).toLowerCase())).length}</span>
+               </div>
               <div style={{ marginBottom: 12 }}>
                 <button className="wa-btn wa-btn-outline" onClick={async () => {
                   const failed = campaignRecipients.filter(r => String(r.status).toLowerCase() === 'failed');
@@ -265,7 +283,9 @@ export default function WhatsAppManager() {
               {campaignLoading ? (
                 <p>Loading recipients...</p>
               ) : (
-                <div style={{ maxHeight: 260, overflow: 'auto' }}>
+                <>
+                  <input placeholder="Search recipients by phone/name/status..." value={campaignRecipientSearch} onChange={e => setCampaignRecipientSearch(e.target.value)} style={{ marginBottom: 8, width: '100%', height: 32, padding: '0 8px', border: '1px solid #cbd0dc', borderRadius: 6, fontSize: 12 }} />
+                  <div style={{ maxHeight: 260, overflow: 'auto' }}>
                   <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f4f6fb' }}>
@@ -275,16 +295,17 @@ export default function WhatsAppManager() {
                       </tr>
                     </thead>
                     <tbody>
-                      {campaignRecipients.map(r => (
+                      {campaignRecipients.filter(r => { const q = campaignRecipientSearch.trim().toLowerCase(); if (!q) return true; return [r.phone, r.recipient_name, r.status, r.failure_reason].some(v => String(v || '').toLowerCase().includes(q)); }).map(r => (
                         <tr key={r.id} style={{ borderTop: '1px solid #EBEDF3' }}>
-                          <td style={{ padding: 6 }}>{r.phone}</td>
+                          <td style={{ padding: 6 }}><button style={{ background: 'none', border: 'none', color: '#0866FF', cursor: 'pointer', textDecoration: 'underline', padding: 0 }} onClick={() => setViewChatPhone({ phone: r.phone, accountId: selectedCampaign?.account_id })}>{r.phone}</button></td>
                           <td style={{ padding: 6 }}>{r.status}</td>
-                          <td style={{ padding: 6 }}>{r.failure_reason || '—'}</td>
+                          <td style={{ padding: 6 }}>{r.failure_reason || 'â€”'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
                 <button className="wa-btn wa-btn-outline" onClick={() => setSelectedCampaign(null)}>Close</button>
@@ -293,6 +314,7 @@ export default function WhatsAppManager() {
           </div>
         </div>
       )}
+      {viewChatPhone && <ConversationViewer phone={viewChatPhone.phone} accountId={viewChatPhone.accountId} onClose={() => setViewChatPhone(null)} />}
     </div>
   );
 }
