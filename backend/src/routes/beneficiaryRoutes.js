@@ -12,6 +12,7 @@ import {
   downloadBeneficiariesController,
   getFingerprintImagesController,
   listKitGivenEventsController,
+  listOccupationsController,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -80,6 +81,9 @@ router.get('/fingerprint-images', authenticateRole('super_admin', 'admin', 'ngo'
 // Events present on kit-given rows — powers the Kit Given page's event filter.
 // Declared before '/:id' so 'kit-events' is not parsed as an id.
 router.get('/kit-events', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listKitGivenEventsController);
+// Distinct occupations on file — powers the All Beneficiaries occupation
+// filter. Declared before '/:id' so 'occupations' is not parsed as an id.
+router.get('/occupations', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listOccupationsController);
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
 router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), createNewBeneficiary);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);

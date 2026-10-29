@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { useBnfBase } from '../bnfUi'
 import { apiGet, apiPost } from '../store'
@@ -17,6 +17,21 @@ const styles = {
   link: { color: 'var(--sage)', textDecoration: 'none', cursor: 'pointer', fontWeight: 500 },
 }
 
+// The app saves the chosen occupation and its free-text details in one value
+// ("Occupation - details"), and older imports used "(details)" instead. The
+// table shows only the base occupation, never the details.
+const occupationBase = (value) => {
+  if (!value) return ''
+  const base = String(value).split(' - ')[0].trim()
+  return base.replace(/\s*\([^)]*\)\s*$/, '').trim()
+}
+const occupationDetailOf = (value) => {
+  if (!value) return ''
+  const parts = String(value).split(' - ')
+  if (parts.length <= 1) return ''
+  return parts.slice(1).join(' - ').trim()
+}
+
 const STATUS_COLORS = {
   ACTIVE: ['#dcfce7', '#166534'],
   INACTIVE: ['var(--bg)', 'var(--ink-soft)'],
@@ -28,6 +43,7 @@ const STATUS_COLORS = {
 
 export default function AllBeneficiaries() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const base = useBnfBase()
   const [data, setData] = useState({ data: [], total: 0 })
   const [loading, setLoading] = useState(true)
@@ -35,7 +51,12 @@ export default function AllBeneficiaries() {
   const [statusFilter, setStatusFilter] = useState('')
   const [eventFilter, setEventFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
+  const [occupationFilter, setOccupationFilter] = useState('')
+  const [ngoFilter, setNgoFilter] = useState(searchParams.get('ngo_id') || '')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [events, setEvents] = useState([])
+  const [occupations, setOccupations] = useState([])
 
   const [page, setPage] = useState(1)
   const [exporting, setExporting] = useState(false)
@@ -50,6 +71,15 @@ export default function AllBeneficiaries() {
       .catch((e) => console.error('Failed to load events:', e))
   }, [])
 
+  // Occupation filter options come from the members actually on file, so the
+  // dropdown never lists a value that would return nothing. A failed load just
+  // leaves the filter empty rather than breaking the list.
+  useEffect(() => {
+    apiGet('/beneficiaries/occupations')
+      .then((list) => setOccupations(Array.isArray(list) ? list : []))
+      .catch((e) => console.error('Failed to load occupations:', e))
+  }, [])
+
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
@@ -58,6 +88,10 @@ export default function AllBeneficiaries() {
        if (statusFilter) params.set('status', statusFilter)
        if (eventFilter) params.set('event_name', eventFilter)
        if (stateFilter) params.set('state', stateFilter)
+        if (occupationFilter) params.set('occupation', occupationFilter)
+        if (ngoFilter) params.set('ngo_id', ngoFilter)
+        if (dateFrom) params.set('date_from', dateFrom)
+       if (dateTo) params.set('date_to', dateTo)
       const result = await apiGet(`/beneficiaries?${params}`)
       setData(result)
     } catch (e) {
@@ -65,7 +99,11 @@ export default function AllBeneficiaries() {
     } finally {
       setLoading(false)
     }
-   }, [page, search, statusFilter, eventFilter, stateFilter])
+   }, [page, search, statusFilter, eventFilter, stateFilter, occupationFilter, ngoFilter, dateFrom, dateTo])
+
+  useEffect(() => {
+    setNgoFilter(searchParams.get('ngo_id') || '')
+  }, [searchParams])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -111,6 +149,10 @@ export default function AllBeneficiaries() {
        if (statusFilter) params.set('status', statusFilter)
        if (eventFilter) params.set('event_name', eventFilter)
        if (stateFilter) params.set('state', stateFilter)
+        if (occupationFilter) params.set('occupation', occupationFilter)
+        if (ngoFilter) params.set('ngo_id', ngoFilter)
+        if (dateFrom) params.set('date_from', dateFrom)
+       if (dateTo) params.set('date_to', dateTo)
       const res = await apiGet(`/beneficiaries/export?${params}`)
       const rows = res.data || []
       if (rows.length === 0) {
@@ -210,9 +252,36 @@ export default function AllBeneficiaries() {
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
-        {(search || statusFilter || eventFilter || stateFilter) && (
+        <select
+          value={occupationFilter}
+          onChange={(e) => { setOccupationFilter(e.target.value); setPage(1) }}
+          style={styles.input}
+          title="Filter by occupation"
+        >
+          <option value="">All Occupations</option>
+          {occupations.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
+          style={styles.input}
+          title="Registered from date"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
+          style={styles.input}
+          title="Registered to date"
+        />
+        {(search || statusFilter || eventFilter || stateFilter || occupationFilter || ngoFilter || dateFrom || dateTo) && (
           <button
-            onClick={() => { setSearch(''); setStatusFilter(''); setEventFilter(''); setStateFilter(''); setPage(1) }}
+            onClick={() => { setSearch(''); setStatusFilter(''); setEventFilter(''); setStateFilter(''); setOccupationFilter(''); setNgoFilter(''); setDateFrom(''); setDateTo(''); setPage(1) }}
             style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}
           >
             Clear
@@ -246,7 +315,8 @@ export default function AllBeneficiaries() {
                   <th style={styles.th}>Gender</th>
                   <th style={styles.th}>Beneficiary Type</th>
                   <th style={styles.th}>DOB</th>
-                  <th style={styles.th}>Occupation</th>
+                   <th style={styles.th}>Occupation</th>
+                   <th style={styles.th}>Occ. Details</th>
                   <th style={styles.th}>Address</th>
                   <th style={styles.th}>Pincode</th>
                    <th style={styles.th}>Aadhaar No.</th>
@@ -275,7 +345,8 @@ export default function AllBeneficiaries() {
                       <td style={styles.td}>{b.gender || '-'}</td>
                        <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.beneficiary_type || ''}>{b.beneficiary_type || '-'}</td>
                       <td style={styles.td}>{b.date_of_birth || '-'}</td>
-                      <td style={styles.td}>{b.occupation || '-'}</td>
+                       <td style={styles.td}>{occupationBase(b.occupation) || '-'}</td>
+                       <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={occupationDetailOf(b.occupation) || ''}>{occupationDetailOf(b.occupation) || '-'}</td>
                        <td style={{ ...styles.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.address_line_1 || ''}>{b.address_line_1 || '-'}</td>
                       <td style={styles.td}>{b.pincode || '-'}</td>
                        <td style={styles.td}>{b.aadhaar_number || '-'}</td>
@@ -309,7 +380,7 @@ export default function AllBeneficiaries() {
                           {b.fingerprint_status === 'REGISTERED' ? '✓' : b.fingerprint_status === 'REVOKED' ? '✗' : '○'}
                         </span>
                       </td>
-                      <td style={styles.td}>{b.registration_date || '-'}</td>
+                      <td style={styles.td}>{b.registration_date || (b.created_at ? String(b.created_at).slice(0, 10) : '-')}</td>
                       <td style={styles.td}>
                         <span onClick={(e) => { e.stopPropagation(); navigate(base + `/${b.id}`) }} style={styles.link}>View</span>
                       </td>
