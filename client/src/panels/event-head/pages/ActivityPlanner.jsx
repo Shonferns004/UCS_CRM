@@ -457,20 +457,43 @@ const ngoLocationList = (n) => {
 }
 
 function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
-  const hasCustom = Boolean(value) && !list.includes(value)
-  const [showOther, setShowOther] = useState(hasCustom)
-  const [draft, setDraft] = useState(hasCustom ? String(value) : '')
-  const selectValue = hasCustom ? OTHER_LOCATION : (showOther ? OTHER_LOCATION : (value || ''))
+  const isCustom = Boolean(value) && !list.includes(value)
+  const [showOther, setShowOther] = useState(isCustom)
+  const [draft, setDraft] = useState(isCustom ? String(value) : '')
+  const draftRef = useRef(draft)
+  useEffect(() => { draftRef.current = draft }, [draft])
+  const selectValue = isCustom || showOther ? OTHER_LOCATION : (value || '')
   const showingInput = selectValue === OTHER_LOCATION
   const lastValue = useRef(value)
   useEffect(() => {
-    if (lastValue.current && !value) setShowOther(false)
+    const custom = Boolean(value) && !list.includes(value)
+    if (custom) {
+      setShowOther(true)
+      if (String(value) !== draftRef.current) {
+        setDraft(String(value))
+      }
+    } else if (!value) {
+      setShowOther(false)
+      setDraft('')
+    } else if (list.includes(value)) {
+      setShowOther(false)
+      setDraft('')
+    }
     lastValue.current = value
-  }, [value])
+  }, [value, list])
   const commitDraft = () => {
-    const next = draft.trim().slice(0, 200)
+    const next = (draftRef.current || '').trim().slice(0, 200)
+    if (next === String(value || '').trim()) {
+      setDraft(next)
+      return
+    }
     setDraft(next)
-    if (next !== value) onChange(next)
+    if (!next) {
+      setShowOther(false)
+      if (value) onChange('')
+      return
+    }
+    onChange(next)
   }
   return (
     <div className="lc">
@@ -483,7 +506,7 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           const v = e.target.value
           if (v === OTHER_LOCATION) {
             setShowOther(true)
-            setDraft(hasCustom ? String(value) : '')
+            setDraft(isCustom ? String(value) : draft)
           } else {
             setShowOther(false)
             setDraft('')
@@ -504,10 +527,13 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           disabled={disabled}
           placeholder="Type the location…"
           autoFocus
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+          }}
           onBlur={commitDraft}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
+              e.preventDefault()
               commitDraft()
               e.currentTarget.blur()
             }
@@ -2134,14 +2160,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const { date, festival } = manualKeyParts(key)
     const entry = { ...(scopedManual[key] || {}), ...override }
     const scopeNgo = ngoId || ''
-    const rowNgo = override.row_ngo_id !== undefined ? override.row_ngo_id : (festNgo[key] || '')
+    const getRowNgo = () => {
+      if (override.row_ngo_id !== undefined && override.row_ngo_id !== null && override.row_ngo_id !== '') return override.row_ngo_id
+      if (festNgo[key]) return festNgo[key]
+      try {
+        return typeof rowNgoId === 'function' ? rowNgoId(key) : ''
+      } catch {
+        return ''
+      }
+    }
+    const rowNgo = getRowNgo()
     const isExtra = festival.startsWith('+')
-    const name = String(entry.name || '')
-    const body = String(entry.text || '')
-    const selected = Boolean(entry.selected)
-    const mode = entry.mode ? String(entry.mode) : null
-    const beneficiary = entry.beneficiary !== undefined ? entry.beneficiary : (festBenef[key] || null)
-    const location = entry.location !== undefined ? entry.location : (festLoc[key] || null)
+    const name = String(override.name !== undefined ? override.name : (entry.name || ''))
+    const body = String(override.text !== undefined ? override.text : (entry.text || ''))
+    const selected = override.selected !== undefined ? Boolean(override.selected) : Boolean(entry.selected)
+    const mode = override.mode !== undefined ? (override.mode ? String(override.mode) : null) : (entry.mode ? String(entry.mode) : null)
+    const beneficiary = override.beneficiary !== undefined ? override.beneficiary : (entry.beneficiary !== undefined ? entry.beneficiary : (festBenef[key] || null))
+    const location = override.location !== undefined ? override.location : (entry.location !== undefined ? entry.location : (festLoc[key] || null))
     // A normal festival row with nothing typed and no tick needs no stored row.
     // An extra row is kept even while empty: its existence IS the row.
     if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
@@ -2306,14 +2341,16 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const handleFestivalBeneficiary = async (key, value) => {
     const prevFor = festivalBeneficiaryFor(key)
     setFestBenef((cur) => ({ ...cur, [key]: value }))
-    const ownerId = rowNgoId(key)
+    let ownerId = ''
+    try { ownerId = typeof rowNgoId === 'function' ? (rowNgoId(key) || festNgo[key] || '') : (festNgo[key] || '') } catch { ownerId = festNgo[key] || '' }
     const stored = rowSuggestionsFor(key)
     const isExtra = String(key.split('::')[1] || '').startsWith('+')
+    // Always persist to manual rows so first selection saves
+    persistManualRow(key, { beneficiary: value, row_ngo_id: ownerId })
+    if (isExtra) {
+      console.log('persist beneficiary extra', key, value)
+    }
     if (!stored.length || !ownerId) {
-      if (isExtra) {
-        console.log('persist beneficiary extra', key, value)
-        persistManualRow(key, { beneficiary: value })
-      }
       return // nothing stored yet — the choice travels with the next generation
     }
     const [date, ...rest] = key.split('::')
@@ -2355,14 +2392,16 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestLoc((cur) => ({ ...cur, [key]: value }))
     const stored = rowSuggestionsFor(key)
     const isExtra = String(key.split('::')[1] || '').startsWith('+')
+    let ownerNgoId = ''
+    try { ownerNgoId = typeof rowNgoId === 'function' ? (rowNgoId(key) || stored[0]?.ngo_id || festNgo[key] || '') : (stored[0]?.ngo_id || festNgo[key] || '') } catch { ownerNgoId = stored[0]?.ngo_id || festNgo[key] || '' }
+    // Always persist to manual rows so first selection saves immediately
+    persistManualRow(key, { location: value, row_ngo_id: ownerNgoId })
+    if (isExtra) {
+      console.log('persist location extra', key, value)
+    }
     if (!stored.length) {
-      if (isExtra) {
-        console.log('persist location extra', key, value)
-        persistManualRow(key, { location: value })
-      }
       return // nothing stored yet — the choice travels with the next generation
     }
-    const ownerNgoId = rowNgoId(key) || stored[0]?.ngo_id
     if (!ownerNgoId) return
     const [date, ...rest] = key.split('::')
     const festival = rest.join('::')
@@ -3730,6 +3769,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         </td>
         <td className="lc divider">
           <FestivalLocationSelect
+            key={`loc-extra-${key}`}
             value={festivalLocationFor(key)}
             list={ngoLocationList(rowNgo(key))}
             disabled={festBusy || festGenerating !== null}
@@ -4340,6 +4380,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                       </td>
                       <td className="lc divider">
                         <FestivalLocationSelect
+                          key={`loc-${key}`}
                           value={festivalLocationFor(key)}
                           list={ngoLocationList(rowNgo(key))}
                           disabled={festBusy || festGenerating !== null}
@@ -4439,7 +4480,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             value={festivalBeneficiaryFor(key)}
                             disabled={festBusy || festGenerating !== null}
                             title="Who the AI should aim this festival's programmes at"
-                            onChange={(v) => handleFestivalBeneficiary(key, v)}
+        onChange={(v) => { handleFestivalBeneficiary(key, v) }}
                           />
                         </td>
                         <td className="ai divider">
@@ -4460,13 +4501,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           </div>
                         </td>
                         <td className="lc divider">
-                          <FestivalLocationSelect
-                            value={festivalLocationFor(key)}
-                            list={ngoLocationList(rowNgo(key))}
-                            disabled={festBusy || festGenerating !== null}
-                            title={`Where ${o.name}’s programme happens — one place per festival`}
-                            onChange={(v) => handleFestivalLocation(key, v)}
-                          />
+                            <FestivalLocationSelect
+                              key={`loc-${key}`}
+                              value={festivalLocationFor(key)}
+                              list={ngoLocationList(rowNgo(key))}
+                              disabled={festBusy || festGenerating !== null}
+                              title={`Where ${o.name}’s programme happens — one place per festival`}
+        onChange={(v) => { handleFestivalLocation(key, v) }}
+                            />
                         </td>
                         <td className="sel divider" />
                         {taskCell(date, o.name, 1, key)}
@@ -4516,6 +4558,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                   const locationSharedCell = () => (
                     <td key="l" className="lc divider" rowSpan={rowCount}>
                       <FestivalLocationSelect
+                        key={`loc-${key}`}
                         value={festivalLocationFor(key)}
                         list={ngoLocationList(rowNgo(key))}
                         disabled={festBusy || festGenerating !== null}
