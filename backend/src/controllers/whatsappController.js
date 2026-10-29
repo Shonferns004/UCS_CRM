@@ -1,4 +1,4 @@
-import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, testConnection, resolveAccount, listTemplatesForAccount } from '../services/whatsappService.js';
+import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, sendMediaMessage, testConnection, resolveAccount, listTemplatesForAccount } from '../services/whatsappService.js';
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
 import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
@@ -1081,5 +1081,121 @@ export async function sendBulkTemplate(req, res) {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+}
+export async function listChats(req, res) {
+  try {
+    const accountId = req.query.accountId ? String(req.query.accountId) : null;
+    let accountProject = null;
+    if (accountId) {
+      const { data: acc } = await db.from('whatsapp_accounts').select('project,name').eq('id', accountId).limit(1);
+      if (acc && acc[0]) accountProject = acc[0].project || null;
+    }
+    const byPhone = new Map();
+    const upsert = (phone, candidate) => {
+      const cur = byPhone.get(phone);
+      const mergedName = candidate.recipientName || (cur && cur.recipientName) || '';
+      if (!cur || new Date(candidate.lastAt) > new Date(cur.lastAt)) byPhone.set(phone, { ...cur, ...candidate, recipientName: mergedName });
+      else if (mergedName && !(cur && cur.recipientName)) byPhone.set(phone, { ...cur, recipientName: mergedName });
+    };
+    const { data: convs } = await db.from('conversations').select('id,project,whatsapp_account_id,contact_id,last_message_at').order('last_message_at', { ascending: false }).limit(500);
+    const contactIds = [...new Set((convs || []).map(c => c.contact_id).filter(Boolean))];
+    const contactMap = {};
+    if (contactIds.length) {
+      const { data: contacts } = await db.from('contacts').select('id,phone,phone_normalized,name').in('id', contactIds);
+      for (const c of contacts || []) contactMap[c.id] = c;
+    }
+    const accountIds = [...new Set((convs || []).map(c => c.whatsapp_account_id).filter(Boolean))];
+    const accountMap = {};
+    if (accountIds.length) {
+      const { data: accs } = await db.from('whatsapp_accounts').select('id,name,project').in('id', accountIds);
+      for (const a of accs || []) accountMap[a.id] = a;
+    }
+    for (const c of convs || []) {
+      const contact = contactMap[c.contact_id];
+      const phone = (contact?.phone_normalized || contact?.phone || '').replace(/[^0-9]/g, '');
+      if (!phone) continue;
+      if (accountId) {
+        const matchAccount = c.whatsapp_account_id && String(c.whatsapp_account_id) === accountId;
+        const matchProject = accountProject && c.project === accountProject;
+        if (!matchAccount && !matchProject) continue;
+      }
+      const acc = c.whatsapp_account_id ? accountMap[c.whatsapp_account_id] : null;
+      upsert(phone, { phone, lastAt: c.last_message_at || new Date().toISOString(), lastMessage: '', direction: 'inbound', accountId: c.whatsapp_account_id || null, accountName: acc?.name || c.project || '', project: c.project || '', recipientName: contact?.wa_profile_name || '' });
+    }
+    let bulkQ = db.from('whatsapp_bulk_recipients').select('phone,account_id,template_name,status,created_at').order('created_at', { ascending: false }).limit(1000);
+    if (accountId) bulkQ = bulkQ.eq('account_id', accountId);
+    const { data: bulk } = await bulkQ;
+    const bulkAccountIds = [...new Set((bulk || []).map(b => b.account_id).filter(Boolean))];
+    const bulkAccountMap = {};
+    if (bulkAccountIds.length) {
+      const { data: accs } = await db.from('whatsapp_accounts').select('id,name,project').in('id', bulkAccountIds);
+      for (const a of accs || []) bulkAccountMap[a.id] = a;
+    }
+    for (const b of bulk || []) {
+      const phone = String(b.phone || '').replace(/[^0-9]/g, '');
+      if (!phone) continue;
+      const acc = b.account_id ? bulkAccountMap[b.account_id] : null;
+      upsert(phone, { phone, lastAt: b.created_at, lastMessage: b.template_name ? `[Template: ${b.template_name}]` : '', direction: 'outbound', status: b.status || 'accepted', accountId: b.account_id || null, accountName: acc?.name || '', project: acc?.project || '', recipientName: b.recipient_name || '' });
+    }
+    const convPhoneMap = {};
+    for (const c of convs || []) {
+      const contact = contactMap[c.contact_id];
+      const phone = (contact?.phone_normalized || contact?.phone || '').replace(/[^0-9]/g, '');
+      if (phone) convPhoneMap[c.id] = phone;
+    }
+    const convIds = (convs || []).map(c => c.id);
+    if (convIds.length) {
+      const { data: msgs } = await db.from('messages').select('conversation_id,body_text,direction,created_at').in('conversation_id', convIds).order('created_at', { ascending: false }).limit(10000);
+      const latestByPhone = {};
+      const lastInboundByPhone = {};
+      for (const m of msgs || []) {
+        const ph = convPhoneMap[m.conversation_id];
+        if (!ph) continue;
+        if (!latestByPhone[ph] || new Date(m.created_at) > new Date(latestByPhone[ph].created_at)) latestByPhone[ph] = m;
+        if (m.direction === 'inbound' && (!lastInboundByPhone[ph] || new Date(m.created_at) > new Date(lastInboundByPhone[ph].created_at))) lastInboundByPhone[ph] = m;
+      }
+      for (const ph of byPhone.keys()) {
+        const m = latestByPhone[ph];
+        const cur = byPhone.get(ph);
+        if (m && cur && (!cur.lastMessage || new Date(m.created_at) >= new Date(cur.lastAt))) byPhone.set(ph, { ...cur, lastMessage: (m.body_text || '').slice(0, 80), lastAt: m.created_at, direction: m.direction || cur.direction });
+        const ib = lastInboundByPhone[ph];
+        const cur2 = byPhone.get(ph);
+        if (cur2) byPhone.set(ph, { ...cur2, hasReply: !!ib, replyText: ib ? (ib.body_text || '').slice(0, 200) : '', lastReplyAt: ib ? ib.created_at : null });
+      }
+    }
+    const list = [...byPhone.values()].sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt)).slice(0, 200);
+    return res.json(list);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+export async function sendText(req, res) {
+  try {
+    const { to, text, accountId } = req.body || {};
+    if (!to || !text || !String(text).trim()) {
+      return res.status(400).json({ message: 'Phone and text are required' });
+    }
+    const phone = String(to).replace(/[^0-9]/g, '');
+    const account = accountId ? await getAccountById(accountId) : await resolveAccount();
+    if (!account) return res.status(400).json({ message: 'No WhatsApp account configured' });
+    const result = await sendTextMessage(phone, String(text).trim(), account);
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function sendMedia(req, res) {
+  try {
+    const { to, accountId, mediaUrl, mediaType, caption } = req.body || {};
+    if (!to || !mediaUrl) return res.status(400).json({ message: 'Phone and mediaUrl are required' });
+    const phone = String(to).replace(/[^0-9]/g, '');
+    const account = accountId ? await getAccountById(accountId) : await resolveAccount();
+    if (!account) return res.status(400).json({ message: 'No WhatsApp account configured' });
+    const result = await sendMediaMessage(phone, mediaUrl, mediaType || 'image', caption || '', account);
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 }
