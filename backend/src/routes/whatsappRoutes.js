@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sendReceipt, sendDirect, serveReceiptFile, listTemplates, sendBulkTemplate, listBulkRecipientStatuses, getAccountHealth, listCampaigns, getCampaign, createCampaign, validateWhatsAppContacts, getConversationByPhone } from '../controllers/whatsappController.js';
+import { sendReceipt, sendDirect, serveReceiptFile, listTemplates, sendBulkTemplate, listBulkRecipientStatuses, getAccountHealth, listCampaigns, getCampaign, createCampaign, validateWhatsAppContacts, getConversationByPhone, listChats, sendText, sendMedia } from '../controllers/whatsappController.js';
 import { getStations, getDonorsByStation, getAccessibleNgos } from '../controllers/ngoAdminController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
@@ -13,6 +13,9 @@ router.get('/bulk/statuses', authenticateRole('accounts', 'super_admin', 'admin'
 router.post('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), createCampaign);
 router.get('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listCampaigns);
 router.get('/campaigns/:id', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getCampaign);
+router.get('/chats', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listChats);
+router.post('/send-text', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), sendText);
+router.post('/send-media', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), sendMedia);
 router.get('/conversations/:phone', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getConversationByPhone);
 router.get('/accounts/:accountId/health', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user', 'fro', 'agent'), getAccountHealth);
 router.get('/bulk/stations', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getStations);

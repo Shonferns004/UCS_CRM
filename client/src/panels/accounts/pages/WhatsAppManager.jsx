@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import ConversationViewer from '../components/ConversationViewer';
 import { apiGet } from '../api/auth';
 import WhatsAppBulk from './WhatsAppBulk';
+import WhatsAppChatWindow from '../components/WhatsAppChatWindow';
 import WhatsAppAccountsManager from '../components/WhatsAppAccountsManager';
 import StatusBadge from '../components/StatusBadge';
 
-const TABS = ['Accounts', 'Bulk send', 'Campaigns', 'Delivery log', 'Meta Ads'];
+const TABS = ['Chats', 'Accounts', 'Bulk send', 'Campaigns', 'Delivery log', 'Meta Ads'];
 
 export default function WhatsAppManager() {
-  const [tab, setTab] = useState('Bulk send');
+  const [tab, setTab] = useState('Chats');
   const [accounts, setAccounts] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [statuses, setStatuses] = useState([]);
@@ -95,6 +96,7 @@ export default function WhatsAppManager() {
         ))}
       </div>
 
+{tab !== 'Chats' && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(20,30,60,.10)' }}>
           <div style={{ fontSize: 12, color: '#5B6070' }}>Accounts</div>
@@ -113,8 +115,11 @@ export default function WhatsAppManager() {
           <div style={{ fontSize: 22, fontWeight: 700, color: '#F97316' }}>{statuses.length}</div>
         </div>
       </div>
+      )}
 
-      {tab === 'Accounts' && <WhatsAppAccountsManager />}
+      {tab === 'Chats' && <WhatsAppChatWindow />}
+
+{tab === 'Accounts' && <WhatsAppAccountsManager />}
 
       {tab === 'Bulk send' && <WhatsAppBulk />}
 

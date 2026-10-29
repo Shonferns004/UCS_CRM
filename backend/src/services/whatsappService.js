@@ -42,6 +42,14 @@ export async function resolveAccount(project) {
   return null;
 }
 
+export async function sendMediaMessage(to, mediaUrl, mediaType = 'image', caption = '', account) {
+  const resolved = account || await resolveAccount();
+  if (!resolved) throw new Error('WhatsApp not configured');
+  const type = mediaType === 'document' ? 'document' : (mediaType === 'video' ? 'video' : 'image');
+  const payload = { [type]: { link: mediaUrl } };
+  if (caption) payload[type].caption = caption;
+  return sendViaFacebook(to, type, payload, resolved);
+}
 export async function sendTextMessage(to, text, account) {
   if (!config.enabled && !account) throw new Error('WhatsApp not configured');
 
