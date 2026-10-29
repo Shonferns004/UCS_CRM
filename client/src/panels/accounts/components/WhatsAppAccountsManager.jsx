@@ -243,16 +243,16 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     try {
       const res = await apiPost(`/whatsapp/accounts/${templateFormAccount.id}/templates`, {
         name: templateForm.name.trim(),
-        language: templateForm.language.trim() || 'en',
+        language: (templateForm.language || '').trim() || 'en',
         category: templateForm.category,
-         headerType: templateForm.headerType,
-         headerText: templateForm.headerText.trim() || undefined,
-         headerHandle: templateForm.headerHandle.trim() || undefined,
-         body: templateForm.body.trim(),
-        footer: templateForm.footer.trim() || undefined,
+        headerType: templateForm.headerType,
+        headerText: (templateForm.headerText || '').trim() || undefined,
+        headerHandle: (templateForm.headerHandle || '').trim() || undefined,
+        body: templateForm.body.trim(),
+        footer: (templateForm.footer || '').trim() || undefined,
         buttons: (templateForm.buttons || [])
-          .filter(b => String(b.text || '').trim())
-          .map(b => ({ type: b.type, text: b.text.trim(), url: b.url?.trim(), phone_number: b.phone?.trim() })),
+          .filter(b => String(b?.text || '').trim())
+          .map(b => ({ type: b.type, text: String(b.text || '').trim(), url: b.url?.trim(), phone_number: b.phone?.trim() })),
       });
       toast(`Template submitted to Meta (${res?.status || 'PENDING'})`, 'success');
       await fetchTemplates(templateFormAccount);
@@ -530,7 +530,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
 
       {templateFormAccount && (
         <div className="wa-drawer-overlay" onClick={closeTemplateForm}>
-          <div className="wa-form" style={{ maxWidth: 520, margin: '40px auto' }} onClick={e => e.stopPropagation()}>
+          <div className="wa-form" style={{ maxWidth: 520, margin: '40px auto', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <h3 className="wa-h1" style={{ fontSize: 18 }}>Add Template — {templateFormAccount.name}</h3>
             <p className="wa-sub">Submit a new template to Meta for approval.</p>
             <div className="wa-form-grid">
