@@ -51,7 +51,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [accountTemplates, setAccountTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templateForm, setTemplateForm] = useState({
-    name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', body: '', footer: '',
+    name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', headerHandle: '', body: '', footer: '',
     buttons: [],
   });
   const [revealToken, setRevealToken] = useState({});
@@ -245,9 +245,10 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
         name: templateForm.name.trim(),
         language: templateForm.language.trim() || 'en',
         category: templateForm.category,
-        headerType: templateForm.headerType,
-        headerText: templateForm.headerText.trim() || undefined,
-        body: templateForm.body.trim(),
+         headerType: templateForm.headerType,
+         headerText: templateForm.headerText.trim() || undefined,
+         headerHandle: templateForm.headerHandle.trim() || undefined,
+         body: templateForm.body.trim(),
         footer: templateForm.footer.trim() || undefined,
         buttons: (templateForm.buttons || [])
           .filter(b => String(b.text || '').trim())
@@ -559,12 +560,19 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
                   <option value="DOCUMENT">Document</option>
                 </select>
               </label>
-              {templateForm.headerType === 'TEXT' && (
-                <label className="wa-f wa-field-wide">
-                  <span className="wa-f-label">Header text</span>
-                  <input className="wa-input" value={templateForm.headerText} onChange={e => setTemplateForm(p => ({ ...p, headerText: e.target.value }))} placeholder="Header text" />
-                </label>
-              )}
+               {templateForm.headerType === 'TEXT' && (
+                 <label className="wa-f wa-field-wide">
+                   <span className="wa-f-label">Header text</span>
+                   <input className="wa-input" value={templateForm.headerText} onChange={e => setTemplateForm(p => ({ ...p, headerText: e.target.value }))} placeholder="Header text" />
+                 </label>
+               )}
+               {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateForm.headerType) && (
+                 <label className="wa-f wa-field-wide">
+                   <span className="wa-f-label">Header media URL (public)</span>
+                   <input className="wa-input" value={templateForm.headerHandle} onChange={e => setTemplateForm(p => ({ ...p, headerHandle: e.target.value }))} placeholder="https://example.com/image.jpg" />
+                   <span style={{ fontSize: 11, color: '#6b7280' }}>Paste a publicly accessible media URL (Meta will fetch it).</span>
+                 </label>
+               )}
               <label className="wa-f wa-field-wide">
                 <span className="wa-f-label">Body</span>
                 <textarea className="wa-input" rows={4} value={templateForm.body} onChange={e => setTemplateForm(p => ({ ...p, body: e.target.value }))} placeholder="Hello {{1}}, welcome to {{2}}!" />

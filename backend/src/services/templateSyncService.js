@@ -82,6 +82,42 @@ export async function syncTemplatesForProject(accountProject) {
   return { project: accountProject, fetched: templates.length, inserted, updated };
 }
 
+export async function uploadTemplateHeaderMedia(accountId, { buffer, mimeType }) {
+  const account = await getAccountById(accountId);
+  if (!account) throw new Error('WhatsApp account not found');
+  if (!account.access_token) throw new Error('WhatsApp account needs access_token');
+  const appId = config.appId;
+  if (!appId) throw new Error('WHATSAPP_APP_ID is not configured');
+  const apiVersion = config.apiVersion || 'v23.0';
+
+  // 1. Create an upload session.
+  const sessionRes = await fetch(
+    `https://graph.facebook.com/${apiVersion}/${appId}/uploads?file_length=${buffer.length}&file_type=${encodeURIComponent(mimeType)}&access_token=${encodeURIComponent(account.access_token)}`,
+    { method: 'POST' }
+  );
+  const sessionJson = await sessionRes.json();
+  if (!sessionRes.ok || !sessionJson?.id) {
+    throw new Error(sessionJson?.error?.message || 'Failed to create Meta upload session');
+  }
+  const sessionId = sessionJson.id;
+
+  // 2. Upload the file bytes.
+  const uploadRes = await fetch(`https://graph.facebook.com/${apiVersion}/${sessionId}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${account.access_token}`,
+      'Content-Type': mimeType,
+      'file_offset': '0',
+    },
+    body: buffer,
+  });
+  const uploadJson = await uploadRes.json();
+  if (!uploadRes.ok || !uploadJson?.h) {
+    throw new Error(uploadJson?.error?.message || 'Failed to upload media to Meta');
+  }
+  return uploadJson.h;
+}
+
 export async function createTemplateForAccount(accountId, input) {
   const account = await getAccountById(accountId);
   if (!account) throw new Error('WhatsApp account not found');
@@ -95,6 +131,7 @@ export async function createTemplateForAccount(accountId, input) {
   const body = String(input?.body || '').trim();
   const headerType = String(input?.headerType || 'NONE').toUpperCase();
   const headerText = String(input?.headerText || input?.header || '').trim();
+  const headerHandle = String(input?.headerHandle || input?.header_handle || '').trim();
   const footer = String(input?.footer || '').trim();
   if (!name) throw new Error('Template name is required');
   if (!body) throw new Error('Template body is required');
@@ -103,9 +140,19 @@ export async function createTemplateForAccount(accountId, input) {
   if (headerType === 'TEXT' && headerText) {
     components.push({ type: 'HEADER', format: 'TEXT', text: headerText });
   } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType)) {
-    components.push({ type: 'HEADER', format: headerType });
+    const comp = { type: 'HEADER', format: headerType };
+    if (headerHandle) comp.example = { header_handle: [headerHandle] };
+    components.push(comp);
   }
-  components.push({ type: 'BODY', text: body });
+  // Meta requires an example for any body text containing {{n}} variables.
+  const bodyComponent = { type: 'BODY', text: body };
+  const varMatches = [...body.matchAll(/\{\{(\d+)\}\}/g)];
+  if (varMatches.length > 0) {
+    const maxVar = Math.max(...varMatches.map((m) => parseInt(m[1], 10)));
+    const exampleValues = Array.from({ length: maxVar }, (_, i) => `sample${i + 1}`);
+    bodyComponent.example = { body_text: [exampleValues] };
+  }
+  components.push(bodyComponent);
   if (footer) components.push({ type: 'FOOTER', text: footer });
 
   const buttons = Array.isArray(input?.buttons) ? input.buttons : [];
