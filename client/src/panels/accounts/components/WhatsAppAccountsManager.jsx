@@ -218,7 +218,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const setAccountTemplate = async (account, templateName) => {
     try {
       await apiPut(`/whatsapp/accounts/${account.id}`, { template_name: templateName || null });
-      setForm(prev => ({ ...p, template_name: templateName }));
+      setForm(prev => ({ ...prev, template_name: templateName }));
       await loadAccounts();
     } catch (err) { alert(err.message); }
   };
