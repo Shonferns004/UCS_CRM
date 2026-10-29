@@ -311,7 +311,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
           <h1 className="wa-h1">WhatsApp Accounts</h1>
           <p className="wa-sub">Manage connected WhatsApp Business numbers, templates and agents.</p>
         </div>
-        <div className="wa-header-actions">
+        {/* <div className="wa-header-actions">
           <label className="wa-search-wrap">
             <span className="wa-sr-only">Search accounts</span>
             <Search className="wa-search-ico" size={18} strokeWidth={1.8} aria-hidden="true" />
@@ -345,7 +345,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
             {showForm ? 'Cancel' : 'Add Account'}
           </button>
-        </div>
+        </div> */}
         {allProjectsTaken && !showForm && (
           <p className="wa-form-hint">
             All predefined projects have accounts. You can still add another by using a custom project code (e.g., bsct3, custom1).

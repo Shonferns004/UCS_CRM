@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authenticate, requireWhatsAppAdmin } from '../middleware/authMiddleware.js';
 import {
-  list, getById, create, update, remove, createTemplate, listAccountTemplates, deleteAccountTemplate,
+  list, getById, create, update, remove, createTemplate, listAccountTemplates, deleteAccountTemplate, uploadTemplateMedia,
 } from '../controllers/whatsappAccountController.js';
 import {
   listAgents, assignAgent, removeAgent, searchAgents, listAssignableAgents,
@@ -29,6 +30,7 @@ import {
  */
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
 router.use(authenticate);
 router.use(requireWhatsAppAdmin);
@@ -48,6 +50,7 @@ router.post('/:accountId/agents', assignAgent);
 router.delete('/:accountId/agents/:froId', removeAgent);
 
 router.post('/:accountId/templates', createTemplate);
+router.post('/:accountId/templates/upload-media', upload.single('file'), uploadTemplateMedia);
 router.get('/:accountId/templates', listAccountTemplates);
 router.delete('/:accountId/templates/:name', deleteAccountTemplate);
 

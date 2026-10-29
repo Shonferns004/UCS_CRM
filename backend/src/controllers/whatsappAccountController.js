@@ -1,5 +1,5 @@
 import { listAccounts, getAccountById, createAccount, updateAccount, deleteAccount } from '../models/whatsappAccountModel.js';
-import { createTemplateForAccount, listTemplatesForAccountAll, deleteTemplateForAccount } from '../services/templateSyncService.js';
+import { createTemplateForAccount, listTemplatesForAccountAll, deleteTemplateForAccount, uploadTemplateHeaderMedia } from '../services/templateSyncService.js';
 
 export async function list(req, res) {
   try {
@@ -68,6 +68,18 @@ export async function createTemplate(req, res) {
   }
 }
 
+export async function uploadTemplateMedia(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const handle = await uploadTemplateHeaderMedia(req.params.accountId, {
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+    });
+    return res.json({ handle });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
 export async function listAccountTemplates(req, res) {
   try {
     const templates = await listTemplatesForAccountAll(req.params.accountId);
