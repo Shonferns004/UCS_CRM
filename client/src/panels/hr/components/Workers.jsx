@@ -549,7 +549,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       };
       const TOTAL_LATE_COL = COL.FIRST_DAY_COL + daysInMonth;
       COL.TOTAL_LATE = TOTAL_LATE_COL;
-      const TOTAL_COLS = TOTAL_LATE_COL + 1;
+      const TOTAL_LATE_HRS_COL = TOTAL_LATE_COL + 1;
+      COL.TOTAL_LATE_HRS = TOTAL_LATE_HRS_COL;
+      const TOTAL_COLS = TOTAL_LATE_HRS_COL + 1;
 
       const headers = [
         'Agent Name', 'NGO', 'Status', 'Hold / Released', 'Documents Submitted or Missing', 'Account Holder Name', 'Account Holder Relation',
@@ -569,7 +571,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           const d = new Date(year, monthDate.getMonth(), i + 1);
           return d.toLocaleString('default', { day: '2-digit', month: 'short' });
         }),
-        'Total Late Minutes'
+        'Total Late Minutes',
+        'Total Late Hours'
       ];
 
       const wsData = [headers];
@@ -581,7 +584,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       // (independent of Excel formula quirks like SUMIF wildcards or recalc).
       const makeSums = () => ({
         salary: 0, target: 0, achieved: 0, bsct: 0, aflf: 0, mann: 0,
-        gross_present_days: 0, absent_days: 0, half_days: 0, late_deduction_days: 0, sunday_deduction_days: 0, training_deduction_days: 0, month_salary: 0, total_late_minutes: 0,
+        gross_present_days: 0, absent_days: 0, half_days: 0, late_deduction_days: 0, sunday_deduction_days: 0, training_deduction_days: 0, month_salary: 0, total_late_minutes: 0, total_late_hours: 0,
         compensatory_work_days: 0, compensated_holiday_days: 0, required_sunday_worked_days: 0,
         monthly_incentive: 0, total_aki: 0, aki_payout: 0, advance_deduction: 0,
         net_payable: 0, idle_hours: 0, daily: {}
@@ -598,6 +601,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         sum.half_days += r.half_days || 0;
         sum.late_deduction_days += r.late_deduction_days || 0;
         sum.total_late_minutes += r.total_late_minutes || 0;
+        sum.total_late_hours += (r.total_late_minutes || 0) / 60;
         sum.sunday_deduction_days += r.sunday_deduction_days || 0;
         sum.training_deduction_days += r.training_deduction_days || 0;
         sum.idle_hours += (r.idle_seconds || 0) / 3600;
@@ -667,7 +671,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           r.required_sunday_worked_days || 0,
           Math.round(((r.idle_seconds || 0) / 3600) * 100) / 100,
           ...dailyArr,
-          r.total_late_minutes || 0
+          r.total_late_minutes || 0,
+          Math.round(((r.total_late_minutes || 0) / 60) * 100) / 100
         ];
         wsData.push(row);
         const met = (r.target || 0) > 0 && (r.achieved || 0) >= r.target;
@@ -723,6 +728,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           else if (c === COL.REQUIRED_SUN) row.push(sum.required_sunday_worked_days);
           else if (c === COL.IDLE_HRS) row.push(Math.round(sum.idle_hours * 100) / 100);
           else if (c === COL.TOTAL_LATE) row.push(sum.total_late_minutes);
+          else if (c === COL.TOTAL_LATE_HRS) row.push(Math.round(sum.total_late_hours * 100) / 100);
           else if (c >= COL.FIRST_DAY_COL && c < COL.TOTAL_LATE) row.push(sum.daily[c - COL.FIRST_DAY_COL + 1] || 0);
           else row.push(null);
         }
@@ -795,7 +801,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         { wch: 12 },
         { wch: 14 }, // Idle Time (Hrs)
         ...Array.from({ length: daysInMonth }, () => ({ wch: 10 })),
-        { wch: 14 } // Total Late Minutes
+        { wch: 14 }, // Total Late Minutes
+        { wch: 12 }  // Total Late Hours
       ];
       ws['!cols'] = colWidths;
 

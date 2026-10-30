@@ -69,7 +69,7 @@ function buildDonor(receipt) {
   };
 }
 
-export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }) {
+export default function LeadDetail({ logId, onBack, onAfterAction, variant = 'page', onDelete }) {
   const drawer = variant === 'drawer';
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -230,6 +230,10 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       });
       if (res.receipt) setReceipt(res.receipt);
       if (onBack) onBack();
+      // onBack only reloads THIS list. Without onAfterAction the sibling
+      // Bank Audit panel never learned that the money was verified and kept
+      // showing the entry as unclaimed until a manual reload.
+      if (onAfterAction) onAfterAction();
       toast('Successfully verified', 'success');
     } catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
@@ -241,13 +245,14 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       await apiPost(`/accounts/leads/${lead.log_id}/done`);
       toast('Lead completed', 'success');
       if (onBack) onBack();
+      if (onAfterAction) onAfterAction();
     } catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
 
   const handleReject = async () => {
     if (!lead||!rejectReason.trim()) return; setRejectOpen(false); setSubmitting(true);
-    try { await apiPost(`/accounts/leads/${lead.log_id}/reject`,{reason:rejectReason}); setRejectReason(''); load(); }
+    try { await apiPost(`/accounts/leads/${lead.log_id}/reject`,{reason:rejectReason}); setRejectReason(''); load(); if (onAfterAction) onAfterAction(); }
     catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
@@ -258,6 +263,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       await apiPost(`/accounts/leads/${lead.log_id}/go-back`,{reason:goBackReason||null});
       setGoBackReason('');
       onBack ? onBack() : load();
+      if (onAfterAction) onAfterAction();
     }
     catch(err) { alert(err.message); }
     finally { setSubmitting(false); }

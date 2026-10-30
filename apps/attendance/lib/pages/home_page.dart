@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/api_exception.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/offline_punch_queue.dart';
@@ -43,6 +44,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   String _workerName = '';
   String _workerId = '';
   int _pendingPunchCount = 0;
+  bool _backendUnreachable = false;
   String _officeStartTime = '10:00';
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
@@ -69,10 +71,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _fetchStatus();
       _syncPendingPunches();
+      _probeBackend();
     });
     _fetchStatus();
     _updatePendingBadge();
     _syncPendingPunches();
+    _probeBackend();
   }
 
   @override
@@ -246,12 +250,24 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     if (mounted) setState(() => _pendingPunchCount = count);
   }
 
+  /// Makes an unreachable backend visible instead of failing silently.
+  ///
+  /// A stopped tunnel or a captive proxy does not throw — it answers
+  /// HTTP 200 with an error page — so without this the worker's only symptom
+  /// was a punch that quietly did not save.
+  Future<void> _probeBackend() async {
+    final reachable = await ApiService.checkConnectivity(timeout: const Duration(seconds: 5));
+    if (!mounted || reachable == !_backendUnreachable) return;
+    setState(() => _backendUnreachable = !reachable);
+  }
+
   Future<void> _syncPendingPunches() async {
     final online = await ApiService.checkConnectivity();
     if (!online) return;
     final syncing = await OfflinePunchQueue.isSyncing();
     if (syncing) return;
     await OfflinePunchQueue.setSyncing(true);
+    String? rejected;
     try {
       final pending = await OfflinePunchQueue.getPending();
       for (final record in pending) {
@@ -271,14 +287,34 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             );
           }
           await OfflinePunchQueue.remove(record['local_id'] as String);
+        } on ApiException catch (e) {
+          if (e.kind != ApiErrorKind.business) {
+            // Transient — leave it queued and retry on the next pass.
+            break;
+          }
+          // The server rejected this punch outright ("Already punched in
+          // today", "Outside range"). Retrying it forever would wedge every
+          // punch queued behind it, so drop it and tell the worker instead.
+          await OfflinePunchQueue.remove(record['local_id'] as String);
+          rejected = e.message;
         } catch (_) {
-          // Stop syncing on first failure; retry later
+          // Unrecognised failure — treat as transient rather than risk
+          // discarding a punch that may still be valid.
           break;
         }
       }
     } finally {
       await OfflinePunchQueue.setSyncing(false);
       await _updatePendingBadge();
+    }
+    if (rejected != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('A queued punch was rejected: $rejected'),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 
@@ -394,9 +430,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       }
     } catch (e) {
       // If network failed mid-request, queue it
-      if (e.toString().contains('SocketException') ||
-          e.toString().contains('TimeoutException') ||
-          e.toString().contains('Failed host lookup')) {
+      if (ApiService.isRetryableError(e)) {
         await OfflinePunchQueue.enqueue({
           'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
           'action': 'punch_in',
@@ -517,9 +551,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         );
       }
     } catch (e) {
-      if (e.toString().contains('SocketException') ||
-          e.toString().contains('TimeoutException') ||
-          e.toString().contains('Failed host lookup')) {
+      if (ApiService.isRetryableError(e)) {
         await OfflinePunchQueue.enqueue({
           'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
           'action': 'punch_out',
@@ -996,13 +1028,38 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
-            if (_absenceDays.isNotEmpty || (_isAdmin && _pendingAbsenceProofs.isNotEmpty) || _pendingPunchCount > 0)
+            if (_backendUnreachable || _absenceDays.isNotEmpty || (_isAdmin && _pendingAbsenceProofs.isNotEmpty) || _pendingPunchCount > 0)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 0)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_backendUnreachable)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.red.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.cloud_off, color: Colors.red.shade800, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Backend unreachable. Punches may not save — queued punches will sync automatically once it is back.',
+                                  style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.w600, fontSize: 13),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _probeBackend,
+                                child: Text('Retry', style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (_pendingPunchCount > 0)
                         Container(
                           padding: const EdgeInsets.all(12),

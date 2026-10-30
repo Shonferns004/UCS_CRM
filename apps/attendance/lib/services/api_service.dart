@@ -6,6 +6,7 @@ import 'package:http/io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
+import 'api_exception.dart';
 
 class ApiService {
   static String get baseUrl => Config.apiBaseUrl;
@@ -135,14 +136,30 @@ class ApiService {
     return _sharedDohClient ??= await _createDohClient();
   }
 
-  static Future<bool> checkConnectivity() async {
+  /// True only when the backend actually answers `/api/config` with a JSON
+  /// body.
+  ///
+  /// This deliberately does not use a DNS lookup. A DNS lookup is not
+  /// connectivity: a stopped ngrok tunnel, a captive portal and a captive
+  /// proxy all resolve the hostname happily, and the tunnel then answers
+  /// HTTP 200 with a text interstitial. Checking DNS is precisely why punches
+  /// were being aimed at a dead endpoint and then lost on the floor.
+  static Future<bool> checkConnectivity({Duration timeout = const Duration(seconds: 6)}) async {
     try {
-      await _resolveHost().timeout(const Duration(seconds: 8));
-      return true;
+      final res = await http
+          .get(Uri.parse('$baseUrl/config'), headers: const {'Accept': 'application/json'})
+          .timeout(timeout);
+      if (res.statusCode != 200) return false;
+      // A 200 with an HTML/text body is not a working backend.
+      return jsonDecode(res.body) is Map<String, dynamic>;
     } catch (_) {
       return false;
     }
   }
+
+  /// True when the failure is transient — worth queueing for offline replay
+  /// rather than showing the worker a rejection they cannot act on.
+  static bool isRetryableError(Object error) => isRetryableApiError(error);
 
   static Future<http.Response> _send(
     Future<http.Response> Function(http.Client client) run, {
@@ -373,11 +390,7 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode(body),
     );
-    final resp = jsonDecode(res.body);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(resp['message'] ?? 'Punch in failed');
-    }
-    return resp;
+    return _decodePunchResponse(res, 'Punch in failed');
   }
 
   static Future<Map<String, dynamic>> punchOut(double lat, double lng, {String? punchMethod}) async {
@@ -386,9 +399,42 @@ class ApiService {
       headers: await _headers(),
       body: jsonEncode({'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod}),
     );
-    final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception(body['message'] ?? 'Punch out failed');
-    return body;
+    return _decodePunchResponse(res, 'Punch out failed');
+  }
+
+  /// Interprets a punch response without ever escaping as a bare
+  /// FormatException.
+  ///
+  /// The old code ran `jsonDecode(res.body)` unguarded, so a dead tunnel —
+  /// which answers HTTP 200 with a text interstitial — threw from the decode
+  /// and the punch was dropped. The caller could not tell "I could not read
+  /// the server" apart from "the server rejected you", so nothing was queued
+  /// and nothing was retried.
+  static Map<String, dynamic> _decodePunchResponse(http.Response res, String fallback) {
+    Map<String, dynamic>? parsed;
+    try {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map<String, dynamic>) parsed = decoded;
+    } on FormatException {
+      parsed = null;
+    }
+
+    final serverMessage = parsed?['message']?.toString();
+
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      // 200 with a non-JSON body is not success — it is an unreachable backend.
+      if (parsed == null) {
+        throw const ApiException(
+          ApiErrorKind.network,
+          'The server returned an unreadable response.',
+        );
+      }
+      return parsed;
+    }
+    if (res.statusCode >= 500) {
+      throw ApiException(ApiErrorKind.server, serverMessage ?? fallback, statusCode: res.statusCode);
+    }
+    throw ApiException(ApiErrorKind.business, serverMessage ?? fallback, statusCode: res.statusCode);
   }
 
   static String _todayCacheKey() {
