@@ -79,12 +79,49 @@ export async function getTemplates(project, agentToken) {
   return agentApi(`/fro/whatsapp/templates${qs}`, {}, agentToken)
 }
 
-export async function sendTemplateMessage(conversationId, templateName, paramValues, agentToken, headerMediaUrl, headerMediaName) {
-  return agentApi('/fro/whatsapp/send-template', {
+
+
+export async function sendTemplateMessage(
+  conversationId,
+  templateName,
+  paramValues,
+  agentToken,
+  headerMediaUrl,
+  headerMediaName
+) {
+  const url = `${API_BASE}/fro/whatsapp/send-template`
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+  }
+
+  if (agentToken) {
+    headers.Authorization = `Bearer ${agentToken}`
+  }
+
+  const response = await fetch(url, {
     method: 'POST',
-    body: JSON.stringify({ conversationId, templateName, paramValues, headerMediaUrl, headerMediaName }),
-  }, agentToken)
+    headers,
+    body: JSON.stringify({
+      conversationId,
+      templateName,
+      paramValues,
+      headerMediaUrl,
+      headerMediaName,
+    }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(payload.error || payload.message || response.statusText)
+  }
+
+  return payload
 }
+
+
 
 // Manual Retry on a failed bubble. The server re-sends through the same
 // claim path the automatic backoff uses; blocks until the send settles so
@@ -101,7 +138,7 @@ export async function uploadMedia(file, agentToken) {
   if (agentToken) {
     const res = await fetch(`${API_BASE}/fro/whatsapp/upload-media`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${agentToken}` },
+      headers: { Authorization: `Bearer ${agentToken}`, 'ngrok-skip-browser-warning': 'true' },
       body: formData,
     })
     if (!res.ok) throw new Error('Upload failed')

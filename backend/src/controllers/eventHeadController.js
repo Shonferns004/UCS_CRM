@@ -120,8 +120,8 @@ const NGO_HEADER_BANNERS = {
   'mann care foundation': '/Letter%20Head%20MANN.png',
   aflf: '/Letter%20Head%20AFLF.png',
   'ashray for life foundation': '/Letter%20Head%20AFLF.png',
-  bsct: '/Letter%20Head%20BSCT%20(1).png',
-  beingsevak: '/Letter%20Head%20BSCT%20(1).png',
+bsct: null,
+    beingsevak: null,
 };
 const NGO_LOGOS = {
   mann: '/logo/mann-logo.png',
@@ -992,15 +992,28 @@ export const assignVehicle = async (req, res) => {
 };
 
 // ─── MEDIA ───
+// Event media lives in the upstream (production) bucket when those credentials
+// are configured, otherwise fall back to the active/legacy account.
+const eventStorage = () => (
+  process.env.UPSTREAM_S3_BUCKET
+    ? db.storage.from('upstream', 'event')
+    : db.storage.from('event')
+);
+
 // Upload a memory-backed multer file to the S3 "event" folder
 // (<S3_BUCKET>/event/<file>) and return its public URL.
 const uploadEventFile = async (file) => {
   const ext = (file.originalname && '.' + String(file.originalname).split('.').pop()) || '';
   const key = `event/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext.replace(/[^a-z0-9.]/gi, '').slice(0, 12)}`;
-  const { data, error } = await db.storage.from('event').upload(key, file.buffer, { contentType: file.mimetype });
+  const { data, error } = await eventStorage().upload(key, file.buffer, { contentType: file.mimetype });
   if (error) throw new Error('Upload to S3 failed: ' + error.message);
-  const { data: urlData } = db.storage.from('event').getPublicUrl(key);
-  return { url: urlData?.publicUrl || `event/${key}`, key };
+  const { data: urlData } = eventStorage().getPublicUrl(key);
+  const { data: previewData } = await eventStorage().presignDownload(key, 3600);
+  return {
+    url: urlData?.publicUrl || `event/${key}`,
+    previewUrl: previewData?.url || null,
+    key,
+  };
 };
 const normalizeMedia = (m) => ({
   ...m,
@@ -1038,8 +1051,8 @@ const pickMediaMeta = (body, file, s3Url = null) => {
 export const uploadEventBanner = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-    const { url } = await uploadEventFile(req.file);
-    return res.json({ url });
+    const { url, previewUrl, key } = await uploadEventFile(req.file);
+    return res.json({ url, previewUrl, key });
   } catch (error) {
     console.error('uploadEventBanner error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -1322,7 +1335,7 @@ async function readEventObject(url) {
   } catch { /* fall through */ }
   const fileName = s3FileNameFromUrl(url);
   if (fileName) {
-    const { data, error } = await db.storage.from('event').download(fileName);
+    const { data, error } = await eventStorage().download(fileName);
     if (!error && data) return { buffer: data, contentType: mimeForName(fileName) };
   }
   const remote = await fetch(url, { redirect: 'follow' });
@@ -1710,6 +1723,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       eventsByNgoDate.get(k).push(e);
     }
     const claimedEventIds = new Set();
+    const includedEventIds = new Set();
     const eventBannerMap = {};
     try {
       const bannerRows = await EventHead.getBannerMediaByEvents(events.map(e => e.id).filter(Boolean));
@@ -1724,12 +1738,28 @@ export const generateNgoMonthlyReport = async (req, res) => {
       start: `${year}-${mm}-01`,
       end: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`,
     }).catch(() => []);
+    // Drop stale / demo links so they never resurface as report cards. A link
+    // whose event no longer exists (or is a demo) is removed both here and in
+    // the store, and the in-memory list is filtered so this report is clean.
+    const staleLinks = (Array.isArray(links) ? links : []).filter((l) => {
+      const ev = eventById.get(String(l?.event_id));
+      if (!ev) return true;
+      return String(ev?.name || '').toLowerCase().includes('demo');
+    });
+    for (const l of staleLinks) {
+      EventHead.deletePlannerEventLink({
+        observance_date: l?.observance_date,
+        festival: l?.festival,
+        ngo_id: l?.ngo_id,
+      }).catch(() => {});
+    }
+    const cleanLinks = (Array.isArray(links) ? links : []).filter((l) => !staleLinks.includes(l));
     // Keyed by NGO as well as date + festival: BSCT and MANN may both plan the
     // same festival on the same date, and one NGO's event must never resolve
     // onto the other's row (which is what showed a MANN programme as completed
     // under BSCT). A link with no NGO is stored as '' and only ever matches a
     // row that also has none.
-    const linkMap = new Map(links.map(l => [
+    const linkMap = new Map(cleanLinks.map(l => [
       `${String(l.ngo_id ?? '')}|${String(l.observance_date).slice(0, 10)}|${String(l.festival || '').trim()}`,
       l.event_id,
     ]));
@@ -1805,10 +1835,22 @@ export const generateNgoMonthlyReport = async (req, res) => {
     // even while its event record is still a Draft waiting for the head's
     // approval — the work is what the report is about.
     const plannerCells = await loadPlannerDoneCells(month, year);
-    const plannerDoneCell = (date, festival) => {
-      const c = plannerCells.get(`${String(date || '').slice(0, 10)}::${String(festival || '').trim()}`);
-      return Boolean(c && c.allDone);
-    };
+     const normalizeName = (s) => String(s || '').trim().toLowerCase().replace(/[.\s]+$/g, '').replace(/\s+/g, ' ');
+     const plannerDoneCell = (date, festival) => {
+       const d = String(date || '').slice(0, 10);
+       const f = String(festival || '').trim();
+       const c = plannerCells.get(`${d}::${f}`);
+       if (c && c.allDone) return true;
+       // Tolerate trailing punctuation / whitespace differences between the
+       // event name and the planner task title.
+       for (const [k, v] of plannerCells) {
+         if (!v || !v.allDone) continue;
+         const [kd, kf] = k.split('::');
+         if (kd !== d) continue;
+         if (normalizeName(kf) === normalizeName(f)) return true;
+       }
+       return false;
+     };
 
     const byNgo = new Map();
     // Seed a card for every report NGO (BSCT / MANN / AFLF) up front, so an NGO
@@ -1867,6 +1909,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const cellDone = plannerDoneCell(d, f.festival);
       if (!cellDone) continue;
       if (!linked) continue;
+      if (String(linked?.name || '').toLowerCase().includes('demo')) continue;
       const img = imageForEvent(linked);
       // The name the event was SAVED under — the Social head can rename it in
       // the Create / Edit form, and that is the name the report must carry.
@@ -1899,11 +1942,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
         image_event_id: img.event_id || null,
         image_kind: img.kind || null,
         image_index: img.index || 0,
-        banner: null,
-      });
-    }
+         banner: null,
+       });
+       if (linked?.id != null) includedEventIds.add(String(linked.id));
+     }
 
-    const ngos = [...byNgo.values()]
+     const ngos = [...byNgo.values()]
       .map(n => ({ ...n, budget: Math.round(n.budget) }))
       .sort((a, b) => a.ngo_name.localeCompare(b.ngo_name));
 
@@ -1986,8 +2030,9 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const ngoKey = String(n.ngo_id ?? '');
       const extras = events
         .filter(e => String(e.ngo_id ?? '') === ngoKey
-          && !claimedEventIds.has(String(e.id))
-          && linkedEventIds.has(String(e.id)))
+           && !includedEventIds.has(String(e.id))
+           && (linkedEventIds.has(String(e.id)) || isComplete(e) || plannerDoneCell(e.date, e.name))
+           && !String(e.name || '').toLowerCase().includes('demo'))
         .filter(e => {
           const k = programmeKey(e);
           if (!k) return true;
@@ -1996,8 +2041,13 @@ export const generateNgoMonthlyReport = async (req, res) => {
           return true;
         })
         .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-      if (!extras.length) continue;
-      const extraCards = extras.map(e => {
+       if (!extras.length) continue;
+       for (const e of extras) {
+         const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
+         const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';
+         seedNgoCard(e.ngo_id, ctx.ngoMap[e.ngo_id], code);
+       }
+       const extraCards = extras.map(e => {
         const d = e.date ? String(e.date).slice(0, 10) : null;
         const img = imageForEvent(e);
         return {
@@ -4014,6 +4064,101 @@ export const setPlannerEventLink = async (req, res) => {
     return res.json({ link: row });
   } catch (error) {
     console.error('setPlannerEventLink error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deletePlannerEventLink = async (req, res) => {
+  try {
+    const observance_date = String(req.body?.observance_date || req.query?.observance_date || '').trim();
+    const festival = String(req.body?.festival ?? req.query?.festival ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(observance_date)) {
+      return res.status(400).json({ message: 'observance_date (YYYY-MM-DD) is required' });
+    }
+    await EventHead.deletePlannerEventLink({
+      observance_date,
+      festival,
+      ngo_id: req.body?.ngo_id ?? req.query?.ngo_id ?? null,
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('deletePlannerEventLink error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/* The planner's typed/manual rows for one month and NGO scope. These carry the
+   "Write manually" programme text, the row's event name and the extra rows
+   added with "+ Add another programme", so they survive a reload. */
+export const getPlannerManualRows = async (req, res) => {
+  try {
+    const month = Number(req.query?.month);
+    const year = Number(req.query?.year);
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000) {
+      return res.status(400).json({ message: 'month (1-12) and year are required' });
+    }
+    const rows = await EventHead.getPlannerManualRows({
+      month,
+      year,
+      ngo_id: String(req.query?.ngo_id ?? ''),
+    });
+    return res.json({ rows });
+  } catch (error) {
+    console.error('getPlannerManualRows error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const savePlannerManualRow = async (req, res) => {
+  try {
+    const month = Number(req.body?.month);
+    const year = Number(req.body?.year);
+    const observance_date = String(req.body?.observance_date || '').trim();
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000) {
+      return res.status(400).json({ message: 'month (1-12) and year are required' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(observance_date)) {
+      return res.status(400).json({ message: 'observance_date (YYYY-MM-DD) is required' });
+    }
+    if (Number(observance_date.slice(5, 7)) !== month) {
+      return res.status(400).json({ message: 'observance_date must fall in the requested month' });
+    }
+    const row = await EventHead.upsertPlannerManualRow({
+      month,
+      year,
+      observance_date,
+      festival: String(req.body?.festival ?? ''),
+      ngo_id: req.body?.ngo_id ?? '',
+      row_ngo_id: req.body?.row_ngo_id ?? '',
+      name: req.body?.name ?? '',
+      body_text: req.body?.body_text ?? '',
+      is_selected: req.body?.is_selected,
+      mode: req.body?.mode ?? null,
+      beneficiary: req.body?.beneficiary ?? null,
+      location: req.body?.location ?? null,
+      created_by: req.user?.id ?? req.user?.email ?? null,
+    });
+    return res.json({ row });
+  } catch (error) {
+    console.error('savePlannerManualRow error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deletePlannerManualRow = async (req, res) => {
+  try {
+    const observance_date = String(req.query?.observance_date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(observance_date)) {
+      return res.status(400).json({ message: 'observance_date (YYYY-MM-DD) is required' });
+    }
+    await EventHead.deletePlannerManualRow({
+      observance_date,
+      festival: String(req.query?.festival ?? ''),
+      ngo_id: req.query?.ngo_id ?? '',
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('deletePlannerManualRow error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

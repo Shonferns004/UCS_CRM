@@ -2,6 +2,7 @@ import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, exportBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
   searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries, listKitGivenEvents,
+  listBeneficiaryOccupations,
   setBeneficiaryCollectionOtp, setBeneficiaryOtpVerified,
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
@@ -84,20 +85,32 @@ export const createNewBeneficiary = async (req, res) => {
 
     if (!full_name) return res.status(400).json({ message: 'Full name is required' });
 
-    const beneficiary_code = await generateBeneficiaryCode();
     const created_by = req.user?.name || req.user?.email || 'system';
 
-    const beneficiary = await createBeneficiary({
-      beneficiary_code, full_name, first_name, middle_name, last_name,
-      date_of_birth, gender, mobile, alternate_mobile, email,
-      address_line_1, address_line_2, area, city, district, state, pincode, photo,
-      monthly_family_income, income_category, bpl_available, ration_card_available,
-      occupation, mother_name, father_name, guardian_name, guardian_occupation,
-      total_family_members, ngo_id, registration_date, aadhaar_number, needed,
-      beneficiary_type,
-      status: 'ACTIVE', fingerprint_status: 'NOT_REGISTERED',
-      created_by, updated_by: created_by,
-    });
+    let beneficiary = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const beneficiary_code = await generateBeneficiaryCode();
+      try {
+        beneficiary = await createBeneficiary({
+          beneficiary_code, full_name, first_name, middle_name, last_name,
+          date_of_birth, gender, mobile, alternate_mobile, email,
+          address_line_1, address_line_2, area, city, district, state, pincode, photo,
+          monthly_family_income, income_category, bpl_available, ration_card_available,
+          occupation, mother_name, father_name, guardian_name, guardian_occupation,
+          total_family_members, ngo_id, registration_date, aadhaar_number, needed,
+          beneficiary_type,
+          status: 'ACTIVE', fingerprint_status: 'NOT_REGISTERED',
+          created_by, updated_by: created_by,
+        });
+        break;
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (attempt < 2 && (e?.code === '23505' || /duplicate key value violates unique constraint/i.test(msg))) {
+          continue;
+        }
+        throw e;
+      }
+    }
 
     if (category_ids && category_ids.length > 0) {
       await assignCategories(beneficiary.id, category_ids);
@@ -146,7 +159,7 @@ export const createNewBeneficiary = async (req, res) => {
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
       beneficiary_id: beneficiary.id, action: 'CREATED',
-      details: { beneficiary_code }, performed_by: created_by,
+       details: { beneficiary_code: beneficiary.beneficiary_code }, performed_by: created_by,
     });
 
     return res.status(201).json({
@@ -504,7 +517,7 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, has_otp } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, has_otp, occupation, occupation_detail, date_from, date_to } = req.query;
 
     // Beneficiaries app operators see only their own registrations. The app
     // token carries department 'operator' and no ngo_id (CRM worker tokens
@@ -523,8 +536,8 @@ export const listAllBeneficiaries = async (req, res) => {
     const result = await listBeneficiaries({
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
-      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_given, event_id, event_name, has_otp,
+       search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, has_otp,
+       occupation, occupation_detail, date_from, date_to,
       created_by,
     });
     return res.json(result);
@@ -542,12 +555,21 @@ export const listKitGivenEventsController = async (_req, res) => {
   }
 };
 
+// Distinct occupations on file — the All Beneficiaries occupation filter.
+export const listOccupationsController = async (_req, res) => {
+  try {
+    return res.json(await listBeneficiaryOccupations());
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Export: returns every beneficiary matching the current list filters as
 // display-keyed rows so the client can write the .xlsx directly (same shape
 // as the Donors export in accountsController).
 export const exportBeneficiariesController = async (req, res) => {
   try {
-    const { search, status, ngo_id, event_id } = req.query;
+    const { search, status, ngo_id, event_id, event_name, occupation, occupation_detail, date_from, date_to } = req.query;
 
     let created_by;
     if (isBeneficiariesAppSession(req.user)) {
@@ -561,33 +583,29 @@ export const exportBeneficiariesController = async (req, res) => {
     }
 
     const rows = await exportBeneficiaries({
-      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, created_by,
+      search, status, ngo_id, event_id, event_name, created_by,
+      occupation, occupation_detail, date_from, date_to,
     });
 
     const data = rows.map((b) => ({
       'Beneficiary Code': b.beneficiary_code || '',
       'Full Name': b.full_name || '',
       'Photo': (typeof b.photo === 'string' && b.photo.length <= 32767) ? b.photo : (b.photo ? 'Photo available' : ''),
-      'Mobile': b.mobile || '',
-      'Alternate Mobile': b.alternate_mobile || '',
-      'Email': b.email || '',
-      'NGO': b.ngos?.name || '',
+       'Mobile': b.mobile || '',
+       'NGO': b.ngos?.name || '',
       'Gender': b.gender || '',
       'Beneficiary Type': b.beneficiary_type || '',
       'Date of Birth': b.date_of_birth || '',
-      'Occupation': b.occupation || '',
+      'Occupation': b.occupation ? String(b.occupation).split(' - ')[0].trim() : '',
+      'Occupation Details': b.occupation ? String(b.occupation).split(' - ').slice(1).join(' - ').trim() : '',
       'Address': b.address_line_1 || '',
       'Area': b.area || '',
       'City': b.city || '',
       'District': b.district || '',
       'State': b.state || '',
       'Pincode': b.pincode || '',
-      'Aadhaar Number': b.aadhaar_number || '',
-      'Needed': b.needed || '',
-      'Monthly Family Income': b.monthly_family_income ?? '',
-      'Income Category': b.income_category || '',
-      'Total Family Members': b.total_family_members ?? '',
-      'Status': b.status || '',
+       'Aadhaar Number': b.aadhaar_number || '',
+       'Status': b.status || '',
       'Kit Given': b.kit_given ? 'Yes' : 'No',
       'Kit Given On': b.kit_given_at || '',
       'Kit Given By': b.kit_given_by || '',
@@ -608,7 +626,7 @@ export const exportBeneficiariesController = async (req, res) => {
 // survive intact. Used for migrating beneficiaries to another database.
 export const downloadBeneficiariesController = async (req, res) => {
   try {
-    const { search, status, ngo_id, event_id } = req.query;
+    const { search, status, ngo_id, event_id, event_name, occupation, occupation_detail, date_from, date_to } = req.query;
     let created_by;
     if (isBeneficiariesAppSession(req.user)) {
       let operator = null;
@@ -616,7 +634,8 @@ export const downloadBeneficiariesController = async (req, res) => {
       created_by = operator?.name || req.user?.name || null;
     }
     const rows = await exportBeneficiaries({
-      search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined, event_id, created_by,
+      search, status, ngo_id, event_id, event_name, created_by,
+      occupation, occupation_detail, date_from, date_to,
     });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="beneficiaries_${new Date().toISOString().slice(0, 10)}.json"`);

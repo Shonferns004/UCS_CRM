@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts, updateConversationLabels, retryMessage } from '../../api/whatsappEnhanced'
+import { apiGet } from '../../api/auth'
 import { parseFilter } from '../../../../hooks/useRealtime'
 import { onDbChange } from '../../../../lib/socket'
 import { useIsMobile } from '../../../../hooks/useIsMobile'
@@ -17,14 +18,18 @@ const PROJECT_TABS = [
   { id: 'bsct', label: 'Being Sevak', color: '#3b82f6' },
   { id: 'bsct2', label: 'BSCT2', color: '#8b5cf6' },
   { id: 'aflf', label: 'Ashray Life', color: '#22c55e' },
+  { id: 'aflf2', label: 'Ashray Life 2', color: '#14b8a6' },
   { id: 'mann', label: 'Mann Care', color: '#ec4899' },
+  { id: 'mann 2', label: 'Mann Care 2', color: '#f97316' },
 ]
 
 const PROJECT_TAB_COLORS = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' },
   bsct2: { bg: '#ede9fe', text: '#6d28d9', border: '#c4b5fd' },
   aflf: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
+  aflf2: { bg: '#ccfbf1', text: '#0f766e', border: '#5eead4' },
   mann: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+  'mann 2': { bg: '#ffedd5', text: '#c2410c', border: '#fdba74' },
 }
 
 const FALLBACK_PROJECT_COLOR = '#64748b'
@@ -93,7 +98,7 @@ function formatTempExpiry(iso) {
   } catch { return 'ends soon' }
 }
 
-function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new Set(), activeTab = 'all') {
+function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new Set(), activeTab = 'all', role = '') {
   const assignedAgentId = conversation?.assigned_agent_id
     ?? conversation?.assignedAgentId
     ?? conversation?.assigned_to_agent_id
@@ -110,6 +115,11 @@ function isVisibleToAgent(conversation, agentId, myProjects, tempProjects = new 
   // (the backend already scoped them; this avoids over-filtering when
   // myAccounts hasn't loaded yet or tempProjects is stale).
   if (activeTab !== 'all' && project === activeTab) return true
+
+  if (role === 'fro') {
+    if (myProjects.size === 0) return true
+    return project != null && myProjects.has(project)
+  }
 
   if (assignedAgentId != null) return String(assignedAgentId) === String(agentId)
 
@@ -137,6 +147,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const [newConvPhone, setNewConvPhone] = useState('')
   const [newConvName, setNewConvName] = useState('')
   const [newConvProject, setNewConvProject] = useState('')
+  const [newConvHealth, setNewConvHealth] = useState(null)
+  const [activeHealth, setActiveHealth] = useState(null)
   // Name carried over from a My Leads WhatsApp deep-link. Used as a fallback so
   // the conversation shows the lead's name instead of a bare phone number.
   const [deepLink, setDeepLink] = useState({ phone: '', name: '' })
@@ -176,8 +188,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [activeProject])
 
   const filteredByTab = useMemo(() => {
-    const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean))
-    const tempProjects = new Set((myAccounts || []).filter(a => a?.temporary).map(a => a?.project).filter(Boolean))
+    const myProjects = new Set((myAccounts || []).map(a => a?.project).filter(Boolean).map(p => String(p).toLowerCase()))
+    const tempProjects = new Set((myAccounts || []).filter(a => a?.temporary).map(a => a?.project).filter(Boolean).map(p => String(p).toLowerCase()))
     return conversations.filter(conversation => {
       // Station-prefix filter on client side too
       const proj = (conversation?.project ?? (conversation?.contact?.project || '')).toLowerCase();
@@ -186,9 +198,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
         // For now, if server scoped it with _scope, trust it
         if (conversation._scope === 'station' || conversation._scope === 'temp') return true;
       }
-      return isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab)
+      return isVisibleToAgent(conversation, waUser?.id, myProjects, tempProjects, activeTab, waUser?.role)
     })
-  }, [conversations, waUser?.id, myAccounts, activeTab])
+  }, [conversations, waUser?.id, waUser?.role, myAccounts, activeTab])
 
   // Project chips come from the accounts this FRO actually holds, so a chip for
   // an account they don't have is never shown.
@@ -274,9 +286,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     const projectParam = searchParams.get('project')
     const nameParam = searchParams.get('name')
     const routeTarget = `${projectParam || ''}:${phoneParam || ''}`
-    if (projectParam && PROJECT_TAB_COLORS[projectParam]) {
+    if (projectParam && PROJECT_TAB_COLORS[projectParam] && activeTab !== projectParam) {
       setActiveTab(projectParam)
-      if (activeTab !== projectParam) return
+      return
     }
     setNewConvProject(projectParam || (activeTab !== 'all' ? activeTab : ''))
     if (!phoneParam) {
@@ -326,11 +338,28 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [activeProject, conversations])
 
   useEffect(() => {
-    if (!waUser?.id && !agentToken) return
-    getMyAccounts(agentToken).then(accounts => {
-      if (accounts?.length) setMyAccounts(accounts)
-    }).catch(() => {})
-  }, [waUser?.id, agentToken])
+    if (!showNewConv) return
+    const acct = myAccounts.find(a => a.project === newConvProject) || myAccounts[0] || { id: 6 }
+    if (!acct?.id) { setNewConvHealth({ error: 'No WhatsApp account linked to your profile' }); return }
+    setNewConvHealth(null)
+    apiGet(`/whatsapp/accounts/${acct.id}/health`)
+      .then((d) => setNewConvHealth(d || { error: 'No data' }))
+      .catch((e) => setNewConvHealth({ error: e?.message || 'Failed' }))
+  }, [showNewConv, newConvProject, myAccounts])
+
+  useEffect(() => {
+    const acct = activeTab !== 'all'
+      ? (myAccounts.find(a => a.project === activeTab) || null)
+      : (myAccounts[0] || null)
+    const resolved = acct?.id ? acct : { id: 6 }
+    if (!resolved?.id) { setActiveHealth({ error: 'No account linked' }); return }
+    setActiveHealth(null)
+    let cancelled = false
+    apiGet(`/whatsapp/accounts/${resolved.id}/health`)
+      .then((d) => { if (!cancelled) setActiveHealth(d || { error: 'No data' }) })
+      .catch((e) => { if (!cancelled) setActiveHealth({ error: e?.message || 'Failed' }) })
+    return () => { cancelled = true }
+  }, [activeTab, myAccounts])
 
   useEffect(() => {
     if (!activeConv?.id || !messages?.length || !messagesContainerRef.current) return
@@ -359,6 +388,20 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       },
     })
   }, [activeConv?.id, agentToken, queryClient])
+
+  // Meta delivery-status updates (sent -> delivered -> read / failed) arrive via
+  // the webhook and land as an UPDATE on the messages row. Refresh the thread so
+  // the ticks and failure reason reflect the new status without waiting for the
+  // 5-second poll.
+  useEffect(() => {
+    if (!activeConv?.id) return
+    return onDbChange({
+      table: 'messages',
+      event: 'UPDATE',
+      filter: parseFilter(`conversation_id=eq.${activeConv.id}`),
+      onUpdate: () => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] }),
+    })
+  }, [activeConv?.id, queryClient])
 
   useEffect(() => {
     return onDbChange({
@@ -509,6 +552,25 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
               placeholder="Search or start a new chat"
               style={{ width: '100%', padding: '8px 12px 8px 32px', fontSize: 12.5, border: 'none', borderRadius: 8, boxSizing: 'border-box', outline: 'none', background: '#f0f2f5', color: '#111b21' }} />
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 2px 8px', fontSize: 11.5 }}>
+            <span style={{ color: '#667781', fontWeight: 600 }}>Meta Health:</span>
+            {activeHealth === null ? (
+              <span style={{ color: '#9ca3af' }}>Checking…</span>
+            ) : activeHealth.error ? (
+              <span style={{ color: '#dc2626' }}>{activeHealth.error}</span>
+            ) : (
+              <>
+                <span style={{
+                  fontWeight: 700,
+                  color: String(activeHealth.quality || '').toUpperCase() === 'GREEN' ? '#16a34a'
+                    : String(activeHealth.quality || '').toUpperCase() === 'YELLOW' ? '#d97706'
+                    : String(activeHealth.quality || '').toUpperCase() === 'RED' ? '#dc2626' : '#6b7280',
+                }}>
+                  {activeHealth.quality || 'N/A'}
+                </span>
+              </>
+            )}
+          </div>
           <button onClick={() => { setShowNewConv(true); setNewConvProject(activeTab !== 'all' ? activeTab : (myAccounts.find(a => a.temporary)?.project || (myAccounts.length ? myAccounts[0].project : ''))) }}
             style={{ width: '100%', padding: '8px 10px', fontSize: 12.5, fontWeight: 600, background: '#00a884', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background .15s' }}
             onMouseOver={e => { e.currentTarget.style.background = '#008069' }}
@@ -638,21 +700,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
                 <input type="tel" value={newConvPhone} onChange={e => setNewConvPhone(e.target.value)} placeholder="e.g. 917506419340"
                   style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }} />
               </label>
-              {myAccounts.length > 1 && (
-                <label style={{ display: 'block', marginBottom: 14 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Send from</span>
-                  <select value={newConvProject} onChange={e => setNewConvProject(e.target.value)}
-                    style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', background: '#fff', outline: 'none' }}>
-                    <option value="">— Select number —</option>
-                    {myAccounts.map(a => (
-                      <option key={a.id} value={a.project}>
-                        {a.name} ({a.phone_number_id}){a.temporary ? ` — Temporary until ${formatTempExpiry(a.expires_at)}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <div className="modal-actions" style={{ marginTop: 8 }}>
+               <div className="modal-actions" style={{ marginTop: 8 }}>
                 <button onClick={() => setShowNewConv(false)}
                   style={{ padding: '9px 18px', fontSize: 13, fontWeight: 500, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer' }}>
                   Cancel

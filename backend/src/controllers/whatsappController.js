@@ -1,9 +1,11 @@
-import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, testConnection, resolveAccount, listTemplatesForAccount } from '../services/whatsappService.js';
+import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, sendMediaMessage, testConnection, resolveAccount, listTemplatesForAccount } from '../services/whatsappService.js';
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
 import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
 import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } from '../services/receiptFileLink.js';
 import db from '../config/db.js';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const TEMPLATE_PROJECT_MAP = {
   bsct_receipt_2: 'bsct',
@@ -759,14 +761,440 @@ export async function listTemplates(req, res) {
 
     const wabaId = whatsappConfig.wabaId || '2529840587470683';
     const tplRes = await fetch(
-      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
+      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${wabaId}/message_templates?fields=name,language,status,components`,
       { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } }
     );
     if (!tplRes.ok) { const e = await tplRes.text(); return res.status(400).json({ message: 'Meta API: ' + e }); }
 
     const { data } = await tplRes.json();
-    const templates = (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language }));
+    const templates = (data || []).filter(t => t.status === 'APPROVED').map(t => ({
+      name: t.name,
+      language: t.language,
+      components: t.components || [],
+    }));
     return res.json(templates);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function getAccountHealth(req, res) {
+  try {
+    const account = await getAccountById(req.params.accountId);
+    if (!account) return res.status(404).json({ message: 'Account not found' });
+
+    let meta = {};
+    try {
+      const r = await fetch(`https://graph.facebook.com/v18.0/${account.phone_number_id}?fields=quality_rating,verified_name,display_phone_number`, {
+        headers: { Authorization: `Bearer ${account.access_token}` },
+      });
+      meta = await r.json();
+    } catch (e) {
+      meta = { error: e.message };
+    }
+
+    const { data: usage } = await db
+      .from('whatsapp_bulk_recipients')
+      .select('status')
+      .eq('account_id', String(account.id));
+
+    const sentToday = (usage || []).filter(x => x.status === 'sent' || x.status === 'delivered' || x.status === 'read').length;
+    const failedToday = (usage || []).filter(x => x.status === 'failed').length;
+
+    return res.json({
+      account: { id: account.id, name: account.name, project: account.project },
+      quality: meta.quality_rating || 'N/A',
+      verifiedName: meta.verified_name || account.name,
+      displayPhone: meta.display_phone_number || null,
+      usage: { sent: sentToday, failed: failedToday, total: (usage || []).length },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function getConversationByPhone(req, res) {
+  try {
+    const phone = String(req.params.phone || '').replace(/[^0-9]/g, '');
+    const accountId = req.query.accountId ? String(req.query.accountId) : null;
+    if (!phone) return res.status(400).json({ message: 'phone required' });
+    // find contact
+    const { data: contacts } = await db.from('contacts').select('id').or(`phone.eq.${phone},phone_normalized.eq.${phone}`).limit(1);
+    const contactId = contacts && contacts[0] ? contacts[0].id : null;
+    // resolve account -> project for filtering
+    let accountProject = null;
+    if (accountId) {
+      const { data: acc } = await db.from('whatsapp_accounts').select('project').eq('id', accountId).limit(1);
+      if (acc && acc[0]) accountProject = acc[0].project || null;
+    }
+    let convIds = [];
+    const convProjectMap = {};
+    if (contactId) {
+      const { data: convs } = await db.from('conversations').select('id,project,whatsapp_account_id').eq('contact_id', contactId).order('last_message_at', { ascending: false }).limit(20);
+      if (convs) {
+        for (const c of convs) {
+          // if accountId filter, only include conversations matching that account's project or whatsapp_account_id
+          if (accountId) {
+            const matchAccount = (c.whatsapp_account_id && String(c.whatsapp_account_id) === accountId);
+            const matchProject = accountProject && c.project === accountProject;
+            if (!matchAccount && !matchProject) continue;
+          }
+          convIds.push(c.id);
+          convProjectMap[c.id] = c.project || '';
+        }
+      }
+    }
+    let messages = [];
+    if (convIds.length) {
+      const { data: msgs } = await db.from('messages').select('id,direction,body_text,message_type,status,failure_reason,created_at,wa_message_id,media_url,media_mime_type,conversation_id').in('conversation_id', convIds).order('created_at', { ascending: true }).limit(200);
+      messages = (msgs || []).map(m => ({ ...m, project: convProjectMap[m.conversation_id] || '' }));
+    }
+    // Also include bulk-sent template messages (stored in whatsapp_bulk_recipients)
+    let bulkQ = db.from('whatsapp_bulk_recipients').select('id,template_name,phone,status,failure_reason,created_at,wa_message_id,status_updated_at,account_id').eq('phone', phone);
+    if (accountId) bulkQ = bulkQ.eq('account_id', accountId);
+    const { data: bulk } = await bulkQ.order('created_at', { ascending: true }).limit(200);
+    // Pre-fetch template bodies for display
+    const tplNames = [...new Set((bulk || []).map(b => b.template_name).filter(Boolean))];
+    const tplMap = {};
+    if (tplNames.length) {
+      const { data: tpls } = await db.from('whatsapp_templates').select('name,components').in('name', tplNames);
+      if (tpls) {
+        for (const t of tpls) {
+          const bodyComp = (t.components || []).find(c => String(c.type || '').toUpperCase() === 'BODY');
+          const headerComp = (t.components || []).find(c => String(c.type || '').toUpperCase() === 'HEADER');
+          const buttonsComp = (t.components || []).find(c => String(c.type || '').toUpperCase() === 'BUTTONS');
+          tplMap[t.name] = {
+            body: bodyComp ? (bodyComp.text || '') : '',
+            header: headerComp || null,
+            buttons: buttonsComp ? (buttonsComp.buttons || []) : [],
+          };
+        }
+      }
+    }
+    if (bulk && bulk.length) {
+      for (const b of bulk) {
+        const tpl = tplMap[b.template_name] || {};
+        const body = tpl.body || `[Template: ${b.template_name}]`;
+        messages.push({
+          id: b.id,
+          direction: 'outbound',
+          body_text: body,
+          message_type: 'template',
+          status: b.status || 'accepted',
+          failure_reason: b.failure_reason || null,
+          created_at: b.created_at,
+          wa_message_id: b.wa_message_id,
+          template_name: b.template_name,
+          template_header: tpl.header || null,
+          template_buttons: tpl.buttons || [],
+        });
+      }
+    }
+    // Presign S3 media URLs so the browser can load private objects
+    const s3 = new S3Client({ region: process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1', credentials: process.env.AWS_ACCESS_KEY_ID ? { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY } : undefined });
+    const BUCKET = process.env.S3_BUCKET || 'ucs-crm-uploads-mumbai';
+    const HOST = `${BUCKET}.s3.${process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com`;
+    await Promise.all(messages.map(async (m) => {
+      if (m.media_url && m.media_url.includes(HOST)) {
+        try {
+          const key = new URL(m.media_url).pathname.replace(/^\//, '');
+          const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn: 3600 });
+          m.media_url = url;
+        } catch (e) { /* keep original */ }
+      }
+    }));
+    messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    return res.json({ phone, contactId, conversationId: convIds[0] || null, messages });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function validateWhatsAppContacts(req, res) {
+  try {
+    const { accountId, phones } = req.body || {};
+    const account = await getAccountById(accountId);
+    if (!account) return res.status(404).json({ message: 'Account not found' });
+
+    const list = Array.isArray(phones) ? phones : [];
+    if (!list.length) return res.json({ valid: [], invalid: [] });
+
+    const r = await fetch(`https://graph.facebook.com/v18.0/${account.phone_number_id}/contacts`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${account.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        blocking: 'wait',
+        contacts: list,
+        force_check: true,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      // Meta may reject the contacts-check operation for this number/token
+      // (e.g. missing permission, on-premises number, restricted WABA).
+      // Don't fail the whole request — fall back to "unknown" so the UI keeps working.
+      console.warn('[validateWhatsAppContacts] Meta rejected contacts check:', data?.error?.message);
+      // Meta contacts-check unavailable for this number/token. Don't mark everyone invalid —
+      // keep all recipients as valid so bulk send still works; Meta will reject bad numbers at send time.
+      return res.json({ valid: list, invalid: [], unknown: list, raw: [], validationUnavailable: true, metaError: data?.error?.message || 'Meta contact check failed' });
+    }
+
+    const valid = [];
+    const invalid = [];
+    for (const c of data.contacts || []) {
+      if (c.status === 'valid') valid.push(c.input || c.wa_id);
+      else invalid.push(c.input || c.input);
+    }
+    return res.json({ valid, invalid, raw: data.contacts || [] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function listBulkRecipientStatuses(req, res) {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
+    const { data, error } = await db
+      .from('whatsapp_bulk_recipients')
+      .select('wa_message_id, account_id, phone, recipient_name, template_name, status, failure_reason, status_updated_at, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function createCampaign(req, res) {
+  try {
+    const { name, accountId, templateName } = req.body || {};
+    const { data, error } = await db.from('campaigns').insert({
+      name: name || `Bulk Campaign ${new Date().toISOString().slice(0, 10)}`,
+      channel: 'whatsapp',
+      status: 'sending',
+      account_id: accountId ? String(accountId) : null,
+      template_name: templateName || null,
+      started_at: new Date().toISOString(),
+    }).select().single();
+    if (error) throw error;
+    return res.status(201).json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function listCampaigns(req, res) {
+  try {
+    const { data, error } = await db
+      .from('campaigns')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    const campaigns = data || [];
+    // attach recipient counts
+    await Promise.all(campaigns.map(async (c) => {
+      try {
+        const { count } = await db
+          .from('whatsapp_bulk_recipients')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', c.id);
+        c.recipient_count = count || 0;
+      } catch {
+        c.recipient_count = 0;
+      }
+    }));
+    return res.json(campaigns);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function getCampaign(req, res) {
+  try {
+    const { data: campaign, error } = await db
+      .from('campaigns')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (error) throw error;
+    if (!campaign) return res.status(404).json({ message: 'Campaign not found' });
+
+    const { data: recipients } = await db
+      .from('whatsapp_bulk_recipients')
+      .select('*')
+      .eq('campaign_id', req.params.id);
+
+    return res.json({ campaign, recipients: recipients || [] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function sendBulkTemplate(req, res) {
+  try {
+    const { accountId, to, templateName, templateLang, parameters, headerImageUrl, headerFormat, recipientName, campaignId } = req.body;
+    if (!to) return res.status(400).json({ success: false, message: 'Phone number is required' });
+
+    const account = accountId ? await getAccountById(accountId) : await resolveAccount();
+    if (!account) return res.status(400).json({ success: false, message: 'No WhatsApp account configured' });
+
+    const tpl = templateName || account.template_name;
+    if (!tpl) return res.status(400).json({ success: false, message: 'Template name is required' });
+
+    const params = Array.isArray(parameters) ? parameters : [];
+    const result = await sendTemplateMessage(to, tpl, params, templateLang || account.template_language || 'en', account, headerImageUrl, headerFormat);
+    const messageId = result?.messages?.[0]?.id || result?.id || null;
+
+    if (!messageId) {
+      console.error('WhatsApp API returned no message ID:', result);
+      return res.status(502).json({
+        success: false,
+        message: 'No WhatsApp message ID returned',
+        result,
+      });
+    }
+
+    const { error: insertErr } = await db.from('whatsapp_bulk_recipients').insert({
+      account_id: account.id,
+      campaign_id: campaignId || null,
+      template_name: tpl,
+      recipient_name: req.body.recipientName || null,
+      phone: String(to).replace(/[^0-9]/g, ''),
+      wa_message_id: messageId,
+      status: 'accepted',
+    });
+
+    if (insertErr) {
+      console.error('Bulk recipient log insert failed:', insertErr.message);
+    }
+
+    return res.json({
+      success: true,
+      status: 'accepted',
+      messageId,
+      result,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+export async function listChats(req, res) {
+  try {
+    const accountId = req.query.accountId ? String(req.query.accountId) : null;
+    let accountProject = null;
+    if (accountId) {
+      const { data: acc } = await db.from('whatsapp_accounts').select('project,name').eq('id', accountId).limit(1);
+      if (acc && acc[0]) accountProject = acc[0].project || null;
+    }
+    const byPhone = new Map();
+    const upsert = (phone, candidate) => {
+      const cur = byPhone.get(phone);
+      const mergedName = candidate.recipientName || (cur && cur.recipientName) || '';
+      if (!cur || new Date(candidate.lastAt) > new Date(cur.lastAt)) byPhone.set(phone, { ...cur, ...candidate, recipientName: mergedName });
+      else if (mergedName && !(cur && cur.recipientName)) byPhone.set(phone, { ...cur, recipientName: mergedName });
+    };
+    const { data: convs } = await db.from('conversations').select('id,project,whatsapp_account_id,contact_id,last_message_at').order('last_message_at', { ascending: false }).limit(500);
+    const contactIds = [...new Set((convs || []).map(c => c.contact_id).filter(Boolean))];
+    const contactMap = {};
+    if (contactIds.length) {
+      const { data: contacts } = await db.from('contacts').select('id,phone,phone_normalized,name').in('id', contactIds);
+      for (const c of contacts || []) contactMap[c.id] = c;
+    }
+    const accountIds = [...new Set((convs || []).map(c => c.whatsapp_account_id).filter(Boolean))];
+    const accountMap = {};
+    if (accountIds.length) {
+      const { data: accs } = await db.from('whatsapp_accounts').select('id,name,project').in('id', accountIds);
+      for (const a of accs || []) accountMap[a.id] = a;
+    }
+    for (const c of convs || []) {
+      const contact = contactMap[c.contact_id];
+      const phone = (contact?.phone_normalized || contact?.phone || '').replace(/[^0-9]/g, '');
+      if (!phone) continue;
+      if (accountId) {
+        const matchAccount = c.whatsapp_account_id && String(c.whatsapp_account_id) === accountId;
+        const matchProject = accountProject && c.project === accountProject;
+        if (!matchAccount && !matchProject) continue;
+      }
+      const acc = c.whatsapp_account_id ? accountMap[c.whatsapp_account_id] : null;
+      upsert(phone, { phone, lastAt: c.last_message_at || new Date().toISOString(), lastMessage: '', direction: 'inbound', accountId: c.whatsapp_account_id || null, accountName: acc?.name || c.project || '', project: c.project || '', recipientName: contact?.wa_profile_name || '' });
+    }
+    let bulkQ = db.from('whatsapp_bulk_recipients').select('phone,account_id,template_name,status,created_at').order('created_at', { ascending: false }).limit(1000);
+    if (accountId) bulkQ = bulkQ.eq('account_id', accountId);
+    const { data: bulk } = await bulkQ;
+    const bulkAccountIds = [...new Set((bulk || []).map(b => b.account_id).filter(Boolean))];
+    const bulkAccountMap = {};
+    if (bulkAccountIds.length) {
+      const { data: accs } = await db.from('whatsapp_accounts').select('id,name,project').in('id', bulkAccountIds);
+      for (const a of accs || []) bulkAccountMap[a.id] = a;
+    }
+    for (const b of bulk || []) {
+      const phone = String(b.phone || '').replace(/[^0-9]/g, '');
+      if (!phone) continue;
+      const acc = b.account_id ? bulkAccountMap[b.account_id] : null;
+      upsert(phone, { phone, lastAt: b.created_at, lastMessage: b.template_name ? `[Template: ${b.template_name}]` : '', direction: 'outbound', status: b.status || 'accepted', accountId: b.account_id || null, accountName: acc?.name || '', project: acc?.project || '', recipientName: b.recipient_name || '' });
+    }
+    const convPhoneMap = {};
+    for (const c of convs || []) {
+      const contact = contactMap[c.contact_id];
+      const phone = (contact?.phone_normalized || contact?.phone || '').replace(/[^0-9]/g, '');
+      if (phone) convPhoneMap[c.id] = phone;
+    }
+    const convIds = (convs || []).map(c => c.id);
+    if (convIds.length) {
+      const { data: msgs } = await db.from('messages').select('conversation_id,body_text,direction,created_at').in('conversation_id', convIds).order('created_at', { ascending: false }).limit(10000);
+      const latestByPhone = {};
+      const lastInboundByPhone = {};
+      for (const m of msgs || []) {
+        const ph = convPhoneMap[m.conversation_id];
+        if (!ph) continue;
+        if (!latestByPhone[ph] || new Date(m.created_at) > new Date(latestByPhone[ph].created_at)) latestByPhone[ph] = m;
+        if (m.direction === 'inbound' && (!lastInboundByPhone[ph] || new Date(m.created_at) > new Date(lastInboundByPhone[ph].created_at))) lastInboundByPhone[ph] = m;
+      }
+      for (const ph of byPhone.keys()) {
+        const m = latestByPhone[ph];
+        const cur = byPhone.get(ph);
+        if (m && cur && (!cur.lastMessage || new Date(m.created_at) >= new Date(cur.lastAt))) byPhone.set(ph, { ...cur, lastMessage: (m.body_text || '').slice(0, 80), lastAt: m.created_at, direction: m.direction || cur.direction });
+        const ib = lastInboundByPhone[ph];
+        const cur2 = byPhone.get(ph);
+        if (cur2) byPhone.set(ph, { ...cur2, hasReply: !!ib, replyText: ib ? (ib.body_text || '').slice(0, 200) : '', lastReplyAt: ib ? ib.created_at : null });
+      }
+    }
+    const list = [...byPhone.values()].sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt)).slice(0, 200);
+    return res.json(list);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+export async function sendText(req, res) {
+  try {
+    const { to, text, accountId } = req.body || {};
+    if (!to || !text || !String(text).trim()) {
+      return res.status(400).json({ message: 'Phone and text are required' });
+    }
+    const phone = String(to).replace(/[^0-9]/g, '');
+    const account = accountId ? await getAccountById(accountId) : await resolveAccount();
+    if (!account) return res.status(400).json({ message: 'No WhatsApp account configured' });
+    const result = await sendTextMessage(phone, String(text).trim(), account);
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function sendMedia(req, res) {
+  try {
+    const { to, accountId, mediaUrl, mediaType, caption } = req.body || {};
+    if (!to || !mediaUrl) return res.status(400).json({ message: 'Phone and mediaUrl are required' });
+    const phone = String(to).replace(/[^0-9]/g, '');
+    const account = accountId ? await getAccountById(accountId) : await resolveAccount();
+    if (!account) return res.status(400).json({ message: 'No WhatsApp account configured' });
+    const result = await sendMediaMessage(phone, mediaUrl, mediaType || 'image', caption || '', account);
+    return res.json({ success: true, result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

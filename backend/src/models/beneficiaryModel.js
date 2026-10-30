@@ -1,74 +1,67 @@
 import db from '../config/db.js';
 
-export async function generateBeneficiaryCode() {
-  const { data: seq, error: seqErr } = await db
-    .from('beneficiary_sequences')
-    .select('id, current_value')
-    .single();
-
-  let current = null;
-  if (seqErr && seqErr.code === 'PGRST116') {
-    // Sequence table is empty (seed row never inserted). Create it on the
-    // fly so registration does not fail.
-    const { data: created, error: createErr } = await db
-      .from('beneficiary_sequences')
-      .insert({ current_value: 0 })
-      .select('id, current_value')
-      .single();
-    if (createErr) throw createErr;
-    current = created;
-  } else if (seqErr) {
-    throw seqErr;
-  } else {
-    current = seq;
-  }
-
-  const next = (current.current_value || 0) + 1;
-  const { error: updErr } = await db
-    .from('beneficiary_sequences')
-    .update({ current_value: next, updated_at: new Date().toISOString() })
-    .eq('id', current.id);
-  if (updErr) throw updErr;
-
-  return `BS-${String(next).padStart(6, '0')}`;
-}
-
-// Reserve a whole block of codes in one read+write. Calling
-// generateBeneficiaryCode() per row costs two round-trips each, which is what
-// made a 400-row spreadsheet import appear to hang. Codes are handed out from
-// the same counter, so a reserved block is simply unused if the import aborts.
+// Allocate `count` unique beneficiary codes atomically. The sequence row is
+// locked for the duration of the transaction so concurrent registrations and
+// imports can never hand out the same code, and the counter is lifted to the
+// highest code already stored before allocating so a stale/out-of-sync counter
+// (or a code written by an older import) can never collide with a fresh one.
+// Codes are handed out from the same counter, so a reserved block is simply
+// unused if the import aborts.
 export async function reserveBeneficiaryCodes(count) {
   const n = Math.max(0, Math.floor(Number(count) || 0));
   if (n === 0) return [];
 
-  const { data: seq, error: seqErr } = await db
-    .from('beneficiary_sequences')
-    .select('id, current_value')
-    .single();
+  const client = await db._pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Serialise every allocation across processes/connections.
+    await client.query('SELECT pg_advisory_xact_lock(987654321)');
 
-  let current = null;
-  if (seqErr && seqErr.code === 'PGRST116') {
-    const { data: created, error: createErr } = await db
-      .from('beneficiary_sequences')
-      .insert({ current_value: 0 })
-      .select('id, current_value')
-      .single();
-    if (createErr) throw createErr;
-    current = created;
-  } else if (seqErr) {
-    throw seqErr;
-  } else {
-    current = seq;
+    // Seed the sequence row if it does not exist yet.
+    await client.query(
+      `INSERT INTO beneficiary_sequences (current_value)
+       SELECT 0
+       WHERE NOT EXISTS (SELECT 1 FROM beneficiary_sequences)`
+    );
+
+    // Keep the counter ahead of the highest code already on file.
+    await client.query(
+      `UPDATE beneficiary_sequences
+          SET current_value = GREATEST(
+                COALESCE(current_value, 0),
+                COALESCE((SELECT MAX(CAST(SUBSTRING(beneficiary_code FROM 4) AS INTEGER))
+                            FROM beneficiaries
+                           WHERE beneficiary_code ~ '^BS-[0-9]+$'), 0)
+              )
+        WHERE id = (SELECT id FROM beneficiary_sequences ORDER BY id LIMIT 1)`
+    );
+
+    const { rows } = await client.query(
+      `UPDATE beneficiary_sequences
+          SET current_value = current_value + $1,
+              updated_at = NOW()
+        WHERE id = (SELECT id FROM beneficiary_sequences ORDER BY id LIMIT 1)
+        RETURNING current_value`,
+      [n]
+    );
+    if (!rows || !rows.length) throw new Error('beneficiary_sequences row missing');
+
+    await client.query('COMMIT');
+
+    const final = Number(rows[0].current_value);
+    const start = final - n + 1;
+    return Array.from({ length: n }, (_, i) => `BS-${String(start + i).padStart(6, '0')}`);
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    throw e;
+  } finally {
+    client.release();
   }
+}
 
-  const start = (current.current_value || 0) + 1;
-  const { error: updErr } = await db
-    .from('beneficiary_sequences')
-    .update({ current_value: start + n - 1, updated_at: new Date().toISOString() })
-    .eq('id', current.id);
-  if (updErr) throw updErr;
-
-  return Array.from({ length: n }, (_, i) => `BS-${String(start + i).padStart(6, '0')}`);
+export async function generateBeneficiaryCode() {
+  const [code] = await reserveBeneficiaryCodes(1);
+  return code;
 }
 
 // Every member already on file whose number matches one of the sheet's numbers
@@ -261,7 +254,53 @@ const beneficiarySearchOr = async (term) => {
   return filters.join(',');
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, created_by, has_otp }) => {
+// Occupations offered by the All Beneficiaries filter. The app saves the picked
+// occupation and the operator's free-text specifics in one column as
+// "Occupation - details" (see add_beneficiary_page.dart), and older imports also
+// wrote spellings like "Hawker (...)" / "Unemployment". The dropdown only shows
+// these canonical labels; each one matches every stored variant below.
+export const BENEFICIARY_OCCUPATION_TYPES = [
+  'Business',
+  'Demo',
+  'Hawkers',
+  'Housewife',
+  'Local Small Stall',
+  'Massage',
+  'Pco Booth Operator',
+  'Professional',
+  'Service /Job',
+  'Student',
+  'Unemployed',
+];
+
+const OCCUPATION_PATTERNS = {
+  Business: ['Business', 'Business - %'],
+  Demo: ['Demo', 'Demo - %'],
+  Hawkers: ['Hawkors', 'Hawkors - %', 'Hawker%', 'Street Hawker%'],
+  Housewife: ['Housewife', 'Housewife - %'],
+  'Local Small Stall': ['Local Small Stall', 'Local Small Stall - %'],
+  Massage: ['Massage', 'Massage - %'],
+  'Pco Booth Operator': ['Pco Booth Operator', 'Pco Booth Operator - %', 'PCO Booth%'],
+  Professional: ['Professional', 'Professional - %'],
+  'Service /Job': ['Service /Job', 'Service /Job - %', 'Service / Job%'],
+  Student: ['Student', 'Student - %'],
+  Unemployed: ['Unemployed', 'Unemployment', 'Unemployed - %', 'Unemployment - %'],
+};
+
+// Builds the PostgREST `or` expression that matches every stored variant of a
+// canonical occupation label (exact, "label - details", or known spellings).
+const occupationFilterOr = (value) => {
+  const label = String(value).trim();
+  if (!label) return null;
+  const patterns = OCCUPATION_PATTERNS[label] || [label, `${label} - %`];
+  const safe = patterns
+    .map((p) => p.replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (!safe.length) return null;
+  return safe.map((p) => `occupation.ilike.${p}`).join(',');
+};
+
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given, event_id, event_name, created_by, has_otp, occupation, occupation_detail, date_from, date_to }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
   if (created_by) query = query.eq('created_by', created_by);
@@ -278,8 +317,22 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   }
   if (status) query = query.eq('status', status);
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (occupation) {
+    const or = occupationFilterOr(occupation);
+    if (or) query = query.or(or);
+  }
+  if (occupation_detail) {
+    const detail = String(occupation_detail).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (detail) query = query.ilike('occupation', `%${detail}%`);
+  }
   if (state) query = query.eq('state', state);
   if (city) query = query.eq('city', city);
+  // Date-wise filter on the day the member was registered. created_at is the
+  // column every row has (imports don't always populate registration_date), and
+  // the session timezone is pinned to IST so a bare YYYY-MM-DD means that local
+  // calendar day.
+  if (date_from) query = query.gte('created_at', date_from);
+  if (date_to) query = query.lte('created_at', `${date_to}T23:59:59.999`);
   if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
   // Kit Given page filters by the event NAME: most handout rows only carry the
   // typed name (kit_event_id stays null), so an id filter would miss them.
@@ -329,11 +382,17 @@ export const listKitGivenEvents = async () => {
     .filter((r) => r.name);
 };
 
+// Options for the All Beneficiaries occupation filter. A fixed canonical list
+// keeps the dropdown clean (Housewife, Student, Business, …). The raw column
+// holds messy variants such as "Hawker (...)" or "Unemployment"; those are
+// matched by occupationFilterOr instead of being listed.
+export const listBeneficiaryOccupations = async () => BENEFICIARY_OCCUPATION_TYPES;
+
 // Export: same filters as listBeneficiaries but WITHOUT pagination so the
 // web panel can download every matching beneficiary in one request. Rows are
 // pulled in 1000-row pages so a PostgREST row cap can never silently truncate
 // the file.
-export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, created_by } = {}) => {
+export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, event_name, created_by, occupation, occupation_detail, date_from, date_to } = {}) => {
   let searchOr = null;
   if (search) {
     const term = String(search).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -347,7 +406,18 @@ export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, cr
     if (searchOr) query = query.or(searchOr);
     if (status) query = query.eq('status', status);
     if (ngo_id) query = query.eq('ngo_id', ngo_id);
+    if (occupation) {
+      const or = occupationFilterOr(occupation);
+      if (or) query = query.or(or);
+    }
+    if (occupation_detail) {
+      const detail = String(occupation_detail).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (detail) query = query.ilike('occupation', `%${detail}%`);
+    }
+    if (date_from) query = query.gte('created_at', date_from);
+    if (date_to) query = query.lte('created_at', `${date_to}T23:59:59.999`);
     if (event_id) query = query.eq('kit_event_id', parseInt(event_id, 10));
+    if (event_name) query = query.eq('kit_event_name', event_name);
     return query.order('created_at', { ascending: false });
   };
 

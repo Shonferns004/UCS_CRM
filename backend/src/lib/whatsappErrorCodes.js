@@ -26,6 +26,18 @@ const PERMANENT_FAILURES = {
       'The customer has not replied in the last 24 hours, so WhatsApp only accepts an approved template now. ' +
       'Sending this text again cannot succeed.',
   },
+  // Meta per-user marketing template limit: the recipient has hit WhatsApp's
+  // engagement cap, so this marketing template cannot be delivered now.
+  // Retrying immediately fails again (and can extend the block); wait ~24h or
+  // have the contact message first. Not a template-content problem.
+  131049: {
+    title: 'Meta did not deliver this marketing message.',
+    remedy: REMEDY_TEMPLATE,
+    hint:
+      'WhatsApp limited marketing messages to this contact (per-user marketing cap). ' +
+      'Wait at least 24 hours before retrying, or ask the contact to message you first. ' +
+      'Do not retry immediately.',
+  },
   // Template payload problems: the same template resent with the same variables
   // fails identically. Only a different template can clear these.
   132000: {

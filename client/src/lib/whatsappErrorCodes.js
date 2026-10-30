@@ -16,6 +16,11 @@ const PERMANENT_FAILURES = {
     remedy: REMEDY_TEMPLATE,
     hint: 'The customer has not replied in the last 24 hours, so WhatsApp only accepts an approved template now.',
   },
+  131049: {
+    title: 'Meta did not deliver this marketing message.',
+    remedy: REMEDY_TEMPLATE,
+    hint: 'WhatsApp limited marketing messages to this contact (per-user marketing cap). Wait at least 24 hours before retrying, or ask the contact to message you first. Do not retry immediately.',
+  },
   132000: { title: 'This template is paused.', remedy: REMEDY_TEMPLATE, hint: 'Use a different approved template.' },
   132001: { title: 'This template no longer exists.', remedy: REMEDY_TEMPLATE, hint: 'Use a different approved template.' },
   132012: {

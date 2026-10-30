@@ -42,6 +42,14 @@ export async function resolveAccount(project) {
   return null;
 }
 
+export async function sendMediaMessage(to, mediaUrl, mediaType = 'image', caption = '', account) {
+  const resolved = account || await resolveAccount();
+  if (!resolved) throw new Error('WhatsApp not configured');
+  const type = mediaType === 'document' ? 'document' : (mediaType === 'video' ? 'video' : 'image');
+  const payload = { [type]: { link: mediaUrl } };
+  if (caption) payload[type].caption = caption;
+  return sendViaFacebook(to, type, payload, resolved);
+}
 export async function sendTextMessage(to, text, account) {
   if (!config.enabled && !account) throw new Error('WhatsApp not configured');
 
@@ -51,7 +59,34 @@ export async function sendTextMessage(to, text, account) {
   return sendViaFacebook(to, 'text', { text: { body: text } }, resolved);
 }
 
-export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account) {
+async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
+  const token = getAccessToken(account);
+  const phoneNumberId = account.phone_number_id;
+  if (!token || !phoneNumberId) throw new Error('WhatsApp account not configured');
+
+  const mediaRes = await fetch(mediaUrl);
+  if (!mediaRes.ok) throw new Error('Failed to download media for upload');
+  const buffer = Buffer.from(await mediaRes.arrayBuffer());
+  const contentType = mediaRes.headers.get('content-type') || (mediaType === 'image' ? 'image/jpeg' : 'application/pdf');
+
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', contentType);
+  form.append('file', new Blob([buffer], { type: contentType }), mediaType === 'image' ? 'image.jpg' : 'document.pdf');
+
+  const uploadRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const uploadData = await uploadRes.json();
+  if (!uploadRes.ok || !uploadData?.id) {
+    throw new Error(uploadData?.error?.message || 'Media upload to Meta failed');
+  }
+  return uploadData.id;
+}
+
+export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null, headerFormat = 'IMAGE') {
   if (!config.enabled && !account) throw new Error('WhatsApp not configured');
 
   const resolved = account || await resolveAccount();
@@ -59,17 +94,30 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
 
   const tplLang = lang || getTemplateLanguage(resolved);
 
+  const components = [];
+  if (headerImageUrl) {
+    const mediaType = String(headerFormat || 'IMAGE').toUpperCase() === 'DOCUMENT' ? 'document' : 'image';
+    const mediaId = await uploadMediaToMeta(resolved, headerImageUrl, mediaType);
+    components.push({
+      type: 'header',
+      parameters: [{ type: mediaType, [mediaType]: { id: mediaId } }],
+    });
+  }
+  if (Array.isArray(parameters) && parameters.length > 0) {
+    components.push({
+      type: 'body',
+      parameters: parameters.map(p => ({ type: 'text', text: String(p) })),
+    });
+  }
+
+  const templatePayload = {
+    name: templateName,
+    language: { code: tplLang },
+  };
+  if (components.length > 0) templatePayload.components = components;
+
   return sendViaFacebook(to, 'template', {
-    template: {
-      name: templateName,
-      language: { code: tplLang },
-      components: [
-        {
-          type: 'body',
-          parameters: parameters.map(p => ({ type: 'text', text: String(p) })),
-        },
-      ],
-    },
+    template: templatePayload,
   }, resolved);
 }
 
@@ -234,11 +282,11 @@ export async function listTemplatesForAccount(account) {
   const token = getAccessToken(account);
 
   const tplRes = await fetch(
-    `https://graph.facebook.com/${config.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
+    `https://graph.facebook.com/${config.apiVersion}/${wabaId}/message_templates?fields=name,language,status,components`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!tplRes.ok) { const e = await tplRes.text(); throw new Error('Meta API: ' + e); }
 
   const { data } = await tplRes.json();
-  return (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language }));
+  return (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language, components: t.components || [] }));
 }

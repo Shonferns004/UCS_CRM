@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { useBnfBase } from '../bnfUi'
 import { apiGet, apiPost } from '../store'
@@ -17,6 +17,21 @@ const styles = {
   link: { color: 'var(--sage)', textDecoration: 'none', cursor: 'pointer', fontWeight: 500 },
 }
 
+// The app saves the chosen occupation and its free-text details in one value
+// ("Occupation - details"), and older imports used "(details)" instead. The
+// table shows only the base occupation, never the details.
+const occupationBase = (value) => {
+  if (!value) return ''
+  const base = String(value).split(' - ')[0].trim()
+  return base.replace(/\s*\([^)]*\)\s*$/, '').trim()
+}
+const occupationDetailOf = (value) => {
+  if (!value) return ''
+  const parts = String(value).split(' - ')
+  if (parts.length <= 1) return ''
+  return parts.slice(1).join(' - ').trim()
+}
+
 const STATUS_COLORS = {
   ACTIVE: ['#dcfce7', '#166534'],
   INACTIVE: ['var(--bg)', 'var(--ink-soft)'],
@@ -28,17 +43,24 @@ const STATUS_COLORS = {
 
 export default function AllBeneficiaries() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const base = useBnfBase()
   const [data, setData] = useState({ data: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [eventFilter, setEventFilter] = useState('')
+  const [stateFilter, setStateFilter] = useState('')
+  const [occupationFilter, setOccupationFilter] = useState('')
+  const [ngoFilter, setNgoFilter] = useState(searchParams.get('ngo_id') || '')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [events, setEvents] = useState([])
-  const [jsonFile, setJsonFile] = useState(null)
-const [uploading, setUploading] = useState(false)
+  const [occupations, setOccupations] = useState([])
+
   const [page, setPage] = useState(1)
   const [exporting, setExporting] = useState(false)
+  const [selected, setSelected] = useState(new Set())
   const pageSize = 25
 
   // Event filter options — the same operator_events rows the app's Operator
@@ -49,13 +71,27 @@ const [uploading, setUploading] = useState(false)
       .catch((e) => console.error('Failed to load events:', e))
   }, [])
 
+  // Occupation filter options come from the members actually on file, so the
+  // dropdown never lists a value that would return nothing. A failed load just
+  // leaves the filter empty rather than breaking the list.
+  useEffect(() => {
+    apiGet('/beneficiaries/occupations')
+      .then((list) => setOccupations(Array.isArray(list) ? list : []))
+      .catch((e) => console.error('Failed to load occupations:', e))
+  }, [])
+
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams({ page, pageSize })
-      if (search) params.set('search', search)
-      if (statusFilter) params.set('status', statusFilter)
-      if (eventFilter) params.set('event_id', eventFilter)
+       if (search) params.set('search', search)
+       if (statusFilter) params.set('status', statusFilter)
+       if (eventFilter) params.set('event_name', eventFilter)
+       if (stateFilter) params.set('state', stateFilter)
+        if (occupationFilter) params.set('occupation', occupationFilter)
+        if (ngoFilter) params.set('ngo_id', ngoFilter)
+        if (dateFrom) params.set('date_from', dateFrom)
+       if (dateTo) params.set('date_to', dateTo)
       const result = await apiGet(`/beneficiaries?${params}`)
       setData(result)
     } catch (e) {
@@ -63,18 +99,19 @@ const [uploading, setUploading] = useState(false)
     } finally {
       setLoading(false)
     }
-  }, [page, search, statusFilter, eventFilter])
+   }, [page, search, statusFilter, eventFilter, stateFilter, occupationFilter, ngoFilter, dateFrom, dateTo])
+
+  useEffect(() => {
+    setNgoFilter(searchParams.get('ngo_id') || '')
+  }, [searchParams])
 
   useEffect(() => { loadData() }, [loadData])
-
-  const [selected, setSelected] = useState(new Set())
 
   const currentIds = data.data?.map((b) => b.id) || []
   const allSelected = currentIds.length > 0 && currentIds.every((id) => selected.has(id))
 
   const toggleSelect = (id) => {
     setSelected((prev) => {
-      console.log(prev)
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -108,9 +145,14 @@ const [uploading, setUploading] = useState(false)
     setExporting(true)
     try {
       const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (statusFilter) params.set('status', statusFilter)
-      if (eventFilter) params.set('event_id', eventFilter)
+       if (search) params.set('search', search)
+       if (statusFilter) params.set('status', statusFilter)
+       if (eventFilter) params.set('event_name', eventFilter)
+       if (stateFilter) params.set('state', stateFilter)
+        if (occupationFilter) params.set('occupation', occupationFilter)
+        if (ngoFilter) params.set('ngo_id', ngoFilter)
+        if (dateFrom) params.set('date_from', dateFrom)
+       if (dateTo) params.set('date_to', dateTo)
       const res = await apiGet(`/beneficiaries/export?${params}`)
       const rows = res.data || []
       if (rows.length === 0) {
@@ -138,74 +180,7 @@ const [uploading, setUploading] = useState(false)
     }
   }
 
-  const handleDownloadJson = async () => {
-    setExporting(true)
-    try {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (statusFilter) params.set('status', statusFilter)
-      if (eventFilter) params.set('event_id', eventFilter)
-      const res = await apiGet(`/beneficiaries/download?${params}`)
-      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `beneficiaries_${new Date().toISOString().slice(0, 10)}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (e) {
-      console.error('Download error:', e)
-      alert('Download failed: ' + (e.message || 'unknown error'))
-    } finally {
-      setExporting(false)
-    }
-  }
-  const handleUploadJson = async () => {
-  if (!jsonFile) {
-    alert('Please select a JSON backup file.')
-    return
-  }
 
-  setUploading(true)
-
-  try {
-    const text = await jsonFile.text()
-    const jsonData = JSON.parse(text)
-
-    if (!Array.isArray(jsonData.data)) {
-      throw new Error('Invalid JSON backup format.')
-    }
-
-    if (jsonData.data.length === 0) {
-      throw new Error('No beneficiary records found.')
-    }
-
-    const confirmed = window.confirm(
-      `Found ${jsonData.data.length} beneficiaries.\n` +
-      'Do you want to import this backup?'
-    )
-
-    if (!confirmed) return
-
-    const result = await apiPost(
-      '/beneficiaries/upload',
-      jsonData
-    )
-
-    alert(result.message || 'Import completed successfully.')
-
-    setJsonFile(null)
-    setPage(1)
-    setSelected(new Set())
-
-    await loadData()
-  } catch (e) {
-    console.error('JSON upload error:', e)
-    alert('Upload failed: ' + (e.message || 'Unknown error'))
-  } finally {
-    setUploading(false)
-  }
-}
 
   const handleSearch = (e) => {
     e.preventDefault()
@@ -228,39 +203,6 @@ const [uploading, setUploading] = useState(false)
             {exporting ? 'Exporting...' : 'Export Excel'}
           </button>
           <button
-            onClick={handleDownloadJson}
-            disabled={exporting}
-            style={{ ...styles.btn, background: '#1d4ed8', color: '#fff', opacity: exporting ? 0.6 : 1 }}
-          >
-            {exporting ? 'Downloading...' : 'Download JSON (full data)'}
-          </button>
-          <input
-  type="file"
-  accept=".json,application/json"
-  onChange={(e) =>
-    setJsonFile(e.target.files?.[0] || null)
-  }
-  disabled={uploading}
-  style={{
-    ...styles.input,
-    width: '190px',
-    minWidth: '150px',
-  }}
-/>
-
-<button
-  onClick={handleUploadJson}
-  disabled={uploading || !jsonFile}
-  style={{
-    ...styles.btn,
-    background: '#7c3aed',
-    color: '#fff',
-    opacity: uploading || !jsonFile ? 0.6 : 1,
-  }}
->
-  {uploading ? 'Uploading...' : 'Upload JSON'}
-</button>
-          <button
             onClick={() => navigate(base + '/import')}
             style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}
           >
@@ -270,13 +212,13 @@ const [uploading, setUploading] = useState(false)
       </div>
 
       <div style={styles.filterBar}>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px' }}>
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', flex: '1 1 320px', minWidth: 0 }}>
           <input
             type="text"
             placeholder="Search by name, code, or mobile..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ ...styles.input, minWidth: '300px' }}
+            style={{ ...styles.input, flex: 1, minWidth: 0 }}
           />
           <button type="submit" style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>Search</button>
         </form>
@@ -291,18 +233,66 @@ const [uploading, setUploading] = useState(false)
         </select>
         <select value={eventFilter} onChange={(e) => { setEventFilter(e.target.value); setPage(1) }} style={styles.input}>
           <option value="">All Events</option>
-          {events.map((ev) => (
-            <option key={ev.id} value={ev.id}>
-              {ev.title || ev.name || `Event #${ev.id}`}{ev.event_date ? ` — ${ev.event_date}` : ''}
-            </option>
+          {events.map((ev) => {
+            const label = ev.title || ev.name || `Event #${ev.id}`
+            return (
+              <option key={ev.id} value={label}>
+                {label}{ev.event_date ? ` — ${ev.event_date}` : ''}
+              </option>
+            )
+          })}
+        </select>
+        <select
+          value={stateFilter}
+          onChange={(e) => { setStateFilter(e.target.value); setPage(1) }}
+          style={styles.input}
+        >
+          <option value="">All States</option>
+          {['Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana','Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal','Andaman and Nicobar Islands','Chandigarh','Dadra and Nagar Haveli and Daman and Diu','Delhi','Jammu and Kashmir','Ladakh','Lakshadweep','Puducherry'].map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
+        <select
+          value={occupationFilter}
+          onChange={(e) => { setOccupationFilter(e.target.value); setPage(1) }}
+          style={styles.input}
+          title="Filter by occupation"
+        >
+          <option value="">All Occupations</option>
+          {occupations.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
+          style={styles.input}
+          title="Registered from date"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
+          style={styles.input}
+          title="Registered to date"
+        />
+        {(search || statusFilter || eventFilter || stateFilter || occupationFilter || ngoFilter || dateFrom || dateTo) && (
+          <button
+            onClick={() => { setSearch(''); setStatusFilter(''); setEventFilter(''); setStateFilter(''); setOccupationFilter(''); setNgoFilter(''); setDateFrom(''); setDateTo(''); setPage(1) }}
+            style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}
+          >
+            Clear
+          </button>
+        )}
         {selected.size > 0 && (
           <button onClick={handleDeleteSelected} style={{ ...styles.btn, background: '#dc2626', color: '#fff' }}>
             Delete Selected ({selected.size})
           </button>
         )}
-        <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>{data.total || 0} beneficiaries</span>
+        <span style={{ fontSize: '12px', color: 'var(--ink-soft)', marginLeft: 'auto' }}>{data.total || 0} beneficiaries</span>
       </div>
 
       <div style={styles.card}>
@@ -325,13 +315,14 @@ const [uploading, setUploading] = useState(false)
                   <th style={styles.th}>Gender</th>
                   <th style={styles.th}>Beneficiary Type</th>
                   <th style={styles.th}>DOB</th>
-                  <th style={styles.th}>Occupation</th>
+                   <th style={styles.th}>Occupation</th>
+                   <th style={styles.th}>Occ. Details</th>
                   <th style={styles.th}>Address</th>
                   <th style={styles.th}>Pincode</th>
-                  <th style={styles.th}>Aadhaar No.</th>
-                  <th style={styles.th}>Needed</th>
-                  <th style={styles.th}>City</th>
-                  <th style={styles.th}>Status</th>
+                   <th style={styles.th}>Aadhaar No.</th>
+                   <th style={styles.th}>City</th>
+                   <th style={styles.th}>State</th>
+                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Kit</th>
                   <th style={styles.th}>Event</th>
                   <th style={styles.th}>Fingerprint</th>
@@ -352,15 +343,16 @@ const [uploading, setUploading] = useState(false)
                       <td style={styles.td}>{b.mobile || '-'}</td>
                       <td style={styles.td}>{b.ngos?.name || '-'}</td>
                       <td style={styles.td}>{b.gender || '-'}</td>
-                      <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.beneficiary_type || '-'}</td>
+                       <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.beneficiary_type || ''}>{b.beneficiary_type || '-'}</td>
                       <td style={styles.td}>{b.date_of_birth || '-'}</td>
-                      <td style={styles.td}>{b.occupation || '-'}</td>
-                      <td style={{ ...styles.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.address_line_1 || '-'}</td>
+                       <td style={styles.td}>{occupationBase(b.occupation) || '-'}</td>
+                       <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={occupationDetailOf(b.occupation) || ''}>{occupationDetailOf(b.occupation) || '-'}</td>
+                       <td style={{ ...styles.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.address_line_1 || ''}>{b.address_line_1 || '-'}</td>
                       <td style={styles.td}>{b.pincode || '-'}</td>
-                      <td style={styles.td}>{b.aadhaar_number || '-'}</td>
-                      <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.needed || '-'}</td>
-                      <td style={styles.td}>{b.city || '-'}</td>
-                      <td style={styles.td}><span style={styles.pill(bg, fg)}>{b.status}</span></td>
+                       <td style={styles.td}>{b.aadhaar_number || '-'}</td>
+                       <td style={styles.td}>{b.city || '-'}</td>
+                       <td style={styles.td}>{b.state || '-'}</td>
+                       <td style={styles.td}><span style={styles.pill(bg, fg)}>{b.status}</span></td>
                       <td style={styles.td}>
                         <span style={styles.pill(
                           b.kit_given ? '#dcfce7' : '#fef3c7',
@@ -388,7 +380,7 @@ const [uploading, setUploading] = useState(false)
                           {b.fingerprint_status === 'REGISTERED' ? '✓' : b.fingerprint_status === 'REVOKED' ? '✗' : '○'}
                         </span>
                       </td>
-                      <td style={styles.td}>{b.registration_date || '-'}</td>
+                      <td style={styles.td}>{b.registration_date || (b.created_at ? String(b.created_at).slice(0, 10) : '-')}</td>
                       <td style={styles.td}>
                         <span onClick={(e) => { e.stopPropagation(); navigate(base + `/${b.id}`) }} style={styles.link}>View</span>
                       </td>

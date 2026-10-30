@@ -47,6 +47,7 @@
 
 import db from '../config/db.js';
 import { normalizeRole } from '../middleware/authMiddleware.js';
+import { getAllowedProjectsByStations, getFroStationPairs, resolveScopeWorkerId } from './froStationScope.js';
 
 // Staff roles that already had the wide view before this module existed. Kept as
 // one exported set so the inbox and the admin routes cannot drift apart again.
@@ -390,32 +391,62 @@ export async function callerProjects(caller) {
   const workerId = caller?.workerId;
   if (!userId && !workerId) return [];
 
+  let scopeWorkerId = workerId;
+  if (!scopeWorkerId && userId) {
+    try { scopeWorkerId = await resolveScopeWorkerId(userId); } catch { scopeWorkerId = null; }
+  }
+
   const idCandidates = [...new Set([workerId, userId].filter(Boolean))];
   const anyOf = (col) => idCandidates;
 
-  const [workerAcctAssigns, froAssigns, agentAssigns] = await Promise.all([
+  const workerLinks = scopeWorkerId
+    ? db.from('worker_agent_assignments').select('account_id').eq('worker_id', scopeWorkerId)
+    : Promise.resolve({ data: [] });
+
+  const [workerAcctAssigns, froAssigns, agentAssigns, linkedAssigns] = await Promise.all([
     db.from('worker_agent_assignments').select('account_id').in('user_id', anyOf('user_id')),
     db.from('fro_whatsapp_assignments')
       .select('whatsapp_account_id')
       .in('fro_worker_id', anyOf('fro_worker_id'))
       .eq('is_active', true),
     db.from('agent_phone_assignments').select('account_id').in('user_id', anyOf('user_id')),
+    workerLinks,
   ]);
 
   // fro_whatsapp_assignments names the column whatsapp_account_id; the other two
   // name it account_id. Reading only account_id dropped every FRO direct grant.
   const acctIds = new Set();
-  for (const a of [...(workerAcctAssigns.data || []), ...(froAssigns.data || []), ...(agentAssigns.data || [])]) {
+  for (const a of [
+    ...(workerAcctAssigns.data || []),
+    ...(linkedAssigns.data || []),
+    ...(froAssigns.data || []),
+    ...(agentAssigns.data || []),
+  ]) {
     const id = a.account_id || a.whatsapp_account_id;
     if (id) acctIds.add(id);
   }
-  if (acctIds.size === 0) return [];
 
-  const { data: accts } = await db
-    .from('whatsapp_accounts')
-    .select('project')
-    .in('id', [...acctIds]);
-  return (accts || []).map(a => a.project).filter(Boolean);
+  const projects = new Set();
+  if (acctIds.size > 0) {
+    const { data: accts } = await db
+      .from('whatsapp_accounts')
+      .select('project')
+      .in('id', [...acctIds]);
+    for (const acct of accts || []) {
+      if (acct?.project) projects.add(String(acct.project).toLowerCase());
+    }
+  }
+
+  if (scopeWorkerId) {
+    try {
+      const pairs = await getFroStationPairs(scopeWorkerId);
+      for (const project of getAllowedProjectsByStations(pairs)) {
+        projects.add(String(project).toLowerCase());
+      }
+    } catch { /* station mapping unavailable */ }
+  }
+
+  return [...projects];
 }
 
 /**

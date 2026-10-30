@@ -5131,7 +5131,7 @@ export const getHighTierBatches = async (req, res) => {
     try {
       const collectedRows = await sql(
         `SELECT a.high_tier_batch_id AS batch_id,
-                COALESCE(a.target_station, a.station) AS station,
+                COALESCE(l.target_station, a.target_station, a.station) AS station,
                 COALESCE(SUM(r.amount), 0) AS amount
            FROM receipts r
            JOIN fro_donor_logs l ON l.id = r.log_id

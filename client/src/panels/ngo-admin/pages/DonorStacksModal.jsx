@@ -78,6 +78,7 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
   const [detailMembers, setDetailMembers] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailFilter, setDetailFilter] = useState('all'); // all | pending
+  const [tempGrants, setTempGrants] = useState([]);
   const [froSearch, setFroSearch] = useState('');
 
   const station = target?.station;
@@ -93,13 +94,16 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
     // body ("Loading…") and reads as the modal closing/reopening. Only the
     // initial mount uses the loading flag (set in the mount effect below).
     try {
-      const [allRes, stacksRes] = await Promise.all([
+      const [allRes, stacksRes, grantsRes] = await Promise.all([
         apiGet(`/ngo-admin/donors-by-station?station=${encodeURIComponent(station)}&ngo_id=${ngoId}`).catch(() => []),
         apiGet(`/ngo-admin/stacks?station=${encodeURIComponent(station)}&ngo_id=${ngoId}`).catch(() => []),
+        apiGet(`/ngo-admin/temporary-access?station=${encodeURIComponent(station)}`).catch(() => []),
       ]);
+      const grantsArr = Array.isArray(grantsRes) ? grantsRes : (grantsRes?.assignments || grantsRes?.grants || []);
       const stacksArr = Array.isArray(stacksRes) ? stacksRes : (stacksRes?.stacks || []);
       setDonors(Array.isArray(allRes) ? allRes : (allRes?.donors || []));
       setStacks(stacksArr);
+      setTempGrants(grantsArr);
       // Fetch members in background to build stackedDonorMap (non-blocking).
       (async () => {
         const memberMap = {};
@@ -393,6 +397,29 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
                   }} style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:12, border:'2px dashed #94a3b8', borderRadius:8, background:'#f8fafc', color:'#64748b', fontSize:12, cursor:'pointer', minHeight:44 }}>
                     + New empty stack
                   </div>
+
+                  {/* Temp Access Grants (revoke from here) */}
+                  {tempGrants.length > 0 && (
+                    <div style={{ marginTop:10, padding:'10px 12px', background:'#f8fafc', border:'1px solid #e5e7eb', borderRadius:8 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#64748b', marginBottom:6 }}>Temp Access Grants on {station} ({tempGrants.filter(g => g.status === 'ACTIVE' || g.status === 'SCHEDULED').length})</div>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                        {tempGrants.filter(g => g.status === 'ACTIVE' || g.status === 'SCHEDULED').map(g => (
+                          <span key={g.id} style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:6, background:'#eff6ff', border:'1px solid #bfdbfe', fontSize:10.5, fontWeight:600, color:'#1d4ed8' }}>
+                            {g.working_fro_name || 'FRO'} · {g.scope_type === 'STATION_HIGH_TIER' ? 'HT' : g.scope_type === 'STATION_NORMAL' ? 'Normal' : 'All'}
+                            {g.allowed_count ? ` · ${g.allowed_count}` : ''}
+                            <button onClick={async () => {
+                              if (!window.confirm(`Revoke ${g.working_fro_name || 'this FRO'}'s access to ${station}?`)) return;
+                              try {
+                                await apiPost(`/ngo-admin/temporary-access/${g.id}/revoke`, { reason: 'Revoked from stacks modal' });
+                                await loadAll();
+                                setCountMsg('Grant revoked');
+                              } catch (e) { setError(e?.message || 'Failed'); }
+                            }} style={{ border:'none', background:'transparent', color:'#b91c1c', cursor:'pointer', fontWeight:800, fontSize:11, padding:0, marginLeft:2 }}>✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

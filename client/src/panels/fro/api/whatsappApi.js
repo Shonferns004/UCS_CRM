@@ -51,13 +51,15 @@ export async function getTemplates(project) {
   return data || []
 }
 
-export async function sendTemplateMessage(conversationId, contactId, template, paramValues, userId) {
+export async function sendTemplateMessage(conversationId, contactId, template, paramValues, userId, headerMediaUrl = null, headerMediaName = null) {
   const result = await api('/fro/whatsapp/send-template', {
     method: 'POST',
     body: JSON.stringify({
       conversationId,
       templateName: template.name,
       paramValues: Array.isArray(paramValues) ? paramValues : Object.values(paramValues || {}),
+      headerMediaUrl,
+      headerMediaName,
     }),
   })
   return result?.success === true
@@ -81,7 +83,7 @@ export async function uploadMedia(userId, file) {
   try {
     const res = await fetch(API_BASE + '/upload', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${localStorage.getItem('ucs_token') || ''}` },
+      headers: { Authorization: `Bearer ${localStorage.getItem('ucs_token') || ''}`, 'ngrok-skip-browser-warning': 'true' },
       body: formData,
     })
     if (res.ok) return res.json()

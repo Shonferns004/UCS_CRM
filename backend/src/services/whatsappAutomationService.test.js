@@ -99,6 +99,12 @@ test('131026 stays retryable so a later send can still land', () => {
   assert.equal(f.code, 131026);
 });
 
+test('131049 (per-user marketing cap) is refused: immediate retry fails again', () => {
+  const f = classifyDeliveryFailure('(131049) This message was not delivered to maintain healthy ecosystem engagement.');
+  assert.equal(f.retryable, false);
+  assert.equal(f.code, 131049);
+});
+
 test('an unknown Meta code keeps the previous retry behaviour', () => {
   const f = classifyDeliveryFailure('(139999) brand new failure');
   assert.equal(f.retryable, true);

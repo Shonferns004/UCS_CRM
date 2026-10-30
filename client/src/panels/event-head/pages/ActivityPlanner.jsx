@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PageHeader, Select, SearchInput, Badge, StatusPill, Empty } from '../components/ui.jsx'
 import MonthlyCalendarView from '../components/planner/MonthlyCalendarView.jsx'
@@ -14,6 +14,7 @@ import {
   uploadEventBanner,
   fetchEventImageDataUrl,
   updateEvent,
+  deleteEvent,
   deleteActivity,
   updateActivity,
   suggestActivityPrograms,
@@ -25,6 +26,10 @@ import {
   setFestivalSuggestionSelected,
   getPlannerEventLinks,
   setPlannerEventLink,
+  deletePlannerEventLink,
+  getPlannerManualRows,
+  savePlannerManualRow,
+  deletePlannerManualRow,
   setFestivalSuggestionsBeneficiary,
   setFestivalSuggestionsLocation,
   mergeProgrammeRows,
@@ -452,20 +457,43 @@ const ngoLocationList = (n) => {
 }
 
 function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
-  const hasCustom = Boolean(value) && !list.includes(value)
-  const [showOther, setShowOther] = useState(hasCustom)
-  const [draft, setDraft] = useState(hasCustom ? String(value) : '')
-  const selectValue = hasCustom ? OTHER_LOCATION : (showOther ? OTHER_LOCATION : (value || ''))
+  const isCustom = Boolean(value) && !list.includes(value)
+  const [showOther, setShowOther] = useState(isCustom)
+  const [draft, setDraft] = useState(isCustom ? String(value) : '')
+  const draftRef = useRef(draft)
+  useEffect(() => { draftRef.current = draft }, [draft])
+  const selectValue = isCustom || showOther ? OTHER_LOCATION : (value || '')
   const showingInput = selectValue === OTHER_LOCATION
   const lastValue = useRef(value)
   useEffect(() => {
-    if (lastValue.current && !value) setShowOther(false)
+    const custom = Boolean(value) && !list.includes(value)
+    if (custom) {
+      setShowOther(true)
+      if (String(value) !== draftRef.current) {
+        setDraft(String(value))
+      }
+    } else if (!value) {
+      setShowOther(false)
+      setDraft('')
+    } else if (list.includes(value)) {
+      setShowOther(false)
+      setDraft('')
+    }
     lastValue.current = value
-  }, [value])
+  }, [value, list])
   const commitDraft = () => {
-    const next = draft.trim().slice(0, 200)
+    const next = (draftRef.current || '').trim().slice(0, 200)
+    if (next === String(value || '').trim()) {
+      setDraft(next)
+      return
+    }
     setDraft(next)
-    if (next !== value) onChange(next)
+    if (!next) {
+      setShowOther(false)
+      if (value) onChange('')
+      return
+    }
+    onChange(next)
   }
   return (
     <div className="lc">
@@ -478,7 +506,7 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           const v = e.target.value
           if (v === OTHER_LOCATION) {
             setShowOther(true)
-            setDraft(hasCustom ? String(value) : '')
+            setDraft(isCustom ? String(value) : draft)
           } else {
             setShowOther(false)
             setDraft('')
@@ -499,10 +527,13 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           disabled={disabled}
           placeholder="Type the location…"
           autoFocus
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+          }}
           onBlur={commitDraft}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
+              e.preventDefault()
               commitDraft()
               e.currentTarget.blur()
             }
@@ -755,6 +786,26 @@ export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refresh
   const [dismissed, setDismissed] = useState(() => new Set())
   // Ticks live server-side; this is only the optimistic mirror of them.
   const [selected, setSelected] = useState(() => new Set())
+  const generatedRef = useRef('')
+
+  const run = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await suggestActivityPrograms({ activityId: activity.id, ngoId: ngo?.id, month })
+      setData(res)
+      setDismissed(new Set())
+      // Newly returned rows carry their own is_selected, so ticks that were
+      // already saved survive regenerating the batch.
+      setSelected(new Set((res?.suggestions || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
+      // The batch may have changed which ideas exist, so the page re-reads its
+      // own selected list rather than reporting a stale one.
+      onSelectionChange?.()
+    } catch (e) {
+      setData({ suggestions: [], observances: [], ai: { available: false, reason: e?.message || 'Could not reach the server.' } })
+    } finally {
+      setLoading(false)
+    }
+  }, [activity?.id, ngo?.id, month])
 
   const monthNum = Number(String(month).split('-')[1])
   const yearNum = Number(String(month).split('-')[0])
@@ -769,7 +820,39 @@ export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refresh
     fetchPlannerSuggestions({ ngo_id: ngo?.id, activity_id: activity?.id, month: monthNum, year: yearNum })
       .then((list) => {
         if (!alive) return
-        setSelected(new Set((list || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
+        const rows = Array.isArray(list) ? list : []
+        setSelected(new Set(rows.filter((s) => s?.is_selected).map((s) => Number(s.id))))
+        // Surface the month's already-stored suggestions automatically, so changing
+        // the month shows that month's ideas without a manual re-run.
+        if (rows.length) {
+          setData((prev) => prev || {
+            suggestions: rows.map((r) => ({
+              id: r.id,
+              title: r.title,
+              format: r.format,
+              priority: r.priority,
+              audience: r.audience,
+              duration: r.duration,
+              objective: r.objective,
+              rationale: r.rationale,
+              materials: Array.isArray(r.materials) ? r.materials : [],
+              is_selected: Boolean(r.is_selected),
+              suggested_event_id: r.suggested_event_id ?? null,
+              activity_id: r.activity_id,
+              batch_no: r.batch_no,
+            })),
+            observances: [],
+            ai: { available: true, model: null, provider: null, dates_from_ai: false, truncated: false },
+          })
+        } else {
+          // No stored ideas for this month yet — generate them automatically so
+          // switching the month surfaces that month's suggestions.
+          const key = `${activity?.id}-${month}`
+          if (generatedRef.current !== key) {
+            generatedRef.current = key
+            run()
+          }
+        }
       })
       .catch(() => { /* keep whatever is on screen */ })
     return () => { alive = false }
@@ -799,25 +882,6 @@ export function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refresh
       })
     }
   }
-
-  const run = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await suggestActivityPrograms({ activityId: activity.id, ngoId: ngo?.id, month })
-      setData(res)
-      setDismissed(new Set())
-      // Newly returned rows carry their own is_selected, so ticks that were
-      // already saved survive regenerating the batch.
-      setSelected(new Set((res?.suggestions || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
-      // The batch may have changed which ideas exist, so the page re-reads its
-      // own selected list rather than reporting a stale one.
-      onSelectionChange?.()
-    } catch (e) {
-      setData({ suggestions: [], observances: [], ai: { available: false, reason: e?.message || 'Could not reach the server.' } })
-    } finally {
-      setLoading(false)
-    }
-  }, [activity?.id, ngo?.id, month])
 
   const ai = data?.ai
   // Keep the server-side index alongside each card so dismissing one does not
@@ -1266,6 +1330,10 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
           // The event is created either way; only the planner link is less precise.
         }
       }
+      // Hand the created event back to the planner immediately, so the row's
+      // "Download" button appears without waiting for the PDF to finish. The
+      // PDF is still built below and cached when it is ready.
+      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit })
       // The detail sheet is the download the head asked for. A PDF failure must
       // never lose the event that was already created. The same payload is handed
       // back to the planner so the row's "Download" button can re-issue it later.
@@ -1287,7 +1355,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       } catch (pdfErr) {
         console.error('Event detail PDF failed', pdfErr)
       }
-      onSaved({ key: entry?.key, event, pdf: pdfArgs, ngoId, editing: isEdit })
+      // Event already handed back to the planner above; the PDF is cached on demand.
     } catch (e) {
       setError(e?.message || (isEdit ? 'Could not save the changes.' : 'Could not create the event.'))
     } finally {
@@ -1386,7 +1454,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
                         border: i === 0 ? '2px solid var(--eh-primary, #4f46e5)' : '1px solid var(--eh-line-strong, #ddd9f0)',
                       }}
                     >
-                      <img src={im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
+                      <img src={im.dataUrl || im.url} alt={im.name} style={{ width: '100%', height: 62, objectFit: 'cover', display: 'block' }} />
                       {i === 0 && (
                         <span
                           title="Default image — shown on the Monthly Report"
@@ -1566,13 +1634,19 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 
 export default function ActivityPlanner({ taskAssignment = false }) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialMonth = searchParams.get('month') || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
   // Resolved to BSCT once the NGO list arrives (see defaultNgoId) — the tabs
   // have nothing to highlight before that, and an empty scope is the honest
   // state until the list says which tab to land on.
   const [ngoId, setNgoId] = useState('')
-  const [month, setMonth] = useState(currentMonthYmd)
+  const [month, setMonth] = useState(() => initialMonth)
+  useEffect(() => {
+    const m = searchParams.get('month')
+    if (m && m !== month) setMonth(m)
+  }, [searchParams])
   const [sectorFilter, setSectorFilter] = useState('')
   const [beneficiaryFilter, setBeneficiaryFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -1583,6 +1657,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
 
   const [monthEvents, setMonthEvents] = useState([])
   const [loadingEvents, setLoadingEvents] = useState(false)
+  const [eventsError, setEventsError] = useState('')
 
   const [toast, setToast] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -1683,7 +1758,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // Land on BSCT's tab. A tab the user already clicked (or a scope that
         // still matches) is never overridden, so a late response cannot yank
         // the page away from a choice made while it loaded.
-        setNgoId((cur) => (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list))
+        setNgoId((cur) => {
+          const wanted = searchParams.get('ngo')
+          if (wanted && list.some((n) => String(n.id) === String(wanted))) return String(wanted)
+          return (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list)
+        })
       })
       .catch(() => setNgos([]))
     fetchSectors().then((l) => setSectors(Array.isArray(l) ? l : [])).catch(() => setSectors([]))
@@ -1805,9 +1884,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const loadMonthEvents = useCallback(() => {
     const [start, end] = monthBounds(month)
     setLoadingEvents(true)
+    setEventsError('')
     fetchCalendarEvents({ start, end, ngoId })
       .then((l) => setMonthEvents(Array.isArray(l) ? l : []))
-      .catch(() => setMonthEvents([]))
+      .catch((e) => { setMonthEvents([]); setEventsError(e?.message || 'Could not load programmes.') })
       .finally(() => setLoadingEvents(false))
   }, [ngoId, month])
 
@@ -1826,6 +1906,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             l?.ngo_id,
           )
           map[k] = l
+          const fest = String(l?.festival ?? '')
+          const dt = String(l?.observance_date || '').slice(0, 10)
+          if (fest && dt && l?.ngo_id != null && String(l.ngo_id) !== '') {
+            setFestNgo((cur) => ({ ...cur, [`${dt}::${fest}`]: String(l.ngo_id) }))
+          }
         }
         setPlannerLinkMap(map)
       })
@@ -1938,6 +2023,73 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
   useEffect(() => { setFestExtra({}) }, [ngoId, month])
   useEffect(() => { setExtraRowDate(`${month}-01`) }, [month])
+  /* Restore the typed/manual rows for this NGO + month from the server. Loaded
+     rows are merged over what is already in memory, so a slow load can never
+     wipe text the user is typing right now. */
+  useEffect(() => {
+    const [y, m] = month.split('-').map(Number)
+    let cancelled = false
+    getPlannerManualRows({ month: m, year: y, ngo_id: ngoId || '' })
+      .then((rows) => {
+        if (cancelled) return
+        const prefix = `${ngoId || 'all'}|${month}|`
+        setFestManual((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            const date = String(r?.observance_date || '').slice(0, 10)
+            const festival = String(r?.festival ?? '')
+            next[`${prefix}${date}::${festival}`] = {
+              text: String(r?.body_text || ''),
+              selected: Boolean(r?.is_selected),
+              ...(r?.mode ? { mode: r.mode } : {}),
+              ...(r?.name ? { name: String(r.name) } : {}),
+            }
+          }
+          return next
+        })
+        setFestExtra((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            const festival = String(r?.festival ?? '')
+            if (!festival.startsWith('+')) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            const list = next[date] || []
+            if (!list.includes(festival)) next[date] = [...list, festival]
+          }
+          return next
+        })
+        setFestNgo((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            const rowNgo = String(r?.row_ngo_id || '')
+            if (!rowNgo) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            next[`${date}::${String(r?.festival ?? '')}`] = rowNgo
+          }
+          return next
+        })
+        setFestBenef((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            if (r?.beneficiary == null) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            next[`${date}::${String(r?.festival ?? '')}`] = String(r.beneficiary)
+          }
+          return next
+        })
+        setFestLoc((cur) => {
+          const next = { ...cur }
+          for (const r of rows) {
+            if (r?.location == null) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            next[`${date}::${String(r?.festival ?? '')}`] = String(r.location)
+          }
+          return next
+        })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [month, ngoId])
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
 
@@ -1989,6 +2141,85 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     },
     [scopedManual]
   )
+
+  /* A manual planner row survives a reload: the typed programme, the event name
+     and the "+ Add another programme" rows are written to the server as they
+     change, then loaded back below. The row's identity is (date, festival, NGO
+     scope), exactly like the durable row -> event link. */
+  const manualKeyParts = useCallback((key) => {
+    const sep = String(key || '').indexOf('::')
+    return {
+      date: String(sep >= 0 ? key.slice(0, sep) : key).slice(0, 10),
+      festival: sep >= 0 ? key.slice(sep + 2) : '',
+    }
+  }, [])
+
+  const persistManualRow = useCallback((key, override = {}) => {
+    if (!key) return Promise.resolve(null)
+    const [y, m] = month.split('-').map(Number)
+    const { date, festival } = manualKeyParts(key)
+    const entry = { ...(scopedManual[key] || {}), ...override }
+    const scopeNgo = ngoId || ''
+    const getRowNgo = () => {
+      if (override.row_ngo_id !== undefined && override.row_ngo_id !== null && override.row_ngo_id !== '') return override.row_ngo_id
+      if (festNgo[key]) return festNgo[key]
+      try {
+        return typeof rowNgoId === 'function' ? rowNgoId(key) : ''
+      } catch {
+        return ''
+      }
+    }
+    const rowNgo = getRowNgo()
+    const isExtra = festival.startsWith('+')
+    const name = String(override.name !== undefined ? override.name : (entry.name || ''))
+    const body = String(override.text !== undefined ? override.text : (entry.text || ''))
+    const selected = override.selected !== undefined ? Boolean(override.selected) : Boolean(entry.selected)
+    const mode = override.mode !== undefined ? (override.mode ? String(override.mode) : null) : (entry.mode ? String(entry.mode) : null)
+    const beneficiary = override.beneficiary !== undefined ? override.beneficiary : (entry.beneficiary !== undefined ? entry.beneficiary : (festBenef[key] || null))
+    const location = override.location !== undefined ? override.location : (entry.location !== undefined ? entry.location : (festLoc[key] || null))
+    // A normal festival row with nothing typed and no tick needs no stored row.
+    // An extra row is kept even while empty: its existence IS the row.
+    if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
+      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch(() => null)
+    }
+    return savePlannerManualRow({
+      month: m,
+      year: y,
+      observance_date: date,
+      festival,
+      ngo_id: scopeNgo,
+      row_ngo_id: rowNgo,
+      name,
+      body_text: body,
+      is_selected: selected,
+      mode,
+      beneficiary,
+      location,
+    }).catch(() => null)
+  }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
+
+  const deleteManualRow = useCallback((key) => {
+    const { date, festival } = manualKeyParts(key)
+    return deletePlannerManualRow({ observance_date: date, festival, ngo_id: ngoId || '' }).catch(() => null)
+  }, [ngoId, manualKeyParts])
+
+  const extraRowsByDate = useMemo(() => {
+    const out = {}
+    const add = (date, festival) => {
+      if (!date || !String(festival || '').startsWith('+')) return
+      const list = out[date] || []
+      if (!list.includes(festival)) out[date] = [...list, festival]
+    }
+    for (const key of Object.keys(scopedManual)) {
+      const sep = key.indexOf('::')
+      if (sep < 0) continue
+      add(key.slice(0, sep), key.slice(sep + 2))
+    }
+    for (const date of Object.keys(festExtra)) {
+      for (const festival of festExtra[date] || []) add(date, festival)
+    }
+    return out
+  }, [scopedManual, festExtra])
 
   /* A festival the user already decided about (an AI tick or a typed programme)
      opens itself, so "what is in the download?" is answered on screen without a
@@ -2074,6 +2305,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestNgo((cur) => ({ ...cur, [key]: value }))
     setFestBenef((cur) => { const next = { ...cur }; delete next[key]; return next })
     setFestLoc((cur) => { const next = { ...cur }; delete next[key]; return next })
+    if (String(key).slice(String(key).indexOf('::') + 2).startsWith('+')) {
+      persistManualRow(key, { row_ngo_id: value })
+    }
     if (prevId && String(value) !== String(prevId)) {
       const stale = (festivalSuggestionsByKey[key] || [])
         .filter((s) => s.is_selected && String(s.ngo_id ?? '') === prevId)
@@ -2107,9 +2341,18 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const handleFestivalBeneficiary = async (key, value) => {
     const prevFor = festivalBeneficiaryFor(key)
     setFestBenef((cur) => ({ ...cur, [key]: value }))
-    const ownerId = rowNgoId(key)
+    let ownerId = ''
+    try { ownerId = typeof rowNgoId === 'function' ? (rowNgoId(key) || festNgo[key] || '') : (festNgo[key] || '') } catch { ownerId = festNgo[key] || '' }
     const stored = rowSuggestionsFor(key)
-    if (!stored.length || !ownerId) return // nothing stored yet — the choice travels with the next generation
+    const isExtra = String(key.split('::')[1] || '').startsWith('+')
+    // Always persist to manual rows so first selection saves
+    persistManualRow(key, { beneficiary: value, row_ngo_id: ownerId })
+    if (isExtra) {
+      console.log('persist beneficiary extra', key, value)
+    }
+    if (!stored.length || !ownerId) {
+      return // nothing stored yet — the choice travels with the next generation
+    }
     const [date, ...rest] = key.split('::')
     const festival = rest.join('::')
     const [y, m] = month.split('-').map(Number)
@@ -2148,8 +2391,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const prevFor = festivalLocationFor(key)
     setFestLoc((cur) => ({ ...cur, [key]: value }))
     const stored = rowSuggestionsFor(key)
-    if (!stored.length) return // nothing stored yet — the choice travels with the next generation
-    const ownerNgoId = rowNgoId(key) || stored[0]?.ngo_id
+    const isExtra = String(key.split('::')[1] || '').startsWith('+')
+    let ownerNgoId = ''
+    try { ownerNgoId = typeof rowNgoId === 'function' ? (rowNgoId(key) || stored[0]?.ngo_id || festNgo[key] || '') : (stored[0]?.ngo_id || festNgo[key] || '') } catch { ownerNgoId = stored[0]?.ngo_id || festNgo[key] || '' }
+    // Always persist to manual rows so first selection saves immediately
+    persistManualRow(key, { location: value, row_ngo_id: ownerNgoId })
+    if (isExtra) {
+      console.log('persist location extra', key, value)
+    }
+    if (!stored.length) {
+      return // nothing stored yet — the choice travels with the next generation
+    }
     if (!ownerNgoId) return
     const [date, ...rest] = key.split('::')
     const festival = rest.join('::')
@@ -2211,6 +2463,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // Fresh ideas are meant to be picked from: leave manual-only mode so
         // the new batch is offered as options again.
         updateFestivalManual(key, { mode: false })
+        persistManualRow(key, { mode: false })
         showToast(`${added.length} programme${added.length === 1 ? '' : 's'} suggested for ${shortDate(date)} · ${festivalName}.`)
       } else if (res?.ai && res.ai.available === false) {
         setFestivalError(res.ai.reason || 'AI suggestions are not available on this server yet.')
@@ -2854,27 +3107,40 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         image: Number.isFinite(evId) ? (bannerByEvent.get(String(evId)) || null) : null,
       })
     }
-    for (const k of Object.keys(scopedManual)) {
-      const e = scopedManual[k]
-      const text = manualText(k)
-      if (!text) continue
-      const d = k.slice(0, 10)
-      const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '') || e?.name || 'No important day'
-      const rn = rowNgo(k)
+    // Pull manual rows for every planning NGO so the PDF is not limited to the
+    // NGO currently selected on screen (the previous code only read the current
+    // tab's rows).
+    const manualRowsAll = []
+    for (const n of reportNgos) {
+      try {
+        const res = await getPlannerManualRows({ month: m, year: y, ngo_id: n.id })
+        const list = Array.isArray(res) ? res : (res?.rows || [])
+        for (const r of list) manualRowsAll.push({ ngo: n, row: r })
+      } catch { /* skip */ }
+    }
+    for (const { ngo: n, row: r } of manualRowsAll) {
+      const festivalKey = String(r?.festival || '')
+      const festival = festivalKey && !festivalKey.startsWith('+')
+        ? festivalKey
+        : (String(r?.name || '').trim() || 'No important day')
+      const programme = String(r?.body_text || r?.name || '').trim()
+      if (!programme) continue
+      const d = String(r?.observance_date || '').slice(0, 10)
       rows.push({
-        ngoId: rn ? rn.id : null,
-        ngoLabel: rn ? ngoShortLabel(rn) : '—',
+        ngoId: r?.row_ngo_id || r?.ngo_id || n.id,
+        ngoLabel: ngoShortLabel(n),
         date: d,
         dateLabel: shortDate(d),
         weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
-        festival: festival || '—',
-        beneficiary: rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
-        location: rowSuggestionsFor(k).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
-        programme: text,
+        festival,
+        beneficiary: String(r?.beneficiary || '—'),
+        location: String(r?.location || '—'),
+        programme,
         status: 'Draft',
         image: null,
       })
     }
+
     rows.sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1
       return String(a.festival || '').localeCompare(String(b.festival || ''))
@@ -2894,7 +3160,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         rows: ngoRows,
       }
     })
-  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos, rowNgo, rowNgoId, rowSuggestionsFor])
+  }, [month, ngos, ngo, scopedManual, monthEvents, festivalSuggestionsByKey, festBenef, festLoc, reportNgos, rowNgo, rowNgoId, rowSuggestionsFor, importantDays])
 
 
   /* Loads the cut-down rows once, mirrors them into state (which the off-screen
@@ -2995,7 +3261,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const downloadPdf = async () => {
     setDownloading('pdf')
     try {
-      const pages = await prepareNgoReportPages()
+      const allPages = await prepareNgoReportPages()
+      const pages = ngoId
+        ? allPages.filter((p) => String(p.ngo?.id) === String(ngoId))
+        : allPages
       if (!pages.some((p) => p.rows.length)) {
         setToast('Nothing to export — select a suggestion or write a programme first.')
         setDownloading('')
@@ -3296,6 +3565,49 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return findExistingPlannedEvent(key, date, label)
   }
 
+  // Only events that are genuinely linked to this row (durable row link or a
+  // suggestion-level link) count as "already scheduled" for the Download
+  // button. The name+date+NGO fallback is intentionally NOT used here, because
+  // it also matches unrelated events that happen to share a name/date, which
+  // surfaced Download buttons on rows that never produced an event.
+  const findLinkedScheduledEvent = (key, date, label) => {
+    if (!key) return null
+    const rowLink = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
+    const linkedId = rowLink
+      ? rowLink.event_id
+      : (rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id ?? null)
+    if (!linkedId) return null
+    return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+  }
+  const deleteScheduledProgramme = async (key, date, label) => {
+    const ev = findScheduledEvent(key, date, label)
+    if (!ev?.id) { showToast('No saved event to delete.'); return }
+    if (!window.confirm(`Delete event "${ev.title || label}"? This cannot be undone.`)) return
+    try {
+      await deleteEvent(ev.id)
+       setMonthEvents((prev) => prev.filter((e) => String(e?.id) !== String(ev.id)))
+       const lk = linkMapKey(key, rowNgoId(key))
+       setCreatedKeys((cur) => { const next = new Set(cur); next.delete(lk); return next })
+       setRowEventNames((cur) => { const next = { ...cur }; delete next[lk]; return next })
+       setPdfCache((cur) => { const next = new Map(cur); next.delete(lk); return next })
+       setPlannerLinkMap((cur) => { const next = { ...cur }; delete next[lk]; return next })
+       // Remove the durable row → event link on the server too, otherwise the
+       // Monthly Report keeps showing this event as an "extra" card.
+       const delObs = String(key || '').slice(0, (key || '').indexOf('::') >= 0 ? (key || '').indexOf('::') : (key || '').length).slice(0, 10)
+       const delFest = (key || '').includes('::') ? String(key).slice(String(key).indexOf('::') + 2) : ''
+       deletePlannerEventLink({ observance_date: delObs || String(ev?.extendedProps?.date || '').slice(0, 10), festival: delFest, ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || ev?.extendedProps?.ngo_id }).catch(() => {})
+       // Drop the programme from the Monthly Report too: unselect any suggestion
+       // that pointed at this event so the report no longer lists it.
+       const linkedSuggs = (key ? rowSuggestionsFor(key) : []).filter((s) =>
+         Number(s?.suggested_event_id) === Number(ev.id) || Boolean(s?.is_selected)
+       )
+       linkedSuggs.forEach((s) => { if (s?.id) setFestivalSuggestionSelected(Number(s.id), false).catch(() => {}) })
+      showToast('Event deleted.')
+    } catch (e) {
+      showToast(e?.message || 'Could not delete event.')
+    }
+  }
+
   /* Is this row one of the month's FESTIVAL rows (its Festival / Day cell shows
      a festival) rather than a manual row (the cell holds an editable event
      name)? The two are told apart by the festival list of that date. */
@@ -3386,12 +3698,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const seed = key ? rowNgoId(key) : ''
     setFestExtra((cur) => ({ ...cur, [date]: [...(cur[date] || []), suffix] }))
     if (seed) setFestNgo((cur) => ({ ...cur, [extraKey]: String(seed) }))
+    persistManualRow(extraKey, { row_ngo_id: seed || '' })
   }
   const removeExtraRow = (date, key) => {
     setFestExtra((cur) => ({ ...cur, [date]: (cur[date] || []).filter((s) => `${date}::${s}` !== key) }))
     setFestNgo((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
+    deleteManualRow(key)
   }
   /* A user-added programme row: same columns as every other row, with an
      editable name in the Festival / Day column, an NGO that starts on the row it
@@ -3410,6 +3724,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             placeholder="Event name (e.g. Community kitchen drive)…"
             title="Name this programme — it is what the downloads call it"
             onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
+            onBlur={() => persistManualRow(key)}
             style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
           />
           <button
@@ -3449,10 +3764,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             placeholder="Type your own programme for this row…"
             title="Your own programme for this row"
             onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+            onBlur={() => persistManualRow(key)}
           />
         </td>
         <td className="lc divider">
           <FestivalLocationSelect
+            key={`loc-extra-${key}`}
             value={festivalLocationFor(key)}
             list={ngoLocationList(rowNgo(key))}
             disabled={festBusy || festGenerating !== null}
@@ -3466,7 +3783,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             checked={manualChecked}
             disabled={festBusy}
             title={manualChecked ? 'Included in the download. Untick to leave it out.' : 'Include this programme in the download.'}
-            onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
+            onChange={(e) => {
+              updateFestivalManual(key, { selected: e.target.checked })
+              persistManualRow(key, { selected: e.target.checked })
+            }}
           />
         </td>
         {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
@@ -3505,7 +3825,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           })
           /* A manual row carries its event name in the Festival / Day cell —
              keep that cell in step with the name the event was saved under. */
-          if (!isFestivalRow(key)) updateFestivalManual(key, { name: savedName })
+          if (!isFestivalRow(key)) {
+            updateFestivalManual(key, { name: savedName })
+            persistManualRow(key, { name: savedName })
+          }
         }
         const link = {
           observance_date,
@@ -3513,10 +3836,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           ngo_id: linkNgo || null,
           event_id: event.id,
         }
-        setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
-        setPlannerEventLink(link).catch(() => {
-          // The event exists either way; only the cross-device link is missing.
-        })
+         setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
+         if (linkNgo) setFestNgo((cur) => ({ ...cur, [key]: String(linkNgo) }))
+         setPlannerEventLink(link).catch(() => {
+           // The event exists either way; only the cross-device link is missing.
+         })
       }
     }
     setCreateEventFor(null)
@@ -3612,7 +3936,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // deliverables are still done. An unsigned row never shows a download.
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
   const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-  const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
+    const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -3699,7 +4023,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
               disabled={sheetBusy === key}
               onClick={() => downloadEventSheet(key, date, label)}
             >
-              {sheetBusy === key ? 'Downloading…' : 'Download'}
+              {sheetBusy === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
             </button>
             <button
               className="eh-btn"
@@ -3712,7 +4036,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 openEditEvent(key, date, label).finally(() => setEditLoadingKey(''))
               }}
             >
-              {editLoadingKey === key ? 'Loading…' : 'Edit'}
+              {editLoadingKey === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
+            </button>
+            <button
+              className="eh-btn"
+              style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#fee2e2', color: '#991b1b', border: 'none', cursor: 'pointer' }}
+              title="Delete this event"
+              onClick={() => deleteScheduledProgramme(key, date, label)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
             </button>
           </div>
         )}
@@ -4006,6 +4338,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           placeholder="Event name (e.g. Community kitchen drive)…"
                           title="Name the event you are planning for this date — it is what the downloads call it"
                           onChange={(e) => updateFestivalManual(key, { name: e.target.value })}
+                          onBlur={() => persistManualRow(key)}
                           style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
                         />
                       </td>
@@ -4036,6 +4369,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           placeholder="Type your own programme for this date…"
                           title="Your own programme for this date"
                           onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+                          onBlur={() => persistManualRow(key)}
                         />
                         {manualChecked && !on && (
                           <div className="fest-manual-hint">Type your programme above — an empty box exports nothing.</div>
@@ -4046,6 +4380,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                       </td>
                       <td className="lc divider">
                         <FestivalLocationSelect
+                          key={`loc-${key}`}
                           value={festivalLocationFor(key)}
                           list={ngoLocationList(rowNgo(key))}
                           disabled={festBusy || festGenerating !== null}
@@ -4059,7 +4394,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           checked={manualChecked}
                           disabled={festBusy}
                           title={manualChecked ? 'This date is in the download. Untick to leave it out.' : 'Include this date’s programme in the download.'}
-                          onChange={(e) => updateFestivalManual(key, { selected: e.target.checked })}
+                          onChange={(e) => {
+                            updateFestivalManual(key, { selected: e.target.checked })
+                            persistManualRow(key, { selected: e.target.checked })
+                          }}
                         />
                       </td>
                       {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
@@ -4142,7 +4480,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             value={festivalBeneficiaryFor(key)}
                             disabled={festBusy || festGenerating !== null}
                             title="Who the AI should aim this festival's programmes at"
-                            onChange={(v) => handleFestivalBeneficiary(key, v)}
+        onChange={(v) => { handleFestivalBeneficiary(key, v) }}
                           />
                         </td>
                         <td className="ai divider">
@@ -4163,13 +4501,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           </div>
                         </td>
                         <td className="lc divider">
-                          <FestivalLocationSelect
-                            value={festivalLocationFor(key)}
-                            list={ngoLocationList(rowNgo(key))}
-                            disabled={festBusy || festGenerating !== null}
-                            title={`Where ${o.name}’s programme happens — one place per festival`}
-                            onChange={(v) => handleFestivalLocation(key, v)}
-                          />
+                            <FestivalLocationSelect
+                              key={`loc-${key}`}
+                              value={festivalLocationFor(key)}
+                              list={ngoLocationList(rowNgo(key))}
+                              disabled={festBusy || festGenerating !== null}
+                              title={`Where ${o.name}’s programme happens — one place per festival`}
+        onChange={(v) => { handleFestivalLocation(key, v) }}
+                            />
                         </td>
                         <td className="sel divider" />
                         {taskCell(date, o.name, 1, key)}
@@ -4219,6 +4558,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                   const locationSharedCell = () => (
                     <td key="l" className="lc divider" rowSpan={rowCount}>
                       <FestivalLocationSelect
+                        key={`loc-${key}`}
                         value={festivalLocationFor(key)}
                         list={ngoLocationList(rowNgo(key))}
                         disabled={festBusy || festGenerating !== null}
@@ -4258,6 +4598,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               if (!manual?.mode) updateFestivalManual(key, { mode: true })
                             }}
                             onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
+                            onBlur={() => persistManualRow(key)}
                           />
                           {manualChecked && manualOn && (
                             <div className="fest-manual-hint">
@@ -4281,7 +4622,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               style={{ marginTop: 6 }}
                               disabled={festBusy}
                               title="Show the stored AI suggestions as options again"
-                              onClick={() => updateFestivalManual(key, { mode: false })}
+                              onClick={() => {
+                                updateFestivalManual(key, { mode: false })
+                                persistManualRow(key, { mode: false })
+                              }}
                             >
                               ← Show AI suggestions
                             </button>
@@ -4300,6 +4644,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               // ideas step out of view while that is true.
                               if (e.target.checked && !manual?.mode) patch.mode = true
                               updateFestivalManual(key, patch)
+                              persistManualRow(key, patch)
                             }}
                           />
                         </td>
@@ -4413,7 +4758,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     return trs
                   }
                 }))
-                for (const suffix of (festExtra[date] || [])) {
+                for (const suffix of (extraRowsByDate[date] || [])) {
                   rows.push(festExtraRow(date, `${date}::${suffix}`))
                 }
                 

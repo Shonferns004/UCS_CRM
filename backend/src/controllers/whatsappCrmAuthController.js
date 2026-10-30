@@ -185,7 +185,7 @@ export async function whatsappCrmLogout(req, res) {
       const token = authHeader.split(' ')[1];
       if (token && !token.startsWith('rpc_') && token !== 'master') {
         try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
           if (decoded && decoded.email) {
             await db.auth.admin.signOut(decoded.id);
           }

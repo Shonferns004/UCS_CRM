@@ -4,7 +4,11 @@ import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
+// Read at request time, not module load: this module is imported before
+// dotenv.config() runs in index.js, so a module-level read would capture
+// undefined and break webhook verification (and thus delivery status updates).
+// No hardcoded fallback: a missing/empty token must fail verification safely.
+const getVerifyToken = () => String(process.env.WHATSAPP_VERIFY_TOKEN || '').trim();
 
 // WhatsApp group threads use a `...@g.us` JID. Cloud API puts the group id in
 // `to` on most payloads and in `from` on others, so check both. The group id
@@ -40,7 +44,8 @@ export function verifyWhatsAppWebhook(req, res) {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  const expectedToken = getVerifyToken();
+  if (mode === 'subscribe' && expectedToken && token === expectedToken) {
     res.status(200).send(challenge);
   } else {
     res.status(403).send('Forbidden');
@@ -61,13 +66,21 @@ export async function whatsappWebhookEntry(req, res) {
       if (account?.project) accountProject = account.project;
     }
 
-    await db.from('whatsapp_webhook_logs').insert({
-      direction: 'inbound',
-      event_type: changes?.field || 'unknown',
-      payload: body,
-      processed: false,
-      account_project: accountProject,
-    });
+    const { data: webhookLog, error: logError } = await db
+      .from('whatsapp_webhook_logs')
+      .insert({
+        direction: 'inbound',
+        event_type: changes?.field || 'unknown',
+        payload: body,
+        processed: false,
+        account_project: accountProject,
+      })
+      .select('id')
+      .single();
+
+    if (logError) {
+      console.error('Webhook log insert failed:', logError.message);
+    }
 
     if (changes?.field === 'messages' && value?.messages) {
       for (const message of value.messages) {
@@ -235,10 +248,11 @@ export async function whatsappWebhookEntry(req, res) {
         // Each row type tracks this wamid on its own state, so each is
         // guarded separately: a redelivered or out-of-order frame must not
         // walk a read receipt back to "sent" or erase a failure_reason.
-        const [{ data: msgRows }, { data: bcRows }, { data: rcRows }] = await Promise.all([
+        const [{ data: msgRows }, { data: bcRows }, { data: rcRows }, { data: bulkRows }] = await Promise.all([
           db.from('messages').select('id, status').eq('wa_message_id', status.id).limit(1),
           db.from('whatsapp_broadcast_recipients').select('status').eq('wa_message_id', status.id).limit(1),
           db.from('receipts').select('wa_status').eq('wa_message_id', status.id).limit(1),
+          db.from('whatsapp_bulk_recipients').select('status').eq('wa_message_id', status.id).limit(1),
         ]);
 
         const update = {
@@ -296,15 +310,39 @@ export async function whatsappWebhookEntry(req, res) {
             .update(receiptPatch)
             .eq('wa_message_id', status.id);
         }
+
+        if (bulkRows?.length && shouldApplyStatus(bulkRows?.[0]?.status, status.status)) {
+          const { data: updatedBulk, error: bulkUpdateError } = await db
+            .from('whatsapp_bulk_recipients')
+            .update({
+              status: status.status,
+              failure_reason: status.status === 'failed' ? (update.failure_reason || null) : null,
+              status_updated_at: new Date().toISOString(),
+            })
+            .eq('wa_message_id', status.id)
+            .select('wa_message_id, status');
+
+          if (bulkUpdateError) {
+            console.error('Bulk recipient status update failed:', bulkUpdateError.message);
+          } else if (!updatedBulk?.length) {
+            console.warn('No bulk recipient matched webhook message ID:', status.id);
+          } else {
+            console.log('Bulk recipient status updated:', updatedBulk);
+          }
+        }
       }
     }
 
-    await db
-      .from('whatsapp_webhook_logs')
-      .update({ processed: true, processed_at: new Date().toISOString() })
-      .eq('processed', false)
-      .order('created_at', { ascending: false })
-      .limit(1);
+    if (webhookLog?.id) {
+      const { error: updateError } = await db
+        .from('whatsapp_webhook_logs')
+        .update({ processed: true, processed_at: new Date().toISOString() })
+        .eq('id', webhookLog.id);
+
+      if (updateError) {
+        console.error('Webhook log update failed:', updateError.message);
+      }
+    }
 
     res.json({ success: true });
   } catch (error) {

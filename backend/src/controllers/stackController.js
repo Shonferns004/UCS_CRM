@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { invalidateGrantCache } from '../services/temporaryAccessService.js';
+import { invalidateGrantCache, invalidateSliceCache } from '../services/temporaryAccessService.js';
 
 // Resolve acting admin to a valid users.id (super_admin id=0 is not a users row).
 async function resolveAdminId(user) {
@@ -121,6 +121,7 @@ export const deleteStack = async (req, res) => {
         [st[0].station, st[0].fro_worker_id],
       );
       invalidateGrantCache(st[0].fro_worker_id);
+      invalidateSliceCache(null);
     }
     const { rowCount } = await db._pool.query('DELETE FROM donor_stacks WHERE id = $1', [id]);
     if (rowCount === 0) return res.status(404).json({ message: 'stack not found' });
@@ -201,6 +202,7 @@ export const assignFroToStack = async (req, res) => {
 
     // Invalidate new FRO's grant cache so they see the grant immediately.
     if (fro_worker_id) invalidateGrantCache(fro_worker_id);
+    invalidateSliceCache(null);
 
     if (fro_worker_id) {
       // get member assignment ids
@@ -223,19 +225,44 @@ export const assignFroToStack = async (req, res) => {
       // Create temp grant with explicit allowed_assignment_ids.
       const start = new Date();
       const expiry = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
-      await db._pool.query(
-        `INSERT INTO temporary_data_assignments
-           (ngo_id, station, working_fro_worker_id, granted_by_admin_id, scope_type,
-            starts_at, expires_at, status, reason_code, reason_note,
-            allowed_count, allowed_offset, allowed_assignment_ids)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [
-          stack.ngo_id, stack.station, fro_worker_id, await resolveAdminId(req.user),
-          stack.stack_type === 'high_tier' ? 'STATION_HIGH_TIER' : 'STATION_ALL',
-          start.toISOString(), expiry.toISOString(), 'ACTIVE', 'WORKLOAD_SUPPORT', `Stack: ${stack.name}`,
-          count, 0, ids,
-        ],
+      const adminId = await resolveAdminId(req.user);
+      // One FRO can only have ONE active grant per station (unique constraint).
+      // If a grant already exists for this FRO on this station, MERGE the new
+      // slice ids into it instead of inserting a duplicate.
+      const { rows: existing } = await db._pool.query(
+        `SELECT id, allowed_assignment_ids FROM temporary_data_assignments
+          WHERE station = $1 AND working_fro_worker_id = $2 AND status IN ('SCHEDULED','ACTIVE')
+          ORDER BY created_at DESC LIMIT 1`,
+        [stack.station, fro_worker_id],
       );
+      if (existing.length > 0) {
+        const grant = existing[0];
+        const oldIds = grant.allowed_assignment_ids || [];
+        const merged = [...new Set([...oldIds, ...ids])];
+        await db._pool.query(
+          `UPDATE temporary_data_assignments
+              SET allowed_assignment_ids = $1,
+                  allowed_count = $2,
+                  expires_at = $3,
+                  updated_at = now()
+            WHERE id = $4`,
+          [merged, merged.length, expiry.toISOString(), grant.id],
+        );
+      } else {
+        await db._pool.query(
+          `INSERT INTO temporary_data_assignments
+             (ngo_id, station, working_fro_worker_id, granted_by_admin_id, scope_type,
+              starts_at, expires_at, status, reason_code, reason_note,
+              allowed_count, allowed_offset, allowed_assignment_ids)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [
+            stack.ngo_id, stack.station, fro_worker_id, adminId,
+            stack.stack_type === 'high_tier' ? 'STATION_HIGH_TIER' : 'STATION_ALL',
+            start.toISOString(), expiry.toISOString(), 'ACTIVE', 'WORKLOAD_SUPPORT', `Stack: ${stack.name}`,
+            count, 0, ids,
+          ],
+        );
+      }
       return res.json({ ok: true, fro_worker_id, member_count: count, target_station: targetStation });
     }
     return res.json({ ok: true, fro_worker_id: null });
@@ -297,6 +324,8 @@ async function syncStackGrant(stackId) {
       [ids, ids.length, station, fro],
     );
     invalidateGrantCache(fro);
+    // Invalidate slice cache for all grants on this station.
+    invalidateSliceCache(null);
   } catch (e) {
     console.warn('[stack] grant sync failed:', e?.message || String(e));
   }

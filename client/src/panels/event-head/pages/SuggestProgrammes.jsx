@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { PageHeader, Select, Badge, Empty } from '../components/ui.jsx'
-import { fetchWorkspaceNgos, fetchSectors, fetchActivities } from '../store.jsx'
+import { fetchWorkspaceNgos, fetchSectors, fetchActivities, savePlannerManualRow } from '../store.jsx'
 // The Monthly Planner already owns the AI suggestion panel and the "Add as
 // programme" form. Reusing them here keeps one generation path, one tick store
 // and one create-event call, so a programme planned from this page is the exact
@@ -79,10 +79,10 @@ export default function SuggestProgrammes() {
   const ngo = useMemo(() => ngos.find((n) => String(n.id) === String(ngoId)) || null, [ngos, ngoId])
   const activity = useMemo(() => activities.find((a) => String(a.id) === String(activityId)) || null, [activities, activityId])
 
-  const sectorOptions = useMemo(
-    () => sectors.filter((s) => !ngoId || String(s.ngo_id ?? '') === String(ngoId)),
-    [sectors, ngoId],
-  )
+  // Sectors are shared across NGOs (the backend has no per-NGO sector), so the
+  // chosen NGO must never hide them — every sector stays selectable and the
+  // activity list is what narrows to the NGO.
+  const sectorOptions = useMemo(() => sectors, [sectors])
 
   const clearPlan = useCallback(() => setActivityId(''), [])
 
@@ -90,6 +90,23 @@ export default function SuggestProgrammes() {
     setPlanEntry(null)
     setRev((v) => v + 1)
     const name = programmes[0]?.name || suggestion?.title || 'Programme'
+    const date = lastDate || programmes[0]?.date || `${month}-01`
+    const [y, m] = String(month).split('-').map(Number)
+    // Mirror the added programme into the Monthly Planner's manual rows so it
+    // appears as a row in that page's table (not only on the Calendar).
+    const suffix = `+${Date.now().toString(36).slice(-4)}${Math.floor(Math.random() * 1296).toString(36)}`
+    savePlannerManualRow({
+      month: Number.isFinite(m) ? m : undefined,
+      year: Number.isFinite(y) ? y : undefined,
+      observance_date: date,
+      festival: suffix,
+      ngo_id: ngoId || null,
+      row_ngo_id: ngoId || '',
+      name,
+      body_text: suggestion?.objective || name,
+      is_selected: true,
+      mode: null,
+    }).catch(() => { /* manual row is best-effort; the event is already saved */ })
     setToast(`“${name}” added to ${monthLabel(month)} — it is on the Monthly Planner.`)
     setTimeout(() => setToast(''), 6000)
   }
@@ -143,9 +160,9 @@ export default function SuggestProgrammes() {
       {toast && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '10px 14px', borderRadius: 10, background: 'var(--eh-success-soft)', color: 'var(--eh-success)', fontSize: 12.5, fontWeight: 600 }}>
           <span>✓ {toast}</span>
-          <Link to="/social/planner" style={{ color: 'inherit', textDecoration: 'underline', marginLeft: 'auto', fontWeight: 700 }}>
-            View in Monthly Planner →
-          </Link>
+            <Link to={`/social/planner?month=${encodeURIComponent(month)}${ngoId ? `&ngo=${encodeURIComponent(ngoId)}` : ''}`} style={{ color: 'inherit', textDecoration: 'underline', marginLeft: 'auto', fontWeight: 700 }}>
+              View in Monthly Planner →
+            </Link>
         </div>
       )}
 

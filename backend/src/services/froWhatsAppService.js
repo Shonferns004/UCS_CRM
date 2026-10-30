@@ -5,7 +5,9 @@ import { getTempWhatsappAccess, loadTempAllotment, assertFroProjectSend } from '
 import config from '../config/whatsappConfig.js';
 import { presignStoredUrl, resolveStoredKey } from './mediaProxy.js';
 import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
-import { resolveInboxScope, isConversationInStationScope, getFroStationPairs } from './froStationScope.js';
+import { resolveInboxScope, isConversationInStationScope, getFroStationPairs, resolveScopeWorkerId } from './froStationScope.js';
+import { callerProjects } from './whatsappScope.js';
+import { ensureWhatsappAgentUserId } from './froWhatsappIdentity.js';
 import { froActPairs } from '../controllers/froController.js';
 
 // Object keys under the shared media bucket. Meta fetches these URLs itself, so
@@ -82,11 +84,9 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
       const temp = await getTempWhatsappAccess(froWorkerId);
       if (temp.projects.size > 0) {
         let tempProjects = [...temp.projects].map(p => String(p).toLowerCase());
-        // Also enforce prefix filter for temp access? User says "fro joo station allocated hai usse ka hi whatsapp dekhe"
-        // but temp access is special - Archna gives full access to Laxmi on granted stations. Keep as-is for now but apply prefix filter.
-        if (allowedProjects.size > 0) {
-          tempProjects = tempProjects.filter(p => allowedProjects.has(p));
-        }
+        // Temp access is explicit: do not drop granted projects because of the
+        // station-prefix allowlist, which is only a defence-in-depth filter for
+        // the FRO's own permanent stations.
         if (tempProjects.length > 0) {
           const { data: tempConvs, error: tempErr } = await db
             .from('conversations')
@@ -95,9 +95,6 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
             .order('last_message_at', { ascending: false });
           if (!tempErr && tempConvs) {
             for (const c of tempConvs) {
-              if (allowedProjects.size > 0 && c.project && !allowedProjects.has(String(c.project).toLowerCase())) {
-                continue;
-              }
               if (!seenIds.has(c.id)) {
                 seenIds.add(c.id);
                 resultConvs.push({ ...c, _scope: 'temp' });
@@ -181,21 +178,76 @@ export async function getFroConversations(froWorkerId, restrictPairs = null) {
   return resultConvs;
 }
 
+async function isConversationAccessible(froWorkerId, conversationId) {
+  // A conversation explicitly assigned to this caller (or to the same worker
+  // behind an agent token) is always accessible, even when its contact is not
+  // in the station-donor list (e.g. FRO-initiated or routed threads).
+  let conv = null;
+  let assignedToOther = false;
+  try {
+    const { data } = await db
+      .from('conversations')
+      .select('assigned_agent_id, project')
+      .eq('id', conversationId)
+      .maybeSingle();
+    conv = data || null;
+    if (conv?.assigned_agent_id) {
+      if (String(conv.assigned_agent_id) === String(froWorkerId)) return true;
+      const assignedWorker = await resolveScopeWorkerId(conv.assigned_agent_id);
+      const callerWorker = await resolveScopeWorkerId(froWorkerId);
+      if (assignedWorker && callerWorker && String(assignedWorker) === String(callerWorker)) return true;
+      assignedToOther = true;
+    }
+  } catch { /* fall through to station checks */ }
+
+  // A thread claimed by a different FRO is not part of this FRO's inbox
+  // (visibility is unassigned + own). The one exception is temporary access,
+  // where the grantee deliberately sees the full inbox of the granted number.
+  if (assignedToOther) {
+    try {
+      const temp = await getTempWhatsappAccess(froWorkerId);
+      const project = String(conv?.project || '').toLowerCase();
+      if (project && temp?.projects?.size > 0 && temp.projects.has(project)) return true;
+    } catch { /* ignore */ }
+    return false;
+  }
+
+  const scope = await resolveInboxScope(froWorkerId);
+  if (!scope.hasStations || scope.pairs.length === 0) return true;
+  if (scope.stationConversationIds && scope.stationConversationIds.has(conversationId)) return true;
+
+  try {
+    const workerId = await resolveScopeWorkerId(froWorkerId);
+    const projects = await callerProjects({ userId: froWorkerId, workerId, isWaAdmin: false });
+    const project = String(conv?.project || '').trim().toLowerCase();
+    if (project && (projects || []).some((p) => String(p).toLowerCase() === project)) return true;
+  } catch { /* fall through to station / temp checks */ }
+
+  try {
+    const stationAllowed = await isConversationInStationScope(scope.pairs, conversationId);
+    if (stationAllowed) return true;
+  } catch { /* fall through to temp check */ }
+  try {
+    const temp = await getTempWhatsappAccess(froWorkerId);
+    if (temp && temp.projects && temp.projects.size > 0) {
+      const project = String(conv?.project || '').toLowerCase();
+      if (project && temp.projects.has(project)) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
 export async function getConversationMessages(conversationId, froWorkerId = null) {
   if (froWorkerId) {
     try {
-      const scope = await resolveInboxScope(froWorkerId);
-      if (scope.hasStations && scope.pairs.length > 0) {
-        const allowed = await isConversationInStationScope(scope.pairs, conversationId);
-        if (!allowed) {
-          const err = new Error('Unauthorized');
-          err.statusCode = 403;
-          throw err;
-        }
+      const allowed = await isConversationAccessible(froWorkerId, conversationId);
+      if (!allowed) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
       }
     } catch (e) {
-      if (e.statusCode === 403) throw e;
-      // fall through if scope check fails
+      if (e && e.statusCode === 403) throw e;
     }
   }
   const { data, error } = await db
@@ -220,18 +272,34 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   try {
     const scope = await resolveInboxScope(froWorkerId);
     if (scope.hasStations && scope.pairs.length > 0) {
-      const allowed = await isConversationInStationScope(scope.pairs, conversationId);
+      const allowed = await isConversationAccessible(froWorkerId, conversationId);
       if (!allowed) {
         const err = new Error('Unauthorized');
         err.statusCode = 403;
         throw err;
       }
-      // Enforce project prefix
-      const { data: convChk } = await db.from('conversations').select('project').eq('id', conversationId).maybeSingle();
-      if (convChk?.project && scope.allowedProjects?.size > 0 && !scope.allowedProjects.has(String(convChk.project).toLowerCase())) {
-        const err = new Error('Unauthorized');
-        err.statusCode = 403;
-        throw err;
+      // Enforce project prefix (skip for conversations explicitly assigned to
+      // this caller, e.g. FRO-initiated or routed threads).
+      const { data: convChk } = await db.from('conversations').select('project, assigned_agent_id').eq('id', conversationId).maybeSingle();
+      const assignedToCaller = convChk?.assigned_agent_id && (String(convChk.assigned_agent_id) === String(froWorkerId) || (await resolveScopeWorkerId(convChk.assigned_agent_id)) === (await resolveScopeWorkerId(froWorkerId)));
+      if (!assignedToCaller && convChk?.project) {
+        const workerId = await resolveScopeWorkerId(froWorkerId);
+        const projects = await callerProjects({ userId: froWorkerId, workerId, isWaAdmin: false });
+        let tempProjects = [];
+        try {
+          const temp = await getTempWhatsappAccess(froWorkerId);
+          tempProjects = [...(temp?.projects || [])];
+        } catch { /* temp layer optional */ }
+        const allowed = new Set([
+          ...(projects || []).map(p => String(p).toLowerCase()),
+          ...tempProjects.map(p => String(p).toLowerCase()),
+        ]);
+        const project = String(convChk.project).toLowerCase();
+        if (allowed.size > 0 && !allowed.has(project)) {
+          const err = new Error('Unauthorized');
+          err.statusCode = 403;
+          throw err;
+        }
       }
     }
   } catch (e) {
@@ -250,31 +318,37 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   if (convErr || !conversation) throw new Error('Conversation not found');
 
   if (!conversation.assigned_agent_id) {
-    await db
-      .from('conversations')
-      .update({ assigned_agent_id: froWorkerId })
-      .eq('id', conversationId);
-    conversation.assigned_agent_id = froWorkerId;
+    let ownerId = null;
+    try { ownerId = await ensureWhatsappAgentUserId(froWorkerId); } catch { ownerId = null; }
+    if (ownerId) {
+      const { error: claimErr } = await db
+        .from('conversations')
+        .update({ assigned_agent_id: ownerId })
+        .eq('id', conversationId);
+      if (!claimErr) conversation.assigned_agent_id = ownerId;
+    }
   }
 
   let project = conversation.project;
 
   if (!project) {
     console.warn('[sendFroReply] Conversation', conversationId, 'has NO project set — falling back to assignment lookup');
+    const workerId = await resolveScopeWorkerId(froWorkerId) || froWorkerId;
     const { data: workerAssignments } = await db
       .from('worker_agent_assignments')
       .select('account_id, whatsapp_accounts!inner(project)')
-      .eq('user_id', froWorkerId);
+      .eq('worker_id', workerId);
     if (workerAssignments?.length) {
       project = workerAssignments[0].whatsapp_accounts?.project;
     }
   }
 
   if (!project) {
+    const workerId = await resolveScopeWorkerId(froWorkerId) || froWorkerId;
     const { data: froAssignments } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_accounts!inner(project)')
-      .eq('fro_worker_id', froWorkerId)
+      .eq('fro_worker_id', workerId)
       .eq('is_active', true)
       .maybeSingle();
     project = froAssignments?.whatsapp_accounts?.project;
@@ -443,6 +517,16 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   let contact = await findOrCreateContact(phoneNormalized);
   let conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
 
+  let ownerId = null;
+  try { ownerId = await ensureWhatsappAgentUserId(froWorkerId); } catch { ownerId = null; }
+  if (ownerId && conversation && !conversation.assigned_agent_id) {
+    const { error: claimErr } = await db
+      .from('conversations')
+      .update({ assigned_agent_id: ownerId })
+      .eq('id', conversation.id);
+    if (!claimErr) conversation.assigned_agent_id = ownerId;
+  }
+
   const project = projectOverride || conversation.project || 'bsct';
   const recipientPhone = phoneNormalized;
 
@@ -454,20 +538,21 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   let account = await getAccountByProject(project);
 
   if (!account) {
+    const workerId = await resolveScopeWorkerId(froWorkerId) || froWorkerId;
     const { data: froAcct } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
-      .eq('fro_worker_id', froWorkerId)
+      .eq('fro_worker_id', workerId)
       .eq('is_active', true)
       .maybeSingle();
     account = froAcct?.whatsapp_accounts;
   }
 
-  if (!account) {
+  if (!account && ownerId) {
     const { data: workerAcct } = await db
       .from('worker_agent_assignments')
       .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
-      .eq('user_id', froWorkerId)
+      .eq('user_id', ownerId)
       .maybeSingle();
     account = workerAcct?.whatsapp_accounts;
   }
@@ -636,6 +721,8 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
   }
 
   try {
+    let ownerId = null;
+    try { ownerId = await ensureWhatsappAgentUserId(froWorkerId); } catch { ownerId = null; }
     const { data: newConv, error } = await db
       .from('conversations')
       .insert({
@@ -643,7 +730,7 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
         status: 'open',
         last_message_at: new Date().toISOString(),
         project: projectOverride || contact.project || null,
-        assigned_agent_id: froWorkerId,
+        assigned_agent_id: ownerId,
       })
       .select()
       .single();
@@ -669,14 +756,11 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
 
 export async function markConversationRead(conversationId, froWorkerId) {
   try {
-    const scope = await resolveInboxScope(froWorkerId);
-    if (scope.hasStations && scope.pairs.length > 0) {
-      const allowed = await isConversationInStationScope(scope.pairs, conversationId);
-      if (!allowed) {
-        const err = new Error('Unauthorized');
-        err.statusCode = 403;
-        throw err;
-      }
+    const allowed = await isConversationAccessible(froWorkerId, conversationId);
+    if (!allowed) {
+      const err = new Error('Unauthorized');
+      err.statusCode = 403;
+      throw err;
     }
   } catch (e) {
     if (e.statusCode === 403) throw e;
@@ -694,7 +778,6 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
 
   console.log('[getAgentConversations] agentUserId=', agentUserId, 'projectFilter=', projectFilter, 'role=', role);
 
-  // Get station scope for this agent (via worker_agent_assignments)
   let scope = null;
   try {
     scope = await resolveInboxScope(agentUserId);
@@ -702,14 +785,31 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
     console.error('[getAgentConversations] scope resolution failed:', e?.message || e);
   }
 
+  let scopeWorkerId = scope?.workerId || null;
+  if (!scopeWorkerId) {
+    try { scopeWorkerId = await resolveScopeWorkerId(agentUserId); } catch { scopeWorkerId = null; }
+  }
+  scopeWorkerId = scopeWorkerId || agentUserId;
+
   let query = db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .order('last_message_at', { ascending: false });
 
+  let allowedProjects = null;
+  let ownerIds = null;
+
   if (isAdmin) {
     query = query.or(`assigned_agent_id.eq.${agentUserId},assigned_agent_id.is.null`);
   } else {
+    const { data: linkedAgents } = await db
+      .from('worker_agent_assignments')
+      .select('user_id, account_id')
+      .eq('worker_id', scopeWorkerId);
+
+    const linkedAgentIds = [...new Set((linkedAgents || []).map(r => r.user_id).filter(Boolean))];
+    const linkedAccountIds = [...new Set((linkedAgents || []).map(r => r.account_id).filter(Boolean))];
+
     const { data: myAcctAssigns } = await db
       .from('worker_agent_assignments')
       .select('account_id')
@@ -717,56 +817,75 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
     const { data: myFroAssigns } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_account_id')
-      .eq('fro_worker_id', agentUserId)
+      .eq('fro_worker_id', scopeWorkerId)
       .eq('is_active', true);
     const { data: myAgentAssigns } = await db
       .from('agent_phone_assignments')
       .select('account_id')
       .eq('user_id', agentUserId);
 
-    const acctIds = new Set();
+    const acctIds = new Set(linkedAccountIds);
     for (const a of [...(myAcctAssigns || []), ...(myFroAssigns || []), ...(myAgentAssigns || [])]) {
-      if (a.account_id) acctIds.add(a.account_id);
+      const id = a.account_id || a.whatsapp_account_id;
+      if (id) acctIds.add(id);
     }
 
-    let myProjects = [];
+    const projectSet = new Set();
     if (acctIds.size > 0) {
       const { data: accts } = await db
         .from('whatsapp_accounts')
         .select('project')
         .in('id', Array.from(acctIds));
-      myProjects = (accts || []).map(a => a.project).filter(Boolean);
+      for (const acct of accts || []) {
+        if (acct?.project) projectSet.add(String(acct.project).toLowerCase());
+      }
     }
 
-    console.log('[getAgentConversations] myProjects (permanent)=', myProjects);
+    const stationProjects = scope?.hasStations ? [...(scope.allowedProjects || [])] : [];
+    for (const p of stationProjects) {
+      const proj = String(p || '').toLowerCase();
+      if (proj) projectSet.add(proj);
+    }
 
-    const orParts = [`assigned_agent_id.eq.${agentUserId}`];
+    const myProjects = [...projectSet];
+    console.log('[getAgentConversations] myProjects (permanent + station)=', myProjects);
+
+    const orParts = [];
+    ownerIds = new Set([agentUserId, ...linkedAgentIds].filter(Boolean).map(String));
+    for (const ownerId of ownerIds) {
+      orParts.push(`assigned_agent_id.eq.${ownerId}`);
+    }
+    const encodeValue = (v) => (/^[A-Za-z0-9_-]+$/.test(v) ? v : `"${v}"`);
     if (myProjects.length > 0) {
-      const projectOr = myProjects.map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
+      const projectOr = myProjects.map(p => `and(project.eq.${encodeValue(p)},assigned_agent_id.is.null)`).join(',');
       orParts.push(projectOr);
     }
-    // TEMPORARY ACCESS: Laxmi operates on Archna's number, so she sees the
-    // FULL inbox of that number — every conversation on the granted projects,
-    // not just unclaimed threads and not just her own. (Station-donor scoping
-    // was the earlier plan; the owner asked for "all of Archna's conversations".)
+
+    let temp = { projects: new Set(), permanentFroAgentIds: [] };
     try {
-      const temp = await getTempWhatsappAccess(agentUserId);
+      temp = await getTempWhatsappAccess(scopeWorkerId);
       console.log('[getAgentConversations] temp projects=', [...temp.projects], 'archnaAgentIds=', [...(temp.permanentFroAgentIds || [])]);
       if (temp.projects.size > 0) {
-        // Archna's claimed threads on temp projects (so Laxmi sees Archna's conversations)
         for (const archnaId of (temp.permanentFroAgentIds || [])) {
-          if (archnaId && String(archnaId) !== String(agentUserId)) {
+          if (archnaId && !ownerIds.has(String(archnaId))) {
             orParts.push(`assigned_agent_id.eq.${archnaId}`);
           }
         }
-        // Unclaimed threads on temp projects (so Laxmi can pick up new messages)
-        const tempProjectOr = [...temp.projects].map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
+        const tempProjectOr = [...temp.projects]
+          .map(p => `and(project.eq.${encodeValue(String(p).toLowerCase())},assigned_agent_id.is.null)`)
+          .join(',');
         orParts.push(tempProjectOr);
       }
     } catch (e) {
       console.error('[getAgentConversations] temp access load failed:', e?.message || e);
     }
+
     query = query.or(orParts.join(','));
+
+    allowedProjects = new Set([
+      ...myProjects,
+      ...[...temp.projects].map(p => String(p).toLowerCase()),
+    ].filter(Boolean));
   }
 
   if (projectFilter) {
@@ -784,14 +903,12 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
 
   const seen = new Map();
   for (const c of conversations || []) {
-    // Enforce station-prefix project restriction
-    if (!isAdmin && scope?.hasStations && scope?.allowedProjects?.size > 0) {
-      if (c.project && !scope.allowedProjects.has(String(c.project).toLowerCase())) {
+    if (!isAdmin && scope?.hasStations && allowedProjects?.size > 0) {
+      const isOwnThread = c.assigned_agent_id && ownerIds?.has(String(c.assigned_agent_id));
+      if (!isOwnThread && c.project && !allowedProjects.has(String(c.project).toLowerCase())) {
         continue;
       }
     }
-    // group_id joins the dedupe key so two different WhatsApp groups that
-    // happen to share a first sender are not collapsed into one row.
     const key = `${c.contact_id}__${c.project || 'none'}__${c.group_id || ''}`;
     if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
       seen.set(key, { ...c, _scope: scope?.hasStations ? 'station' : 'legacy' });
@@ -873,11 +990,18 @@ async function cachedHeaderMedia(storageKey) {
  */
 async function cacheTemplateHeader(project, templateName, headerComponent) {
   if (!headerComponent) return null;
+  const key = templateHeaderKey(project, templateName);
+  // If the object is already in our bucket, reuse it without re-downloading
+  // Meta's (short-lived) sample URL.
+  try {
+    const existing = await cachedHeaderMedia(key);
+    if (existing?.url) {
+      cachedHeaderKeys.add(key);
+      return key;
+    }
+  } catch { /* fall through to download */ }
   const sampleUrl = headerComponent?.example?.header_handle?.[0];
   if (!sampleUrl) return null;
-
-  const key = templateHeaderKey(project, templateName);
-  if (cachedHeaderKeys.has(key)) return key;
 
   try {
     const response = await fetch(sampleUrl);
@@ -1209,7 +1333,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
 }
 
 export async function searchFroMessages(froWorkerId, query) {
-  const conversations = await getFroConversations(froWorkerId);
+  const conversations = await getAgentConversations(froWorkerId, null, 'fro');
   const convIds = conversations.map(c => c.id);
   if (convIds.length === 0) return [];
 
