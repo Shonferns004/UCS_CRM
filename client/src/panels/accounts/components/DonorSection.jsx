@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import PageTabs from './PageTabs'
 import Donors from '../pages/Donors'
 import AddressImport from '../pages/AddressImport'
+import DonorsDND from '../pages/DonorsDND'
 
 /* Donor Management is one page with two tabs.
 
@@ -14,6 +15,7 @@ import AddressImport from '../pages/AddressImport'
 const TABS = [
   { label: 'Master Data', path: '/accounts/donors' },
   { label: 'Donor Data Update', path: '/accounts/donors/address' },
+  { label: 'DND', path: '/accounts/donors/dnd' },
 ]
 
 export default function DonorSection() {
@@ -36,6 +38,7 @@ export default function DonorSection() {
       <Routes>
         <Route index element={<Donors />} />
         <Route path="address" element={<AddressImport />} />
+        <Route path="dnd" element={<DonorsDND />} />
         <Route path="*" element={<Navigate to="/accounts/donors" replace />} />
       </Routes>
     </div>

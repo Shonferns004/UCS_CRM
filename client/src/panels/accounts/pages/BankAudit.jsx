@@ -584,8 +584,13 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const rtTimerRef=useRef(null);
   const rtLoad=()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current);rtTimerRef.current=setTimeout(()=>load(sd,srRef.current,dd,true),400)};
   useEffect(()=>()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current)},[]);
-  useRealtime('bank_audit_entries',{event:'*',onInsert:(row)=>{rtLoad();if(row){const id=row.id||Date.now();setSuspenseToasts(prev=>[...prev.slice(-4),{...row,_toastId:id}]);setTimeout(()=>setSuspenseToasts(prev=>prev.filter(t=>t._toastId!==id)),8000)}},onUpdate:rtLoad,onDelete:rtLoad});
-  useRealtime('receipts',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
+  // 'fro_donor_logs' is related: verifying a lead settles its audit entry and
+  // writes a receipt, so a lead change must wake this panel too. Without it
+  // the panel kept showing an entry as unclaimed after the lead on the left
+  // had already been verified. The insert toast is guarded on the source
+  // table - a related lead insert is not a new suspense entry.
+  useRealtime('bank_audit_entries',{event:'*',related:['fro_donor_logs'],onInsert:(row,payload)=>{rtLoad();if(payload?.table==='bank_audit_entries'&&row){const id=row.id||Date.now();setSuspenseToasts(prev=>[...prev.slice(-4),{...row,_toastId:id}]);setTimeout(()=>setSuspenseToasts(prev=>prev.filter(t=>t._toastId!==id)),8000)}},onUpdate:rtLoad,onDelete:rtLoad});
+  useRealtime('receipts',{event:'*',related:['fro_donor_logs'],onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
 
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],mann:['mann','manncar','mann care'],aflf:['aflf','ashray']};
   const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};

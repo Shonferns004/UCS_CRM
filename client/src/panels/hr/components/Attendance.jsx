@@ -332,13 +332,13 @@ export default function Attendance() {
       if (rows.length === 0) { alert('No workers match the selected filters for this period. Try clearing the Status/Department filter or picking a different month.'); return; }
       const cellDates = (arr) => (arr && arr.length) ? JSON.stringify(arr) : '';
       const wsData = [
-        ['Name', 'Department', 'Present', 'Half Day Dates', 'Half Day Count', 'Absent Dates', 'Absent Count', 'Leave', 'Late Deduction', 'Total Late Minutes', 'Total Days'],
-        ...rows.map(r => [r.Name, r.Department, r.Present, cellDates(r['Half Day Dates']), r['Half Day Count'], cellDates(r['Absent Dates']), r['Absent Count'], r.Leave, r['Late Deduction'], r['Total Late Minutes'], r.Total]),
+        ['Name', 'Department', 'Present', 'Half Day Dates', 'Half Day Count', 'Absent Dates', 'Absent Count', 'Leave', 'Late Deduction', 'Total Late Minutes', 'Total Late Hours', 'Total Days'],
+        ...rows.map(r => [r.Name, r.Department, r.Present, cellDates(r['Half Day Dates']), r['Half Day Count'], cellDates(r['Absent Dates']), r['Absent Count'], r.Leave, r['Late Deduction'], r['Total Late Minutes'], Math.round(((r['Total Late Minutes'] || 0) / 60) * 100) / 100, r.Total]),
       ];
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       ws['!cols'] = [
         { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 28 },
-        { wch: 12 }, { wch: 32 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
+        { wch: 12 }, { wch: 32 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
       ];
       const header = ws['A1'];
       header.s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };

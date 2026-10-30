@@ -174,13 +174,28 @@ export function reconnectSocket() {
   return connect()
 }
 
-export function onDbChange({ table, event = '*', filter, onInsert, onUpdate, onDelete }) {
+// `related` lets a subscription declare that other tables imply this one.
+// A lead row and its bank audit entry (plus the receipt they share) are two
+// views of the same money and are written together, so a change to one of
+// them implies the others moved too. Without it a subscriber to
+// 'bank_audit_entries' stayed asleep when a 'fro_donor_logs' row changed -
+// which is how a verified lead left its audit row still showing as unclaimed
+// on the other side of the screen.
+//
+// It is opt-in per subscription on purpose: fanning out globally would wake
+// every realtime subscriber in the app on unrelated writes.
+export function onDbChange({ table, event = '*', filter, onInsert, onUpdate, onDelete, related = null }) {
   const s = getSocket()
+  const relatedSet = Array.isArray(related) && related.length ? new Set(related) : null
   const handler = (payload) => {
     if (!payload) return
-    if (table && payload.table !== table) return
+    const exact = !table || payload.table === table
+    const implied = !exact && !!relatedSet && relatedSet.has(payload.table)
+    if (!exact && !implied) return
     if (event !== '*' && event !== payload.eventType) return
-    if (typeof filter === 'function' && !filter(payload)) return
+    // A filter describes the subscribed table's rows, so it must not gate a
+    // related event (whose row comes from a different table).
+    if (exact && typeof filter === 'function' && !filter(payload)) return
     if (payload.eventType === 'INSERT' && onInsert) onInsert(payload.new, payload)
     if (payload.eventType === 'UPDATE' && onUpdate) onUpdate(payload.new, payload.old, payload)
     if (payload.eventType === 'DELETE' && onDelete) onDelete(payload.old, payload)
