@@ -22,7 +22,7 @@ const FROPanel = lazy(() => import('./panels/fro/FROPanel'))
 const RecruiterPanel = lazy(() => import('./panels/recruiter/RecruiterPanel'))
 const EventHeadPanel = lazy(() => import('./panels/event-head/EventHeadPanel'))
 const DocumentationPanel = lazy(() => import('./panels/documentation/DocumentationPanel'))
-const WhatsAppPanel = lazy(() => import('./panels/whatsapp/WhatsAppPanel'))
+
 const DevPanel = lazy(() => import('./panels/dev-panel/DevPanel'))
 const SocialPanel = lazy(() => import('./panels/social/SocialPanel'))
 const SimCardPanel = lazy(() => import('./panels/sim-card/SimCardPanel'))
@@ -271,7 +271,6 @@ export default function App() {
         <Route path="/wa/*" element={
           <ProtectedRoute role={['*']}>
             <Suspense fallback={<PanelFallback />}>
-              <WhatsAppPanel />
             </Suspense>
           </ProtectedRoute>
         } />
