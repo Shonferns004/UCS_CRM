@@ -1102,9 +1102,12 @@ export const getPlannerManualRows = async ({ month, year, ngo_id = '' } = {}) =>
   let query = db.from('event_head_planner_manual_rows')
     .select('*')
     .eq('report_month', Number(month))
-    .eq('report_year', Number(year))
-    .eq('ngo_id', String(ngo_id ?? ''))
-    .order('observance_date', { ascending: true });
+    .eq('report_year', Number(year));
+  // ngo_id === null means "all NGOs" (no filter).
+  if (ngo_id != null && String(ngo_id).trim() !== '' && String(ngo_id).trim().toLowerCase() !== 'all') {
+    query = query.eq('ngo_id', String(ngo_id));
+  }
+  query = query.order('observance_date', { ascending: true });
   const { data, error } = await query;
   if (error) throw error;
   return data || [];

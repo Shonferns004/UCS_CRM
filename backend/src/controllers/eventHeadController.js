@@ -4208,10 +4208,14 @@ export const getPlannerManualRows = async (req, res) => {
     if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000) {
       return res.status(400).json({ message: 'month (1-12) and year are required' });
     }
+    // 'all' (or omitted) returns every manual row for the month, across all
+    // NGOs, so the Monthly Planner can restore rows even when the selected
+    // NGO tab differs from the row's stored NGO.
+    const requestedNgo = String(req.query?.ngo_id ?? '').trim();
     const rows = await EventHead.getPlannerManualRows({
       month,
       year,
-      ngo_id: String(req.query?.ngo_id ?? ''),
+      ngo_id: requestedNgo === 'all' ? null : requestedNgo,
     });
     return res.json({ rows });
   } catch (error) {
