@@ -8,7 +8,9 @@ function getApiBase(account) {
 }
 
 function getAccessToken(account) {
-  return account?.accessToken || account?.access_token || config.accessToken;
+  const token = (account?.accessToken || account?.access_token || config.accessToken || '').trim();
+  if (token.startsWith('enc:')) throw new Error('WhatsApp access token is encrypted/invalid. Re-enter it in WhatsApp Accounts settings.');
+  return token || null;
 }
 
 function getWabaId(account) {
