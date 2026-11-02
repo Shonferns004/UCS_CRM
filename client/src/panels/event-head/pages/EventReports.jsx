@@ -1279,7 +1279,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       const manualSelected = (Array.isArray(manualRows) ? manualRows : []).filter(r =>
         r &&
         inMonth(r.observance_date) &&
-        !String(r.festival || '').trim().startsWith('+') &&
         (String(r.name || '').trim() || String(r.body_text || '').trim())
       )
       const mappedManual = manualSelected.map(r => ({
@@ -1354,7 +1353,10 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
       for (const s of merged) {
         const evId = resolveEvId(s)
         const sDate = s.observance_date || s.date
-        const key = `${String(sDate || '').slice(0, 10)}|${String(s.festival || s.title || '').trim().toLowerCase()}|${String(s.ngo_id ?? '')}`
+        // Keep distinct programmes as separate cards: only collapse exact duplicates
+        // (same date + festival + ngo + programme title), so a festival with two
+        // selected programmes shows both instead of one.
+        const key = `${String(sDate || '').slice(0, 10)}|${String(s.festival || s.title || '').trim().toLowerCase()}|${String(s.ngo_id ?? '')}|${String(s.title || '').trim().toLowerCase()}`
         const cur = groups.get(key)
         if (!cur || (!cur.evId && evId)) groups.set(key, { s, evId })
       }

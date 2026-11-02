@@ -449,50 +449,70 @@ const NGO_LOCATION_GROUPS = [
 ]
 
 const ngoLocationCode = (n) => String(n?.code || '').trim().toLowerCase()
+/* One stable array for the "All NGOs" scope. It must NOT be rebuilt on every
+   render: a fresh array reference made the child's sync effect run on unrelated
+   re-renders and wipe the text being typed in the "Other…" box. */
+const ALL_NGO_LOCATIONS = NGO_LOCATION_GROUPS.flatMap((g) => g.list)
 /* With a single NGO in scope its locations alone are offered; on "All NGOs"
    there is no owner to filter by, so every NGO's spots are listed. */
 const ngoLocationList = (n) => {
-  if (!n) return NGO_LOCATION_GROUPS.flatMap((g) => g.list)
+  if (!n) return ALL_NGO_LOCATIONS
   return NGO_LOCATION_GROUPS.find((g) => g.code === ngoLocationCode(n))?.list || []
 }
 
-function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
-  const isCustom = Boolean(value) && !list.includes(value)
+/* `onDraftChange` reports the in-progress "Other…" text to the parent on every
+   keystroke, so a refresh with the cursor still in the box no longer loses it.
+   `onChange` is the committed value (blur / Enter / picking a known place) and
+   is what updates the stored suggestions. */
+function FestivalLocationSelect({ value, list, disabled, title, onChange, onDraftChange }) {
+  const safeList = Array.isArray(list) ? list : []
+  const isCustom = Boolean(value) && !safeList.includes(value)
   const [showOther, setShowOther] = useState(isCustom)
   const [draft, setDraft] = useState(isCustom ? String(value) : '')
   const draftRef = useRef(draft)
+  const focusedRef = useRef(false)
   useEffect(() => { draftRef.current = draft }, [draft])
   const selectValue = isCustom || showOther ? OTHER_LOCATION : (value || '')
   const showingInput = selectValue === OTHER_LOCATION
   const lastValue = useRef(value)
-  useEffect(() => {
-    const custom = Boolean(value) && !list.includes(value)
+   useEffect(() => {
+    // React only to an actual change of `value`. `list` can be a new array on
+    // any parent render ("All NGOs" used to be), and resetting on that wiped a
+    // half-typed location mid-keystroke.
+    if (value === lastValue.current) return
+    lastValue.current = value
+    // While the box is focused the user is editing: never let this effect
+    // overwrite the in-progress text or toggle the box closed. The local input
+    // already holds the truth and onDraftChange is mirroring it to the parent.
+    if (focusedRef.current) return
+    const custom = Boolean(value) && !safeList.includes(value)
     if (custom) {
       setShowOther(true)
-      if (String(value) !== draftRef.current) {
-        setDraft(String(value))
-      }
+      setDraft(String(value))
     } else if (!value) {
       setShowOther(false)
       setDraft('')
-    } else if (list.includes(value)) {
+    } else {
+      // A known place was picked from the dropdown — leave the Other box.
       setShowOther(false)
       setDraft('')
     }
-    lastValue.current = value
-  }, [value, list])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
   const commitDraft = () => {
     const next = (draftRef.current || '').trim().slice(0, 200)
-    if (next === String(value || '').trim()) {
-      setDraft(next)
-      return
-    }
     setDraft(next)
     if (!next) {
       setShowOther(false)
-      if (value) onChange('')
+      onChange('')
       return
     }
+    // Typed text that happens to match a known place collapses back to that
+    // option instead of leaving the row stuck on "Other…".
+    if (safeList.includes(next)) setShowOther(false)
+    // The parent already received every keystroke through onDraftChange, but
+    // this is what also updates the festival's stored suggestions. It is
+    // idempotent, so running it on blur is always safe.
     onChange(next)
   }
   return (
@@ -506,7 +526,11 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           const v = e.target.value
           if (v === OTHER_LOCATION) {
             setShowOther(true)
-            setDraft(isCustom ? String(value) : draft)
+            const seed = isCustom && value ? String(value) : ''
+            setDraft(seed)
+            // Opening the box is not an edit: the value is only reported to the
+            // parent once the user actually types (see the input below), so an
+            // idle "Other…" cannot clear a stored place by itself.
           } else {
             setShowOther(false)
             setDraft('')
@@ -528,9 +552,15 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           placeholder="Type the location…"
           autoFocus
           onChange={(e) => {
-            setDraft(e.target.value)
+            const v = e.target.value
+            setDraft(v)
+            if (onDraftChange) onDraftChange(v)
           }}
-          onBlur={commitDraft}
+          onFocus={() => { focusedRef.current = true }}
+          onBlur={() => {
+            focusedRef.current = false
+            commitDraft()
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
@@ -1638,10 +1668,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const initialMonth = searchParams.get('month') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_month')) || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
-  // Resolved to BSCT once the NGO list arrives (see defaultNgoId) — the tabs
-  // have nothing to highlight before that, and an empty scope is the honest
-  // state until the list says which tab to land on.
-  const [ngoId, setNgoId] = useState('')
+  // Start from the tab this user had open last time (validated against the
+  // fetched list below) so a reload does not briefly land on "All NGOs" and
+  // then switch to BSCT — that auto-switch used to discard pending typing.
+  const [ngoId, setNgoId] = useState(() => {
+    try { return localStorage.getItem('ap_ngo') || '' } catch { return '' }
+  })
   const [month, setMonth] = useState(() => initialMonth)
   useEffect(() => {
     const m = searchParams.get('month')
@@ -1960,6 +1992,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // from the day that started it, while the grid disables only that row.
   const [festGenerating, setFestGenerating] = useState(null)
   const [festBusy, setFestBusy] = useState(false)
+  const [savingKey, setSavingKey] = useState('')
+  const [dirtyRows, setDirtyRows] = useState(() => new Set())
   // Pending beneficiary choice per festival, keyed "date::festival". A festival
   // with stored suggestions keeps showing the category they were generated for
   // until the user picks another; the new choice reaches the server the next
@@ -1981,6 +2015,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      written to localStorage, sessionStorage or the URL. */
    const [festManual, setFestManual] = useState(() => ({}))
    const manualLoadedRef = useRef(false)
+   // Locations typed in the "Other…" box this session. Kept separately from
+   // festManual because a location can be the row's ONLY value, and these are
+   // what the debounced save flushes so a refresh never loses the typing.
+   const dirtyLocRef = useRef(new Set())
   const [festCleared, setFestCleared] = useState(() => new Set())
   // Per-row NGO overrides — the NGO column is an editable dropdown, so one
   // festival row can be pointed at a different NGO than the page-wide pick.
@@ -2035,9 +2073,43 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   /* A new NGO has its own stored suggestions and its own default group, so a
      pending choice made under the previous NGO must not leak into it. An open
      block belongs to the NGO it was generated for — every row collapses back
-     to its button, so switching NGO or month always starts fresh. */
-  useEffect(() => { setFestBenef({}) }, [ngoId])
-  useEffect(() => { setFestLoc({}) }, [ngoId])
+     to its button, so switching NGO or month always starts fresh.
+     ONE exception: the page starts on ngoId='' and is auto-pointed at BSCT as
+     soon as the NGO list arrives. That is not the user switching tabs, and
+     clearing here would throw away anything typed while the list loaded (the
+     common "typed Other…, then it vanished" case). Only a real switch clears. */
+  const prevScopeRef = useRef({ ngoId, month })
+  useEffect(() => {
+    const prev = prevScopeRef.current
+    prevScopeRef.current = { ngoId, month }
+    const monthChanged = prev.month !== month
+    const ngoChanged = prev.ngoId !== ngoId
+    if (!monthChanged && !ngoChanged) return
+    // '' -> a real NGO is the initial auto-selection; keep pending edits and
+    // re-key anything typed while the page was briefly on "All NGOs".
+    if (ngoChanged && !monthChanged && !prev.ngoId) {
+      const from = `all|${month}|`
+      const to = `${ngoId}|${month}|`
+      setFestManual((cur) => {
+        let changed = false
+        const next = { ...cur }
+        for (const k of Object.keys(cur)) {
+          if (!k.startsWith(from)) continue
+          next[to + k.slice(from.length)] = cur[k]
+          delete next[k]
+          changed = true
+        }
+        return changed ? next : cur
+      })
+      setDirtyRows(new Set())
+      return
+    }
+    setFestBenef({})
+    setFestLoc({})
+    // A pending "Other…" draft belongs to the NGO/month that is being left.
+    dirtyLocRef.current.clear()
+    setDirtyRows(new Set())
+  }, [ngoId, month])
   useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
   useEffect(() => { setFestExtra({}) }, [ngoId, month])
   useEffect(() => { setExtraRowDate(`${month}-01`) }, [month])
@@ -2056,12 +2128,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         manualLoadedRef.current = true
         setFestManual((cur) => {
           const next = { ...cur }
-          for (const r of rows) {
-            const rowNgo = String(r?.row_ngo_id || r?.ngo_id || '')
-            const prefix = `${rowNgo || 'all'}|${month}|`
-            const date = String(r?.observance_date || '').slice(0, 10)
-            const festival = String(r?.festival ?? '')
-            next[`${prefix}${date}::${festival}`] = {
+           for (const r of rows) {
+             // Manual text is scoped by the page NGO (matches updateFestivalManual),
+             // not by the row's own NGO dropdown value.
+             const scopeNgo = String(r?.ngo_id || '')
+             const prefix = `${scopeNgo || 'all'}|${month}|`
+             const date = String(r?.observance_date || '').slice(0, 10)
+             const festival = String(r?.festival ?? '')
+             next[`${prefix}${date}::${festival}`] = {
               text: String(r?.body_text || ''),
               selected: Boolean(r?.is_selected),
               ...(r?.mode ? { mode: r.mode } : {}),
@@ -2105,14 +2179,19 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           for (const r of rows) {
             if (r?.location == null) continue
             const date = String(r?.observance_date || '').slice(0, 10)
-            next[`${date}::${String(r?.festival ?? '')}`] = String(r.location)
+            const key = `${date}::${String(r?.festival ?? '')}`
+            // Never overwrite a value the user has typed but not yet saved —
+            // a slow load must not win over the live "Other…" text.
+            if (dirtyLocRef.current.has(key)) continue
+            next[key] = String(r.location)
           }
           return next
         })
       })
        .catch(() => {})
+      if (!cancelled) setDirtyRows(new Set())
     return () => { cancelled = true }
-  }, [month])
+  }, [month, ngoId])
 
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
@@ -2178,7 +2257,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     }
   }, [])
 
-  const persistManualRow = useCallback((key, override = {}) => {
+  const persistManualRow = useCallback((key, override = {}, opts = {}) => {
     if (!key) return Promise.resolve(null)
     const [y, m] = month.split('-').map(Number)
     const { date, festival } = manualKeyParts(key)
@@ -2199,45 +2278,99 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const body = String(override.text !== undefined ? override.text : (entry.text || ''))
     const selected = override.selected !== undefined ? Boolean(override.selected) : Boolean(entry.selected)
     const mode = override.mode !== undefined ? (override.mode ? String(override.mode) : null) : (entry.mode ? String(entry.mode) : null)
-    const beneficiary = override.beneficiary !== undefined ? override.beneficiary : (entry.beneficiary !== undefined ? entry.beneficiary : (festBenef[key] || null))
-    const location = override.location !== undefined ? override.location : (entry.location !== undefined ? entry.location : (festLoc[key] || null))
+    const beneficiary = override.beneficiary !== undefined
+      ? override.beneficiary
+      : (entry.beneficiary !== undefined ? entry.beneficiary : (key in festBenef ? festBenef[key] : null))
+    const location = override.location !== undefined
+      ? override.location
+      : (entry.location !== undefined ? entry.location : (key in festLoc ? festLoc[key] : null))
     // A normal festival row with nothing typed and no tick needs no stored row.
     // An extra row is kept even while empty: its existence IS the row.
-    if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
-      console.log('[manual] delete', { date, festival, scopeNgo })
-      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch((e) => { console.error('deleteManualRow failed', e); return null })
-    }
-    console.log('[manual] save', { month: m, year: y, date, festival, scopeNgo, rowNgo, name, body })
-    return savePlannerManualRow({
-      month: m,
-      year: y,
-      observance_date: date,
-      festival,
-      ngo_id: scopeNgo || rowNgo || '',
-      row_ngo_id: rowNgo,
-      name,
-      body_text: body,
-      is_selected: selected,
-      mode,
-      beneficiary,
-      location,
-    }).then((res) => {
-      console.log('[manual] save result', res)
-      if (!res) showToast('Could not save programme. Please try again.')
-      return res
-    }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
+     if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
+       console.log('[manual] delete', { date, festival, scopeNgo })
+       return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }, opts)
+         .then((res) => { dirtyLocRef.current.delete(key); setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n }); return res })
+         .catch((e) => { console.error('deleteManualRow failed', e); return null })
+     }
+     console.log('[manual] save', { month: m, year: y, date, festival, scopeNgo, rowNgo, name, body })
+     return savePlannerManualRow({
+       month: m,
+       year: y,
+       observance_date: date,
+       festival,
+       ngo_id: scopeNgo || rowNgo || '',
+       row_ngo_id: rowNgo,
+       name,
+       body_text: body,
+       is_selected: selected,
+       mode,
+       beneficiary,
+       location,
+     }, opts).then((res) => {
+       console.log('[manual] save result', res)
+       if (res) {
+         dirtyLocRef.current.delete(key)
+         setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n })
+       }
+       if (!res) showToast('Could not save programme. Please try again.')
+       return res
+     }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
   }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
 
-  /* Best-effort flush of pending manual rows when the tab is closed/refreshed,
-     so a typed value that never blurred still reaches the server. */
+  /* Explicit per-row save used by the "Save" buttons. Awaits the write so the
+     button can show success/failure instead of relying on auto-save timing. */
+  const markDirty = useCallback((key) => {
+    if (!key) return
+    setDirtyRows((prev) => {
+      if (prev.has(key)) return prev
+      const next = new Set(prev)
+      next.add(key)
+      return next
+    })
+  }, [])
+
+  const saveRow = useCallback(async (key) => {
+    if (!key || savingKey) return
+    setSavingKey(key)
+    try {
+      const res = await persistManualRow(key)
+      if (res) {
+        dirtyLocRef.current.delete(key)
+        setDirtyRows((prev) => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
+        showToast('Saved')
+      } else {
+        showToast('Could not save. Please try again.')
+      }
+    } catch (e) {
+      showToast('Could not save. ' + (e?.message || ''))
+    } finally {
+      setSavingKey('')
+    }
+  }, [persistManualRow, savingKey])
+
+  /* Best-effort flush when the tab is closed/refreshed. It now also covers the
+     Location / Beneficiary pending values (a row can carry ONLY a location) and
+     uses keepalive so the request is allowed to finish after the page unloads. */
   useEffect(() => {
-    const onBeforeUnload = () => {
-      for (const k of Object.keys(scopedManual || {})) {
-        try { persistManualRow(k) } catch { /* best effort */ }
+    const flush = () => {
+      const keys = new Set([
+        ...Object.keys(scopedManual || {}),
+        ...dirtyLocRef.current,
+      ])
+      for (const k of keys) {
+        try { persistManualRow(k, {}, { keepalive: true }) } catch { /* best effort */ }
       }
     }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+    }
   }, [scopedManual, persistManualRow])
 
   /* Debounced auto-save: persist manual rows 800ms after the last edit so a
@@ -2251,6 +2384,27 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     }, 800)
     return () => clearTimeout(t)
   }, [scopedManual, persistManualRow])
+
+  /* Typing in the "Other…" location box. The value reaches festLoc on every
+     keystroke (so it survives a refresh), and this debounce writes it to the
+     server even if the box never blurs. Nothing is sent while the manual rows
+     are still loading, so a slow first load cannot resurrect stale values. */
+  useEffect(() => {
+    if (!manualLoadedRef.current) return
+    const keys = [...dirtyLocRef.current]
+    if (!keys.length) return
+    const t = setTimeout(() => {
+      for (const k of keys) {
+        if (!dirtyLocRef.current.has(k)) continue
+        // Keep the key dirty until the write actually succeeds: then a refresh
+        // right after the debounce still gets a keepalive retry on unload.
+        persistManualRow(k, { location: festLoc[k] })
+          .then(() => { dirtyLocRef.current.delete(k) })
+          .catch(() => {})
+      }
+    }, 700)
+    return () => clearTimeout(t)
+  }, [festLoc, persistManualRow])
 
   const deleteManualRow = useCallback((key) => {
     const { date, festival } = manualKeyParts(key)
@@ -2355,7 +2509,13 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      reach the download under the old NGO. Stored ideas are never deleted, only
      the selection is dropped. */
   const changeRowNgo = (key, value) => {
+    markDirty(key)
     const prevId = rowNgoId(key)
+    const hasData = Boolean(scopedManual[key]) || (key in festLoc) || (key in festBenef)
+    if (hasData) {
+      // Persist while the old NGO's location/beneficiary are still in state.
+      persistManualRow(key, { row_ngo_id: value })
+    }
     setFestNgo((cur) => ({ ...cur, [key]: value }))
     setFestBenef((cur) => { const next = { ...cur }; delete next[key]; return next })
     setFestLoc((cur) => { const next = { ...cur }; delete next[key]; return next })
@@ -2380,7 +2540,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      starts on "Select a category…" and shows only what the user picks, so the
      grid never claims an audience nobody chose. */
   const festivalBeneficiaryFor = useCallback((key) => {
-    if (festBenef[key]) return festBenef[key]
+    // `in` (not truthiness) so a cleared dropdown stays cleared instead of
+    // falling back to an old stored category.
+    if (key in festBenef) return festBenef[key]
     const stored = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean)
     return stored || ''
   }, [festBenef, rowSuggestionsFor])
@@ -2393,6 +2555,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      server holds: a category that looks chosen but exports as the old one is
      worse than an honest error. */
   const handleFestivalBeneficiary = async (key, value) => {
+    markDirty(key)
     const prevFor = festivalBeneficiaryFor(key)
     setFestBenef((cur) => ({ ...cur, [key]: value }))
     let ownerId = ''
@@ -2428,10 +2591,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      keeps showing the truth. Never read from anywhere else — a row starts on
      "Select a location…" and every shown place was picked or typed. */
   const festivalLocationFor = useCallback((key) => {
-    if (festLoc[key]) return festLoc[key]
+    // `in` (not truthiness) so a cleared location stays cleared and a
+    // half-typed "Other…" value (already mirrored into festLoc) cannot fall
+    // back to the previously stored place mid-typing.
+    if (key in festLoc) return festLoc[key]
     const stored = rowSuggestionsFor(key).map((s) => s.location).find(Boolean)
     return stored || ''
   }, [festLoc, rowSuggestionsFor])
+
+  /* Every keystroke in the "Other…" box lands here: the pending value is kept
+     in festLoc (so the display, the debounced save and the unload flush all see
+     it) and marked dirty. It deliberately sends nothing per keystroke — the
+     debounce and the blur handler do the writing. */
+  const markFestivalLocationDraft = useCallback((key, value) => {
+    markDirty(key)
+    setFestLoc((cur) => ({ ...cur, [key]: value }))
+    dirtyLocRef.current.add(key)
+  }, [markDirty])
 
   /* Changing the row's Location dropdown / "Other…" box. Mirrors the
      Beneficiary handler: the pending choice shows at once, and when the
@@ -2442,6 +2618,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      to on "All NGOs". A failed save rolls the row back to what the server
      holds. */
   const handleFestivalLocation = async (key, value) => {
+    markDirty(key)
     const prevFor = festivalLocationFor(key)
     setFestLoc((cur) => ({ ...cur, [key]: value }))
     const stored = rowSuggestionsFor(key)
@@ -2594,6 +2771,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   /* The typed programme lives in React state only, so the AI suggestions
      behind it are never changed in the database. */
   const updateFestivalManual = (key, patch) => {
+    markDirty(key)
     setFestManual((cur) => {
       const fk = `${scopedManualPrefix}${key}`
       const had = cur[fk]
@@ -3061,14 +3239,18 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       .map((s) => {
         const n = ngoById.get(String(s.ngo_id))
         const observed = String(s.observance_date || '')
+        // The dropdown choice (pending or reloaded from the manual row) wins
+        // over the value stored with the suggestion, so the file matches what
+        // the grid shows after a refresh.
+        const key = festivalKeyOf(s)
         return {
           date: observed,
           dateLabel: shortDate(observed),
           weekday: observed ? new Date(`${observed}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
           festival: s.festival || '—',
           ngoLabel: ngoShortLabel(n),
-          beneficiary: s.beneficiary || '—',
-          location: s.location || '—',
+          beneficiary: (key in festBenef ? festBenef[key] : s.beneficiary) || '—',
+          location: (key in festLoc ? festLoc[key] : s.location) || '—',
           programme: s.title || '—',
           status: s.suggested_event_id ? 'Scheduled' : 'Draft',
         }
@@ -3091,8 +3273,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
         festival: festival || '—',
         ngoLabel: rowNgo(k) ? ngoShortLabel(rowNgo(k)) : '—',
-        beneficiary: rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
-        location: rowSuggestionsFor(k).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
+        beneficiary: (k in festBenef ? festBenef[k] : rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean)) || '—',
+        location: (k in festLoc ? festLoc[k] : rowSuggestionsFor(k).map((s) => s.location).find(Boolean)) || '—',
         programme: text,
         status: 'Draft',
       })
@@ -3777,7 +3959,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestNgo((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
-    deleteManualRow(key)
+    const rowNgo = rowNgoId(key)
+    deletePlannerManualRow({ observance_date: date, festival: (key.split('::')[1] || ''), ngo_id: rowNgo || ngoId || '' }).catch(() => null)
   }
   /* A user-added programme row: same columns as every other row, with an
      editable name in the Festival / Day column, an NGO that starts on the row it
@@ -3799,6 +3982,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             onBlur={() => persistManualRow(key)}
             style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
           />
+          {(dirtyRows.has(key) || savingKey === key) && (
+            <button
+              className="eh-btn eh-btn-sm"
+              style={{ marginTop: 6, marginRight: 6 }}
+              disabled={festBusy || savingKey === key}
+              title="Save this programme row now"
+              onClick={() => saveRow(key)}
+            >
+              {savingKey === key ? 'Saving…' : 'Save'}
+            </button>
+          )}
           <button
             className="eh-btn eh-btn-sm"
             style={{ marginTop: 6 }}
@@ -3847,6 +4041,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             disabled={festBusy || festGenerating !== null}
             title="Where this event happens"
             onChange={(v) => handleFestivalLocation(key, v)}
+            onDraftChange={(v) => markFestivalLocationDraft(key, v)}
           />
         </td>
         <td className="sel divider">
@@ -4200,6 +4395,27 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             </div>
           </Field>
 
+          <button
+            className="eh-btn"
+            disabled={festBusy || !!savingKey || dirtyRows.size === 0}
+            onClick={async () => {
+              const keys = Object.keys(scopedManual || {})
+              if (!keys.length) { showToast('Nothing to save.'); return }
+              setSavingKey('__all__')
+              let ok = 0
+              for (const k of keys) {
+                try {
+                  const res = await persistManualRow(k)
+                  if (res) { dirtyLocRef.current.delete(k); ok += 1 }
+                } catch { /* continue */ }
+              }
+              setSavingKey('')
+              showToast(ok === keys.length ? `Saved ${ok} row(s)` : `Saved ${ok} of ${keys.length} row(s)`)
+            }}
+            title="Save all edited rows to the database now"
+          >
+            {savingKey === '__all__' ? 'Saving…' : 'Save all'}
+          </button>
           <SearchInput value={search} onChange={setSearch} placeholder="Search activities…" style={{ flex: '1 1 180px', minWidth: 160 }} />
         </div>
       </div>
@@ -4457,6 +4673,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           disabled={festBusy || festGenerating !== null}
                           title="Where this date's event happens"
                           onChange={(v) => handleFestivalLocation(key, v)}
+                          onDraftChange={(v) => markFestivalLocationDraft(key, v)}
                         />
                       </td>
                       <td className="sel divider">
@@ -4470,6 +4687,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             persistManualRow(key, { selected: e.target.checked })
                           }}
                         />
+                        {(dirtyRows.has(key) || savingKey === key) && (
+                          <button
+                            className="eh-btn eh-btn-sm"
+                            style={{ marginTop: 4, fontSize: 11 }}
+                            disabled={festBusy || savingKey === key}
+                            onClick={() => saveRow(key)}
+                            title="Save this row to the database now"
+                          >
+                            {savingKey === key ? 'Saving…' : 'Save'}
+                          </button>
+                        )}
                       </td>
                       {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
                     </tr>
@@ -4579,6 +4807,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               disabled={festBusy || festGenerating !== null}
                               title={`Where ${o.name}’s programme happens — one place per festival`}
         onChange={(v) => { handleFestivalLocation(key, v) }}
+        onDraftChange={(v) => markFestivalLocationDraft(key, v)}
                             />
                         </td>
                         <td className="sel divider" />
@@ -4635,6 +4864,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                         disabled={festBusy || festGenerating !== null}
                         title={`Where ${o.name}’s programme happens — one place per festival`}
                         onChange={(v) => handleFestivalLocation(key, v)}
+                        onDraftChange={(v) => markFestivalLocationDraft(key, v)}
                       />
                     </td>
                   )
@@ -4671,6 +4901,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
                             onBlur={() => persistManualRow(key)}
                           />
+                          {(dirtyRows.has(key) || savingKey === key) && (
+                            <button
+                              className="eh-btn eh-btn-sm"
+                              style={{ marginTop: 6, marginLeft: 6 }}
+                              disabled={festBusy || savingKey === key}
+                              title="Save this programme row now"
+                              onClick={() => saveRow(key)}
+                            >
+                              {savingKey === key ? 'Saving…' : 'Save'}
+                            </button>
+                          )}
                           {manualChecked && manualOn && (
                             <div className="fest-manual-hint">
                               {manualOnly

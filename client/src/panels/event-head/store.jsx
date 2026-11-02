@@ -7,9 +7,9 @@ import {
   getObservancesOnDate,
 } from '@observances'
 export const apiGet = (path) => api(path, { _prefix: 'ucs' })
-export const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
-export const apiDelete = (path) => api(path, { method: 'DELETE', _prefix: 'ucs' })
-export const apiPut = (path, body) => api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' })
+export const apiPost = (path, body, opts = {}) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs', ...opts })
+export const apiDelete = (path, opts = {}) => api(path, { method: 'DELETE', _prefix: 'ucs', ...opts })
+export const apiPut = (path, body, opts = {}) => api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs', ...opts })
 
 const PALETTE = ['#7B5EA7','#B5603A','#C08A2E','#4F6472','#5B6B4E','#88693D','#3485D4'];
 export const avatarColor = (name) => {
@@ -731,7 +731,7 @@ export const getPlannerManualRows = async (params = {}) => {
   return Array.isArray(res) ? res : (res?.rows || [])
 }
 
-export const savePlannerManualRow = async (payload = {}) => {
+export const savePlannerManualRow = async (payload = {}, opts = {}) => {
   const res = await apiPut('/event-head/planner/manual-rows', {
     month: payload.month,
     year: payload.year,
@@ -745,13 +745,13 @@ export const savePlannerManualRow = async (payload = {}) => {
     mode: payload.mode,
     beneficiary: payload.beneficiary,
     location: payload.location,
-  })
+  }, opts)
   return res?.row || null
 }
 
-export const deletePlannerManualRow = async (payload = {}) => {
+export const deletePlannerManualRow = async (payload = {}, opts = {}) => {
   const q = new URLSearchParams(Object.entries(payload).filter(([, v]) => v != null)).toString()
-  return apiDelete('/event-head/planner/manual-rows' + (q ? '?' + q : ''))
+  return apiDelete('/event-head/planner/manual-rows' + (q ? '?' + q : ''), opts)
 }
 
 /* Saves the row's Beneficiary dropdown choice onto that festival's stored
