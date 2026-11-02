@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts, updateConversationLabels, retryMessage } from '../../api/whatsappEnhanced'
+import { apiGet } from '../../api/auth'
 import { parseFilter } from '../../../../hooks/useRealtime'
 import { onDbChange } from '../../../../lib/socket'
 import { useIsMobile } from '../../../../hooks/useIsMobile'
@@ -146,6 +147,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const [newConvPhone, setNewConvPhone] = useState('')
   const [newConvName, setNewConvName] = useState('')
   const [newConvProject, setNewConvProject] = useState('')
+  const [newConvHealth, setNewConvHealth] = useState(null)
+  const [activeHealth, setActiveHealth] = useState(null)
   // Name carried over from a My Leads WhatsApp deep-link. Used as a fallback so
   // the conversation shows the lead's name instead of a bare phone number.
   const [deepLink, setDeepLink] = useState({ phone: '', name: '' })
@@ -335,11 +338,28 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [activeProject, conversations])
 
   useEffect(() => {
-    if (!waUser?.id && !agentToken) return
-    getMyAccounts(agentToken).then(accounts => {
-      if (accounts?.length) setMyAccounts(accounts)
-    }).catch(() => {})
-  }, [waUser?.id, agentToken])
+    if (!showNewConv) return
+    const acct = myAccounts.find(a => a.project === newConvProject) || myAccounts[0] || { id: 6 }
+    if (!acct?.id) { setNewConvHealth({ error: 'No WhatsApp account linked to your profile' }); return }
+    setNewConvHealth(null)
+    apiGet(`/whatsapp/accounts/${acct.id}/health`)
+      .then((d) => setNewConvHealth(d || { error: 'No data' }))
+      .catch((e) => setNewConvHealth({ error: e?.message || 'Failed' }))
+  }, [showNewConv, newConvProject, myAccounts])
+
+  useEffect(() => {
+    const acct = activeTab !== 'all'
+      ? (myAccounts.find(a => a.project === activeTab) || null)
+      : (myAccounts[0] || null)
+    const resolved = acct?.id ? acct : { id: 6 }
+    if (!resolved?.id) { setActiveHealth({ error: 'No account linked' }); return }
+    setActiveHealth(null)
+    let cancelled = false
+    apiGet(`/whatsapp/accounts/${resolved.id}/health`)
+      .then((d) => { if (!cancelled) setActiveHealth(d || { error: 'No data' }) })
+      .catch((e) => { if (!cancelled) setActiveHealth({ error: e?.message || 'Failed' }) })
+    return () => { cancelled = true }
+  }, [activeTab, myAccounts])
 
   useEffect(() => {
     if (!activeConv?.id || !messages?.length || !messagesContainerRef.current) return
@@ -532,6 +552,25 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
               placeholder="Search or start a new chat"
               style={{ width: '100%', padding: '8px 12px 8px 32px', fontSize: 12.5, border: 'none', borderRadius: 8, boxSizing: 'border-box', outline: 'none', background: '#f0f2f5', color: '#111b21' }} />
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 2px 8px', fontSize: 11.5 }}>
+            <span style={{ color: '#667781', fontWeight: 600 }}>Meta Health:</span>
+            {activeHealth === null ? (
+              <span style={{ color: '#9ca3af' }}>Checking…</span>
+            ) : activeHealth.error ? (
+              <span style={{ color: '#dc2626' }}>{activeHealth.error}</span>
+            ) : (
+              <>
+                <span style={{
+                  fontWeight: 700,
+                  color: String(activeHealth.quality || '').toUpperCase() === 'GREEN' ? '#16a34a'
+                    : String(activeHealth.quality || '').toUpperCase() === 'YELLOW' ? '#d97706'
+                    : String(activeHealth.quality || '').toUpperCase() === 'RED' ? '#dc2626' : '#6b7280',
+                }}>
+                  {activeHealth.quality || 'N/A'}
+                </span>
+              </>
+            )}
+          </div>
           <button onClick={() => { setShowNewConv(true); setNewConvProject(activeTab !== 'all' ? activeTab : (myAccounts.find(a => a.temporary)?.project || (myAccounts.length ? myAccounts[0].project : ''))) }}
             style={{ width: '100%', padding: '8px 10px', fontSize: 12.5, fontWeight: 600, background: '#00a884', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background .15s' }}
             onMouseOver={e => { e.currentTarget.style.background = '#008069' }}
@@ -661,21 +700,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
                 <input type="tel" value={newConvPhone} onChange={e => setNewConvPhone(e.target.value)} placeholder="e.g. 917506419340"
                   style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }} />
               </label>
-              {myAccounts.length > 1 && (
-                <label style={{ display: 'block', marginBottom: 14 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Send from</span>
-                  <select value={newConvProject} onChange={e => setNewConvProject(e.target.value)}
-                    style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', background: '#fff', outline: 'none' }}>
-                    <option value="">— Select number —</option>
-                    {myAccounts.map(a => (
-                      <option key={a.id} value={a.project}>
-                        {a.name} ({a.phone_number_id}){a.temporary ? ` — Temporary until ${formatTempExpiry(a.expires_at)}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <div className="modal-actions" style={{ marginTop: 8 }}>
+               <div className="modal-actions" style={{ marginTop: 8 }}>
                 <button onClick={() => setShowNewConv(false)}
                   style={{ padding: '9px 18px', fontSize: 13, fontWeight: 500, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer' }}>
                   Cancel

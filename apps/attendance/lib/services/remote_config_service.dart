@@ -107,12 +107,35 @@ class RemoteConfigService {
     final uri = Uri.parse('${Config.bootstrapBaseUrl}/config');
     final res = await http.get(uri).timeout(_fetchTimeout);
     if (res.statusCode != 200) return;
-    final body = jsonDecode(res.body);
-    if (body is Map<String, dynamic>) {
-      _apply(body);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(body));
+
+    // The backend answers with JSON, but an unreachable backend does not fail
+    // loudly: a stopped ngrok tunnel answers HTTP 200 with a *text*
+    // interstitial (ERR_NGROK_6024), and a captive portal answers with HTML.
+    // jsonDecode then throws FormatException, which the caller swallows — so
+    // the app was left silently pinned to the dead URL with no signal at all.
+    if (!_looksLikeJson(res)) return;
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(res.body);
+    } on FormatException {
+      return;
     }
+    if (decoded is Map<String, dynamic>) {
+      _apply(decoded);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, jsonEncode(decoded));
+    }
+  }
+
+  /// A healthy backend serves `application/json` starting with `{`. Checking
+  /// both the header and the first byte keeps an error page that happens to
+  /// carry a 200 from ever overwriting a working cached config.
+  static bool _looksLikeJson(http.Response res) {
+    final contentType = res.headers['content-type'] ?? '';
+    if (!contentType.contains('json')) return false;
+    final body = res.body.trim();
+    return body.startsWith('{') || body.startsWith('[');
   }
 
   void _apply(Map<String, dynamic> config) {

@@ -1025,6 +1025,7 @@ export default function Dashboard() {
   const [lowPerfAttendance, setLowPerfAttendance] = useState('present');
   const [froSearch, setFroSearch] = useState('');
   const [perfStatusFilter, setPerfStatusFilter] = useState('all');
+  const [bulkWarnLoading, setBulkWarnLoading] = useState(null);
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
   const [selectedFro, setSelectedFro] = useState(null);
   const [hourlyExportFrom, setHourlyExportFrom] = useState(() => toIstDate());
@@ -1556,6 +1557,25 @@ export default function Dashboard() {
     !HIDDEN_FRO_IDS.has(p.fro_id)
     && (!froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase()))
   ), [tlData, froSearch, HIDDEN_FRO_IDS]);
+
+  const bulkWarnByLevel = async (level) => {
+    const targets = perfRows.filter(p => warnToneFor(p.today_idle_seconds)?.level === level);
+    if (targets.length === 0) { toast(`No FROs in the ${level} idle band`, 'info'); return; }
+    if (!window.confirm(`Send the ${level} idle warning to ${targets.length} FRO${targets.length === 1 ? '' : 's'}?`)) return;
+    setBulkWarnLoading(level);
+    let ok = 0, fail = 0;
+    await Promise.all(targets.map(async (p) => {
+      try {
+        const r = await apiPost('/ngo-admin/notify-fro', { workerId: p.fro_id, level });
+        ok++;
+      } catch (err) {
+        fail++;
+      }
+    }));
+    setBulkWarnLoading(null);
+    if (fail === 0) toast(`${level[0].toUpperCase() + level.slice(1)} warning sent to ${ok} FRO${ok === 1 ? '' : 's'}`, 'success');
+    else toast(`Sent to ${ok}, failed for ${fail}`, fail === targets.length ? 'error' : 'info');
+  };
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
@@ -2977,6 +2997,25 @@ idle: {
                 >
                   {periodOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
+                {['red', 'orange', 'green'].map((lvl) => {
+                  const count = perfRows.filter(p => warnToneFor(p.today_idle_seconds)?.level === lvl).length;
+                  const color = lvl === 'red' ? '#dc2626' : lvl === 'orange' ? '#ea580c' : '#16a34a';
+                  const bg = lvl === 'red' ? '#fef2f2' : lvl === 'orange' ? '#fff7ed' : '#f0fdf4';
+                  const border = lvl === 'red' ? '#fecaca' : lvl === 'orange' ? '#fed7aa' : '#bbf7d0';
+                  const busy = bulkWarnLoading === lvl;
+                  return (
+                    <button
+                      key={lvl}
+                      onClick={() => bulkWarnByLevel(lvl)}
+                      disabled={count === 0 || !!bulkWarnLoading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: `1px solid ${border}`, background: busy ? '#e2e8f0' : bg, color, cursor: (count === 0 || !!bulkWarnLoading) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', opacity: (count === 0 || !!bulkWarnLoading) ? 0.6 : 1 }}
+                      title={`Send the ${lvl} idle warning to all ${count} FRO${count === 1 ? '' : 's'} in the ${lvl} band`}
+                    >
+                      <Bell size={13} fill="currentColor" />
+                      {busy ? 'Sending…' : `${lvl[0].toUpperCase() + lvl.slice(1)} (${count})`}
+                    </button>
+                  );
+                })}
                 <button
                   onClick={handleTelecallerExport}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: 'none', background: '#2F80D9', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}

@@ -295,9 +295,50 @@ export async function listMyAccounts(req, res) {
       console.error('[listMyAccounts] station accounts load failed:', e?.message || e);
     }
 
-    // Temporary access disabled for all FROs - only station mapping applies now.
-    return res.json(Array.from(seen.values()));
-  } catch (error) {
+     // Explicit WhatsApp account grants (fro_whatsapp_assignments) are also a
+     // valid source of access, so surface those accounts too.
+     if (workerId) {
+       try {
+         const { data: grants } = await db
+           .from('fro_whatsapp_assignments')
+           .select('whatsapp_account_id')
+           .eq('fro_worker_id', workerId)
+           .eq('is_active', true);
+         const ids = (grants || []).map((g) => g.whatsapp_account_id).filter(Boolean);
+         if (ids.length) {
+           const { data: grantedAccounts } = await db
+             .from('whatsapp_accounts')
+             .select('id, name, phone_number_id, project, is_active')
+             .in('id', ids)
+             .eq('is_active', true);
+           for (const acct of grantedAccounts || []) {
+             if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
+           }
+         }
+       } catch (e) {
+         console.error('[listMyAccounts] granted accounts load failed:', e?.message || e);
+       }
+      }
+      // Fallback: if no station-derived/granted account is available, expose a
+     // single FRO WhatsApp account so Meta health can still be checked.
+     if (seen.size === 0) {
+       try {
+         const { data: fallbackAccounts } = await db
+           .from('whatsapp_accounts')
+           .select('id, name, phone_number_id, project, is_active')
+           .in('project', ['bsct2', 'aflf2', 'mann 2'])
+           .eq('is_active', true)
+           .order('id', { ascending: true })
+           .limit(1);
+         for (const acct of fallbackAccounts || []) {
+           if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
+         }
+       } catch (e) {
+         console.error('[listMyAccounts] fallback accounts load failed:', e?.message || e);
+       }
+      }
+      return res.json(Array.from(seen.values()));
+   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 }

@@ -116,10 +116,13 @@ export default function Reports() {
 
   // monthly target editor state
   const [showTargetForm, setShowTargetForm] = useState(false);
-  const [targetForm, setTargetForm] = useState({ overall: '', perNgo: {}, byTeam: {} });
+  const [targetForm, setTargetForm] = useState({ overall: '', perNgo: {}, byTeam: {}, modes: {}, resolved: [] });
   const [teams, setTeams] = useState([]);
+  const [targetTotals, setTargetTotals] = useState({ target: 0, synced: 0 });
   const [savingTarget, setSavingTarget] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
+  const [syncPreviewFor, setSyncPreviewFor] = useState(null);
+  const [syncingTeams, setSyncingTeams] = useState(false);
 
   const monthLabel = useCallback((m) => {
     if (!m || !/^\d{4}-\d{2}$/.test(m)) return m || '';
@@ -168,8 +171,9 @@ export default function Reports() {
   useEffect(() => { load(); }, [reportDay, month, reportFrom, reportTo]);
   useEffect(() => {
     apiGet('/accounts/team-targets?month=' + month).then(d => {
-      setTargetForm(f => ({ ...f, byTeam: d.byTeam || {} }));
+      setTargetForm(f => ({ ...f, byTeam: d.byTeam || {}, modes: d.modes || {}, resolved: d.resolved || [] }));
       if (Array.isArray(d.teams)) setTeams(d.teams);
+      if (d.totals) setTargetTotals(d.totals);
     }).catch(()=>{});
   }, [month]);
 
@@ -182,9 +186,15 @@ export default function Reports() {
     setTargetForm(f => ({ overall: data?.overallTarget ? String(data.overallTarget) : f.overall, perNgo, byTeam: f.byTeam }));
     setShowTargetForm(true);
     setSavedToast(false);
+    // Pick up any individual target HR changed since this page loaded, so the
+    // AUTO rows do not open on yesterday's sum.
+    refreshTeamTargets().catch(() => {});
   };
 
-  // When overall typed in the form -> even split across NGOs
+  // When overall typed in the form -> even split across NGOs. Team-wise targets
+  // are deliberately NOT touched: they are the sum of the team's individual
+  // targets (or a manual override), so spreading the NGO anchor over them would
+  // silently desynchronise every AUTO team.
   const onOverallChange = (val) => {
     const ngos = data?.ngos || [];
     const overall = Number(val) || 0;
@@ -198,14 +208,7 @@ export default function Reports() {
     } else {
       ngos.forEach(n => { perNgo[n.id] = ''; });
     }
-    const tlist = teams.length>0 ? teams : [];
-    const byTeam = {};
-    if (tlist.length>0 && overall>0) {
-      const share = Math.floor(overall/tlist.length);
-      let rem = overall-share*tlist.length;
-      tlist.forEach((t,i)=>{ byTeam[t]=String(share+(i===tlist.length-1?rem:0)); });
-    } else tlist.forEach(t=>{byTeam[t]='';});
-    setTargetForm(f=>({ overall: val, perNgo, byTeam }));
+    setTargetForm(f=>({ ...f, overall: val, perNgo }));
   };
 
   // When an individual NGO target is edited -> keep the overall as the anchor;
@@ -242,13 +245,52 @@ export default function Reports() {
       const rem = overall - share * ngos.length;
       ngos.forEach((n, i) => { perNgo[n.id] = String(share + (i === ngos.length - 1 ? rem : 0)); });
     }
-    const tlist = teams.length>0?teams:[];
-    const byTeam={};
-    if (tlist.length>0 && overall>0) {
-      const share=Math.floor(overall/tlist.length); const rem=overall-share*tlist.length;
-      tlist.forEach((t,i)=>{byTeam[t]=String(share+(i===tlist.length-1?rem:0));});
+    setTargetForm(f=>({ ...f, perNgo }));
+  };
+
+  // Re-read the team plan (modes + live member sums) without touching the rest of
+  // the editor's state. Used after a sync so the table reflects the new values.
+  const refreshTeamTargets = async (forMonth) => {
+    const d = await apiGet('/accounts/team-targets?month=' + (forMonth || month));
+    setTargetForm(f => ({ ...f, byTeam: d.byTeam || {}, modes: d.modes || {}, resolved: d.resolved || [] }));
+    if (Array.isArray(d.teams)) setTeams(d.teams);
+    if (d.totals) setTargetTotals(d.totals);
+    return d;
+  };
+
+  const syncAllTeams = async () => {
+    setSyncingTeams(true);
+    try {
+      const d = await apiPost('/accounts/team-targets/sync', { month });
+      setTargetForm(f => ({ ...f, byTeam: d.byTeam || {}, modes: d.modes || {}, resolved: d.resolved || [] }));
+      if (d.totals) setTargetTotals(d.totals);
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 2500);
+      await load();
+    } catch (e) {
+      setError(e.message || 'Failed to sync team targets');
+    } finally {
+      setSyncingTeams(false);
     }
-    setTargetForm(f=>({ overall: f.overall, perNgo, byTeam }));
+  };
+
+  // Flip one team between AUTO (live members' sum) and MANUAL (editable number).
+  const setTeamMode = (team, mode) => {
+    setTargetForm(f => {
+      const byTeam = { ...f.byTeam };
+      if (mode === 'auto') {
+        const row = (f.resolved || []).find(r => r.team === team);
+        byTeam[team] = row ? String(row.synced) : (byTeam[team] || '');
+      }
+      return { ...f, byTeam, modes: { ...f.modes, [team]: mode } };
+    });
+  };
+
+  const useSyncedValue = (team) => {
+    setTargetForm(f => {
+      const row = (f.resolved || []).find(r => r.team === team);
+      return { ...f, byTeam: { ...f.byTeam, [team]: row ? String(row.synced) : '' } };
+    });
   };
 
   const saveTarget = async () => {
@@ -256,18 +298,33 @@ export default function Reports() {
     const byNgo = {};
     const sum = ngos.reduce((s, n) => { const v = Number(targetForm.perNgo[n.id]) || 0; byNgo[n.id] = v; return s + v; }, 0);
     const overall = (Number(targetForm.overall) || 0) > 0 ? Number(targetForm.overall) : sum;
+    // Build from the resolved plan, not the roster alone: the plan also carries
+    // unrostered teams (a workers.team value missing from the roster). Dropping
+    // them here would silently delete a lane the editor just showed.
+    const resolvedRows = targetForm.resolved || [];
+    const teamNames = resolvedRows.length > 0
+      ? resolvedRows.map(r => r.team)
+      : (teams.length > 0 ? teams : []);
     const byTeam = {};
-    const tlist = teams.length>0?teams:[];
-    tlist.forEach(t=>{ byTeam[t]=Number(targetForm.byTeam?.[t])||0; });
+    teamNames.forEach((t) => {
+      const row = resolvedRows.find(r => r.team === t);
+      const mode = targetForm.modes?.[t] || row?.mode || 'auto';
+      // AUTO teams always save the live members' sum; MANUAL saves the typed
+      // number. The backend applies the same rule, this just keeps the payload
+      // honest.
+      byTeam[t] = mode === 'auto'
+        ? (Number(row?.synced) || 0)
+        : (Number(targetForm.byTeam?.[t]) || 0);
+    });
     setSavingTarget(true);
     try {
       await Promise.all([
         apiPut('/accounts/report-targets', { month, overall, byNgo }),
-        apiPut('/accounts/team-targets', { month, byTeam }),
+        apiPut('/accounts/team-targets', { month, byTeam, modes: targetForm.modes || {} }),
       ]);
       setSavedToast(true);
       setShowTargetForm(false);
-      await load();
+      await Promise.all([load(), refreshTeamTargets()]);
       setTimeout(() => setSavedToast(false), 2500);
     } catch (e) {
       setError(e.message || 'Failed to save target');
@@ -443,17 +500,94 @@ export default function Reports() {
               </div>
             ))}
           </div>
-          <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>Team-wise Targets</div>
-          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:14 }}>
-            {(teams.length?teams:[]).map(t=>(
-              <div key={t} style={{ minWidth:160 }}>
-                <div style={{ fontSize:11, color:'var(--ink-soft)', marginBottom:4 }}>{t}</div>
-                <input type="number" value={targetForm.byTeam?.[t]||''}
-                  onChange={e=>setTargetForm(f=>({...f, byTeam:{...f.byTeam,[t]:e.target.value}}))}
-                  placeholder="0" style={{ padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', fontSize:13, width:'100%' }} />
-              </div>
-            ))}
-          </div>
+          {/* Team-wise targets: AUTO teams take the sum of their members' individual
+              targets; MANUAL teams keep a typed override and show the drift. */}
+          {(() => {
+            const rows = (targetForm.resolved && targetForm.resolved.length)
+              ? targetForm.resolved
+              : (teams || []).map(t => ({
+                  team: t, mode: targetForm.modes?.[t] || 'auto',
+                  synced: Number(targetForm.byTeam?.[t]) || 0, member_count: 0, members: [],
+                }));
+            if (rows.length === 0) return null;
+            const memberTotal = rows.reduce((s, r) => s + (Number(r.member_count) || 0), 0);
+            return (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>Team-wise Targets</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+                    {memberTotal} individual target{memberTotal === 1 ? '' : 's'} summed
+                    {Number(targetTotals.synced) > 0 ? ` · ${currency(targetTotals.synced)} synced` : ''}
+                  </span>
+                  <button className="btn btn-sm" onClick={syncAllTeams} disabled={syncingTeams}
+                    style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+                    {syncingTeams ? 'Syncing...' : 'Sync from individual targets'}
+                  </button>
+                </div>
+                <div className="table-wrap" style={{ marginBottom: 14, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                        <th style={{ padding: '8px 12px' }}>Team</th>
+                        <th style={{ padding: '8px 12px' }}>Members</th>
+                        <th style={{ padding: '8px 12px' }}>Individual Sum</th>
+                        <th style={{ padding: '8px 12px' }}>Team Target</th>
+                        <th style={{ padding: '8px 12px' }}>Mode</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(row => {
+                        const mode = targetForm.modes?.[row.team] || row.mode || 'auto';
+                        const isAuto = mode === 'auto';
+                        const synced = Number(row.synced) || 0;
+                        const value = isAuto ? String(synced) : (targetForm.byTeam?.[row.team] ?? '');
+                        const drift = (Number(value) || 0) - synced;
+                        return (
+                          <tr key={row.team} style={{ borderTop: '1px solid var(--line)' }}>
+                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                              {row.team}
+                              {row.unrostered && (
+                                <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: '#B45309', background: '#FDF2E3', padding: '2px 6px', borderRadius: 999 }}>NOT IN ROSTER</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              {row.member_count > 0 ? (
+                                <button onClick={() => setSyncPreviewFor(row)}
+                                  style={{ border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 600, fontSize: 12, padding: 0 }}>
+                                  {row.member_count} ▸
+                                </button>
+                              ) : <span style={{ color: 'var(--ink-soft)' }}>0</span>}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>{synced > 0 ? currency(synced) : '\u2014'}</td>
+                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                              <input type="number" value={value} readOnly={isAuto}
+                                onChange={e => setTargetForm(f => ({ ...f, byTeam: { ...f.byTeam, [row.team]: e.target.value } }))}
+                                placeholder="0"
+                                style={{ padding: '6px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 13, width: 130, fontWeight: 600, background: isAuto ? '#f3f4f6' : '#fff', color: 'var(--ink)' }} />
+                              {!isAuto && drift !== 0 && (
+                                <button onClick={() => useSyncedValue(row.team)} title="Use the individual sum"
+                                  style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#92400E', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '3px 6px', cursor: 'pointer' }}>
+                                  {drift > 0 ? '+' : ''}{currency(drift)} {drift > 0 ? 'over' : 'under'}
+                                </button>
+                              )}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <button onClick={() => setTeamMode(row.team, isAuto ? 'manual' : 'auto')}
+                                title={isAuto ? 'Switch to a manual target' : 'Switch back to the members sum'}
+                                style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 999, cursor: 'pointer', border: '1px solid ' + (isAuto ? '#86EFAC' : 'var(--line)'), background: isAuto ? '#B9EFCE' : '#fff', color: isAuto ? '#1B7A3D' : '#4b5563' }}>
+                                {isAuto ? '\u25CF Auto' : '\u25CB Manual'}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
 
           {/* Allocation status + recommendation */}
           {overallAnchor > 0 && (
@@ -473,12 +607,60 @@ export default function Reports() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
             <button className="btn btn-primary" onClick={saveTarget} disabled={savingTarget}>
               {savingTarget ? 'Saving...' : 'Save Target'}
             </button>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Overall stays fixed; set any NGO to a different share and the difference is shown below as a recommendation to spread it here &amp; there.</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>AUTO teams save the members' sum; MANUAL teams save the number you type.</span>
           </div>
+
+          {/* Sync preview modal */}
+          {syncPreviewFor && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div className="card" style={{ width: 'min(680px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 0 }}>
+                <div className="card-head" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 15 }}>Sync Preview — {syncPreviewFor.team} · {monthLabel(month)}</h3>
+                    <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{syncPreviewFor.member_count || 0} members · {currency(syncPreviewFor.synced || 0)}</span>
+                  </div>
+                  <button className="btn btn-sm" onClick={() => setSyncPreviewFor(null)} style={{ marginLeft: 'auto' }}>Close</button>
+                </div>
+                <div className="table-wrap">
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                        <th style={{ padding: '8px 14px' }}>Member</th>
+                        <th style={{ padding: '8px 14px' }}>Target</th>
+                        <th style={{ padding: '8px 14px' }}>Source</th>
+                        <th style={{ padding: '8px 14px' }}>Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(syncPreviewFor.members || []).map((m, i) => (
+                        <tr key={m.id || i} style={{ borderTop: '1px solid var(--line)' }}>
+                          <td style={{ padding: '8px 14px', fontWeight: 600 }}>{m.name}{m.login_id ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-soft)' }}>{m.login_id}</span> : null}</td>
+                          <td style={{ padding: '8px 14px', fontWeight: 600 }}>{currency(m.target || 0)}</td>
+                          <td style={{ padding: '8px 14px', textTransform: 'capitalize' }}>{String(m.source || '').replace('_', ' ')}</td>
+                          <td style={{ padding: '8px 14px', fontSize: 12, color: 'var(--ink-soft)' }}>
+                            {m.source === 'auto' ? `${m.months_employed != null ? m.months_employed : ''} mo${m.months_employed === 1 ? '' : 's'} employed` : (m.source_month ? `from ${m.source_month.slice(0,7)}` : '')}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop: '2px solid var(--sage)', fontWeight: 700, background: '#F6F8F7' }}>
+                        <td style={{ padding: '8px 14px' }}>Total</td>
+                        <td style={{ padding: '8px 14px' }}>{currency(syncPreviewFor.synced || 0)}</td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Team target will become this sum when in AUTO mode.</span>
+                  <button className="btn btn-primary btn-sm" onClick={() => { setTeamMode(syncPreviewFor.team, 'auto'); setSyncPreviewFor(null); }} style={{ marginLeft: 'auto' }}>Apply to this team</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -1159,13 +1159,16 @@ export const getDashboard = async (req, res) => {
     const currentMonthStr = now.toISOString().slice(0, 7) + '-01';
     // Prefer the team-wise monthly plan when Accounts has set one: the card's
     // target is then exactly the sum of the team targets, so the team board and
-    // this card can never quote two different monthly targets.
+    // this card can never quote two different monthly targets. AUTO teams report
+    // their live members' sum; MANUAL teams report the typed override.
     try {
-      const { getTeamTargetMonths } = await import('../services/teamCollectionService.js');
-      const months = await getTeamTargetMonths();
+      const { resolveTeamTargets } = await import('../services/teamTargetSyncService.js');
       const monthKey = istMonthBounds(now).monthKey;
-      const planned = months[monthKey];
-      if (planned && Object.keys(planned).length > 0) {
+      const resolved = await resolveTeamTargets(monthKey);
+      const planned = Object.fromEntries(
+        Object.entries(resolved.byTeam || {}).filter(([, v]) => Number(v) > 0),
+      );
+      if (Object.keys(planned).length > 0) {
         team_targets = planned;
         monthly_target = Object.values(planned).reduce((s, v) => s + (Number(v) || 0), 0);
       }

@@ -14,7 +14,7 @@ export function parseFilter(filter) {
 
 export function useRealtime(
   table,
-  { filter, event = '*', onInsert, onUpdate, onDelete, enabled = true }
+  { filter, event = '*', onInsert, onUpdate, onDelete, enabled = true, related = null }
 ) {
   const onInsertRef = useRef(onInsert);
   const onUpdateRef = useRef(onUpdate);
@@ -24,18 +24,23 @@ export function useRealtime(
   useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
   useEffect(() => { onDeleteRef.current = onDelete; }, [onDelete]);
 
+  // `related` is an array literal at most call sites, so key the effect on a
+  // stable string instead of the array identity (which changes every render).
+  const relatedKey = related ? related.join(',') : '';
+
   useEffect(() => {
     if (!enabled) return;
 
     const unsubscribe = onDbChange({
       table,
       event,
+      related: relatedKey ? relatedKey.split(',') : null,
       filter: parseFilter(filter),
-      onInsert: (row) => onInsertRef.current?.(row),
-      onUpdate: (row, old) => onUpdateRef.current?.(row, old),
-      onDelete: (old) => onDeleteRef.current?.(old),
+      onInsert: (row, payload) => onInsertRef.current?.(row, payload),
+      onUpdate: (row, old, payload) => onUpdateRef.current?.(row, old, payload),
+      onDelete: (old, payload) => onDeleteRef.current?.(old, payload),
     });
 
     return unsubscribe;
-  }, [table, filter, event, enabled]);
+  }, [table, filter, event, enabled, relatedKey]);
 }

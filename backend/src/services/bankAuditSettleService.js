@@ -13,9 +13,11 @@
 // either, so the lookup missed and the entry was never settled.
 //
 // The lookup is now layered:
-//   1. by receipt_id
-//   2. by payment_id = lead's upi_transaction_id
-//   3. by amount + transaction date + payer name (the scraper's fingerprint)
+//   1. by matched_lead_log_id (manual / confirmed / suggested link)
+//   2. by receipt_id
+//   3. by payment_id = lead's upi_transaction_id
+//   4. by amount + transaction date + payer name (the scraper's fingerprint)
+//   5. by amount + payer name, when the lead has no transaction date
 // and it also covers a lead that has no receipt yet.
 
 import db from '../config/db.js';
@@ -40,7 +42,27 @@ const sameName = (a, b) => {
  * Returns null when there is nothing to settle.
  */
 export async function findBankAuditEntryForLead({ logId, receiptId, upiTransactionId, amount, transactionDate, payerName }) {
-  // 1. Linked to a receipt already
+  // 1. Explicitly linked to this lead already - a manual match, a confirmed
+  //    auto-match, or an auto-match suggestion (autoMatchService writes
+  //    matched_lead_log_id too). This is the operator's stated intent, so it
+  //    outranks the receipt link below.
+  //    This lookup did not exist, so a manually-matched entry that had no
+  //    receipt was NEVER settled: the lead verified, but its audit row stayed
+  //    sitting in the Audits tab looking like unclaimed money. logId was
+  //    already threaded all the way down here and then never used.
+  if (logId != null) {
+    try {
+      const { data } = await db.from('bank_audit_entries').select('*')
+        .eq('matched_lead_log_id', logId)
+        .neq('status', 'verified')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) return data;
+    } catch (e) { console.error('[settleAudit] matched_lead_log_id lookup failed:', e.message); }
+  }
+
+  // 2. Linked to a receipt already
   if (receiptId) {
     try {
       const { data } = await db.from('bank_audit_entries').select('*').eq('receipt_id', receiptId).maybeSingle();
@@ -48,7 +70,7 @@ export async function findBankAuditEntryForLead({ logId, receiptId, upiTransacti
     } catch (e) { console.error('[settleAudit] receipt lookup failed:', e.message); }
   }
 
-  // 2. Same UPI reference
+  // 3. Same UPI reference
   if (upiTransactionId) {
     try {
       const { data } = await db.from('bank_audit_entries').select('*')
@@ -59,7 +81,7 @@ export async function findBankAuditEntryForLead({ logId, receiptId, upiTransacti
     } catch (e) { console.error('[settleAudit] payment_id lookup failed:', e.message); }
   }
 
-  // 3. Same amount + date + payer name (the scraper's fingerprint)
+  // 4. Same amount + date + payer name (the scraper's fingerprint)
   if (amount != null && transactionDate) {
     try {
       const { data } = await db.from('bank_audit_entries').select('*')
@@ -75,6 +97,25 @@ export async function findBankAuditEntryForLead({ logId, receiptId, upiTransacti
       // payer name at all - do not leave the entry behind for that.
       if (rows.length === 1 && !normName(payerName) && !normName(rows[0].payer_name)) return rows[0];
     } catch (e) { console.error('[settleAudit] fingerprint lookup failed:', e.message); }
+  }
+
+  // 5. Same amount + payer name, with no date to go on.
+  //    The verify handler can reach a lead whose transaction_datetime is NULL,
+  //    and the old `entry?.transaction_date` fallback - which read an
+  //    identifier that does not exist in that scope and threw a
+  //    ReferenceError - was meant to cover exactly this case. Match on the
+  //    amount and payer name alone instead, and only when it is unambiguous:
+  //    more than one candidate means we cannot tell which entry it is, so we
+  //    leave it alone rather than settle the wrong one.
+  if (amount != null && !transactionDate && normName(payerName)) {
+    try {
+      const { data } = await db.from('bank_audit_entries').select('*')
+        .eq('amount', Number(amount))
+        .neq('status', 'verified')
+        .limit(20);
+      const rows = (data || []).filter((row) => sameName(row.payer_name, payerName));
+      if (rows.length === 1) return rows[0];
+    } catch (e) { console.error('[settleAudit] amount+name lookup failed:', e.message); }
   }
 
   return null;

@@ -1220,7 +1220,7 @@ async function downloadEventPoster(args = {}) {
    loaded into it, so a correction is typed into the form that captured it — not
    into a second, different screen. Only the save target changes: update the
    event that is already linked to the row instead of creating a new one. */
-function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSaved }) {
+export function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSaved }) {
   const isEdit = Boolean(entry?.editing)
   const [name, setName] = useState(entry?.name || '')
   const [date] = useState(entry?.date || '')
@@ -1333,7 +1333,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       // Hand the created event back to the planner immediately, so the row's
       // "Download" button appears without waiting for the PDF to finish. The
       // PDF is still built below and cached when it is ready.
-      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit })
+      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit, suggestion: entry?.suggestion })
       // The detail sheet is the download the head asked for. A PDF failure must
       // never lose the event that was already created. The same payload is handed
       // back to the planner so the row's "Download" button can re-issue it later.
@@ -1634,8 +1634,8 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 
 export default function ActivityPlanner({ taskAssignment = false }) {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const initialMonth = searchParams.get('month') || currentMonthYmd()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialMonth = searchParams.get('month') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_month')) || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
   // Resolved to BSCT once the NGO list arrives (see defaultNgoId) — the tabs
@@ -1705,7 +1705,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // without a stored suggestion to link to still hides its button at once.
   // Both are keyed "ngo::date::festival": a row's NGO is part of its identity,
   // so MANN creating an event never hides BSCT's row button.
-  const [createEventFor, setCreateEventFor] = useState(null)
   const [createdKeys, setCreatedKeys] = useState(() => new Set())
   // Payload of the Event Detail Sheet for each row whose event was created THIS
   // session, so its "Download" button can re-issue the same PDF (no second event).
@@ -1733,6 +1732,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const next = part === 'year' ? `${value}-${m}` : `${y}-${pad2(Number(value) + 1)}`
     setMonth(next)
     setYear(Number(next.split('-')[0]))
+    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('month', next); return n }, { replace: true })
+    try { localStorage.setItem('ap_month', next) } catch { /* ignore */ }
   }
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2800) }
@@ -1751,6 +1752,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   )
 
   useEffect(() => {
+    console.log('[manual] mount searchParams', searchParams.toString())
     fetchWorkspaceNgos()
       .then((l) => {
         const list = Array.isArray(l) ? l : []
@@ -1759,7 +1761,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // still matches) is never overridden, so a late response cannot yank
         // the page away from a choice made while it loaded.
         setNgoId((cur) => {
-          const wanted = searchParams.get('ngo')
+          const wanted = searchParams.get('ngo') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_ngo')) || ''
           if (wanted && list.some((n) => String(n.id) === String(wanted))) return String(wanted)
           return (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list)
         })
@@ -1869,6 +1871,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     if (!ngoId && ngos.length === 1) setNgoId(String(ngos[0].id))
   }, [ngos, ngoId])
+  useEffect(() => {
+    if (ngoId) { try { localStorage.setItem('ap_ngo', String(ngoId)) } catch { /* ignore */ } }
+  }, [ngoId])
+  useEffect(() => {
+    if (month) { try { localStorage.setItem('ap_month', String(month)) } catch { /* ignore */ } }
+  }, [month])
 
   /* "All NGOs" is a real choice, not an empty state: with no ngoId both
      endpoints drop the filter and return every row, which is what the
@@ -1914,8 +1922,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         }
         setPlannerLinkMap(map)
       })
-      .catch(() => setPlannerLinkMap({}))
-  }, [month])
+       .catch(() => setPlannerLinkMap({}))
+   }, [month])
+
+   /* Re-read the month's events and durable planner links when the tab regains
+      focus, so an event created elsewhere (e.g. the Monthly Report) shows its
+      Download button here without a manual month change. */
+   useEffect(() => {
+     const onFocus = () => { loadMonthEvents(); loadPlannerLinks() }
+     window.addEventListener('focus', onFocus)
+     return () => window.removeEventListener('focus', onFocus)
+   }, [loadMonthEvents, loadPlannerLinks])
 
   /* Monthly target "Done" is counted from the month's own event feed (see
      eventsByNgo below), not from the monthly report endpoint. That endpoint's
@@ -1962,7 +1979,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   /* The user's own programme per festival and the "cleared" flag per festival.
      Session-only by request: a reload starts them empty and they are NEVER
      written to localStorage, sessionStorage or the URL. */
-  const [festManual, setFestManual] = useState(() => ({}))
+   const [festManual, setFestManual] = useState(() => ({}))
+   const manualLoadedRef = useRef(false)
   const [festCleared, setFestCleared] = useState(() => new Set())
   // Per-row NGO overrides — the NGO column is an editable dropdown, so one
   // festival row can be pointed at a different NGO than the page-wide pick.
@@ -2029,9 +2047,13 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     const [y, m] = month.split('-').map(Number)
     let cancelled = false
+    manualLoadedRef.current = false
+    console.log('[manual] load start', { month: m, year: y, ngoId })
     getPlannerManualRows({ month: m, year: y, ngo_id: ngoId || '' })
       .then((rows) => {
         if (cancelled) return
+        console.log('[manual] load rows', rows)
+        manualLoadedRef.current = true
         const prefix = `${ngoId || 'all'}|${month}|`
         setFestManual((cur) => {
           const next = { ...cur }
@@ -2087,9 +2109,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           return next
         })
       })
-      .catch(() => {})
+       .catch(() => {})
     return () => { cancelled = true }
   }, [month, ngoId])
+
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
 
@@ -2129,7 +2152,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       if (k.startsWith(scopedManualPrefix)) out[k.slice(scopedManualPrefix.length)] = festManual[k]
     }
     return out
-  }, [festManual, scopedManualPrefix])
+   }, [festManual, scopedManualPrefix])
 
   /* The manual row's export value in one place: selected AND actually typed,
      so an emptied textarea can never claim a slot in the download. */
@@ -2180,14 +2203,16 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     // A normal festival row with nothing typed and no tick needs no stored row.
     // An extra row is kept even while empty: its existence IS the row.
     if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
-      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch(() => null)
+      console.log('[manual] delete', { date, festival, scopeNgo })
+      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch((e) => { console.error('deleteManualRow failed', e); return null })
     }
+    console.log('[manual] save', { month: m, year: y, date, festival, scopeNgo, rowNgo, name, body })
     return savePlannerManualRow({
       month: m,
       year: y,
       observance_date: date,
       festival,
-      ngo_id: scopeNgo,
+      ngo_id: scopeNgo || rowNgo || '',
       row_ngo_id: rowNgo,
       name,
       body_text: body,
@@ -2195,8 +2220,36 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       mode,
       beneficiary,
       location,
-    }).catch(() => null)
+    }).then((res) => {
+      console.log('[manual] save result', res)
+      if (!res) showToast('Could not save programme. Please try again.')
+      return res
+    }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
   }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
+
+  /* Best-effort flush of pending manual rows when the tab is closed/refreshed,
+     so a typed value that never blurred still reaches the server. */
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      for (const k of Object.keys(scopedManual || {})) {
+        try { persistManualRow(k) } catch { /* best effort */ }
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [scopedManual, persistManualRow])
+
+  /* Debounced auto-save: persist manual rows 800ms after the last edit so a
+     refresh never loses typed text, even without an explicit blur. */
+  useEffect(() => {
+    if (!manualLoadedRef.current) return
+    const t = setTimeout(() => {
+      for (const k of Object.keys(scopedManual || {})) {
+        persistManualRow(k).catch(() => {})
+      }
+    }, 800)
+    return () => clearTimeout(t)
+  }, [scopedManual, persistManualRow])
 
   const deleteManualRow = useCallback((key) => {
     const { date, festival } = manualKeyParts(key)
@@ -3078,9 +3131,20 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     } catch { stored = [] }
 
     const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
-    const bannerByEvent = new Map(
-      monthEvents.map((ev) => [String(ev?.id), ev?.extendedProps?.banner || null])
-    )
+    // Pre-fetch banner images as blob URLs via the authenticated proxy so
+    // html2canvas can render them (raw S3 URLs fail CORS in the capture).
+    const bannerByEvent = new Map()
+    await Promise.all(monthEvents.map(async (ev) => {
+      const id = String(ev?.id)
+      const raw = ev?.extendedProps?.banner || null
+      if (!raw) { bannerByEvent.set(id, null); return }
+      try {
+        const blobUrl = await fetchEventBannerObjectUrl(ev.id)
+        bannerByEvent.set(id, blobUrl)
+      } catch {
+        bannerByEvent.set(id, raw)
+      }
+    }))
     const manualText = (k) => {
       const e = scopedManual[k]
       return e?.selected ? String(e?.text || '').trim() : ''
@@ -3557,25 +3621,46 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      the planner — never because some unrelated event happens to share a date,
      name or NGO. */
   const findScheduledEvent = (key, date, label) => {
-    const rowLink = key ? plannerLinkMap[linkMapKey(key, rowNgoId(key))] : null
-    const linkedId = rowLink
-      ? rowLink.event_id
+    const link = findDurableLink(key)
+    const linkedId = link
+      ? link.event_id
       : (key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null)
     if (linkedId) return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
     return findExistingPlannedEvent(key, date, label)
   }
 
-  // Only events that are genuinely linked to this row (durable row link or a
-  // suggestion-level link) count as "already scheduled" for the Download
-  // button. The name+date+NGO fallback is intentionally NOT used here, because
-  // it also matches unrelated events that happen to share a name/date, which
-  // surfaced Download buttons on rows that never produced an event.
+  // Resolve the durable row → event link for a programme row. The link is
+  // ngo-scoped in storage, but a row can still find a link that was saved
+  // under a different NGO (e.g. the event was created from the Monthly Report
+  // with the event's own NGO): fall back to a date + festival match across
+  // all stored links, ignoring the NGO, so the Download button still appears.
+  const findDurableLink = (key) => {
+    if (!key) return null
+    const exact = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
+    if (exact) return exact
+    const sep = key.indexOf('::')
+    const date = (sep >= 0 ? key.slice(0, sep) : key).slice(0, 10)
+    const festival = (sep >= 0 ? key.slice(sep + 2) : '').trim().toLowerCase()
+    if (!date || !festival) return null
+    for (const l of Object.values(plannerLinkMap || {})) {
+      const ld = String(l?.observance_date || '').slice(0, 10)
+      const lf = String(l?.festival || '').trim().toLowerCase()
+      if (ld === date && lf === festival) return l
+    }
+    return null
+  }
+
+  // Only a DURABLE planner link (row → event, created via the Daily Report
+  // "Create Event" flow or loaded from the server) counts as "already
+  // scheduled" for the Download button. A suggestion-level suggested_event_id
+  // is deliberately NOT enough: ideas can gain one through other flows (e.g.
+  // Plan Programme) without the row ever owning a downloadable event sheet,
+  // which surfaced Download buttons before the head created the event. The
+  // name+date+NGO fallback is also excluded here.
   const findLinkedScheduledEvent = (key, date, label) => {
     if (!key) return null
-    const rowLink = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
-    const linkedId = rowLink
-      ? rowLink.event_id
-      : (rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id ?? null)
+    const link = findDurableLink(key)
+    const linkedId = link ? link.event_id : null
     if (!linkedId) return null
     return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
   }
@@ -3632,20 +3717,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     if (stored?.name) return stored.name
     const ev = findScheduledEvent(key, date, label)
     return String(ev?.title || '').split(' · ')[0].trim()
-  }
-
-  /* Open the "Create Event" confirm modal for a programme whose five
-     deliverables are all Done. Prefills the programme's name (its selected AI
-     suggestion, or the typed programme, or the festival name), its date and its
-     NGO, so the head only reviews and confirms. */
-  const openCreateEvent = (key, date, label) => {
-    const sugg = rowSuggestionsFor(key).find((s) => s.is_selected) || null
-    const name = programmeNameForKey(key, label)
-    const benef = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean) || festBenef[key] || ''
-    const location = festivalLocationFor(key)
-    // The row's own NGO is what the form locks to; a row saved before NGOs were
-    // tracked falls back to its selected suggestion rather than coming up blank.
-    setCreateEventFor({ key, date: programmeDateForKey(key, date), name, ngoId: rowNgoId(key) || (sugg?.ngo_id ? String(sugg.ngo_id) : ''), suggestion: sugg, beneficiary: benef, location })
   }
 
   /* The row's Edit button reopens the Create Event form with the linked event's
@@ -3800,7 +3871,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      row → event link is also saved server-side so the Download button survives a
      reload / other device. Re-running it for an edit is safe: the row already
      exists in both maps and the link row is upserted on its own key. */
-  const afterEventCreated = ({ key, event, pdf, ngoId, editing } = {}) => {
+  const afterEventCreated = ({ key, event, pdf, ngoId, editing, suggestion } = {}) => {
     if (key) {
       // The row's NGO, resolved once: it decides which row owns this record.
       const linkNgo = ngoId || event?.ngo_id || rowNgoId(key) || ''
@@ -3843,7 +3914,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
          })
       }
     }
-    setCreateEventFor(null)
+    if (suggestion?.id && event?.id) {
+      setFestivalSuggestions((list) => list.map((s) => String(s.id) === String(suggestion.id) ? { ...s, suggested_event_id: event.id } : s))
+    }
     showToast(event?.name ? `Event “${event.name}” ${editing ? 'updated' : 'created'}.` : (editing ? 'Event updated.' : 'Event created.'))
     loadMonthTasks()
     loadMonthEvents()
@@ -3930,20 +4003,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return acceptedDays.has(`${row.assignee_id}::${date}`) ||
       (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
   }
-  // All five deliverables green is what unlocks the "Create Event" button. Only
-  // after the event is actually created (recorded this session or linked on the
-  // suggestion) does the cell offer the download — and only while the five
-  // deliverables are still done. An unsigned row never shows a download.
+  // All five deliverables green means the programme is ready, but the event is
+  // created only from the Daily Report. Until an event exists for this row, the
+  // cell must not show the Done / Download state.
+  const TEST_LABELS = new Set(['demo', 'dem0', 'test', 'werwer'])
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
-  const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-    const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
+  const allDone = !TEST_LABELS.has(String(label || '').trim().toLowerCase()) &&
+    deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
+  const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) ||
+    Boolean(findLinkedScheduledEvent(key, date, label)) ||
+    (allDone && Boolean(findExistingPlannedEvent(key, date, label)))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {/* Once all five are done the green Done rows are dropped — the cell
             carries just the action: create the event, or download its sheet
             again if the file is needed later. */}
-        {!allDone && CONTENT_TYPES.map((ct) => {
+        {!alreadyScheduled && !allDone && CONTENT_TYPES.map((ct) => {
           const row = taskMap[`${date}::${label}::${ct.value}`]
           const value = row ? String(row.assignee_id) : ''
           const done = deliverableDone(row)
@@ -3998,21 +4074,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             </label>
           )
         })}
-        {allDone && !alreadyScheduled && (
-          <button
-            className="eh-btn eh-btn-primary"
-            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5 }}
-            title="All five deliverables are done — create the event and download its detail sheet"
-            onClick={() => openCreateEvent(key, date, label)}
+        {!alreadyScheduled && allDone && (
+          <div
+            style={{ marginTop: 6, padding: '8px 10px', borderRadius: 10, background: '#f8fafc', color: 'var(--eh-ink-soft)', fontSize: 11.5, lineHeight: 1.45 }}
+            title="Events are created from the Daily Report once all five deliverables are done"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 5v14" />
-              <path d="M5 12h14" />
-            </svg>
-            Create Event
-          </button>
+            Event not created yet. Create it from the Daily Report.
+          </div>
         )}
-        {alreadyScheduled && allDone && (
+        {alreadyScheduled && (
           /* Both actions share one line — stacked full-width buttons pushed the
              Edit below the cell's edge on narrow columns. */
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
@@ -4108,7 +4178,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     type="button"
                     className="eh-btn eh-btn-sm"
                     aria-pressed={on}
-                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }}
+                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch(''); setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('ngo', String(n.id)); return next }, { replace: true }); try { localStorage.setItem('ap_ngo', String(n.id)) } catch { /* ignore */ } }}
                     style={on ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
                   >
                     {ngoShortLabel(n)}
@@ -4886,16 +4956,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           month={month}
           onClose={() => setPlanEntry(null)}
           onSaved={afterPlanned}
-        />
-      )}
-
-      {createEventFor && (
-        <CreateEventFromProgrammeModal
-          entry={createEventFor}
-          ngos={ngos}
-          activities={activities}
-          onClose={() => setCreateEventFor(null)}
-          onSaved={afterEventCreated}
         />
       )}
 

@@ -519,8 +519,14 @@ if (!agentStamp) {
       donorId,
       upiTransactionId: upi_transaction_id,
       amount: Number(log.amount_collected || receipt?.amount || 0),
-      transactionDate: log.transaction_datetime || entry?.transaction_date || null,
-      payerName: log.payment_from || receipt?.donor_name || entry?.payer_name || null,
+      // Only the lead's own values are safe here: this handler has no `entry`
+      // in scope, and reading an undeclared identifier throws ReferenceError
+      // (optional chaining does not guard that). The old `entry?.…` fallbacks
+      // turned every lead with a blank transaction_datetime into a 500 AFTER
+      // the receipt was already written, so the lead stayed unverified with a
+      // receipt attached. settleBankAuditEntry resolves the entry itself.
+      transactionDate: log.transaction_datetime || null,
+      payerName: log.payment_from || receipt?.donor_name || null,
       userId: req.user.id,
     });
 
@@ -4189,6 +4195,104 @@ export const getDonorsList = async (req, res) => {
   }
 };
 
+// DND tab: donors marked DND (donor_dnd registry) plus donors with no live
+// assignment (unassigned). Used by the Accounts "Master Data -> DND" tab.
+export const getDndDonors = async (req, res) => {
+  try {
+    const { search, page = '1', limit = '20', type = 'all' } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const bucket = String(type || 'all').toLowerCase();
+
+    // Two separate sets: donors marked DND, and donors with no live assignment.
+    // A donor can be in both - the DND tab shows them as separate lists.
+    const dndIds = new Set();
+    const unassignedIds = new Set();
+
+    // 1. DND donors from the donor_dnd registry
+    try {
+      const { data: dndRows } = await db.from('donor_dnd').select('donor_id');
+      for (const r of dndRows || []) if (r?.donor_id) dndIds.add(r.donor_id);
+    } catch (e) {
+      console.warn('[getDndDonors] donor_dnd read skipped:', e?.message);
+    }
+
+    // 2. Donors with no live (non-reassigned) assignment
+    try {
+      const { data: allDonors } = await db.from('donor_profiles').select('id');
+      const { data: liveAssigns } = await db.from('fro_assignments').select('donor_id').or('status.is.null,status.neq.reassigned');
+      const assigned = new Set((liveAssigns || []).map(a => a.donor_id).filter(Boolean));
+      for (const d of allDonors || []) {
+        if (d?.id && !assigned.has(d.id)) unassignedIds.add(d.id);
+      }
+    } catch (e) {
+      console.warn('[getDndDonors] unassigned calc skipped:', e?.message);
+    }
+
+    // Counts for the two sub-tabs (donor_profiles rows that actually exist).
+    const countExisting = async (idSet) => {
+      if (idSet.size === 0) return 0;
+      const { count } = await db
+        .from('donor_profiles')
+        .select('id', { count: 'exact', head: true })
+        .in('id', [...idSet]);
+      return count || 0;
+    };
+    const dndTotal = await countExisting(dndIds);
+    const unassignedTotal = await countExisting(unassignedIds);
+
+    let ids = new Set();
+    if (bucket === 'dnd') ids = new Set(dndIds);
+    else if (bucket === 'unassigned') ids = new Set(unassignedIds);
+    else ids = new Set([...dndIds, ...unassignedIds]);
+
+    if (ids.size === 0) {
+      return res.json({ data: [], total: 0, page: pageNum, limit: limitNum, dnd_total: dndTotal, unassigned_total: unassignedTotal });
+    }
+
+    let query = db.from('donor_profiles').select('*', { count: 'exact' }).in('id', [...ids]);
+    if (search) {
+      const q = String(search).trim();
+      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+    const from = (pageNum - 1) * limitNum;
+    const to = from + limitNum - 1;
+    const { data, count, error } = await query.order('name', { ascending: true }).range(from, to);
+    if (error) throw error;
+
+    // Attach assignment_list like getDonorsList does (best-effort)
+    const donorIds = (data || []).map(d => d.id).filter(Boolean);
+    let assignmentMap = {};
+    if (donorIds.length > 0) {
+      try {
+        const { data: assigns } = await db.from('fro_assignments').select('id, donor_id, fro_worker_id, station, ngo_id').in('donor_id', donorIds).or('status.is.null,status.neq.reassigned');
+        for (const a of assigns || []) {
+          if (!assignmentMap[a.donor_id]) assignmentMap[a.donor_id] = [];
+          assignmentMap[a.donor_id].push({ id: a.id, station: a.station || '', worker_id: a.fro_worker_id });
+        }
+      } catch (_) {}
+    }
+    for (const d of data || []) {
+      d.assignment_list = assignmentMap[d.id] || [];
+      d.assigned_to = (assignmentMap[d.id] || []).length ? 'assigned' : null;
+      // Which list this donor belongs to.
+      d.is_dnd = dndIds.has(d.id);
+      d.is_unassigned = unassignedIds.has(d.id);
+    }
+
+    return res.json({
+      data: data || [],
+      total: count || 0,
+      page: pageNum,
+      limit: limitNum,
+      dnd_total: dndTotal,
+      unassigned_total: unassignedTotal,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const exportDonors = async (req, res) => {
   try {
     const { search } = req.query;
@@ -5607,7 +5711,6 @@ export const updateReceipt = async (req, res) => {
 };
 
 const TARGETS_SETTING_KEY = 'accounts_report_targets';
-const TEAM_TARGETS_SETTING_KEY = 'team_monthly_targets';
 
 // Compute working days from month start -> today for a given NGO.
 // Working days = Mon-Sat days minus that NGO's holidays, PLUS one extra Sunday
@@ -5707,64 +5810,74 @@ export const putReportTargets = async (req, res) => {
 };
 
 // Team-wise monthly collection targets, keyed per month so switching the report
-// month never overwrites another month's plan. Shape: { months: { '2026-10': { UFS1: 150000 } } }
+// month never overwrites another month's plan.
+//
+// Since team targets are the SUM of the team's members' individual targets, this
+// endpoint no longer reads the setting directly: services/teamTargetSyncService
+// merges the saved plan (manual overrides) with the live member sum and returns
+// both the effective number and the members behind it, so the editor can show
+// where a team's target came from.
 const TEAM_MONTH_RE = /^\d{4}-\d{2}$/;
 
-const readTeamTargetMonths = async () => {
-  const raw = await getSetting(TEAM_TARGETS_SETTING_KEY);
-  let parsed = null;
-  try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
-  if (parsed && parsed.months && typeof parsed.months === 'object') return parsed.months;
-  // Legacy single-month shape written before months existed; migrate on read.
-  if (parsed && parsed.month && parsed.byTeam && typeof parsed.byTeam === 'object') {
-    return { [String(parsed.month)]: parsed.byTeam };
-  }
-  return {};
-};
-
-const cleanByTeam = (byTeam) => {
-  const out = {};
-  if (byTeam && typeof byTeam === 'object') {
-    for (const [name, val] of Object.entries(byTeam)) {
-      const key = String(name || '').trim().toUpperCase();
-      const amount = Number(val);
-      if (!key || !Number.isFinite(amount) || amount < 0) continue;
-      out[key] = amount;
-    }
-  }
-  return out;
-};
+const teamTargetResponse = (resolved) => ({
+  month: resolved.month,
+  byTeam: resolved.byTeam,
+  modes: resolved.modes,
+  // Kept under `teams` for the existing editor code; `resolved` carries the
+  // per-team detail (mode, member count, synced value, members).
+  teams: resolved.roster,
+  resolved: resolved.teams,
+  totals: resolved.totals,
+  unassigned: resolved.unassigned,
+  syncedAt: resolved.syncedAt,
+});
 
 // GET /accounts/team-targets?month=YYYY-MM
 export const getTeamTargets = async (req, res) => {
   try {
-    const months = await readTeamTargetMonths();
+    const { resolveTeamTargets } = await import('../services/teamTargetSyncService.js');
     const requested = (req.query.month || '').trim();
     const month = TEAM_MONTH_RE.test(requested) ? requested : new Date().toISOString().slice(0, 7);
-    const byTeam = months[month] || {};
-    const roster = await (await import('../services/teamCollectionService.js')).getTeamRoster();
-    return res.json({ month, byTeam, teams: roster });
+    return res.json(teamTargetResponse(await resolveTeamTargets(month)));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
 
-// PUT /accounts/team-targets { month, byTeam }
+// PUT /accounts/team-targets { month, byTeam, modes }
 export const putTeamTargets = async (req, res) => {
   try {
-    const { month, byTeam } = req.body;
+    const { saveTeamTargetPlan } = await import('../services/teamTargetSyncService.js');
+    const { month, byTeam, modes } = req.body || {};
     const m = (month || '').trim();
     const key = TEAM_MONTH_RE.test(m) ? m : new Date().toISOString().slice(0, 7);
-    const months = await readTeamTargetMonths();
-    months[key] = cleanByTeam(byTeam);
-    await upsertSetting(TEAM_TARGETS_SETTING_KEY, JSON.stringify({ months }));
-    // The collection board caches this row; drop it so the dashboard reflects the
-    // save on its next poll rather than up to 30s later.
-    try {
-      const { invalidateTeamTargetCache } = await import('../services/teamCollectionService.js');
-      invalidateTeamTargetCache();
-    } catch { /* cache module unavailable - the TTL will catch up */ }
-    return res.json({ month: key, byTeam: months[key] });
+    const resolved = await saveTeamTargetPlan({
+      month: key,
+      byTeam,
+      modes,
+      savedBy: req.user?.id || null,
+    });
+    return res.json(teamTargetResponse(resolved));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/team-targets/sync { month, teams? }
+// Switches the named teams (or every roster team) to AUTO and re-materialises
+// their target from the members' individual targets.
+export const postSyncTeamTargets = async (req, res) => {
+  try {
+    const { syncTeamTargets } = await import('../services/teamTargetSyncService.js');
+    const { month, teams } = req.body || {};
+    const m = (month || '').trim();
+    const key = TEAM_MONTH_RE.test(m) ? m : new Date().toISOString().slice(0, 7);
+    const resolved = await syncTeamTargets({
+      month: key,
+      teams: Array.isArray(teams) ? teams : null,
+      savedBy: req.user?.id || null,
+    });
+    return res.json(teamTargetResponse(resolved));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

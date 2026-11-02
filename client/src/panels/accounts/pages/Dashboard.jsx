@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Send, Trash2, FileText } from 'lucide-react';
-import { apiGet, apiDelete } from '../api/auth';
+import { apiGet, apiPost, apiDelete } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 import RightPanel from '../components/RightPanel';
@@ -126,7 +127,10 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   }, [statusFilter]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (refreshKey) load(); }, [refreshKey]);
+  // A refresh tick means "the data changed under you" - not "the page is
+  // loading". Reload silently so the list does not collapse into skeletons
+  // (and the selected lead does not vanish) on every socket event.
+  useEffect(() => { if (refreshKey) load(true); }, [refreshKey]);
   useEffect(() => { onAmounts?.(allLeads.map(l => Number(l.amount)).filter(Number.isFinite)); }, [allLeads, onAmounts]);
 
   const rtTimerRef = useRef(null);
@@ -526,8 +530,8 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
         </div>
       )}
 
-      <RightPanel open={!!viewingId} onClose={() => { setViewingId(null); load(); onView?.(null); }} title="Lead Details" icon={<FileText size={19} strokeWidth={2} />}>
-        {viewingId && <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); onView?.(null); }} variant="drawer" onDelete={() => { const l = filtered.find(x => x.log_id === viewingId); if (l) { setViewingId(null); setDeleteConfirm(l); onView?.(null); } }} />}
+      <RightPanel open={!!viewingId} onClose={() => { setViewingId(null); load(true); onView?.(null); }} title="Lead Details" icon={<FileText size={19} strokeWidth={2} />}>
+        {viewingId && <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(true); onView?.(null); }} onAfterAction={onAfterAction} variant="drawer" onDelete={() => { const l = filtered.find(x => x.log_id === viewingId); if (l) { setViewingId(null); setDeleteConfirm(l); onView?.(null); } }} />}
       </RightPanel>
 
     </div>

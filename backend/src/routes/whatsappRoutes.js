@@ -8,7 +8,7 @@ router.post('/send-receipt/:logId', authenticateRole('accounts', 'super_admin'),
 router.post('/send-direct', authenticateRole('accounts', 'super_admin'), sendDirect);
 router.get('/templates', authenticateRole('accounts', 'super_admin', 'admin'), listTemplates);
 router.post('/send-bulk-template', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), sendBulkTemplate);
-router.post('/validate-contacts', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), validateWhatsAppContacts);
+router.post('/validate-contacts', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user', 'fro', 'agent'), validateWhatsAppContacts);
 router.get('/bulk/statuses', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listBulkRecipientStatuses);
 router.post('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), createCampaign);
 router.get('/campaigns', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), listCampaigns);
@@ -17,7 +17,7 @@ router.get('/chats', authenticateRole('accounts', 'super_admin', 'admin', 'maste
 router.post('/send-text', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), sendText);
 router.post('/send-media', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), sendMedia);
 router.get('/conversations/:phone', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getConversationByPhone);
-router.get('/accounts/:accountId/health', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getAccountHealth);
+router.get('/accounts/:accountId/health', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user', 'fro', 'agent'), getAccountHealth);
 router.get('/bulk/stations', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getStations);
 router.get('/bulk/ngos', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getAccessibleNgos);
 router.get('/bulk/donors-by-station', authenticateRole('accounts', 'super_admin', 'admin', 'master', 'user'), getDonorsByStation);
