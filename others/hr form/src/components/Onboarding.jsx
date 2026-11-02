@@ -67,6 +67,9 @@ export default function Onboarding() {
     const token = localStorage.getItem('ucs_token')
     if (token) {
       api.policies().then(d => setPolicies(Array.isArray(d) ? d : d?.policies || [])).catch(() => {})
+      // Auto-fetch the volunteer's already-saved profile so personal details
+      // (and the rest) are shown immediately if they filled the form before.
+      api.myProfile().then(applyProfile).catch(() => {})
       api.onboardingStatus().then(() => {
         document.getElementById('login-screen').style.display = 'none'
         document.getElementById('wizard-screen').classList.remove('hidden')
@@ -76,9 +79,6 @@ export default function Onboarding() {
             const u = JSON.parse(profile)
             if (u.photo_url && !capturedPhoto) setCapturedPhoto(u.photo_url)
           }
-        } catch {}
-        try {
-          api.myProfile().then(applyProfile).catch(() => {})
         } catch {}
       }).catch(() => {
         localStorage.removeItem('ucs_token')

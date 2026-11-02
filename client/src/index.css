@@ -4688,7 +4688,7 @@
 .twc-row {
   position: absolute;
   inset: 0 0 auto 0;
-  height: 34px;
+  height: 50px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4774,14 +4774,70 @@
   font-variant-numeric: tabular-nums;
 }
 
-.twc-meta {
-  width: 34px;
-  flex-shrink: 0;
-  text-align: right;
-  font-size: 11px;
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
+/* The middle column owns the bar + amount on the first line and the target /
+   remaining / achievement subline beneath it. Splitting the target text onto its
+   own line is what keeps "Target ₹11,05,000 · Rem ₹10,27,647 · 7%" readable: as a
+   single 34px-wide meta cell it overflowed across the neighbouring lanes. */
+.twc-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
 }
+
+.twc-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.twc-submeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Small colour-coded pills under the bar: target (blue), remaining (amber),
+   achievement % (red / amber / green by progress). They are visually distinct from
+   the race bar so the month-progress numbers do not get read as part of the ranking. */
+.twc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.twc-chip-lbl {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .2px;
+  text-transform: uppercase;
+  opacity: .72;
+}
+
+.twc-chip-target { background: #EAF1FB; color: #1d4ed8; }
+.twc-chip-rem    { background: #FDF2E3; color: #b45309; }
+.twc-chip-done   { background: #E7F3EC; color: #1f6f3f; }
+.twc-chip-share  { background: #F1F5F9; color: #64748b; }
+
+.twc-chip-pct { color: #fff; }
+.twc-chip-pct.is-low  { background: #dc2626; }
+.twc-chip-pct.is-mid  { background: #d97706; }
+.twc-chip-pct.is-done { background: #16a34a; }
 
 .twc-foot {
   margin-top: 12px;
@@ -4913,7 +4969,7 @@
 @media (max-width: 640px) {
   .twc-name { width: 52px; }
   .twc-amount { width: 64px; }
-  .twc-meta { display: none; }
+  .twc-submeta { display: none; }
 }
 
 /* Respect the OS "Animation effects -> Off" setting: every animation in this card
