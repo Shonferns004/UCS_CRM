@@ -2049,15 +2049,16 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     let cancelled = false
     manualLoadedRef.current = false
     console.log('[manual] load start', { month: m, year: y, ngoId })
-    getPlannerManualRows({ month: m, year: y, ngo_id: ngoId || '' })
+    getPlannerManualRows({ month: m, year: y, ngo_id: 'all' })
       .then((rows) => {
         if (cancelled) return
         console.log('[manual] load rows', rows)
         manualLoadedRef.current = true
-        const prefix = `${ngoId || 'all'}|${month}|`
         setFestManual((cur) => {
           const next = { ...cur }
           for (const r of rows) {
+            const rowNgo = String(r?.row_ngo_id || r?.ngo_id || '')
+            const prefix = `${rowNgo || 'all'}|${month}|`
             const date = String(r?.observance_date || '').slice(0, 10)
             const festival = String(r?.festival ?? '')
             next[`${prefix}${date}::${festival}`] = {
@@ -2111,7 +2112,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       })
        .catch(() => {})
     return () => { cancelled = true }
-  }, [month, ngoId])
+  }, [month])
 
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])

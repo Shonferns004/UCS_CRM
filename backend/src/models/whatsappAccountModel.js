@@ -1,6 +1,12 @@
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 
+function normalizeAccount(row) {
+  if (!row) return row;
+  if (typeof row.access_token === 'string') row.access_token = row.access_token.trim();
+  return row;
+}
+
 export async function listAccounts() {
   const { data, error } = await db
     .from('whatsapp_accounts')
@@ -10,10 +16,10 @@ export async function listAccounts() {
 
   if (!data || data.length === 0) {
     const seeded = await ensureDefaultAccount();
-    if (seeded) return [seeded];
+    if (seeded) return [normalizeAccount(seeded)];
   }
 
-  return data || [];
+  return (data || []).map(normalizeAccount);
 }
 
 export async function getActiveAccounts() {
@@ -23,7 +29,7 @@ export async function getActiveAccounts() {
     .eq('is_active', true)
     .order('created_at', { ascending: true });
   if (error) throw error;
-  return data || [];
+  return (data || []).map(normalizeAccount);
 }
 
 export async function getAccountById(id) {
@@ -36,7 +42,7 @@ export async function getAccountById(id) {
     if (error.code === 'PGRST116') return null;
     throw error;
   }
-  return data;
+  return normalizeAccount(data);
 }
 
 export async function getAccountByProject(project) {
@@ -47,7 +53,7 @@ export async function getAccountByProject(project) {
     .eq('is_active', true)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  return normalizeAccount(data);
 }
 
 export async function getAccountByPhoneNumberId(phoneNumberId) {
@@ -58,7 +64,7 @@ export async function getAccountByPhoneNumberId(phoneNumberId) {
     .eq('is_active', true)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  return normalizeAccount(data);
 }
 
 export async function getDefaultAccount() {
@@ -69,7 +75,7 @@ export async function getDefaultAccount() {
     .eq('is_active', true)
     .limit(1);
   if (error) throw error;
-  return (data || [])[0] || null;
+  return normalizeAccount((data || [])[0] || null);
 }
 
 export async function createAccount({ name, project, phone_number_id, access_token, waba_id, template_name, template_language, hr_letter_template, hr_warning_template, is_active, is_default }) {
