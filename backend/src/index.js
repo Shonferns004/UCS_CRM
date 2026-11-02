@@ -175,7 +175,7 @@ app.set('trust proxy', 'loopback');
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Type', 'x-admin-key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Type', 'x-admin-key', 'ngrok-skip-browser-warning'],
 }));
 app.use(express.json({
   limit: '10mb',
