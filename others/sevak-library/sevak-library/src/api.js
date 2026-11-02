@@ -22,7 +22,7 @@ const BASE = import.meta.env.DEV
       : 'https://audio-diagnoses-ream.ngrok-free.dev/api/sevak-library')
 
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options)
+  const res = await fetch(`${BASE}${path}`, { ...options, headers: { ...(options.headers || {}), 'ngrok-skip-browser-warning': '1' } })
   const j = await res.json().catch(() => ({}))
   if (!res.ok) {
     const msg = j.message || j.error || `Request failed (${res.status})`

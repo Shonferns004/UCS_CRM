@@ -1,6 +1,11 @@
 // VITE_API_URL lets a local run talk to the local backend (e.g. http://localhost:5000/api).
 // Falls back to production when the env var is not set.
-export const API_BASE = import.meta.env.VITE_API_URL || 'https://audio-diagnoses-ream.ngrok-free.dev/api'
+const ENV_BASE = import.meta.env.VITE_API_URL || ''
+const API_BASE = import.meta.env.DEV
+  ? (ENV_BASE || '/api')
+  : (/^https?:\/\//i.test(ENV_BASE)
+      ? ENV_BASE.replace(/\/$/, '')
+      : 'https://audio-diagnoses-ream.ngrok-free.dev/api')
 
 const getToken = () => localStorage.getItem('ucs_token')
 
@@ -9,6 +14,7 @@ async function request(method, path, body) {
     method,
     headers: {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': '1',
       ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),

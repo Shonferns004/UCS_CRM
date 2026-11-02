@@ -45,7 +45,12 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      '/api': 'http://localhost:5000'
-    }
-  }
+      '/api': {
+        target: 'https://audio-diagnoses-ream.ngrok-free.dev',
+        changeOrigin: true,
+        secure: true,
+        headers: { 'ngrok-skip-browser-warning': '1' },
+      },
+    },
+  },
 })
