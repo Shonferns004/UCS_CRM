@@ -111,6 +111,7 @@ export default function TeamWiseCollection({ from, to, ngoId, froId, periodLabel
     .filter(Boolean).join(' · ');
 
   const teamTgt = Number(data?.month_targets_total)||0;
+  const monthCollected = teams.reduce((s, t) => s + (Number(t.month_amount) || 0), 0);
   const footLines = [
     total > 0 ? `${teams.length} teams · ${activeFros} FROs · ${receipts} receipts` : null,
     (() => {
@@ -121,7 +122,7 @@ export default function TeamWiseCollection({ from, to, ngoId, froId, periodLabel
     })(),
     unassigned.amount > 0 ? `outside any team ${rupee(unassigned.amount)}` : null,
     Number(data?.unrostered_count) > 0 ? `${data.unrostered_count} unrostered` : null,
-    teamTgt>0 ? `Team targets (month): ${rupee(teamTgt)}` : null,
+    teamTgt>0 ? `Targets (month): ${rupee(teamTgt)} · Collected (month): ${rupee(monthCollected)} · Remaining: ${rupee(Math.max(0, teamTgt - monthCollected))} · ${Math.round((monthCollected / teamTgt) * 100)}%` : null,
     leader?.top_fro && leader.amount > 0 ? `Top collector: ${leader.top_fro.name} ${rupee(leader.top_fro.amount)}` : null,
   ];
 
