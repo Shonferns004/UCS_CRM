@@ -51,6 +51,25 @@ backend/src/services/whatsappMessageDeleteIntent.js
 | Node | `24.x` |
 | Flutter | `3.47.5` |
 
+### Dev DB vs server DB
+
+| Environment | Database |
+|---|---|
+| Local dev (`backend/.env`) | `postgres://postgres:Shawn2004@localhost:5432/local_crm` |
+| Office server (`192.168.1.100`) | `postgres://postgres:bsct_2014@192.168.1.100:5432/ucs_crm` |
+
+Local dev ko server ka data chahiye to (poora mirror, `public` schema replace
+hota hai):
+
+```powershell
+cd C:\Users\Administrator\Desktop\UCS_CRM
+.\scripts\sync-server-db-to-local.ps1
+```
+
+Ye `ucs_crm` ka snapshot le kar `local_crm` me restore karta hai aur row counts
+compare karke dikhata hai. Live server dump ke dauraan bhi likhta rehta hai,
+isliye 1-2 row ka drift normal hai — dobara chala do.
+
 ---
 
 ## 3. Step 1 — Code pull
