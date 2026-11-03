@@ -24,6 +24,5 @@ export async function ensureBugsSchema() {
     await db._pool.query(sql);
     console.log('bugs schema ready');
   } catch (e) {
-    console.warn('[bugs schema] skip:', e?.message || String(e));
   }
 }

@@ -226,10 +226,9 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   }
   const records2 = [...records, ...fabricated];
 
-  // Unauthorized absences are still detected — the HR panel uses them for the
-  // absence-proof flow and for reporting — but they no longer touch pay. An
-  // absent day already costs its own day (see the deduction pass below), so it
-  // must never also shrink the late grace.
+  // Unauthorized absences decide whether the month's free grace survives.
+  // Sundays, holidays, pre-join and future dates are excluded inside the
+  // detector, matching payroll's own fabrication rules above.
   const absenceEval = findUnauthorizedAbsences({
     monthDays,
     records: records2,
@@ -282,16 +281,25 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.status === 'half-day' ? 0 : (r.late_minutes || 0)), 0);
   // Absences are already deducted as absent days, so they must not also eat the
   // late grace: lateness is scored purely on the minutes actually accumulated.
-  const lateDeductionDaysRaw = calcLateDeductionDays(totalLateMinutes, lateGrace);
+  // An unauthorized absence forfeits the month's free grace (see
+  // utils/latePolicy.js); an admin rollback then gives minutes back on top.
+  const lateDeductionDaysRaw = calcLateDeductionDays(totalLateMinutes, lateGrace, {
+    graceForfeited: absenceEval.graceForfeited,
+  });
   // Admin grace rollback: the minutes go back into the pool BEFORE the ladder
   // runs, so "the 180 min grace was charged by mistake" is undone exactly. The
   // tier is recomputed on the reduced total instead of subtracting whole days.
+  // The cap includes the grace when it was charged, otherwise a worker with 26
+  // late minutes could never give the forfeited 180 min back.
+  const rollbackCap = totalLateMinutes + (absenceEval.graceForfeited ? lateGrace : 0);
   const lateRollbackMinutesApplied = Math.min(
     Math.max(0, Number(lateRollbackMinutes) || 0),
-    totalLateMinutes,
+    rollbackCap,
   );
-  const chargeableLateMinutes = totalLateMinutes - lateRollbackMinutesApplied;
-  const lateDeductionDays = calcLateDeductionDays(chargeableLateMinutes, lateGrace);
+  const chargeableLateMinutes = Math.max(0, totalLateMinutes - lateRollbackMinutesApplied);
+  const lateDeductionDays = calcLateDeductionDays(chargeableLateMinutes, lateGrace, {
+    graceForfeited: absenceEval.graceForfeited,
+  });
   const lateRollbackDays = Math.max(0, lateDeductionDaysRaw - lateDeductionDays);
 
   const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt, new Date(year, month + 1, 0)) <= 3) ? 1.5 : 0;

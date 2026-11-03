@@ -413,48 +413,37 @@ function start() {
   running = true;
 
   cronJobs.push(cron.schedule('30 10 * * *', () => runCycleNoOverlap()));
-  console.log('Scheduled: 10:30 AM notification check');
 
   cronJobs.push(cron.schedule('0 13 * * *', () => runCycleNoOverlap()));
-  console.log('Scheduled: 1:00 PM notification check');
 
   cronJobs.push(cron.schedule('0 18 * * *', () => runCycleNoOverlap()));
-  console.log('Scheduled: 6:00 PM notification check');
 
   // Staggered across the minute (seconds field) and thinned to every 5 minutes:
   // these six jobs all running every 60s created a CPU/DB pile-up on the 2-core
   // host (load ~1.9). A 5-minute cadence cuts ~80% of that churn; each job is
   // a safety net / periodic check, none is latency-critical.
   cronJobs.push(cron.schedule('25 */5 * * * *', () => runScheduledNoOverlap()));
-  console.log('Scheduled: 5-min check for admin-scheduled notifications');
 
   cronJobs.push(cron.schedule('5 */5 * * * *', () => runPunchInNoOverlap()));
-  console.log('Scheduled: 5-min check for punch-in reminders');
 
   cronJobs.push(cron.schedule('15 */5 * * * *', () => runPunchOutNoOverlap()));
-  console.log('Scheduled: 5-min check for punch-out reminders');
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 * * *', () => runResetNoOverlap()));
-    console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
   }
 
   cronJobs.push(cron.schedule('35 */5 * * * *', () => runReportNoOverlap()));
-  console.log('Scheduled: 5-min check for missed schedules (10 min overdue)');
 
   cronJobs.push(cron.schedule('45 */5 * * * *', () => runReturnNoOverlap()));
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 10 * *', () => runMonthlyLoanSettlement()));
-    console.log('Scheduled: 10th of month - auto loan/advance settlement for previous month');
   }
   // Every 5 min, not 20s: donor-log writes already trigger a refresh via
   // froDonorLogModel, so the poll is only a safety net. Each refresh runs a
   // window aggregation + per-worker upserts that broadcast realtime events.
   cronJobs.push(cron.schedule('50 */5 * * * *', () => runIncentiveNoOverlap()));
-  console.log('Scheduled: 5-min special incentive ("NGO wise Incentive") live tracking');
 
-  console.log('Scheduled: 5-min check for expired lead transfers');
 
   // Email imports and Razorpay synchronization are manual-only. Do not schedule
   // background jobs for them; the Accounts screens can still start either action.

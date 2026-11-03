@@ -575,13 +575,13 @@ class _ProfilePageState extends State<ProfilePage> {
     return (480 * (_lateGrace / 180)).round();
   }
 
-  // Unauthorized absences are reported by the backend (absence-proof flow) but
-  // they no longer change pay: an absent day already costs its own full day.
+  // An unauthorized absence forfeits the month's grace: the grace is charged
+  // up-front, so the tier ladder runs on (used + grace). Mirrors
+  // backend/src/utils/latePolicy.js.
   bool get _graceForfeited => _selectedBreakdown?['graceForfeited'] == true;
 
-  // Absences never join the late arithmetic — mirrors
-  // backend/src/utils/latePolicy.js (lateness is scored on minutes only).
-  double get _lateEffectiveMinutes => _selectedLateMinutes.toDouble();
+  double get _lateEffectiveMinutes =>
+      _graceForfeited ? (_selectedLateMinutes + _lateGrace).toDouble() : _selectedLateMinutes.toDouble();
 
   double get _lateTier {
     final used = _lateEffectiveMinutes;
@@ -633,15 +633,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String get _lateTierDesc {
     final used = _selectedLateMinutes;
-    final absenceNote = _graceForfeited
-        ? 'Unauthorized absence this month — absent days are already deducted as full days, '
-            'so they add nothing to the late deduction.\n'
-        : '';
+    if (_graceForfeited) {
+      return 'Unauthorized absence this month — the $_lateGrace min grace is charged up-front '
+          '(eff = $used + $_lateGrace), then the normal tiers apply. An admin can roll it back from the admin app.';
+    }
     switch (_lateTier) {
-      case 0: return '$absenceNote$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
-      case 1: return '$absenceNote$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
-      case 2: return '$absenceNote$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
-      case 3: return '$absenceNote$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
+      case 0: return '$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
+      case 1: return '$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
+      case 2: return '$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
+      case 3: return '$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
       default: return '';
     }
   }
@@ -691,6 +691,24 @@ class _ProfilePageState extends State<ProfilePage> {
     return _lateMinutesForMonth(_calYear * 100 + _calMonth);
   }
 
+  // Latest run of working days that are all "late" (weekends have no rows,
+  // leave rows are skipped). UI-only indicator — payroll maths is untouched.
+  int get _continuousLateDays {
+    final working = _statusByDate.entries
+        .where((e) => ['present', 'late', 'half-day', 'absent'].contains(e.value))
+        .toList()
+      ..sort((a, b) => b.key.compareTo(a.key));
+    var streak = 0;
+    for (final e in working) {
+      if (e.value == 'late') {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
   Widget _lateDeductionCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
     return Container(
       padding: EdgeInsets.all(Responsive.pad(context, 16)),
@@ -720,6 +738,37 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           ),
+          if (_continuousLateDays >= 3) ...[
+            SizedBox(height: Responsive.pad(context, 12)),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 10),
+                vertical: Responsive.pad(context, 8),
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFFFFD59E)),
+              ),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.alertTriangle, size: Responsive.sp(context, 14), color: const Color(0xFFB45309)),
+                  SizedBox(width: Responsive.pad(context, 8)),
+                  Expanded(
+                    child: Text(
+                      '$_continuousLateDays days continuous late - half day deducted',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 11.5),
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF8A4B08),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           SizedBox(height: Responsive.pad(context, 14)),
           Row(
             children: [
@@ -864,12 +913,19 @@ class _ProfilePageState extends State<ProfilePage> {
 
   num get _fallbackLateDeductionDays {
     final minutes = _selectedLateMinutes;
-    // Absences are already charged as their own days, so they never increase
-    // the late deduction (mirrors backend/src/utils/latePolicy.js).
+    if (_graceForfeited) {
+      // Grace charged up-front (single budget — the clawback does NOT add it a
+      // second time). Plain tier ladder on the effective total.
+      final eff = minutes + _lateGrace;
+      if (eff > _lateFull) return (((eff / _lateFull) * 2).roundToDouble()) / 2;
+      if (eff > _lateHalf) return 1;
+      if (eff > _lateGrace) return 0.5;
+      return 0;
+    }
     if (minutes <= _lateGrace) return 0;
     if (minutes <= _lateHalf) return 0.5;
-    // Grace clawback: once the 1-day tier is reached the grace is charged too,
-    // added exactly once.
+    // Grace clawback (mirrors backend/src/utils/latePolicy.js): once the 1-day
+    // tier is reached the grace is charged too, added exactly once.
     return (((minutes + _lateGrace) / _lateFull) * 2).roundToDouble() / 2;
   }
 

@@ -5,10 +5,6 @@ const appId = process.env.WHATSAPP_APP_ID || process.env.META_APP_ID || null;
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
-if (!phoneNumberId || !accessToken) {
-  console.error('CRITICAL: WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN must be set in environment variables');
-}
-
 const whatsappConfig = {
   phoneNumberId,
   accessToken,

@@ -1,11 +1,9 @@
-// Unauthorized-absence detection.
+// Unauthorized-absence detection for the grace-forfeiture rule.
 //
 // A full-day absence is "unauthorized" when NO approved leave covers the date.
-// These rows feed the absence-proof flow and HR reporting only — they do NOT
-// change pay. An absent day is already charged as its own full day, so it must
-// never also eat the month's late grace (see utils/latePolicy.js).
+// The trigger decides how the worker can save the month's late grace:
 //
-//   no_leave   — absent with no leave at all           -> no proof chance
+//   no_leave   — absent with no leave at all           -> auto-forfeit, NO proof chance
 //   rejected   — a full-day-family leave was rejected  -> proof on the app home screen
 //   pending    — a full-day-family leave is pending    -> same proof flow
 //
@@ -14,12 +12,12 @@
 // Approved leave of any type covering the date is always safe (authorized).
 // Sundays, holidays, pre-join dates and future dates never count.
 //
-// `forfeits` is now a reporting flag only — it used to drive a grace
-// forfeiture that charged the month's late grace, and that rule is gone:
-//   approved proof   -> false
-//   pending proof    -> false (innocent until HR decides)
-//   rejected / none  -> true (only if trigger is rejected/pending;
-//                       no_leave flags regardless, proofs cannot exist there)
+// Proof outcomes (once per calendar month, single grace budget):
+//   approved proof   -> grace kept
+//   pending proof    -> grace kept until HR reviews (innocent until decided)
+//   rejected / none  -> grace forfeited (only if trigger is rejected/pending;
+//                       no_leave forfeits regardless, proofs cannot exist there)
+// An admin can still give the grace back for one worker+month (rollback).
 
 const FULL_DAY_FAMILY = new Set(['full_day', 'vacational', 'emergency', 'holiday']);
 

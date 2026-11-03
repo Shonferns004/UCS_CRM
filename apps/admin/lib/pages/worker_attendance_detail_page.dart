@@ -23,6 +23,8 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   String? _error;
   Timer? _refreshTimer;
   Map<String, dynamic>? _rollback;
+  bool _rollbackLoading = false;
+  String? _rollbackError;
 
   String get _monthKey => '$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}';
 
@@ -50,24 +52,18 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
 
   Future<void> _load({bool silent = false}) async {
     if (!silent) setState(() { _loading = true; _error = null; });
+    final workerId = widget.worker['id'].toString();
+    final requestedMonth = _monthKey;
     try {
-      final workerId = widget.worker['id'].toString();
-      // The rollback summary rides along with the month load so the card can
-      // show payroll's computed figure without a second round trip.
-      final results = await Future.wait([
-        ApiService.getWorkerMonthlyAttendance(workerId, _monthKey),
-        ApiService.getLateRollbackInfo(workerId, _monthKey),
-      ]);
-      final records = results[0] as List<dynamic>;
-      final rollback = results[1] as Map<String, dynamic>?;
-      if (mounted) {
-        setState(() {
-          _records = List<dynamic>.from(records)
-            ..sort((a, b) => (b['date']?.toString() ?? '').compareTo(a['date']?.toString() ?? ''));
-          _rollback = rollback;
-          _loading = false;
-        });
-      }
+      // Records load on their own. The rollback summary is a separate request
+      // on purpose: it must never delay or break the attendance list.
+      final records = await ApiService.getWorkerMonthlyAttendance(workerId, requestedMonth);
+      if (!mounted || requestedMonth != _monthKey) return;
+      setState(() {
+        _records = List<dynamic>.from(records)
+          ..sort((a, b) => (b['date']?.toString() ?? '').compareTo(a['date']?.toString() ?? ''));
+        _loading = false;
+      });
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -75,9 +71,29 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
           _error = e.toString().replaceFirst('Exception: ', '');
         });
       }
+      return;
     }
+    await _loadRollback(workerId, requestedMonth);
   }
 
+  Future<void> _loadRollback(String workerId, String month) async {
+    if (mounted) setState(() { _rollbackLoading = true; _rollbackError = null; });
+    try {
+      final info = await ApiService.getLateRollbackInfo(workerId, month);
+      if (!mounted || month != _monthKey) return;
+      setState(() {
+        _rollback = info;
+        _rollbackLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || month != _monthKey) return;
+      setState(() {
+        _rollback = null;
+        _rollbackLoading = false;
+        _rollbackError = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
   void _prevMonth() {
     setState(() {
       if (_selectedMonth == 1) {
@@ -340,6 +356,71 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   // any) applied. Only the 180-min grace is waivable — that is the number that
   // gets charged by mistake when a leave/proof lands after payroll runs.
   Widget _buildRollbackBar(ColorScheme scheme, TextTheme tt) {
+    // Still asking the server — a slim placeholder so the list underneath is
+    // never blocked by this extra call.
+    if (_rollbackLoading && _rollback == null) {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+        child: Container(
+          margin: EdgeInsets.only(top: Responsive.pad(context, 10)),
+          padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 12), vertical: Responsive.pad(context, 10)),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+          ),
+          child: Row(
+            children: [
+              SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary)),
+              SizedBox(width: Responsive.pad(context, 10)),
+              Text('Checking late deduction…', style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // The request failed — say so and offer a retry instead of showing nothing.
+    if (_rollbackError != null && _rollback == null) {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+        child: Container(
+          margin: EdgeInsets.only(top: Responsive.pad(context, 10)),
+          padding: EdgeInsets.fromLTRB(
+            Responsive.pad(context, 12),
+            Responsive.pad(context, 8),
+            Responsive.pad(context, 4),
+            Responsive.pad(context, 8),
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF7F5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFF0C4BC)),
+          ),
+          child: Row(
+            children: [
+              const Icon(LucideIcons.alertCircle, size: 18, color: Color(0xFFB3261E)),
+              SizedBox(width: Responsive.pad(context, 10)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Late deduction unavailable', style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                    const SizedBox(height: 2),
+                    Text(_rollbackError!, style: tt.labelSmall?.copyWith(color: const Color(0xFF7A2E27)), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: () => _loadRollback(widget.worker['id'].toString(), _monthKey),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final info = _rollback;
     if (info == null) return const SizedBox.shrink();
 

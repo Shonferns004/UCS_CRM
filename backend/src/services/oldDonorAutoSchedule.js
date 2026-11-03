@@ -277,7 +277,6 @@ function start() {
   // recoverMissedExecutions re-runs a tick that was skipped (e.g. the process
   // was busy/suspended) so a boundary is never silently lost.
   cronJobs.push(cron.schedule('* * * * *', () => runNoOverlap().catch(() => {}), { recoverMissedExecutions: true }));
-  console.log('Scheduled: per-minute hide-old-donors window check');
 }
 
 function stop() {

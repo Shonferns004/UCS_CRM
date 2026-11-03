@@ -24,7 +24,6 @@ ALTER TABLE notice_seen ALTER COLUMN user_id TYPE TEXT USING user_id::text;
 export async function ensureNoticeSchema() {
   try {
     await db._pool.query(ENSURE_COLUMNS_SQL);
-    console.log('notices media/popup/target_roles columns ready; notice_seen table ready');
   } catch (e) {
     console.warn('[notice schema] skip:', e?.message || String(e));
   }

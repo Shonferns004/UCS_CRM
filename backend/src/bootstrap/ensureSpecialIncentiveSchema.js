@@ -253,7 +253,6 @@ export async function ensureSpecialIncentiveSchema() {
   try {
     await db._pool.query(CREATE_TABLE_SQL);
     await db._pool.query(CLAIM_COLUMNS_SQL);
-    console.log('special_incentives tables ready');
   } catch (e) {
     console.warn('[special incentive schema] skip:', e?.message || String(e));
   }
@@ -263,19 +262,16 @@ export async function ensureSpecialIncentiveSchema() {
     // safely on a DB that still has duplicate range rows.
     await dedupeIncentiveSlabRanges();
     await db._pool.query(LEAD_UNIQUE_RANGE_INDEX_SQL);
-    console.log('incentive_slabs + incentive_settings tables ready');
   } catch (e) {
     console.warn('[lead incentive schema] skip:', e?.message || String(e));
   }
   try {
     await db._pool.query(CHAMPION_ANNOUNCEMENT_SQL);
-    console.log('lead_champion_announcements table ready');
   } catch (e) {
     console.warn('[lead champion schema] skip:', e?.message || String(e));
   }
   try {
     await db._pool.query(TIER_SQL);
-    console.log('incentive_slab_tiers table ready');
   } catch (e) {
     console.warn('[lead incentive tiers schema] skip:', e?.message || String(e));
   }

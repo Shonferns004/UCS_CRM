@@ -153,14 +153,35 @@ test('invariant: past the half-day tier the deduction is at least 1', () => {
   }
 });
 
-// --- absences never touch the late deduction ---------------------------------
-// An absent day is already charged as its own full day, so it must not also
-// shrink the month's late grace (the former grace-forfeiture rule is gone).
+// --- grace forfeiture (unauthorized absence) ---------------------------------
+// Forfeited path: eff = total + grace, then the PLAIN tier ladder on eff.
+// The clawback does NOT add the grace a second time (single budget).
 
-test('absence cannot change the late deduction', () => {
-  // Vaishali's real case: 26 late minutes + 3 unauthorized absences.
-  assert.equal(calcLateDeductionDays(26, 180), 0); // inside grace -> no deduction
-  assert.equal(calcLateDeductionDays(180, 180), 0); // exact grace is still free
-  assert.equal(calcLateDeductionDays(181, 180), 0.5); // only the minutes matter
-  assert.equal(calcLateDeductionDays(26, 90), 0); // per-person grace respected
+test('forfeited: grace charged up-front on the plain ladder', () => {
+  const f = (t, g = 180) => calcLateDeductionDays(t, g, { graceForfeited: true });
+  assert.equal(f(0), 0); // eff 180 <= grace -> 0 (the absent day itself is the cost)
+  assert.equal(f(1), 0.5); // eff 181 -> past grace, within half
+  assert.equal(f(26), 0.5); // Vaishali's real case: eff 206 -> half day
+  assert.equal(f(60), 0.5); // eff 240 -> exact half still 0.5
+  assert.equal(f(61), 1); // eff 241 -> 1-day tier
+  assert.equal(f(100), 1); // eff 280 -> 1.0
+  assert.equal(f(420), 1.5); // eff 600 -> 1.5
+  assert.equal(f(720), 2); // eff 900 -> 2.0
+});
+
+test('forfeited vs clawback: never double-charges the 180 (single budget)', () => {
+  assert.equal(calcLateDeductionDays(250, 180, { graceForfeited: true }), calcLateDeductionDays(250, 180));
+  assert.equal(calcLateDeductionDays(1000, 180, { graceForfeited: true }), 2.5);
+  assert.equal(calcLateDeductionDays(1000, 180), 2.5);
+});
+
+test('forfeited only ever increases the deduction (never reduces)', () => {
+  for (const grace of [30, 90, 180, 480]) {
+    for (let total = 0; total <= 2000; total += 7) {
+      const plain = calcLateDeductionDays(total, grace);
+      const forfeited = calcLateDeductionDays(total, grace, { graceForfeited: true });
+      assert.ok(forfeited >= plain - 1e-9, `grace=${grace} total=${total}`);
+      assert.equal(forfeited * 2, Math.round(forfeited * 2));
+    }
+  }
 });

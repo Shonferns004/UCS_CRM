@@ -996,17 +996,30 @@ class ApiService {
   // wrong for a non-lateness reason (leave/proof approved late, bad punch, HR
   // correction) an admin can waive part or all of it for that worker+month.
 
-  static Future<Map<String, dynamic>?> getLateRollbackInfo(String workerId, String month) async {
-    try {
-      final res = await _get(
-        Uri.parse('$baseUrl/salary/late-rollback/$workerId?month=$month'),
-        headers: await _headers(),
-      );
-      if (res.statusCode != 200) return null;
+  static Future<Map<String, dynamic>> getLateRollbackInfo(String workerId, String month) async {
+    final res = await _get(
+      Uri.parse('$baseUrl/salary/late-rollback/$workerId?month=$month'),
+      headers: await _headers(),
+    );
+    if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
     }
+
+    // A bare (non-JSON) 404 is what an older backend answers — say so instead of
+    // silently hiding the whole card.
+    final raw = res.body.trim();
+    var message = 'Could not load the late deduction (${res.statusCode})';
+    if (raw.startsWith('{')) {
+      try {
+        final body = jsonDecode(raw);
+        if (body is Map && body['message'] != null) message = body['message'].toString();
+      } on FormatException {
+        message = 'This server does not have the rollback feature yet — update the backend.';
+      }
+    } else {
+      message = 'This server does not have the rollback feature yet — update the backend.';
+    }
+    throw Exception(message);
   }
 
   static Future<Map<String, dynamic>> setLateRollback(

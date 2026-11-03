@@ -1,0 +1,136 @@
+/* Draft reply card between the thread and the composer. It is a suggestion, not a sent message:
+   the tinted surface and the "Send" button make that clear without shouting. */
+.smart-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.65rem 0.9rem 0.7rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--primary, #25d366) 6%, var(--bg-white));
+}
+
+.smart-reply-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.smart-reply-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary-text, #167c3b);
+}
+
+.smart-reply-match {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 46%;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-reply-match b {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.smart-reply-refining {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.smart-reply-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.smart-reply-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.smart-reply-icon:hover:not(:disabled) {
+  background: var(--bg-light);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.smart-reply-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.smart-reply-draft {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 44px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-white);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.smart-reply-draft:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.smart-reply-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.smart-reply-source {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.smart-reply-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 32px;
+  padding: 0 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .smart-reply-match {
+    max-width: 100%;
+  }
+}

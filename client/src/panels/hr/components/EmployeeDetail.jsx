@@ -70,7 +70,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const [tab, setTab] = useState('overview');
   const [salaries, setSalaries] = useState([]);
   const [perfHistory, setPerfHistory] = useState(undefined); // accounts mode: imported months
-  const [salaryForm, setSalaryForm] = useState({ salary: '' });
+  const [salaryForm, setSalaryForm] = useState(() => {
+  const now = new Date();
+  return { salary: '', from_month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` };
+});
   const [salarySubmitting, setSalarySubmitting] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
   const [salaryNgoCount, setSalaryNgoCount] = useState(1);
@@ -101,6 +104,63 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const [achForm, setAchForm] = useState({});
   const [achSaving, setAchSaving] = useState({});
   const [allocations, setAllocations] = useState([]);
+  // One place for "add a salary row effective from month X", used by both
+  // branches of the Add Salary form. It handles inserting BEFORE the current
+  // salary (that is how a deleted month like October is put back) as well as
+  // after it, and closes the neighbouring row so ranges never overlap.
+  const submitSalary = async () => {
+    if (!salaryForm.salary || !salaryForm.from_month) return;
+    setSalarySubmitting(true);
+    try {
+      const from_month = `${salaryForm.from_month}-01`;
+      const prevMonthOf = (ymd) => {
+        const d = new Date(ymd);
+        d.setDate(0);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      };
+
+      const asc = [...salaries].sort((a, b) => String(a.from_month).localeCompare(String(b.from_month)));
+      const next = asc.find(s => String(s.from_month) > from_month);
+      const prev = [...asc].reverse().find(s => String(s.from_month) < from_month);
+      const to_month = next ? prevMonthOf(next.from_month) : null;
+
+      // Close the row this one supersedes — BEFORE inserting, because the API
+      // rejects a month that still falls inside an existing open range.
+      if (prev && (!prev.to_month || String(prev.to_month) > prevMonthOf(from_month))) {
+        const closeAt = prevMonthOf(from_month);
+        await updateWorkerSalary(prev.id, { to_month: closeAt });
+        setSalaries(p => p.map(x => (x.id === prev.id ? { ...x, to_month: closeAt } : x)));
+      }
+
+      const res = await addWorkerSalary({
+        worker_id: worker.id,
+        salary: parseFloat(salaryForm.salary),
+        from_month,
+        to_month,
+      });
+      setSalaries(p => [...p, res.record]);
+
+      // Keep an existing NGO split proportional when the new row replaces the
+      // current salary. The split itself is edited on the NGO allocation screen.
+      const oldSalNum = prev ? parseFloat(prev.salary) : 0;
+      const newSalNum = parseFloat(salaryForm.salary);
+      if (!next && allocations.length > 0 && oldSalNum > 0) {
+        const scaled = allocations.map(a => ({
+          ngo_id: a.ngo_id,
+          salary_portion: Math.round(parseFloat(a.salary_portion) * (newSalNum / oldSalNum)),
+        }));
+        await setWorkerAllocations(worker.id, scaled, newSalNum);
+        setAllocations(scaled);
+      }
+
+      const now = new Date();
+      setSalaryForm({ salary: '', from_month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` });
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSalarySubmitting(false);
+    }
+  };
   const [editNgoAllocations, setEditNgoAllocations] = useState([]);
   const [peopleAllocs, setPeopleAllocs] = useState([]);
   const [peopleForm, setPeopleForm] = useState([]);
@@ -665,10 +725,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     .filter(a => (!joinedThisMonth || a.date >= joinCutoff) && a.status !== 'half-day')
     .reduce((sum, a) => sum + (a.late_minutes || 0), 0);
 
-  // Absences are already deducted as absent days, so they never touch the late
-  // grace — lateness is scored purely on the minutes accumulated.
+  // An unauthorized absence forfeits the month's free grace (single budget with
+  // the clawback — whichever arrives first spends it, never both).
   const graceForfeitedNow = !!absenceGrace[effectiveMonthKey];
-  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace);
+  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace, graceForfeitedNow);
   let totalDue;
   totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
 
@@ -763,7 +823,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     const pLateMins = pAtt
       .filter(a => (!pJoined || a.date >= pJoinCutoff) && !isVoluntarySunday(a.date) && a.status !== 'half-day')
       .reduce((s, a) => s + (a.late_minutes || 0), 0);
-    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace);
+    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace, !!absenceGrace[prevMonthKey]);
     const pPaid = Math.max(0, pAvailable - pDeducted.size);
     const pJoining = (pJoined && monthsEmployed <= 3) ? 1.5 : 0;
     prevTotalDue = pPerDay * Math.max(0, pPaid - pLateDays - pJoining);
@@ -1524,10 +1584,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                       {/* Late minutes badge */}
                       <div style={{ marginBottom:14 }}>
                         {graceForfeitedNow && (
-                          <div style={{ padding:'8px 14px', border:'1px solid #e0a800', borderRadius:8, background:'#fffbea', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
-                            <strong style={{ color:'#8a6400' }}>Unauthorized absence this month</strong>
+                          <div style={{ padding:'8px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
+                            <strong style={{ color:'#d9534f' }}>Grace forfeited (unauthorized absence)</strong>
                             <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
-                              Absent days are already deducted as full days. They add nothing to the late deduction — the {lateT.grace} min late grace still applies in full.
+                              The {lateT.grace} min grace is charged up-front this month — {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} late deduction applies. Use the admin app to roll it back if this was applied wrongly.
                             </div>
                           </div>
                         )}
@@ -1802,117 +1862,19 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                             onChange={e => setSalaryForm(f => ({ ...f, salary: e.target.value }))}
                             style={{ border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 10px', fontSize:13, width:160 }} />
                         </div>
-                      </div>
-                      <div style={{ marginTop:10 }}>
-                        <span className="detail-label" style={{ display:'block', marginBottom:6 }}>Allocate to</span>
-                        <div style={{ display:'flex', gap:8 }}>
-                          <label style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', fontSize:13 }}>
-                            <input type="radio" name="ngoCount" checked={salaryNgoCount === 1}
-                              onChange={() => { setSalaryNgoCount(1); setSalaryNgo2(''); }} />
-                            1 NGO
-                          </label>
-                          <label style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', fontSize:13 }}>
-                            <input type="radio" name="ngoCount" checked={salaryNgoCount === 2}
-                              onChange={() => setSalaryNgoCount(2)} />
-                            2 NGOs
-                          </label>
+                        <div>
+                          <span className="detail-label">Salary From Month</span>
+                          <input type="month" value={salaryForm.from_month}
+                            onChange={e => setSalaryForm(f => ({ ...f, from_month: e.target.value }))}
+                            style={{ border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 10px', fontSize:13, width:170 }} />
                         </div>
                       </div>
-                      <div style={{ marginTop:10, display:'flex', gap:12, flexWrap:'wrap' }}>
-                        {salaryNgoCount === 1 ? (
-                          <div>
-                            <span className="detail-label">NGO</span>
-                            <Dropdown value={salaryNgo1} onChange={val => {
-                              const v = val?.target?.value ?? val;
-                              setSalaryNgo1(v);
-                              setSalaryNgo2(prev => prev === v ? '' : v);
-                            }}
-                              options={[
-                                { value: '', label: 'Select NGO' },
-                                ...ngos.map(n => ({ value: n.id, label: n.name }))
-                              ]}
-                              style={{ minWidth:180 }} />
-                          </div>
-                        ) : (
-                          <>
-                            <div>
-                              <span className="detail-label">NGO 1</span>
-                              <Dropdown value={salaryNgo1} onChange={val => {
-                                const v = val?.target?.value ?? val;
-                                setSalaryNgo1(v);
-                                setSalaryNgo2(prev => prev === v ? '' : v);
-                              }}
-                                options={[
-                                  { value: '', label: 'Select NGO' },
-                                  ...ngos.map(n => ({ value: n.id, label: n.name }))
-                                ]}
-                                style={{ minWidth:160 }} />
-                            </div>
-                            <div>
-                              <span className="detail-label">NGO 2</span>
-                              <Dropdown value={salaryNgo2} onChange={val => {
-                                const v = val?.target?.value ?? val;
-                                setSalaryNgo2(v);
-                                setSalaryNgo1(prev => prev === v ? '' : v);
-                              }}
-                                options={[
-                                  { value: '', label: 'Select NGO' },
-                                  ...ngos.map(n => ({ value: n.id, label: n.name }))
-                                ]}
-                                style={{ minWidth:160 }} />
-                            </div>
-                          </>
-                        )}
+                      <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:6 }}>
+                        NGO allocation is not asked here — set it from the NGO allocation screen.
                       </div>
                       <div style={{ display:'flex', gap:12, alignItems:'center', marginTop:12 }}>
-                        <button className="btn btn-primary btn-sm" disabled={salarySubmitting || !salaryForm.salary || !salaryNgo1 || (salaryNgoCount === 2 && !salaryNgo2)}
-                          onClick={async () => {
-                            setSalarySubmitting(true);
-                            try {
-                              const joinDate = new Date(data.created_at);
-                              const joinMonth = `${joinDate.getFullYear()}-${String(joinDate.getMonth() + 1).padStart(2, '0')}-01`;
-                              const now = new Date();
-                              const currMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-
-                              const sorted = [...salaries].sort((a, b) => b.from_month.localeCompare(a.from_month));
-                              const latest = sorted[0];
-
-                              let from_month;
-                              if (!latest) {
-                                from_month = joinMonth;
-                              } else {
-                                from_month = currMonth;
-                              }
-
-                              if (latest && !latest.to_month) {
-                                const d = new Date(from_month);
-                                d.setDate(0);
-                                const prevMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-                                await updateWorkerSalary(latest.id, { to_month: prevMonth });
-                                setSalaries(p => p.map(x => x.id === latest.id ? { ...x, to_month: prevMonth } : x));
-                              }
-
-                              const salNum = parseFloat(salaryForm.salary);
-                              const res = await addWorkerSalary({
-                                worker_id: worker.id,
-                                salary: salNum,
-                                from_month,
-                                to_month: null,
-                              });
-                              setSalaries(p => [res.record, ...p]);
-
-                              const allocs = salaryNgoCount === 1
-                                ? [{ ngo_id: salaryNgo1, salary_portion: salNum }]
-                                : [{ ngo_id: salaryNgo1, salary_portion: Math.round(salNum / 2) }, { ngo_id: salaryNgo2, salary_portion: Math.round(salNum / 2) }];
-                              await setWorkerAllocations(worker.id, allocs, salNum);
-                              setAllocations(allocs);
-
-                              setSalaryForm({ salary: '' });
-                              setSalaryNgo1('');
-                              setSalaryNgo2('');
-                            } catch (e) { alert(e.message); }
-                            finally { setSalarySubmitting(false); }
-                          }}>
+                        <button className="btn btn-primary btn-sm" disabled={salarySubmitting || !salaryForm.salary || !salaryForm.from_month}
+                          onClick={submitSalary}>
                           {salarySubmitting ? 'Adding\u2026' : 'Add Salary'}
                         </button>
                       </div>
@@ -1926,56 +1888,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                           onChange={e => setSalaryForm(f => ({ ...f, salary: e.target.value }))}
                           style={{ border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 10px', fontSize:13, width:160 }} />
                       </div>
-                      <button className="btn btn-primary btn-sm" disabled={salarySubmitting || !salaryForm.salary}
-                        onClick={async () => {
-                          setSalarySubmitting(true);
-                          try {
-                            const joinDate = new Date(data.created_at);
-                            const joinMonth = `${joinDate.getFullYear()}-${String(joinDate.getMonth() + 1).padStart(2, '0')}-01`;
-                            const now = new Date();
-                            const currMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-
-                            const sorted = [...salaries].sort((a, b) => b.from_month.localeCompare(a.from_month));
-                            const latest = sorted[0];
-
-                            let from_month;
-                            if (!latest) {
-                              from_month = joinMonth;
-                            } else {
-                              from_month = currMonth;
-                            }
-
-                            if (latest && !latest.to_month) {
-                              const d = new Date(from_month);
-                              d.setDate(0);
-                              const prevMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-                              await updateWorkerSalary(latest.id, { to_month: prevMonth });
-                              setSalaries(p => p.map(x => x.id === latest.id ? { ...x, to_month: prevMonth } : x));
-                            }
-
-                            const res = await addWorkerSalary({
-                              worker_id: worker.id,
-                              salary: parseFloat(salaryForm.salary),
-                              from_month,
-                              to_month: null,
-                            });
-                            setSalaries(p => [res.record, ...p]);
-
-                            const oldSalNum = latest ? parseFloat(latest.salary) : 0;
-                            const newSalNum = parseFloat(salaryForm.salary);
-                            if (allocations.length > 0 && oldSalNum > 0) {
-                              const scaledAllocs = allocations.map(a => ({
-                                ngo_id: a.ngo_id,
-                                salary_portion: Math.round(parseFloat(a.salary_portion) * (newSalNum / oldSalNum)),
-                              }));
-                              await setWorkerAllocations(worker.id, scaledAllocs, newSalNum);
-                              setAllocations(scaledAllocs);
-                            }
-
-                            setSalaryForm({ salary: '' });
-                          } catch (e) { alert(e.message); }
-                          finally { setSalarySubmitting(false); }
-                        }}>
+                      <div>
+                        <span className="detail-label">Salary From Month</span>
+                        <input type="month" value={salaryForm.from_month}
+                          onChange={e => setSalaryForm(f => ({ ...f, from_month: e.target.value }))}
+                          style={{ border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 10px', fontSize:13, width:170 }} />
+                      </div>
+                      <button className="btn btn-primary btn-sm" disabled={salarySubmitting || !salaryForm.salary || !salaryForm.from_month}
+                        onClick={submitSalary}>
                         {salarySubmitting ? 'Adding\u2026' : 'Add Salary'}
                       </button>
                     </div>
@@ -2016,8 +1936,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                                     promptUnlock(async () => {
                                       if (!confirm('Delete this salary record?')) return;
                                       try {
-                                        await fetch(API_BASE + '/salary/' + s.id, { method:'DELETE', headers:{ Authorization: 'Bearer ' + localStorage.getItem('ucs_token') } });
-                                        setSalaries(p => p.filter(x => x.id !== s.id));
+                                        const del = await fetch(API_BASE + '/salary/' + s.id, { method:'DELETE', headers:{ Authorization: 'Bearer ' + localStorage.getItem('ucs_token') } });
+                                        const delBody = await del.json().catch(() => ({}));
+                                        if (!del.ok) { alert(delBody.message || 'Could not delete the salary record'); return; }
+                                        // The backend reopens the previous row when the newest one is
+                                        // deleted, so re-read instead of guessing locally.
+                                        const fresh = await fetchWorkerSalaries(worker.id).catch(() => null);
+                                        setSalaries(fresh || []);
                                       } catch (e) { alert(e.message); }
                                     });
                                   }}>

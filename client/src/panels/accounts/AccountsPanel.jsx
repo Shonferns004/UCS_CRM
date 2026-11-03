@@ -34,6 +34,8 @@ import WhatsAppAutomation from './pages/WhatsAppAutomation'
 import WhatsAppAccountsManager from './components/WhatsAppAccountsManager'
 import WhatsAppBulk from './pages/WhatsAppBulk'
 import WhatsAppManager from './pages/WhatsAppManager'
+import OpenWAEnginePanel from '../whatsapp/OpenWAEnginePanel'
+import WhatsAppOpenWADashboard from './pages/WhatsAppOpenWADashboard'
 import SyncSettingsView from './components/SyncSettingsView'
 import ChangeAccessCode from './components/ChangeAccessCode'
 import ChangeSalaryAccessCode from '../hr/components/ChangeSalaryAccessCode'
@@ -190,6 +192,10 @@ const MODULES_NAV = [
     icon: <BookOpen size={18} /> },
   { id: 'whatsapp-accounts', path: '/accounts/whatsapp', label: 'WhatsApp Center',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> },
+  { id: 'whatsapp-dashboard', path: '/accounts/whatsapp-dashboard', label: 'WhatsApp',
+    icon: <Smartphone size={18} /> },
+  { id: 'openwa-engine', path: '/accounts/openwa-engine', label: 'OpenWA Engine',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-5-5z"/><path d="M2 2l20 8 2-8H2z"/></svg> },
   { ...BENEFICIARY_NAV[0], match: (p) => p.startsWith('/accounts/beneficiaries') },
   SIM_NAV_ITEM,
 ]
@@ -577,6 +583,8 @@ export default function AccountsPanel() {
             <Route path="metropad" element={<MetropadPage />} />
             <Route path="whatsapp" element={<WhatsAppManager />} />
 <Route path="whatsapp/bulk" element={<WhatsAppBulk />} />
+            <Route path="whatsapp-dashboard" element={<WhatsAppOpenWADashboard />} />
+            <Route path="openwa-engine" element={<OpenWAEnginePanel />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>

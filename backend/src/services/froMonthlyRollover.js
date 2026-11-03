@@ -441,7 +441,6 @@ function start() {
       // retries rather than silently skipping the reset for the whole month.
     });
   }, { timezone: 'Asia/Kolkata' }));
-  console.log('Scheduled: daily 04:00 IST FRO month-rollover check');
 }
 
 function stop() {
