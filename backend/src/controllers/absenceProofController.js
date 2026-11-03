@@ -83,8 +83,9 @@ function buildActionable({ year, monthIdx, daysInMonth, records, leaves, proofs,
 }
 
 // GET /api/absence-proofs/actionable?month=YYYY-MM
-// Worker: the dates for the app-home banner, their proof states, and whether
-// the monthly grace is already forfeited.
+// Worker: the dates for the app-home banner and their proof states. The
+// `graceForfeited` flag is informational only — it no longer changes any
+// deduction, because an absent day is already charged as its own day.
 export const myActionable = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -99,8 +100,9 @@ export const myActionable = async (req, res) => {
 };
 
 // GET /api/absence-proofs/worker/:workerId?month=YYYY-MM  (admin / HR)
-// Same computation for any worker — the HR panel reads graceForfeited so its
-// client-side salary preview charges the grace exactly like payroll (Option A).
+// Same computation for any worker. The HR panel uses this to list which days
+// are unauthorized; the flag no longer changes any salary figure, because an
+// absent day is already charged as its own day.
 export const workerMonth = async (req, res) => {
   try {
     const worker = await getWorkerById(req.params.workerId);
@@ -231,8 +233,8 @@ export const review = async (req, res) => {
       existing.worker_id,
       status === 'approved' ? 'Absence proof approved' : 'Absence proof rejected',
       status === 'approved'
-        ? `Your proof for ${String(existing.date).slice(0, 10)} was approved — your late grace is safe.`
-        : `Your proof for ${String(existing.date).slice(0, 10)} was rejected — this month's late grace is forfeited.`,
+        ? `Your proof for ${String(existing.date).slice(0, 10)} was approved.`
+        : `Your proof for ${String(existing.date).slice(0, 10)} was rejected — the absence stays recorded.`,
       'absence_proof',
       id,
     ).catch(() => {});

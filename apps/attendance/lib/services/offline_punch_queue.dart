@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -7,12 +6,17 @@ import 'package:path/path.dart';
 class OfflinePunchQueue {
   static Database? _db;
 
+  // v2 added `worker_id`: a queue is shared by every account that uses the
+  // device, so without it one worker's pending punch was replayed with the
+  // next worker's token and landed on the wrong person's attendance.
+  static const int _version = 2;
+
   static Future<Database> get _database async {
     if (_db != null) return _db!;
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       join(dbPath, 'offline_punches.db'),
-      version: 1,
+      version: _version,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pending_punches (
@@ -23,9 +27,15 @@ class OfflinePunchQueue {
             longitude REAL,
             punch_method TEXT,
             timestamp TEXT NOT NULL,
+            worker_id TEXT,
             synced INTEGER NOT NULL DEFAULT 0
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE pending_punches ADD COLUMN worker_id TEXT');
+        }
       },
     );
     return _db!;
@@ -44,19 +54,25 @@ class OfflinePunchQueue {
         'longitude': record['longitude'],
         'punch_method': record['punch_method'],
         'timestamp': record['timestamp'],
+        'worker_id': record['worker_id'],
         'synced': 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  /// Get all pending (unsynced) records.
-  static Future<List<Map<String, dynamic>>> getPending() async {
+  /// Get pending (unsynced) records for [workerId].
+  ///
+  /// Rows queued before v2 carry no owner; they are still returned so an
+  /// in-flight punch from another account is never silently thrown away.
+  static Future<List<Map<String, dynamic>>> getPending({String? workerId}) async {
     final db = await _database;
     final rows = await db.query(
       'pending_punches',
-      where: 'synced = ?',
-      whereArgs: [0],
+      where: workerId == null || workerId.isEmpty
+          ? 'synced = ?'
+          : 'synced = ? AND (worker_id IS NULL OR worker_id = ?)',
+      whereArgs: workerId == null || workerId.isEmpty ? [0] : [0, workerId],
       orderBy: 'timestamp ASC',
     );
     return rows.map((r) => {
@@ -67,6 +83,7 @@ class OfflinePunchQueue {
       'longitude': r['longitude'],
       'punch_method': r['punch_method'],
       'timestamp': r['timestamp'],
+      'worker_id': r['worker_id'],
     }).toList();
   }
 

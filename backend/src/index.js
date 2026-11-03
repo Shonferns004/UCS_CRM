@@ -115,6 +115,7 @@ import { ensureSpecialIncentiveSchema } from './bootstrap/ensureSpecialIncentive
 import { ensureSalaryHoldSchema } from './bootstrap/ensureSalaryHoldSchema.js';
 import { ensureHistoricalImportSchema } from './bootstrap/ensureHistoricalImportSchema.js';
 import { ensureAbsenceProofSchema } from './bootstrap/ensureAbsenceProofSchema.js';
+import { ensureLateRollbackSchema } from './bootstrap/ensureLateRollbackSchema.js';
 import { ensureCertificateSchema } from './bootstrap/ensureCertificateSchema.js';
 import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js';
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
@@ -1268,6 +1269,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureSalaryHoldSchema().catch(e => console.error('ensureSalaryHoldSchema failed:', e?.message || e));
     await ensureHistoricalImportSchema().catch(e => console.error('ensureHistoricalImportSchema failed:', e?.message || e));
     await ensureAbsenceProofSchema().catch(e => console.error('ensureAbsenceProofSchema failed:', e?.message || e));
+    await ensureLateRollbackSchema().catch(e => console.error('ensureLateRollbackSchema failed:', e?.message || e));
     await ensureCertificateSchema().catch(e => console.error('ensureCertificateSchema failed:', e?.message || e));
     await ensureNoticeSchema().catch(e => console.error('ensureNoticeSchema failed:', e?.message || e));
     await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));

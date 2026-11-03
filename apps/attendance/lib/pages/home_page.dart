@@ -38,6 +38,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   DateTime? _punchOutTime;
   bool _isPunchedIn = false;
   bool _isPunchedOut = false;
+  // Guards the punch button while a scan/request is in flight: a double tap
+  // used to open two scanners and could fire punch-in and punch-out for the
+  // same physical action.
+  bool _punchBusy = false;
   bool _loading = true;
   bool _isPressing = false;
   int _lateUsed = 0;
@@ -266,27 +270,43 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     if (!online) return;
     final syncing = await OfflinePunchQueue.isSyncing();
     if (syncing) return;
+    // Without an identity we cannot tell whose punch we would be replaying —
+    // never post another account's queued punch with this session's token.
+    var workerId = _workerId;
+    if (workerId.isEmpty) {
+      final worker = await ApiService.getWorkerData();
+      workerId = worker?['id']?.toString() ?? '';
+    }
+    if (workerId.isEmpty) return;
     await OfflinePunchQueue.setSyncing(true);
     String? rejected;
+    bool syncedAny = false;
     try {
-      final pending = await OfflinePunchQueue.getPending();
+      final pending = await OfflinePunchQueue.getPending(workerId: workerId);
       for (final record in pending) {
         try {
+          // Replay with the time the punch actually happened — the server
+          // stamps the record (and picks the day) from this, not from the sync
+          // moment.
+          final punchTime = DateTime.tryParse(record['timestamp']?.toString() ?? '');
           if (record['action'] == 'punch_in') {
             await ApiService.punchIn(
               record['code'] ?? '',
               (record['latitude'] as num).toDouble(),
               (record['longitude'] as num).toDouble(),
               punchMethod: record['punch_method'] as String?,
+              punchTime: punchTime,
             );
           } else if (record['action'] == 'punch_out') {
             await ApiService.punchOut(
               (record['latitude'] as num).toDouble(),
               (record['longitude'] as num).toDouble(),
               punchMethod: record['punch_method'] as String?,
+              punchTime: punchTime,
             );
           }
           await OfflinePunchQueue.remove(record['local_id'] as String);
+          syncedAny = true;
         } on ApiException catch (e) {
           if (e.kind != ApiErrorKind.business) {
             // Transient — leave it queued and retry on the next pass.
@@ -306,6 +326,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     } finally {
       await OfflinePunchQueue.setSyncing(false);
       await _updatePendingBadge();
+    }
+    // Pull the server's version of today's record so the screen shows the real
+    // punch times instead of the locally guessed ones.
+    if (syncedAny) {
+      await _fetchStatus();
     }
     if (rejected != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -352,128 +377,149 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Future<void> _punchIn() async {
-    if (!await _requestLocationPermission()) return;
-
-    final online = await ApiService.checkConnectivity();
-    // If offline, we'll queue the punch instead of blocking
-    final isOffline = !online;
-
-    final result = await Navigator.push<Map<String, dynamic>>(
-      context,
-      MaterialPageRoute(builder: (_) => const ScannerPage()),
-    );
-    if (result == null || !mounted) return;
-
-    final code = result['code'] ?? '';
-    final lat = (result['lat'] as num).toDouble();
-    final lng = (result['lng'] as num).toDouble();
-    final punchMethod = result['punch_method'] as String?;
-
-    if (isOffline) {
-      // Queue for later sync
-      await OfflinePunchQueue.enqueue({
-        'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'action': 'punch_in',
-        'code': code,
-        'latitude': lat,
-        'longitude': lng,
-        'punch_method': punchMethod,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-      final now = DateTime.now();
-      setState(() {
-        _isPunchedIn = true;
-        _punchInTime = now;
-        _isPunchedOut = false;
-        _punchOutTime = null;
-      });
-      _cacheTodayState(now.toIso8601String(), null);
-      if (mounted) {
-        HapticFeedback.vibrate();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Punched in (offline) — will sync when online'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
-      _updatePendingBadge();
-      return;
-    }
-
+    if (_punchBusy) return;
+    _punchBusy = true;
     try {
-      final data = await ApiService.punchIn(
-        code,
-        lat,
-        lng,
-        punchMethod: punchMethod,
+      if (!await _requestLocationPermission()) return;
+
+      final online = await ApiService.checkConnectivity();
+      // If offline, we'll queue the punch instead of blocking
+      final isOffline = !online;
+
+      final result = await Navigator.push<Map<String, dynamic>>(
+        context,
+        MaterialPageRoute(builder: (_) => const ScannerPage()),
       );
-      final lm = (data['lateMinutes'] ?? 0) as int;
-      final now = DateTime.now();
-      setState(() {
-        _isPunchedIn = true;
-        _punchInTime = now;
-        _isPunchedOut = false;
-        _punchOutTime = null;
-        if (lm > 0) _lateUsed += lm;
-      });
-      _cacheTodayState(now.toIso8601String(), null);
-      if (mounted) {
-        HapticFeedback.vibrate();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Punched in successfully'),
-            backgroundColor: const Color(0xFF10b981),
-          ),
-        );
-      }
-    } catch (e) {
-      // If network failed mid-request, queue it
-      if (ApiService.isRetryableError(e)) {
+      if (result == null || !mounted) return;
+
+      // The scan is the punch. Everything below (queue, offline replay) must
+      // carry this instant, otherwise the server stamps the sync time.
+      final punchTime = DateTime.now();
+      final localId = 'in-${punchTime.microsecondsSinceEpoch}';
+
+      final code = result['code'] ?? '';
+      final lat = (result['lat'] as num).toDouble();
+      final lng = (result['lng'] as num).toDouble();
+      final punchMethod = result['punch_method'] as String?;
+
+      if (isOffline) {
+        // Queue for later sync
         await OfflinePunchQueue.enqueue({
-          'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'local_id': localId,
           'action': 'punch_in',
           'code': code,
           'latitude': lat,
           'longitude': lng,
           'punch_method': punchMethod,
-          'timestamp': DateTime.now().toIso8601String(),
+          'worker_id': _workerId,
+          'timestamp': punchTime.toUtc().toIso8601String(),
         });
-        final now = DateTime.now();
         setState(() {
           _isPunchedIn = true;
-          _punchInTime = now;
+          _punchInTime = punchTime;
           _isPunchedOut = false;
           _punchOutTime = null;
         });
-        _cacheTodayState(now.toIso8601String(), null);
+        _cacheTodayState(punchTime.toIso8601String(), null);
         if (mounted) {
           HapticFeedback.vibrate();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Punch saved offline — will sync when online'),
+              content: Text('Punched in (offline) — will sync when online'),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 4),
             ),
           );
         }
         _updatePendingBadge();
-      } else {
+        return;
+      }
+
+      try {
+        final data = await ApiService.punchIn(
+          code,
+          lat,
+          lng,
+          punchMethod: punchMethod,
+          punchTime: punchTime,
+        );
+        final lm = (data['lateMinutes'] ?? 0) as int;
+        setState(() {
+          _isPunchedIn = true;
+          _punchInTime = punchTime;
+          _isPunchedOut = false;
+          _punchOutTime = null;
+          if (lm > 0) _lateUsed += lm;
+        });
+        _cacheTodayState(punchTime.toIso8601String(), null);
         if (mounted) {
-          final msg = _friendlyNetworkError(e);
+          HapticFeedback.vibrate();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(msg),
-              backgroundColor: Colors.red.shade700,
+              content: Text('Punched in successfully'),
+              backgroundColor: const Color(0xFF10b981),
             ),
           );
         }
+      } catch (e) {
+        // If network failed mid-request, queue it
+        if (ApiService.isRetryableError(e)) {
+          await OfflinePunchQueue.enqueue({
+            'local_id': localId,
+            'action': 'punch_in',
+            'code': code,
+            'latitude': lat,
+            'longitude': lng,
+            'punch_method': punchMethod,
+            'worker_id': _workerId,
+            'timestamp': punchTime.toUtc().toIso8601String(),
+          });
+          setState(() {
+            _isPunchedIn = true;
+            _punchInTime = punchTime;
+            _isPunchedOut = false;
+            _punchOutTime = null;
+          });
+          _cacheTodayState(punchTime.toIso8601String(), null);
+          if (mounted) {
+            HapticFeedback.vibrate();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Punch saved offline — will sync when online'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+          _updatePendingBadge();
+        } else {
+          if (mounted) {
+            final msg = _friendlyNetworkError(e);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(msg),
+                backgroundColor: Colors.red.shade700,
+              ),
+            );
+          }
+        }
       }
+    } finally {
+      _punchBusy = false;
     }
   }
 
   Future<void> _punchOut() async {
+    if (_punchBusy) return;
+    _punchBusy = true;
+    try {
+      await _punchOutInner();
+    } finally {
+      _punchBusy = false;
+    }
+  }
+
+  Future<void> _punchOutInner() async {
     if (_punchOutCountdown != null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -496,25 +542,29 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
     if (result == null || !mounted) return;
 
+    // The scan is the punch-out; keep that instant through the offline queue.
+    final punchTime = DateTime.now();
+    final localId = 'out-${punchTime.microsecondsSinceEpoch}';
+
     final lat = (result['lat'] as num).toDouble();
     final lng = (result['lng'] as num).toDouble();
     final punchMethod = result['punch_method'] as String?;
 
     if (isOffline) {
       await OfflinePunchQueue.enqueue({
-        'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'local_id': localId,
         'action': 'punch_out',
         'latitude': lat,
         'longitude': lng,
         'punch_method': punchMethod,
-        'timestamp': DateTime.now().toIso8601String(),
+        'worker_id': _workerId,
+        'timestamp': punchTime.toUtc().toIso8601String(),
       });
-      final now = DateTime.now();
       setState(() {
         _isPunchedOut = true;
-        _punchOutTime = now;
+        _punchOutTime = punchTime;
       });
-      _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
+      _cacheTodayState(_punchInTime?.toIso8601String(), punchTime.toIso8601String());
       if (mounted) {
         HapticFeedback.vibrate();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -534,13 +584,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         lat,
         lng,
         punchMethod: punchMethod,
+        punchTime: punchTime,
       );
-      final now = DateTime.now();
       setState(() {
         _isPunchedOut = true;
-        _punchOutTime = now;
+        _punchOutTime = punchTime;
       });
-      _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
+      _cacheTodayState(_punchInTime?.toIso8601String(), punchTime.toIso8601String());
       if (mounted) {
         HapticFeedback.vibrate();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -553,19 +603,19 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     } catch (e) {
       if (ApiService.isRetryableError(e)) {
         await OfflinePunchQueue.enqueue({
-          'local_id': DateTime.now().millisecondsSinceEpoch.toString(),
+          'local_id': localId,
           'action': 'punch_out',
           'latitude': lat,
           'longitude': lng,
           'punch_method': punchMethod,
-          'timestamp': DateTime.now().toIso8601String(),
+          'worker_id': _workerId,
+          'timestamp': punchTime.toUtc().toIso8601String(),
         });
-        final now = DateTime.now();
         setState(() {
           _isPunchedOut = true;
-          _punchOutTime = now;
+          _punchOutTime = punchTime;
         });
-        _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
+        _cacheTodayState(_punchInTime?.toIso8601String(), punchTime.toIso8601String());
         if (mounted) {
           HapticFeedback.vibrate();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -663,9 +713,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     )),
                     Text(
                       _absenceGraceForfeited
-                          ? 'Late grace forfeited this month'
+                          ? 'Absent days are already deducted in full — your late grace is unaffected'
                           : needsProofCount > 0
-                              ? 'Late grace at risk \u00B7 $needsProofCount proof${needsProofCount == 1 ? '' : 's'} needed'
+                              ? '$needsProofCount proof${needsProofCount == 1 ? '' : 's'} needed for approval'
                               : '${_absenceDays.length} day${_absenceDays.length == 1 ? '' : 's'} without approved leave',
                       style: TextStyle(
                         fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
@@ -1177,7 +1227,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               scale: _isPressing ? 0.92 : 1.0,
                               duration: const Duration(milliseconds: 100),
                               child: GestureDetector(
-                              onTap: _isPunchedIn ? (_canPunchOut ? _punchOut : null) : _punchIn,
+                              onTap: _punchBusy
+                                  ? null
+                                  : (_isPunchedIn ? (_canPunchOut ? _punchOut : null) : _punchIn),
                               onTapDown: (_) => setState(() => _isPressing = true),
                               onTapUp: (_) => setState(() => _isPressing = false),
                               onTapCancel: () => setState(() => _isPressing = false),
@@ -2360,8 +2412,8 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
       setState(() => _items = _items.where((p) => p['id'] != proof['id']).toList());
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(status == 'approved'
-            ? 'Proof approved — worker grace is safe'
-            : 'Proof rejected — this month\u2019s grace is forfeited'),
+            ? 'Proof approved'
+            : 'Proof rejected — the absence stays recorded'),
         backgroundColor: status == 'approved' ? const Color(0xFF146c2e) : const Color(0xFF93000a),
       ));
     } catch (e) {
@@ -2406,7 +2458,7 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
             Text('Absence Proofs',
                 style: GoogleFonts.hankenGrotesk(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            Text('${_items.length} awaiting review \u00B7 approving keeps the worker\u2019s late grace',
+            Text('${_items.length} awaiting review \u00B7 approve or reject the uploaded proof',
                 style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
             const SizedBox(height: 16),
             Expanded(
@@ -2510,3 +2562,4 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
     );
   }
 }
+

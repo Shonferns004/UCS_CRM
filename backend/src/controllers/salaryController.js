@@ -23,6 +23,7 @@ import { getMergedDailyAmounts } from '../utils/dailyAchievementAggregator.js';
 import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
+import { getLateRollback, getLateRollbacksForMonth, upsertLateRollback, deleteLateRollback } from '../models/lateRollbackModel.js';
 import { getLeavesInRange } from '../models/leaveModel.js';
 import { getAbsenceProofsByWorker } from '../models/absenceProofModel.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
@@ -513,9 +514,11 @@ export const getMySalaryBreakdown = async (req, res) => {
       getLeavesInRange(startDate, endDate, workerId).catch(() => []),
       getAbsenceProofsByWorker(workerId, startDate, endDate).catch(() => []),
     ]);
+    const monthStr = startDate.slice(0, 7);
+    const rollback = await getLateRollback(workerId, monthStr).catch(() => null);
 
-    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates, lateGraceMinutes: worker.late_grace_minutes ?? null, leaves: leavesForMonth, absenceProofs: proofsForMonth });
-    const { paidDays, totalDueDays, lateDeductionDays, lateGraceMinutes, lateThresholds, graceForfeited, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
+    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates, lateGraceMinutes: worker.late_grace_minutes ?? null, leaves: leavesForMonth, absenceProofs: proofsForMonth, lateRollbackMinutes: rollback ? Number(rollback.waived_minutes) || 0 : 0 });
+    const { paidDays, totalDueDays, lateDeductionDays, lateDeductionDaysRaw, lateRollbackMinutes, lateRollbackDays, chargeableLateMinutes, lateGraceMinutes, lateThresholds, graceForfeited, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
 
@@ -624,6 +627,13 @@ export const getMySalaryBreakdown = async (req, res) => {
       halfDayCount,
       totalLateMinutes,
       lateDeductionDays,
+      // What payroll computed before the admin grace rollback, how many grace
+      // minutes were given back, and the resulting day delta — so a waived
+      // month is still visible in the breakdown.
+      lateDeductionDaysRaw,
+      lateRollbackMinutes,
+      lateRollbackDays,
+      chargeableLateMinutes,
       lateGraceMinutes,
       lateThresholds,
       graceForfeited,
@@ -744,3 +754,140 @@ export const releaseSalaryHold = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// ---- Late-deduction rollback (admin / HR) --------------------------------
+//
+// Payroll pools a month's late minutes into a deduction. That figure is
+// sometimes wrong for reasons unrelated to lateness: a leave or absence proof
+// approved after the fact, a bad punch, an HR correction to the register. An
+// admin can roll back part or all of it for one worker and one month; the row
+// is both the amount payroll subtracts and the audit trail (who, why).
+
+async function computeLateDeductionFor(workerId, month, rollbackMinutes = 0) {
+  const year = Number(month.slice(0, 4));
+  const monthIdx = Number(month.slice(5, 7)) - 1;
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const startDate = `${month}-01`;
+  const endDate = `${month}-${String(daysInMonth).padStart(2, '0')}`;
+
+  const worker = await getWorkerById(workerId);
+  if (!worker) return null;
+
+  const records = await getMonthlyAttendance(workerId, startDate, endDate);
+  const holidayDates = (await getHolidaysInRange(startDate, endDate).catch(() => [])).map((h) => h.date);
+  const [leaves, proofs] = await Promise.all([
+    getLeavesInRange(startDate, endDate, workerId).catch(() => []),
+    getAbsenceProofsByWorker(workerId, startDate, endDate).catch(() => []),
+  ]);
+
+  return computePaidDays({
+    year,
+    month: monthIdx,
+    daysInMonth,
+    records,
+    createdAt: worker.created_at,
+    holidayDates,
+    lateGraceMinutes: worker.late_grace_minutes ?? null,
+    leaves,
+    absenceProofs: proofs,
+    lateRollbackMinutes: rollbackMinutes,
+  });
+}
+
+export const getLateRollbackInfo = async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const month = req.query.month;
+    if (!isValidSalaryMonth(month)) return res.status(400).json({ message: 'month is required (YYYY-MM)' });
+
+    const rollback = await getLateRollback(workerId, month).catch(() => null);
+    const waived = rollback ? Number(rollback.waived_minutes) || 0 : 0;
+
+    // Compute WITH the stored waiver so "effective" is exactly what payroll
+    // will deduct, and the raw figure stays available for the audit line.
+    const calc = await computeLateDeductionFor(workerId, month, waived);
+    if (!calc) return res.status(404).json({ message: 'Worker not found' });
+
+    return res.json({
+      month,
+      totalLateMinutes: calc.totalLateMinutes,
+      // The grace budget an admin can give back (180 min unless the worker has
+      // a personal override).
+      graceMinutes: calc.lateGraceMinutes,
+      computedLateDeductionDays: calc.lateDeductionDaysRaw,
+      waivedMinutes: waived,
+      chargeableLateMinutes: calc.chargeableLateMinutes,
+      effectiveLateDeductionDays: calc.lateDeductionDays,
+      rollback: rollback
+        ? { waivedMinutes: waived, reason: rollback.reason, createdAt: rollback.created_at }
+        : null,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setLateRollback = async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const { month, reason } = req.body || {};
+    if (!isValidSalaryMonth(month)) return res.status(400).json({ message: 'month is required (YYYY-MM)' });
+
+    const cleanReason = String(reason || '').trim();
+    if (cleanReason.length < 3) return res.status(400).json({ message: 'A reason is required' });
+
+    // No rollback applied yet: gives us the month's real late pool and grace.
+    const base = await computeLateDeductionFor(workerId, month, 0);
+    if (!base) return res.status(404).json({ message: 'Worker not found' });
+
+    // Default (and normal) amount is the worker's grace budget — 180 minutes.
+    // An explicit `minutes` is accepted but can never exceed the month's late
+    // pool; 0/absent falls back to the grace itself.
+    const requested = Number(req.body?.minutes);
+    const minutes = Number.isFinite(requested) && requested > 0
+      ? Math.round(requested)
+      : base.lateGraceMinutes;
+
+    if (minutes > base.totalLateMinutes) {
+      return res.status(400).json({
+        message: `This month has only ${base.totalLateMinutes} late minute(s) — cannot roll back ${minutes}`,
+      });
+    }
+    if (minutes <= 0) {
+      return res.status(400).json({ message: 'Nothing to roll back for this month' });
+    }
+
+    const row = await upsertLateRollback({
+      workerId,
+      monthStr: month,
+      waivedMinutes: minutes,
+      reason: cleanReason,
+      createdBy: req.user?.id || null,
+    });
+
+    const after = await computeLateDeductionFor(workerId, month, minutes);
+
+    return res.json({
+      message: 'Rollback saved',
+      rollback: { waivedMinutes: Number(row.waived_minutes), reason: row.reason },
+      computedLateDeductionDays: after?.lateDeductionDaysRaw ?? base.lateDeductionDaysRaw,
+      effectiveLateDeductionDays: after?.lateDeductionDays ?? base.lateDeductionDays,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const clearLateRollback = async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const month = req.query.month;
+    if (!isValidSalaryMonth(month)) return res.status(400).json({ message: 'month is required (YYYY-MM)' });
+
+    await deleteLateRollback(workerId, month);
+    return res.json({ message: 'Rollback removed' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+

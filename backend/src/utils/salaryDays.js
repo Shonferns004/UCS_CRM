@@ -114,7 +114,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
 // salaryController.js. `records` are the worker's attendance rows
 // ({ date, status, late_minutes }) for the month; `createdAt` is the worker's
 // created_at. `month` is 0-based.
-export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday, includeHolidayPay = false, compensatoryWorkdays = [], lateGraceMinutes, leaves = [], absenceProofs = [] }) {
+export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday, includeHolidayPay = false, compensatoryWorkdays = [], lateGraceMinutes, leaves = [], absenceProofs = [], lateRollbackMinutes = 0 }) {
   const lateGrace = resolveLateGrace(lateGraceMinutes);
   const lateThresholds = getLateThresholds(lateGrace);
   const applyNewSundayRules = newSundayRules(year, month);
@@ -136,6 +136,10 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
       leaveCount: 0,
       totalLateMinutes: 0,
       lateDeductionDays: 0,
+      lateDeductionDaysRaw: 0,
+      lateRollbackMinutes: 0,
+      lateRollbackDays: 0,
+      chargeableLateMinutes: 0,
       lateGraceMinutes: lateGrace,
       lateThresholds,
       graceForfeited: false,
@@ -222,10 +226,10 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   }
   const records2 = [...records, ...fabricated];
 
-  // Unauthorized absences (rejected / pending / no leave at all) decide
-  // whether the month's free grace survives. Sundays, holidays, pre-join and
-  // future dates are excluded inside the detector, matching payroll's own
-  // fabrication rules above.
+  // Unauthorized absences are still detected — the HR panel uses them for the
+  // absence-proof flow and for reporting — but they no longer touch pay. An
+  // absent day already costs its own day (see the deduction pass below), so it
+  // must never also shrink the late grace.
   const absenceEval = findUnauthorizedAbsences({
     monthDays,
     records: records2,
@@ -276,7 +280,19 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   // A half-day record is already penalised as 0.5 day, so its late_minutes must
   // not also be charged as a late deduction (double penalty).
   const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.status === 'half-day' ? 0 : (r.late_minutes || 0)), 0);
-  const lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace, { graceForfeited: absenceEval.graceForfeited });
+  // Absences are already deducted as absent days, so they must not also eat the
+  // late grace: lateness is scored purely on the minutes actually accumulated.
+  const lateDeductionDaysRaw = calcLateDeductionDays(totalLateMinutes, lateGrace);
+  // Admin grace rollback: the minutes go back into the pool BEFORE the ladder
+  // runs, so "the 180 min grace was charged by mistake" is undone exactly. The
+  // tier is recomputed on the reduced total instead of subtracting whole days.
+  const lateRollbackMinutesApplied = Math.min(
+    Math.max(0, Number(lateRollbackMinutes) || 0),
+    totalLateMinutes,
+  );
+  const chargeableLateMinutes = totalLateMinutes - lateRollbackMinutesApplied;
+  const lateDeductionDays = calcLateDeductionDays(chargeableLateMinutes, lateGrace);
+  const lateRollbackDays = Math.max(0, lateDeductionDaysRaw - lateDeductionDays);
 
   const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt, new Date(year, month + 1, 0)) <= 3) ? 1.5 : 0;
 
@@ -340,8 +356,17 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     leaveCount,
     totalLateMinutes,
     lateDeductionDays,
+    // Before the admin grace rollback, how many minutes were given back, and
+    // what the ladder actually charged — the salary sheet shows all three so a
+    // waiver is never invisible.
+    lateDeductionDaysRaw,
+    lateRollbackMinutes: lateRollbackMinutesApplied,
+    lateRollbackDays,
+    chargeableLateMinutes,
     lateGraceMinutes: lateGrace,
     lateThresholds,
+    // Informational only (absence-proof flow / reports). It no longer changes
+    // any deduction — a missing punch is paid for by the absent day itself.
     graceForfeited: absenceEval.graceForfeited,
     unauthorizedAbsences: absenceEval.unauthorizedAbsences,
     firstForfeitDate: absenceEval.firstForfeitDate,

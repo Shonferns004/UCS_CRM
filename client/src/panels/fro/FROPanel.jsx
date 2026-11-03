@@ -38,7 +38,7 @@ import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
-import WhatsAppChat from './pages/WhatsAppChat'
+
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
 import { readWaInboxAgents, writeWaInboxAgents } from './utils/waInboxAgents'
@@ -1277,8 +1277,7 @@ useEffect(() => onFroAction((action) => {
             <Route path="tickets" element={<FroTickets />} />
             <Route path="to-super-admin" element={<SuperAdminTicketSection panel="fro" />} />
             <Route path="chat" element={<ChatWorkspace />} />
-            <Route path="whatsapp-chat" element={<WhatsAppChat />} />
-            <Route path="whatsapp-chat/:project" element={<WhatsAppChat />} />
+
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
