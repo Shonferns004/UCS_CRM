@@ -86,16 +86,16 @@ const DEFAULT_THEME = {
   contact: {},
   social: [],
 }
-const ngoTheme = (n) => {
-  const code = String(n.code || '').toLowerCase()
-  return NGO_THEMES[code] || DEFAULT_THEME
-}
 const codeForName = (name) => {
   const k = String(name || '').toLowerCase()
   if (k.includes('mann')) return 'mann'
   if (k.includes('aflf') || k.includes('ashray')) return 'aflf'
   if (k.includes('bsct') || k.includes('being')) return 'bsct'
   return ''
+}
+const ngoTheme = (n) => {
+  const code = String(n.code || '').toLowerCase()
+  return NGO_THEMES[code] || NGO_THEMES[codeForName(code)] || DEFAULT_THEME
 }
 
 // Shown on an event card when the event has no photo (or its photo fails to
@@ -792,7 +792,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
         const key = String(ev.id)
         const badge = reportBadge(ev)
         const d = ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00') : null
-        const dateTxt = d && !isNaN(d) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'
+        const dateTxt = d && !isNaN(d) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
         return (
           <div
             key={ev.id ?? i}
@@ -840,6 +840,132 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
                 )}
               </div>
             </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/* MANN monthly "Report Card" template (/Monthly-Report-Card-Mann.jpg,
+   1414 x 2000 px). The artwork has a pink title ribbon at the top and a
+   3 x 3 grid of programme cards (396 x 360 each). Inside every card the bands
+   are: a pink header (the event name), a white date strip, a light-blue photo
+   window and an olive footer (the venue). The coordinates below were measured
+   from the artwork itself, so a programme card lands exactly on its slot.
+   More than 9 programmes continue on a second template page; when a page uses
+   fewer than 3 rows the footer band moves up so no empty card row is left. */
+const MANN_W = 1414
+const MANN_H = 2000
+const MANN_CARD_W = 396
+const MANN_CARD_H = 360
+const MANN_SLOTS = [
+  [64, 236], [512, 236], [964, 236],
+  [64, 668], [516, 668], [964, 668],
+  [72, 1100], [520, 1100], [968, 1100],
+]
+const MANN_PER_PAGE = MANN_SLOTS.length
+const MANN_COLS = 3
+const MANN_ROWS = 3
+const MANN_ROW_PITCH = 432 // distance between two card rows in the artwork
+const MANN_TOP = 236       // first row's top edge in the artwork
+const MANN_GRID_BOTTOM = MANN_TOP + (MANN_ROWS - 1) * MANN_ROW_PITCH + MANN_CARD_H // 1460
+const MANN_FOOT_H = MANN_H - MANN_GRID_BOTTOM // footer band of the artwork (rows 1460-2000)
+// Sub-regions inside a card, in artwork pixels (relative to the card's top-left).
+const MANN_TITLE = { x: 14, y: 8, w: MANN_CARD_W - 28, h: 90 }
+const MANN_ITEM = { x: 16, y: 106, w: MANN_CARD_W - 32, h: 46 }
+const MANN_PHOTO = { x: -10, y: 160, w: MANN_CARD_W - 7, h: 220 }
+// const MANN_VENUE = { x: 16, y: 324, w: MANN_CARD_W - 32, h: 32 }
+const MANN_FONT = "'Poppins', 'Segoe UI', Arial, sans-serif"
+
+function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, startDrag, endDrag, dragOverCard, dropOnCard, dropAtEnd }) {
+  const ref = useRef(null)
+  const w = useElWidth(ref)
+  // Everything is designed in artwork pixels and scaled by k, so the page looks
+  // the same at any on-screen width and in the exported PDF.
+  const k = (w || MANN_W) / MANN_W
+  const px = (n) => Math.round(n * k * 100) / 100
+  // Only as tall as the rows that are really used: the footer band moves up to
+  // sit right under the last row, so no empty card row is left behind.
+  const nRows = rows.length === 0 ? MANN_ROWS : Math.max(1, Math.min(MANN_ROWS, Math.ceil(rows.length / MANN_COLS)))
+  const cut = (MANN_ROWS - nRows) * MANN_ROW_PITCH
+  const Hp = MANN_H - cut
+  const titleTxt = `${monthLabel || ''} Monthly Stories of Impact`.trim()
+  const titleFs = Math.min(60, 1100 / Math.max(0.1, textEm(titleTxt, MANN_FONT)))
+  return (
+    <div
+      ref={ref}
+      className="mann-page"
+      style={{
+        position: 'relative', width: '100%', aspectRatio: `${MANN_W} / ${Hp}`,
+        backgroundImage: "url('/Monthly-Report-Card-Mann.jpg')", backgroundSize: '100% auto', backgroundPosition: '0 0', backgroundRepeat: 'no-repeat',
+        backgroundColor: '#fff', overflow: 'hidden',
+      }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+      onDrop={dropAtEnd}
+    >
+      {/* Footer band of the artwork (contact strip), pinned to the bottom so it
+          follows the last used row. */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(MANN_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/Monthly-Report-Card-Mann.jpg')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(MANN_H / MANN_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+      {/* Month + year on the blank pink ribbon at the top. */}
+      <div style={{ position: 'absolute', left: `${(96 / MANN_W) * 100}%`, width: `${(1228 / MANN_W) * 100}%`, top: `${(68 / Hp) * 100}%`, height: `${(120 / Hp) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <span style={{ fontFamily: MANN_FONT, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', letterSpacing: px(1), fontSize: px(titleFs), lineHeight: 1.1, textShadow: `0 ${px(2)}px ${px(4)}px rgba(0,0,0,0.25)` }}>{titleTxt}</span>
+      </div>
+      {rows.map((ev, i) => {
+        const [sx, sy] = MANN_SLOTS[i]
+        const key = String(ev.id)
+        const badge = reportBadge(ev)
+        const d = ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00') : null
+        const dateTxt = d && !isNaN(d) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
+        const item = String(ev.tagline || '').trim().replace(/^distributed\s*item\s*:?\s*/i, '')
+        return (
+          <div
+            key={ev.id ?? i}
+            className={`eh-report-card${dragKey === key ? ' dragging' : ''}${overKey === key ? ' drag-over' : ''}`}
+            style={{
+              position: 'absolute',
+              left: `${(sx / MANN_W) * 100}%`, top: `${(sy / Hp) * 100}%`,
+              width: `${(MANN_CARD_W / MANN_W) * 100}%`, height: `${(MANN_CARD_H / Hp) * 100}%`,
+            }}
+            onDragOver={(e) => dragOverCard(key)(e)}
+            onDrop={(e) => dropOnCard(key)(e)}
+          >
+            {/* Pink header band: date on top, event name below it */}
+            <div style={{ position: 'absolute', left: px(MANN_TITLE.x), top: px(MANN_TITLE.y), width: px(MANN_TITLE.w), height: px(MANN_TITLE.h), display: 'flex', flexDirection: 'column', padding: `${px(4)}px ${px(6)}px`, boxSizing: 'border-box', color: '#fff', fontFamily: MANN_FONT, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: px(6), fontSize: px(20), fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+                <span>{dateTxt}</span>
+                {ev.day && <span style={{ opacity: 0.85, fontSize: px(20), fontWeight: 600 }}>• {ev.day}</span>}
+              </div>
+              <div style={{ marginTop: px(3), fontSize: px(20), fontWeight: 800, lineHeight: 1.15, overflow: 'hidden', overflowWrap: 'anywhere' }}>
+                {ev.event_name || ev.festival || '—'}
+              </div>
+            </div>
+            {/* White strip: the Distributed Item (event tagline) */}
+            <div style={{ position: 'absolute', left: px(MANN_ITEM.x), top: px(MANN_ITEM.y), width: px(MANN_ITEM.w), height: px(MANN_ITEM.h), display: 'flex', alignItems: 'center', justifyContent: 'center', gap: px(6), padding: `0 ${px(6)}px`, boxSizing: 'border-box', fontFamily: MANN_FONT, overflow: 'hidden', whiteSpace: 'nowrap' }} title={item || undefined}>
+              {item ? (
+                <span style={{ fontSize: px(15), fontWeight: 800, color: '#7a1f4d', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item}</span>
+              ) : null}
+            </div>
+            {/* Photo in the light-blue window */}
+            <div style={{ position: 'absolute', left: px(MANN_PHOTO.x), top: px(MANN_PHOTO.y), width: px(MANN_PHOTO.w), height: px(MANN_PHOTO.h), background: '#e5eef7', overflow: 'hidden', borderRadius: px(6) }}>
+              <ReportCardImage ev={ev} height={px(MANN_PHOTO.h)} radius={0} fit="cover" />
+              <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: px(8), right: px(10), fontSize: px(11), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(2)}px ${px(8)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
+              <span
+                className="eh-drag-handle no-print"
+                data-html2canvas-ignore="true"
+                draggable
+                onDragStart={startDrag(key)}
+                onDragEnd={endDrag}
+                title="Drag to reorder"
+                aria-label="Drag to reorder"
+              >⠿</span>
+            </div>
+            {/* Venue on the olive footer band */}
+            {/* {ev.venue && (
+              <div style={{ position: 'absolute', left: px(MANN_VENUE.x), top: px(MANN_VENUE.y), width: px(MANN_VENUE.w), height: px(MANN_VENUE.h), display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#3f4a00', fontFamily: MANN_FONT, fontSize: px(11.5), fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                📍 {ev.venue}
+              </div>
+            )} */}
           </div>
         )
       })}
@@ -913,6 +1039,34 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
     const next = [...keys]
     next.push(next.splice(a, 1)[0])
     onReorder?.(next)
+  }
+  // MANN: the programmes are laid straight onto the report-card artwork, 9 per
+  // template page, instead of the generic 5-column grid. The template is shown
+  // even for a month with no programmes (blank card), so the MANN report never
+  // falls back to the old letterhead layout.
+  if (theme.name === 'MANN') {
+    const pages = []
+    if (rows.length === 0) pages.push([])
+    else for (let i = 0; i < rows.length; i += MANN_PER_PAGE) pages.push(rows.slice(i, i + MANN_PER_PAGE))
+    return (
+      <div ref={cardRef} className="eh-ngo-card mann-pages" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {pages.map((chunk, pi) => (
+          <MannTemplatePage
+            key={pi}
+            monthLabel={monthLabel}
+            yearLabel={yearLabel}
+            rows={chunk}
+            dragKey={dragKey}
+            overKey={overKey}
+            startDrag={startDrag}
+            endDrag={endDrag}
+            dragOverCard={dragOverCard}
+            dropOnCard={dropOnCard}
+            dropAtEnd={dropAtEnd}
+          />
+        ))}
+      </div>
+    )
   }
   // BSCT: the programmes are laid straight onto the report-card artwork, 20 per
   // template page, instead of the generic 5-column grid.
@@ -988,7 +1142,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
                   <div style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ background: headerBg, color: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                        {ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
+                        {ev.date ? new Date(String(ev.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}
                       </span>
                       <span style={{ fontSize: 11, color: '#6b7280' }}>{ev.day || ''}</span>
                     </div>
@@ -1601,11 +1755,11 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           )
         )
         await (document.fonts && document.fonts.ready)
-        // BSCT template pages: each one is a finished A4 poster, so it is
+        // BSCT / MANN template pages: each one is a finished A4 poster, so it is
         // captured on its own and placed full-bleed (no margins, no slicing).
-        const bsctPages = [...el.querySelectorAll('.bsct-page')]
-        if (bsctPages.length) {
-          for (const pg of bsctPages) {
+        const templatePages = [...el.querySelectorAll('.bsct-page, .mann-page')]
+        if (templatePages.length) {
+          for (const pg of templatePages) {
             const pageCanvas = await html2canvas(pg, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
             // The page is as tall as its used rows, so the PDF page is cut to
             // the same height (210mm wide) instead of leaving white space.
@@ -2345,7 +2499,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                     const nameCode = codeForName(n.ngo_name)
                     const rawCode = String(n.code || '').toLowerCase()
                     const code = nameCode || (['aflf', 'bsct', 'mann'].includes(rawCode) ? rawCode : '')
-                    const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: nameCode || rawCode })
+                    const theme = ngoTheme({ ...n, code: code || rawCode || nameCode })
                     const cardRef = el => { ngoCardRefs.current[String(n.ngo_id)] = el }
                     const ngoKey = String(n.ngo_id ?? '')
                     return <FestivalProgrammeCard key={String(n.ngo_id)} cardRef={cardRef} n={n} theme={theme} code={code} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} happyCount={happyFamily} onReorder={(keys) => handleCardReorder(ngoKey, keys)} />
