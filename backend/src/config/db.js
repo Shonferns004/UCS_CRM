@@ -1662,7 +1662,6 @@ async function testConnection() {
   try {
     const res = await pgPool.query('SELECT current_database(), current_user, inet_server_addr() AS server_ip, now() AS server_time');
     const row = res.rows[0];
-    console.log(`[DB] Connected to "${row.current_database}" as "${row.current_user}" | server: ${row.server_ip || 'local'} | time: ${row.server_time}`);
     return true;
   } catch (err) {
     console.error(`[DB] CONNECTION FAILED: ${err.message}`);
@@ -1765,8 +1764,6 @@ if (READ_DATABASE_URL) {
     // replica is an optimisation, not a dependency.
     console.error('read replica pool error:', err.message);
   });
-} else {
-  console.warn('READ_DATABASE_URL not set -- replica reads will run on the primary.');
 }
 
 /**

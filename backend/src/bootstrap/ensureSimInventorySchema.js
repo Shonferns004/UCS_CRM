@@ -42,19 +42,16 @@ UPDATE sim_inventory
 export async function ensureSimInventorySchema() {
   try {
     await db._pool.query(ENSURE_COLUMNS_SQL);
-    console.log('sim_inventory sim_name column ready');
   } catch (e) {
     console.warn('[sim inventory schema] skip columns:', e?.message || String(e));
   }
   try {
     await db._pool.query(REPAIR_STATUS_SQL);
-    console.log('sim_inventory legacy statuses normalised');
   } catch (e) {
     console.warn('[sim inventory schema] skip status repair:', e?.message || String(e));
   }
   try {
     await db._pool.query(BACKFILL_EXPIRY_SQL);
-    console.log('sim_inventory expiry dates backfilled');
   } catch (e) {
     console.warn('[sim inventory schema] skip expiry backfill:', e?.message || String(e));
   }

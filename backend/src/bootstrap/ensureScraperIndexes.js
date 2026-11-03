@@ -54,6 +54,5 @@ export async function ensureScraperIndexes() {
     console.warn(`[ensureScraperIndexes] ${ok} ok, ${failed.length} skipped:`);
     for (const f of failed) console.warn('  -', f);
   } else {
-    console.log(`[ensureScraperIndexes] ${ok} indexes ready`);
   }
 }

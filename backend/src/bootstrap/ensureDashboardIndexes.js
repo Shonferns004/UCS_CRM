@@ -58,6 +58,5 @@ export async function ensureDashboardIndexes() {
     console.warn(`[ensureDashboardIndexes] ${ok} ok, ${failed.length} skipped:`);
     for (const f of failed) console.warn('  -', f);
   } else {
-    console.log(`[ensureDashboardIndexes] ${ok} indexes ready`);
   }
 }

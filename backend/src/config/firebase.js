@@ -17,7 +17,10 @@ try {
   }
   messaging = getMessaging();
 } catch (error) {
-  console.warn('Firebase init skipped:', error.message);
+  // Firebase is optional in local development; report only when explicitly configured.
+  if (process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_CLIENT_EMAIL) {
+    console.error('Firebase initialization failed:', error.message);
+  }
 }
 
 export { messaging };

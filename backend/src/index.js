@@ -83,6 +83,13 @@ import whatsappAutomationRoutes from './routes/whatsappAutomationRoutes.js';
 import whatsappAccountsRoutes from './routes/whatsappAccountsRoutes.js';
 import whatsappCallingRoutes from './routes/whatsappCallingRoutes.js';
 import whatsappPerformanceRoutes from './routes/whatsappPerformanceRoutes.js';
+import openwaRoutes from './routes/openwa/index.js';
+import openwaAssignmentsRoutes from './routes/openwaAssignmentsRoutes.js';
+import openwaFroRoutes from './routes/openwaFroRoutes.js';
+import openwaBroadcastRoutes from './routes/openwaBroadcastRoutes.js';
+import openwaChatRoutes from './routes/openwaChatRoutes.js';
+import openwaMessageLogRoutes from './routes/openwaMessageLogRoutes.js';
+import whatsappReplyRoutes from './routes/whatsappReplyRoutes.js';
 import simCardRoutes from './routes/simCardRoutes.js';
 import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import reminderRoutes from './routes/reminderRoutes.js';
@@ -109,6 +116,8 @@ import { authenticate } from './middleware/authMiddleware.js';
 import { localDbAccess, ensureLocalDbAccess, registerLocalDbAccessCleanup } from './middleware/localDbAccess.js';
 import { ensureEventHeadSchema } from './bootstrap/ensureEventHeadSchema.js';
 import { ensureTicketSchema } from './bootstrap/ensureTicketSchema.js';
+import { ensureWhatsAppSessionAssignmentSchema } from './bootstrap/ensureWhatsAppSessionAssignmentSchema.js';
+import { ensureWhatsAppReplySchema } from './bootstrap/ensureWhatsAppReplySchema.js';
 import { ensureBugsSchema } from './bootstrap/ensureBugsSchema.js';
 import { ensureLoanDeductionSchema } from './bootstrap/ensureLoanDeductionSchema.js';
 import { ensureSpecialIncentiveSchema } from './bootstrap/ensureSpecialIncentiveSchema.js';
@@ -165,7 +174,6 @@ const _log = console.log;
    local boots and in the Vercel function log alike, which is the difference
    between noticing a missing env var immediately and discovering it from a user
    saying the button does nothing. */
-_log(aiSuggestionsStartupReport());
 
 const app = express();
 app.disable('x-powered-by');
@@ -188,7 +196,7 @@ app.use(express.json({
 // background. Cuts perceived "loading" across every panel without touching
 // individual controllers. Mutations (POST/PUT/DELETE) are never cached.
 // Real-time-ish paths are excluded so live data stays fresh.
-const NO_CACHE_PATHS = ['/api/chat', '/api/notifications', '/api/whatsapp', '/api/tickets', '/api/fro'];
+const NO_CACHE_PATHS = ['/api/chat', '/api/notifications', '/api/whatsapp', '/api/openwa', '/api/tickets', '/api/fro'];
 app.use((req, res, next) => {
   if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
   if (NO_CACHE_PATHS.some(p => req.path.startsWith(p))) return next();
@@ -270,6 +278,9 @@ app.get('/api/fro-count', async (req, res) => {
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 app.use('/api/auth', authRoutes);
+// Compatibility alias for older frontend bundles that still call /auth/login.
+// The canonical API remains /api/auth/login.
+app.use('/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
 app.use('/api/workers', workerBankImportRoutes);
 app.use('/api/tasks', taskRoutes);
@@ -331,6 +342,13 @@ app.use('/api/whatsapp/automation', whatsappAutomationRoutes);
 app.use('/api/whatsapp/accounts', whatsappAccountsRoutes);
 app.use('/api/whatsapp/calling', whatsappCallingRoutes);
 app.use('/api/whatsapp/performance', whatsappPerformanceRoutes);
+app.use('/api/openwa-assignments', openwaAssignmentsRoutes);
+app.use('/api/openwa-fro', openwaFroRoutes);
+app.use('/api/openwa-broadcast', openwaBroadcastRoutes);
+app.use('/api/openwa-chat', openwaChatRoutes);
+app.use('/api/openwa-message-logs', openwaMessageLogRoutes);
+app.use('/api/whatsapp-replies', whatsappReplyRoutes);
+app.use('/api/openwa', openwaRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
@@ -383,6 +401,51 @@ const ALLOWED_MIME_TYPES = [
   'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav',
   'video/mp4', 'video/quicktime',
 ];
+// Template media has to be fetchable by the OpenWA gateway, which reads the URL
+// server-side. S3 keeps this bucket private (getPublicUrl 403s), so the CRM serves
+// the object through a stable, unguessable URL instead of a public S3 link.
+app.get('/api/template-media/:fileName', async (req, res) => {
+  const fileName = String(req.params.fileName || '');
+  if (!/^[A-Za-z0-9._-]{1,200}$/.test(fileName)) return res.status(400).end();
+  try {
+    const { data, error } = await db.storage.from('whatsapp-media').readStream(fileName);
+    if (error || !data?.body) return res.status(404).json({ message: 'Media not found' });
+    if (data.contentType) res.setHeader('Content-Type', data.contentType);
+    if (data.contentLength) res.setHeader('Content-Length', data.contentLength);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    data.body.on('error', () => {
+      if (!res.headersSent) res.status(500).end();
+      else res.destroy();
+    });
+    data.body.pipe(res);
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not read media' });
+  }
+});
+
+// Template media is stored on the CRM's own uploads volume (no S3/AWS dependency) and
+// served by the existing /uploads static route. The OpenWA gateway can fetch this URL.
+app.post('/api/upload-template-media', authenticate, uploadApi.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No file' });
+  if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype)) {
+    return res.status(400).json({ message: 'File type not allowed' });
+  }
+  const ext = (req.file.mimetype || '').split('/')[1]?.split(';')[0] || 'bin';
+  const fileName = `template_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  try {
+    const dir = path.resolve(__dirname, '../uploads/templates');
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(path.join(dir, fileName), req.file.buffer);
+    return res.json({
+      fileName,
+      name: req.file.originalname,
+      type: req.file.mimetype,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not save the file' });
+  }
+});
+
 app.post('/api/upload', authenticate, uploadApi.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file' });
   if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype)) {
@@ -395,7 +458,14 @@ app.post('/api/upload', authenticate, uploadApi.single('file'), async (req, res)
   });
   if (uploadErr) return res.status(500).json({ message: uploadErr.message });
   const { data: urlData } = db.storage.from('whatsapp-media').getPublicUrl(fileName);
-  res.json({ url: urlData?.publicUrl, name: req.file.originalname, type: req.file.mimetype });
+  res.json({
+    url: urlData?.publicUrl,
+    // The gateway reads template media server-side; this bucket is private, so the
+    // stable CRM route above is what a template should store, not the S3 URL.
+    fileName,
+    name: req.file.originalname,
+    type: req.file.mimetype,
+  });
 });
 
 app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) => {
@@ -1098,9 +1168,7 @@ if (fs.existsSync(sevakLibraryDist)) {
 }
 
 const CRON_API_KEY = process.env.CRON_API_KEY;
-if (!CRON_API_KEY) {
-  console.warn('WARNING: CRON_API_KEY is not set. Cron endpoints will be inaccessible.');
-}
+// Cron routes remain disabled without a key; keep optional local config quiet.
 const requireCronAuth = (req, res, next) => {
   if (!CRON_API_KEY) {
     return res.status(503).json({ message: 'Cron endpoints not configured' });
@@ -1220,6 +1288,16 @@ const requireCronAuth = (req, res, next) => {
     });
 
 app.use((err, req, res, next) => {
+  // Malformed JSON is rejected by express.json before the request reaches its
+  // route. Return a client error without logging a misleading server stack.
+  if (err?.type === 'entity.parse.failed' && err?.status === 400) {
+    console.warn(`[http] Invalid JSON in ${req.method} ${req.originalUrl}`);
+    return res.status(400).json({
+      message: 'Invalid JSON request body. Send a valid JSON object.',
+      code: 'INVALID_JSON',
+    });
+  }
+
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });
 });
@@ -1263,6 +1341,8 @@ if (!process.env.VERCEL) {
     checkLeavesTable();
     await ensureEventHeadSchema().catch(e => console.error('ensureEventHeadSchema failed:', e?.message || e));
     await ensureTicketSchema().catch(e => console.error('ensureTicketSchema failed:', e?.message || e));
+    await ensureWhatsAppSessionAssignmentSchema().catch(e => console.error('ensureWhatsAppSessionAssignmentSchema failed:', e?.message || e));
+  await ensureWhatsAppReplySchema().catch(e => console.error('ensureWhatsAppReplySchema failed:', e?.message || e));
 await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?.message || e));
     await ensureLoanDeductionSchema().catch(e => console.error('ensureLoanDeductionSchema failed:', e?.message || e));
     await ensureSpecialIncentiveSchema().catch(e => console.error('ensureSpecialIncentiveSchema failed:', e?.message || e));

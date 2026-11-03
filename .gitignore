@@ -59,6 +59,15 @@ aws/main.md
 /apps/beneficiaries/Secugen Windows
 /others/imp files
 
+/openwa/dashboard/node_modules
+/openwa/dashboard
+# OpenWA runtime + build artifacts — only source is committed. `data/` holds
+# WhatsApp sessions, media and the SQLite DBs (1.2 GB), and `.env` holds the
+# gateway secrets; both must be copied to a new machine by hand.
+/openwa/node_modules
+/openwa/dist
+/openwa/data
+
 
 scripts/.webhook-secret
 

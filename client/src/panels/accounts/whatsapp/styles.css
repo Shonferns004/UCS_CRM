@@ -1,0 +1,1260 @@
+/* OpenWA dashboard, rebuilt inside the UCS CRM Accounts panel.
+   Everything is scoped under .owa so the CRM's global styles stay untouched. */
+
+.owa {
+  --owa-bg: var(--bg, #f5f7fa);
+  --owa-surface: var(--card-bg, #ffffff);
+  --owa-surface-2: var(--surface-2, #f8fafc);
+  --owa-border: var(--border-color, #e2e8f0);
+  --owa-text: var(--ink, #0f172a);
+  --owa-muted: var(--text-muted, #64748b);
+  --owa-muted-2: var(--text-secondary, #475569);
+  --owa-accent: #128c7e;
+  --owa-accent-soft: rgba(18, 140, 126, 0.12);
+  --owa-ok: #16a34a;
+  --owa-warn: #d97706;
+  --owa-bad: #dc2626;
+  --owa-info: #2563eb;
+  --owa-radius: 12px;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--owa-bg);
+  color: var(--owa-text);
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* The Accounts content area normally scrolls with 24px padding. The WhatsApp page
+   owns its own layout, so give it the full panel height and no outer padding. */
+.panel-accounts .content-body:has(.owa),
+.panel-ngo-admin .content-body:has(.owa),
+.panel-fro .content-body:has(.owa) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.owa *,
+.owa *::before,
+.owa *::after {
+  box-sizing: border-box;
+}
+
+.owa h1,
+.owa h2,
+.owa h3,
+.owa p {
+  margin: 0;
+}
+
+/* ---------- sidebar ---------- */
+.owa-nav {
+  width: 232px;
+  flex: 0 0 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 12px;
+  background: var(--owa-surface);
+  border-right: 1px solid var(--owa-border);
+}
+
+.owa-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 16px;
+}
+
+.owa-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--owa-accent);
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.owa-brand strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.owa-brand small {
+  color: var(--owa-muted);
+  font-size: 11px;
+}
+
+.owa-nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--owa-muted-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.owa-nav button:hover {
+  background: var(--owa-surface-2);
+  color: var(--owa-text);
+}
+
+.owa-nav button.active {
+  background: var(--owa-accent-soft);
+  color: var(--owa-accent);
+  font-weight: 600;
+}
+
+.owa-nav-foot {
+  margin-top: auto;
+  padding: 10px 8px 2px;
+  border-top: 1px solid var(--owa-border);
+  color: var(--owa-muted);
+  font-size: 11px;
+}
+
+/* ---------- main ---------- */
+.owa-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.owa-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  background: var(--owa-surface);
+  border-bottom: 1px solid var(--owa-border);
+}
+
+.owa-topbar h1 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.owa-topbar p {
+  color: var(--owa-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.owa-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--owa-surface-2);
+  color: var(--owa-muted-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.owa-conn i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--owa-muted);
+}
+
+.owa-conn.on i {
+  background: var(--owa-ok);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+
+.owa-conn.off i {
+  background: var(--owa-bad);
+}
+
+.owa-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 22px 28px;
+}
+
+.owa-content-full {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.owa-content-flush {
+  padding: 0;
+}
+
+.owa-content-full > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.owa-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1400px;
+}
+
+/* ---------- buttons ---------- */
+.owa-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--owa-border);
+  background: var(--owa-surface);
+  color: var(--owa-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.owa-btn:hover:not(:disabled) {
+  border-color: var(--owa-accent);
+  color: var(--owa-accent);
+}
+
+.owa-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.owa-btn-primary {
+  background: var(--owa-accent);
+  border-color: var(--owa-accent);
+  color: #fff;
+}
+
+.owa-btn-primary:hover:not(:disabled) {
+  background: #0f7a6e;
+  color: #fff;
+}
+
+.owa-btn-danger {
+  color: var(--owa-bad);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.owa-btn-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: var(--owa-bad);
+  color: var(--owa-bad);
+}
+
+.owa-btn-ghost {
+  background: transparent;
+}
+
+.owa-btn-sm {
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.owa-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid var(--owa-border);
+  background: var(--owa-surface);
+  color: var(--owa-muted-2);
+  cursor: pointer;
+}
+
+.owa-icon-btn:hover:not(:disabled) {
+  color: var(--owa-accent);
+  border-color: var(--owa-accent);
+}
+
+.owa-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.owa-icon-btn.danger:hover:not(:disabled) {
+  color: var(--owa-bad);
+  border-color: var(--owa-bad);
+}
+
+/* ---------- cards ---------- */
+.owa-card {
+  background: var(--owa-surface);
+  border: 1px solid var(--owa-border);
+  border-radius: var(--owa-radius);
+  overflow: hidden;
+}
+
+.owa-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--owa-border);
+}
+
+.owa-card-head h2 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.owa-card-head p {
+  color: var(--owa-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.owa-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.owa-card-body {
+  padding: 16px;
+}
+
+/* ---------- stats ---------- */
+.owa-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.owa-stat {
+  background: var(--owa-surface);
+  border: 1px solid var(--owa-border);
+  border-radius: var(--owa-radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.owa-stat-label {
+  color: var(--owa-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.owa-stat-value {
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.owa-stat-hint {
+  color: var(--owa-muted);
+  font-size: 11px;
+}
+
+.owa-stat.ok .owa-stat-value { color: var(--owa-ok); }
+.owa-stat.warn .owa-stat-value { color: var(--owa-warn); }
+.owa-stat.bad .owa-stat-value { color: var(--owa-bad); }
+.owa-stat.info .owa-stat-value { color: var(--owa-info); }
+
+/* ---------- toolbar ---------- */
+.owa-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.owa-toolbar .owa-grow {
+  flex: 1;
+}
+
+.owa-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--owa-border);
+  border-radius: 8px;
+  background: var(--owa-surface);
+  color: var(--owa-muted);
+}
+
+.owa-search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--owa-text);
+  font: inherit;
+  font-size: 13px;
+  width: 190px;
+}
+
+/* ---------- badges ---------- */
+.owa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--owa-surface-2);
+  color: var(--owa-muted-2);
+  white-space: nowrap;
+}
+
+.owa-badge-ok { background: rgba(22, 163, 74, 0.13); color: #15803d; }
+.owa-badge-warn { background: rgba(217, 119, 6, 0.14); color: #b45309; }
+.owa-badge-bad { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
+.owa-badge-info { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
+
+/* ---------- tables ---------- */
+.owa-table-wrap {
+  overflow: auto;
+}
+
+.owa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.owa-table th {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--owa-border);
+  background: var(--owa-surface-2);
+  color: var(--owa-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.owa-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--owa-border);
+  vertical-align: middle;
+}
+
+.owa-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.owa-table tbody tr:hover td {
+  background: var(--owa-surface-2);
+}
+
+.owa-table-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--owa-muted);
+  font-size: 13px;
+}
+
+.owa-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.owa-nowrap { white-space: nowrap; }
+.owa-muted { color: var(--owa-muted); }
+.owa-small { font-size: 12px; }
+
+.owa-cell-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.owa-cell-main strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owa-cell-main span {
+  color: var(--owa-muted);
+  font-size: 11px;
+}
+
+.owa-row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+/* ---------- empty / error ---------- */
+.owa-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 34px 16px;
+  color: var(--owa-muted);
+  text-align: center;
+}
+
+.owa-empty strong {
+  color: var(--owa-text);
+  font-size: 14px;
+}
+
+.owa-empty span {
+  font-size: 12px;
+  max-width: 420px;
+}
+
+.owa-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  background: rgba(220, 38, 38, 0.07);
+  color: var(--owa-bad);
+  font-size: 13px;
+}
+
+.owa-error .owa-btn {
+  margin-left: auto;
+}
+
+.owa-spin {
+  animation: owa-spin 0.9s linear infinite;
+}
+
+@keyframes owa-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .owa-spin { animation-duration: 2.4s; }
+}
+
+/* ---------- forms ---------- */
+.owa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--owa-muted-2);
+}
+
+.owa-field input,
+.owa-field select,
+.owa-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--owa-border);
+  border-radius: 8px;
+  background: var(--owa-surface);
+  color: var(--owa-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.owa-field textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.owa-field small {
+  color: var(--owa-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.owa-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.owa-form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.owa-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--owa-muted-2);
+}
+
+/* ---------- modal ---------- */
+.owa-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.owa-modal {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--owa-surface);
+  border: 1px solid var(--owa-border);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.3);
+}
+
+.owa-modal-wide {
+  width: min(760px, 100%);
+}
+
+.owa-modal h2 {
+  font-size: 17px;
+  font-weight: 700;
+  padding-right: 28px;
+}
+
+.owa-modal-sub {
+  margin-top: 3px;
+  color: var(--owa-muted);
+  font-size: 12px;
+}
+
+.owa-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.owa-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.owa-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--owa-muted);
+  cursor: pointer;
+}
+
+.owa-modal-close:hover {
+  background: var(--owa-surface-2);
+  color: var(--owa-text);
+}
+
+/* ---------- QR ---------- */
+.owa-qr-frame {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  padding: 14px;
+  border: 1px dashed var(--owa-border);
+  border-radius: 12px;
+  background: var(--owa-surface-2);
+}
+
+.owa-qr-frame img {
+  width: min(260px, 100%);
+  height: auto;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.owa-pairing-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--owa-surface-2);
+  border: 1px solid var(--owa-border);
+}
+
+/* ---------- charts ---------- */
+.owa-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 120px;
+  padding-top: 8px;
+}
+
+.owa-bar-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 100%;
+}
+
+.owa-bar {
+  width: 50%;
+  min-width: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--owa-accent);
+  opacity: 0.85;
+}
+
+.owa-bar.in {
+  background: var(--owa-info);
+  opacity: 0.55;
+}
+
+.owa-bar-label {
+  display: flex;
+  justify-content: space-between;
+  color: var(--owa-muted);
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.owa-legend {
+  display: flex;
+  gap: 14px;
+  color: var(--owa-muted);
+  font-size: 11px;
+}
+
+.owa-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.owa-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* ---------- chat ---------- */
+.owa-chat-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 460px;
+}
+
+.owa-chat-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--owa-border);
+  border-radius: var(--owa-radius);
+  background: var(--owa-surface);
+  overflow: hidden;
+  max-height: 620px;
+}
+
+.owa-chat-list-head {
+  padding: 10px;
+  border-bottom: 1px solid var(--owa-border);
+}
+
+.owa-chat-items {
+  flex: 1;
+  overflow: auto;
+}
+
+.owa-chat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--owa-border);
+  background: transparent;
+  color: var(--owa-text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.owa-chat-item:hover { background: var(--owa-surface-2); }
+.owa-chat-item.active { background: var(--owa-accent-soft); }
+
+.owa-chat-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.owa-chat-item-top strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owa-chat-item-top span {
+  color: var(--owa-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.owa-chat-item small {
+  color: var(--owa-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owa-thread {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--owa-border);
+  border-radius: var(--owa-radius);
+  background: var(--owa-surface);
+  overflow: hidden;
+  max-height: 620px;
+}
+
+.owa-thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--owa-border);
+}
+
+.owa-thread-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.owa-thread-head small {
+  color: var(--owa-muted);
+  font-size: 11px;
+}
+
+.owa-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--owa-surface-2);
+}
+
+.owa-msg {
+  max-width: 72%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--owa-surface);
+  border: 1px solid var(--owa-border);
+  font-size: 13px;
+  line-height: 1.45;
+  align-self: flex-start;
+}
+
+.owa-msg.out {
+  align-self: flex-end;
+  background: #dcf8c6;
+  border-color: #c8eaa8;
+  color: #0b3d0b;
+}
+
+.owa-msg-meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--owa-muted);
+  font-size: 10px;
+}
+
+.owa-msg.out .owa-msg-meta { color: #3f6b3f; }
+
+.owa-composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--owa-border);
+  background: var(--owa-surface);
+}
+
+.owa-composer textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 110px;
+  padding: 9px 11px;
+  border: 1px solid var(--owa-border);
+  border-radius: 9px;
+  background: var(--owa-surface);
+  color: var(--owa-text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+/* ---------- misc ---------- */
+.owa-code {
+  margin: 0;
+  padding: 12px;
+  border-radius: 9px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 320px;
+}
+
+.owa-config-area {
+  width: 100%;
+  min-height: 160px;
+  padding: 10px;
+  border: 1px solid var(--owa-border);
+  border-radius: 8px;
+  background: var(--owa-surface-2);
+  color: var(--owa-text);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.owa-key-reveal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  color: #15803d;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.owa-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.owa-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.owa-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--owa-border);
+  font-size: 13px;
+}
+
+.owa-list-row:last-child { border-bottom: 0; }
+
+/* ---------- message media + actions ---------- */
+.owa-msg-media {
+  margin-bottom: 5px;
+}
+
+.owa-msg-media img,
+.owa-msg-media video {
+  display: block;
+  max-width: 320px;
+  max-height: 320px;
+  border-radius: 8px;
+  background: #000;
+}
+
+.owa-msg-media audio {
+  width: 260px;
+  max-width: 100%;
+}
+
+.owa-msg-media a {
+  color: inherit;
+  text-decoration: underline;
+  font-size: 13px;
+}
+
+.owa-msg-actions {
+  display: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(100, 116, 139, 0.18);
+}
+
+.owa-msg:hover .owa-msg-actions,
+.owa-msg-actions.open {
+  display: flex;
+}
+
+.owa-msg-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.owa-msg-actions button:hover {
+  background: rgba(100, 116, 139, 0.14);
+  opacity: 1;
+}
+
+.owa-attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--owa-border);
+  border-radius: 9px;
+  background: var(--owa-surface-2);
+  font-size: 12px;
+  color: var(--owa-muted-2);
+}
+
+.owa-attachment-chip img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.owa-attachment-chip strong {
+  font-weight: 600;
+  color: var(--owa-text);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owa-attachment-chip button {
+  margin-left: auto;
+}
+
+.owa-reply-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--owa-accent);
+  border-radius: 6px;
+  background: var(--owa-accent-soft);
+  font-size: 12px;
+  color: var(--owa-muted-2);
+}
+
+.owa-reply-banner span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.owa-thread-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.owa-composer-wrap {
+  border-top: 1px solid var(--owa-border);
+  background: var(--owa-surface);
+}
+
+.owa-composer-wrap .owa-composer {
+  border-top: 0;
+}
+
+.owa-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 0;
+  flex-wrap: wrap;
+}
+
+.owa-file-input {
+  display: none;
+}
+
+/* ---------- progress + tabs ---------- */
+.owa-progress {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--owa-surface-2);
+  border: 1px solid var(--owa-border);
+  overflow: hidden;
+}
+
+.owa-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--owa-accent);
+  transition: width 0.3s ease;
+}
+
+.owa-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.owa-tab {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--owa-border);
+  background: var(--owa-surface);
+  color: var(--owa-muted-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.owa-tab.active {
+  background: var(--owa-accent);
+  border-color: var(--owa-accent);
+  color: #fff;
+}
+
+.owa-recipients-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 110px;
+  overflow: auto;
+}
+
+/* ---------- status ---------- */
+.owa-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.owa-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--owa-surface);
+  border: 1px solid var(--owa-border);
+  border-radius: var(--owa-radius);
+  min-width: 0;
+}
+
+.owa-status-card.text {
+  border: 0;
+  min-height: 210px;
+  justify-content: space-between;
+}
+
+.owa-status-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.owa-status-media {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #000;
+}
+
+.owa-status-caption {
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 980px) {
+  .owa { flex-direction: column; }
+  .owa-nav {
+    width: 100%;
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--owa-border);
+  }
+  .owa-brand { width: 100%; padding-bottom: 8px; }
+  .owa-nav button { width: auto; }
+  .owa-nav-foot { display: none; }
+  .owa-split { grid-template-columns: 1fr; }
+  .owa-chat-grid { grid-template-columns: 1fr; }
+  .owa-chat-list { max-height: 260px; }
+}

@@ -125,7 +125,6 @@ function start() {
   running = true;
   const runNoOverlap = makeNonOverlap('fro auto-logout', runFroAutoLogout);
   cronJobs.push(cron.schedule('20 */5 * * * *', () => runNoOverlap().catch(() => {})));
-  console.log(`Scheduled: 5-min auto-logout sweep for FROs past shift end + ${AUTO_LOGOUT_AFTER_MIN} min`);
 }
 
 function stop() {

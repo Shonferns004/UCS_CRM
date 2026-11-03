@@ -20,7 +20,6 @@ CREATE INDEX IF NOT EXISTS idx_salary_holds_month ON salary_holds(salary_month);
 export async function ensureSalaryHoldSchema() {
   try {
     await db._pool.query(CREATE_TABLE_SQL);
-    console.log('salary_holds table ready');
   } catch (e) {
     console.warn('[salary hold schema] skip:', e?.message || String(e));
   }

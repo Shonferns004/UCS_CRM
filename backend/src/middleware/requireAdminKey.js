@@ -4,10 +4,6 @@
 // unset the guard passes through, which callers warn about on boot.
 const ADMIN_KEY = process.env.ENV_ADMIN_KEY;
 
-if (!ADMIN_KEY) {
-  console.warn('WARNING: ENV_ADMIN_KEY is not set. S3 browser and stored-file endpoints are OPEN.');
-}
-
 export const requireAdminKey = (req, res, next) => {
   if (!ADMIN_KEY) return next();
   const key = req.headers['x-admin-key'] || req.query.key;

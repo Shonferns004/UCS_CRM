@@ -24,6 +24,5 @@ export async function ensureTaskAssignmentSchema() {
     await db._pool.query(sql);
     console.log('task_assignments schema ready');
   } catch (e) {
-    console.warn('[task_assignments schema] skip:', e?.message || String(e));
   }
 }

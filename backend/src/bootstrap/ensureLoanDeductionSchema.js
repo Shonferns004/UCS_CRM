@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS worker_loan_deductions (
 export async function ensureLoanDeductionSchema() {
   try {
     await db._pool.query(CREATE_TABLE_SQL);
-    console.log('worker_loan_deductions table ready');
   } catch (e) {
     console.warn('[loan deduction schema] skip:', e?.message || String(e));
   }
@@ -25,7 +24,6 @@ export async function ensureLoanDeductionSchema() {
     await db._pool.query(`ALTER TABLE worker_loans ADD COLUMN IF NOT EXISTS start_month DATE`);
     await db._pool.query(`ALTER TABLE worker_loans ADD COLUMN IF NOT EXISTS end_month DATE`);
     await db._pool.query(`ALTER TABLE worker_loans ADD COLUMN IF NOT EXISTS recurring BOOLEAN DEFAULT FALSE`);
-    console.log('worker_loans period columns ready');
   } catch (e) {
     console.warn('[loan period columns] skip:', e?.message || String(e));
   }
@@ -43,7 +41,6 @@ export async function ensureLoanDeductionSchema() {
         ADD CONSTRAINT worker_loan_deductions_loan_id_fkey
         FOREIGN KEY (loan_id) REFERENCES worker_loans(id) ON DELETE CASCADE
     `);
-    console.log('worker_loan_deductions FK cascade ensured');
   } catch (e) {
     console.warn('[loan deduction FK cascade] skip:', e?.message || String(e));
   }
@@ -64,7 +61,6 @@ export async function ensureLoanDeductionSchema() {
           'pending','approved','rejected','active','closed','overdue'
         ]))
     `);
-    console.log("worker_loans status constraint now allows 'overdue'");
   } catch (e) {
     console.warn('[loan status constraint] skip:', e?.message || String(e));
   }

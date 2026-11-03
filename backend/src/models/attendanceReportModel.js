@@ -191,30 +191,54 @@ export async function getWorkerAttendanceReport(workerId, month) {
     return { date: r.date, minutes: r.minutes, runningMinutes: running };
   });
 
+  const fmtDate = (d) => {
+    const [y, m, dd] = String(d).split('-');
+    return `${dd} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1]} ${y}`;
+  };
+
   const lateTotal = Number(calc.totalLateMinutes) || 0;
   const { grace: gMin, half: gHalf, full: gFull } = calc.lateThresholds || {};
-  // Absences never enter this arithmetic: a missing punch already costs its own
-  // day (absent day excluded from present days), so charging the month's late
-  // minutes on top of it would deduct the same absence twice.
-  const graceClawedBack = gHalf != null && lateTotal > gHalf;
-  const effectiveLate = graceClawedBack ? lateTotal + gMin : lateTotal;
+  const graceForfeited = !!calc.graceForfeited;
+  // Money: an unauthorized absence forfeits the month's grace (grace charged
+  // once, up-front). Otherwise the grace is only clawed back once the total
+  // passes the half-day threshold.
+  const graceClawedBack = !graceForfeited && gHalf != null && lateTotal > gHalf;
+  const effectiveLate = (graceClawedBack || graceForfeited) ? lateTotal + gMin : lateTotal;
   const rawDays = gFull ? effectiveLate / gFull : 0;
   const unauthorizedCount = (calc.unauthorizedAbsences || []).length;
+  const rollbackMinutes = Number(calc.lateRollbackMinutes) || 0;
+  const forfeitTrigger = calc.firstForfeitDate
+    ? (calc.unauthorizedAbsences || []).find((a) => a.date === calc.firstForfeitDate)
+    : null;
+  const forfeitLabel = forfeitTrigger?.trigger === 'no_leave'
+    ? 'absent with no leave application'
+    : forfeitTrigger?.trigger === 'rejected'
+      ? 'leave rejected but the day was still absent'
+      : forfeitTrigger?.trigger === 'pending'
+        ? 'leave still pending and the day was absent without an approved proof'
+        : 'unauthorized absence';
 
-  const lateExplanation = lateTotal
+  const lateExplanation = lateTotal || graceForfeited
     ? [
       `POOLED MONTHLY RULE — late minutes are added together for the whole month, then divided by the full-day limit. Individual days are not charged separately.`,
       `1. Grace: the first ${gMin} minutes are free. This volunteer's personal grace is ${gMin} min (standard is 180 min).`,
       `2. Thresholds scale with grace: half-day at ${gHalf} min, full-day at ${gFull} min.`,
-      `3. Total late: ${lateTotal} min across ${lateLog.length} day${lateLog.length === 1 ? '' : 's'} (average ${Math.round(lateTotal / lateLog.length)} min per late day).`,
-      graceClawedBack
-        ? `4. Grace clawback: the total passed the ${gHalf} min half-day threshold, so the ${gMin} free minutes are charged too — added once: ${lateTotal} + ${gMin} = ${effectiveLate} min. Working: ${effectiveLate} ÷ ${gFull} = ${rawDays.toFixed(2)} days, rounded to the nearest half day = ${round2(calc.lateDeductionDays)} days.`
-        : (lateTotal > gMin
-          ? `4. Working: past the ${gMin} min grace but within the ${gHalf} min half-day threshold, so a flat 0.5 day is deducted.`
-          : `4. Working: ${lateTotal} min is within the ${gMin} min grace — no deduction.`),
-      `5. Money: ${round2(calc.lateDeductionDays)} × ₹${perDay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} per day = ₹${Math.round(perDay * calc.lateDeductionDays).toLocaleString('en-IN')}, deducted from gross pay.`,
-      unauthorizedCount
-        ? `Note: the ${unauthorizedCount} absent day${unauthorizedCount === 1 ? '' : 's'} this month ${unauthorizedCount === 1 ? 'is' : 'are'} already deducted as absent days. They do not change this late deduction — lateness is scored only on the minutes above.`
+      lateTotal
+        ? `3. Total late: ${lateTotal} min across ${lateLog.length} day${lateLog.length === 1 ? '' : 's'} (average ${Math.round(lateTotal / lateLog.length)} min per late day).`
+        : `3. Total late: 0 min this month.`,
+      graceForfeited
+        ? `4. Grace forfeited (${forfeitLabel}${calc.firstForfeitDate ? ` on ${fmtDate(calc.firstForfeitDate)}` : ''}): an unauthorized absence revokes the free grace for the month — charged once, never twice. The grace is added up-front: ${lateTotal} + ${gMin} = ${effectiveLate} min. Working: ${effectiveLate} ÷ ${gFull} = ${rawDays.toFixed(2)} days, rounded to the nearest half day.`
+        : (graceClawedBack
+          ? `4. Grace clawback: the total passed the ${gHalf} min half-day threshold, so the ${gMin} free minutes are charged too — added once: ${lateTotal} + ${gMin} = ${effectiveLate} min. Working: ${effectiveLate} ÷ ${gFull} = ${rawDays.toFixed(2)} days, rounded to the nearest half day.`
+          : (lateTotal > gMin
+            ? `4. Working: past the ${gMin} min grace but within the ${gHalf} min half-day threshold, so a flat 0.5 day is deducted.`
+            : `4. Working: ${lateTotal} min is within the ${gMin} min grace — no deduction.`)),
+      rollbackMinutes > 0
+        ? `5. Admin rollback: ${rollbackMinutes} min of grace given back for this month — recomputed on ${Math.max(0, lateTotal - rollbackMinutes)} min. Net deduction: ${round2(calc.lateDeductionDays)} day(s).`
+        : null,
+      `6. Money: ${round2(calc.lateDeductionDays)} × ₹${perDay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} per day = ₹${Math.round(perDay * calc.lateDeductionDays).toLocaleString('en-IN')}, deducted from gross pay.`,
+      unauthorizedCount && !graceForfeited
+        ? `Note: the ${unauthorizedCount} absent day${unauthorizedCount === 1 ? '' : 's'} this month ${unauthorizedCount === 1 ? 'is' : 'are'} already deducted as absent days.`
         : null,
     ].filter(Boolean).join('\n')
     : `No late minutes recorded, or all lateness fell within the ${gMin} min grace. No late deduction.`;
@@ -349,7 +373,7 @@ export async function getWorkerAttendanceReport(workerId, month) {
     { label: 'Compensatory work days', value: calc.compensatoryWorkDays },
     { label: 'Total late minutes', value: calc.totalLateMinutes },
     { label: 'Late grace minutes', value: calc.lateGraceMinutes },
-    { label: 'Unauthorized absences (already charged as absent days)', value: (calc.unauthorizedAbsences || []).length },
+    { label: 'Grace forfeited (unauthorized absence)', value: calc.graceForfeited ? 'Yes' : 'No' },
   ];
 
   const paidSummary = [

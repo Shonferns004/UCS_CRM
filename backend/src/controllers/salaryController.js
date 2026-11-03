@@ -348,7 +348,23 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
 
 export const removeSalary = async (req, res) => {
   try {
+    const current = await getSalaryById(req.params.id);
     const result = await deleteSalary(req.params.id);
+
+    // Deleting a row that was layered on top of an older one must hand the
+    // salary back to it: the previous row was closed (to_month = month before
+    // this one) when the new row was added, so without this the worker shows no
+    // active salary at all and payroll drops to 0 for the older month.
+    if (current) {
+      const rest = await getSalariesByWorker(current.worker_id).catch(() => []);
+      const latest = (rest || [])
+        .slice()
+        .sort((a, b) => String(b.from_month).localeCompare(String(a.from_month)))[0];
+      if (latest && latest.to_month) {
+        await updateSalary(latest.id, { to_month: null });
+      }
+    }
+
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -770,7 +786,7 @@ async function computeLateDeductionFor(workerId, month, rollbackMinutes = 0) {
   const startDate = `${month}-01`;
   const endDate = `${month}-${String(daysInMonth).padStart(2, '0')}`;
 
-  const worker = await getWorkerById(workerId);
+  const worker = await getWorkerById(workerId).catch(() => null);
   if (!worker) return null;
 
   const records = await getMonthlyAttendance(workerId, startDate, endDate);
@@ -848,9 +864,13 @@ export const setLateRollback = async (req, res) => {
       ? Math.round(requested)
       : base.lateGraceMinutes;
 
-    if (minutes > base.totalLateMinutes) {
+    // What can be given back = the late pool, plus the grace itself when an
+    // unauthorized absence charged it up-front. Without the second part a
+    // worker with 26 late minutes could never roll the charged 180 min back.
+    const maxRollback = base.totalLateMinutes + (base.graceForfeited ? base.lateGraceMinutes : 0);
+    if (minutes > maxRollback) {
       return res.status(400).json({
-        message: `This month has only ${base.totalLateMinutes} late minute(s) — cannot roll back ${minutes}`,
+        message: `Only ${maxRollback} minute(s) can be rolled back for ${month} (${base.totalLateMinutes} late + ${base.graceForfeited ? base.lateGraceMinutes : 0} grace)`,
       });
     }
     if (minutes <= 0) {

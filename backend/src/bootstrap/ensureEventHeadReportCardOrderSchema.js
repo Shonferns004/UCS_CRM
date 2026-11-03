@@ -28,6 +28,5 @@ export async function ensureEventHeadReportCardOrderSchema() {
     }
     console.log('event_head_report_card_order schema ready');
   } catch (e) {
-    console.warn('[event_head_report_card_order schema] skip:', e?.message || String(e));
   }
 }
