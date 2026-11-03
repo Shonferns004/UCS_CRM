@@ -1,0 +1,208 @@
+/* Dashboard strip: recent deletions with the actor and station. Uses the embed's tokens
+   (theme.css) so it matches the OpenWA dashboard cards around it. */
+.recent-deletions {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.recent-deletions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.recent-deletions-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.recent-deletions-title h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.recent-deletions-title p {
+  margin: 2px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+/* "Message by type" for deletions: the card's own breakdown, counted over every tracked row. */
+.recent-deletions-types {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-light);
+}
+
+.recent-types-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-right: 0.2rem;
+}
+
+.recent-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2px 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.recent-type-chip strong {
+  color: var(--text-primary);
+}
+
+.recent-deletions-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-deletion {
+  display: grid;
+  grid-template-columns: 108px minmax(140px, 190px) minmax(110px, 1fr) minmax(160px, 1.5fr);
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.55rem 1.1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.recent-deletion:first-child {
+  border-top: 0;
+}
+
+.recent-when {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.recent-when strong {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.recent-when small {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.recent-who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.recent-who strong {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-who small {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-chat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.recent-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-primary);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.recent-body em {
+  color: var(--text-muted);
+}
+
+.recent-body small {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.recent-deletions-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 110px;
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 900px) {
+  .recent-deletion {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'when who'
+      'chat chat'
+      'body body';
+    row-gap: 2px;
+    align-items: start;
+  }
+
+  .recent-when {
+    grid-area: when;
+  }
+
+  .recent-who {
+    grid-area: who;
+  }
+
+  .recent-chat {
+    grid-area: chat;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .recent-body {
+    grid-area: body;
+  }
+}

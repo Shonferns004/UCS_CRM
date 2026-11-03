@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy, Medal } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessagesSquare, Coins, Trophy, Medal, Smartphone } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -18,7 +18,6 @@ import { requestNotifPermission, showDesktopNotification } from '../../utils/des
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import { CallProvider, useCall, DISPOSITION_WINDOW, SETTLE_SECONDS } from './CallContext'
-import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import ToastContainer from '../../components/Toast'
@@ -38,10 +37,10 @@ import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
+import StationWhatsApp from './pages/StationWhatsApp'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { istDateString } from './utils/time'
-import { readWaInboxAgents, writeWaInboxAgents } from './utils/waInboxAgents'
 import teleWav from '../../assets/audio/tele.wav'
 import followDueMp3 from '../../assets/audio/follow_due.mp3'
 import callLessMp3 from '../../assets/audio/call_less.mp3'
@@ -182,8 +181,6 @@ const sortTeamBroadcasts = (teams) => [...(teams || [])].sort((a, b) => {
   if (am && bm) return Number(am[1]) - Number(bm[1]);
   return String(a?.name || '').localeCompare(String(b?.name || ''));
 });
-
-const INBOX_SHORT = { bsct: 'BSCT', bsct2: 'BSCT2', aflf: 'AFLF', mann: 'MANN' }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
@@ -531,21 +528,62 @@ function WorkAnniversaryPopup() {
   )
 }
 
-function Sidebar({ open, onClose, waUnreadCounts, si, waAgents = [] }) {
+function Sidebar({ open, onClose, si }) {
   const location = useLocation()
+  // A station WhatsApp tab appears for every station assignment on this FRO's stations
+  // (session assignment -> NGO + station -> fro_station_assignments). One session can be
+  // shared with several stations, so this may add more than one entry.
+  const [stationAssignments, setStationAssignments] = useState([])
+  useEffect(() => {
+    let alive = true
+    const read = () =>
+      api('/openwa-assignments/mine')
+        .then(data => {
+          if (alive) setStationAssignments(data?.assignments || [])
+        })
+        .catch(() => {})
+    read()
+    // Re-read on navigation, on returning to the tab and every 15s, so a temporary
+    // grant appears (with its "(temp)" tab) shortly after the admin makes it.
+    const timer = setInterval(read, 15000)
+    const onFocus = () => read()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') read()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      alive = false
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [location.pathname])
   const nav = [...NAV_BASE]
-  // waAgents is scoped to the logged-in user by the parent (see waInboxAgents),
-  // so an impersonation switch or shared terminal can't leak another FRO's inbox
-  // links into this sidebar.
-  if (waAgents.length === 1) {
-    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: `WhatsApp ${INBOX_SHORT[waAgents[0].project] || waAgents[0].project}`, Icon: MessageCircle })
-  } else if (waAgents.length > 1) {
-    waAgents.forEach(a => {
-      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `WhatsApp ${INBOX_SHORT[a.project] || a.project}`, Icon: MessageCircle })
+  // A worker can run the same station for several NGOs (e.g. BOD-4 in BSCT and MANN).
+  // The first assignment is their station's own WhatsApp; every extra NGO gets its
+  // own tab below it, named after the NGO. A temporary grant is labelled "(temp)".
+  // Duplicate labels fall back to NGO · station.
+  const usedLabels = new Set()
+  stationAssignments.forEach((assignment, index) => {
+    // Temporary grants show the STATION name (MOD-14 WhatsApp), never the NGO name
+    // and never a "(temp)" marker — the tab looks like any other station's WhatsApp.
+    const base =
+      index === 0 || assignment.viaTemporaryAccess
+        ? assignment.station
+        : assignment.ngoName || assignment.station
+    let label = `${base} WhatsApp`
+    if (usedLabels.has(label)) {
+      label = `${assignment.ngoName || 'NGO'} · ${assignment.station} WhatsApp`
+    }
+    usedLabels.add(label)
+    nav.push({
+      id: `station-whatsapp-${assignment.sessionId}-${assignment.station}`,
+      path: `/fro/station-whatsapp?session=${encodeURIComponent(assignment.sessionId)}&station=${encodeURIComponent(assignment.station)}`,
+      label,
+      Icon: Smartphone,
     })
-  } else {
-    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp', Icon: MessageCircle })
-  }
+  })
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
@@ -561,27 +599,23 @@ function Sidebar({ open, onClose, waUnreadCounts, si, waAgents = [] }) {
           {nav.map(n => {
             return (
             <NavLink key={n.id} to={n.path} end
-              className={() => `snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
+              className={() => {
+                // Station tabs carry session/station in the query; a deep link also adds
+                // ?chat=..., which must not stop the tab from looking active.
+                const [path, query] = n.path.split('?')
+                if (query) {
+                  const want = new URLSearchParams(query)
+                  const have = new URLSearchParams(location.search)
+                  const same = [...want.keys()].every(k => have.get(k) === want.get(k))
+                  return `snav-item ${location.pathname === path && same ? 'active' : ''}`
+                }
+                return `snav-item ${location.pathname === path ? 'active' : ''}`
+              }}
               onClick={() => onClose?.()}>
             <n.Icon size={18} strokeWidth={2} />
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <span>{n.label}</span>
             {n.id === 'chat' && <ChatNavBadge quiet />}
-            {n.id.startsWith('whatsapp') && waUnreadCounts?.[n.id] > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
-                  {waUnreadCounts[n.id] > 9 ? '9+' : waUnreadCounts[n.id]}
-                </span>
-              )}
-              {n.id === 'whatsapp-chat' && waAgents.length === 1 && waUnreadCounts?.[`whatsapp-${waAgents[0]?.project}`] > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
-                  {waUnreadCounts[`whatsapp-${waAgents[0]?.project}`] > 9 ? '9+' : waUnreadCounts[`whatsapp-${waAgents[0]?.project}`]}
-                </span>
-              )}
-              {n.id === 'whatsapp-chat' && waUnreadCounts?.total > 0 && !waAgents.length && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
-                  {waUnreadCounts.total > 9 ? '9+' : waUnreadCounts.total}
-                </span>
-              )}
             </span>
           </NavLink>
             );
@@ -601,10 +635,6 @@ export default function FROPanel() {
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [waUnreadCounts, setWaUnreadCounts] = useState({ total: 0 })
-  // Inbox links for the sidebar, scoped to the current user so a previous
-  // identity's agents don't linger after an impersonation switch.
-  const [waAgents, setWaAgents] = useState([])
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
 
@@ -885,103 +915,6 @@ useEffect(() => onFroAction((action) => {
   }, [froBroadcast]);
   const broadcastTeams = sortTeamBroadcasts(froBroadcast?.teams);
 
-  const refreshWaUnread = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('ucs_token')
-      if (!token) return
-
-      // Resolve this user's inbox agents. Prefer the cache scoped to them; when
-      // it is empty (fresh login, or an impersonation switch) re-fetch from the
-      // server so the sidebar reflects the identity that is actually signed in.
-      const storedAgents = readWaInboxAgents(user?.id)
-      setWaAgents(storedAgents)
-      let resolvedAgents = storedAgents
-      if (storedAgents.length === 0 && user?.id) {
-        try {
-          const loginRes = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          if (loginRes.ok) {
-            const loginData = await loginRes.json()
-            const sessionList = loginData.agents || loginData.sessions || []
-            if (sessionList.length) {
-              const agents = sessionList.map(s => ({
-                agentUserId: s.agentId,
-                accountName: s.account?.name,
-                project: s.project,
-                whatsappUserId: s.account?.id,
-                token: s.token,
-              }))
-              writeWaInboxAgents(agents, user?.id)
-              setWaAgents(agents)
-              resolvedAgents = agents
-            }
-          }
-        } catch { /* silent */ }
-      }
-
-      // TEMPORARY ACCESS: surface time-boxed WhatsApp identities as extra inbox
-      // entries in the sidebar (derived, never persisted to the cache). Expired
-      // grants are filtered out here so the label disappears on the next refresh
-      // once the grant ends — no sweeper needed.
-      try {
-        const accRes = await fetch(`${apiBase}/fro/whatsapp/my-accounts`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (accRes.ok) {
-          const accounts = await accRes.json()
-          console.log('[FROPanel] my-accounts:', accounts)
-          const now = Date.now()
-          const baseProjects = new Set((resolvedAgents || []).map(a => a.project).filter(Boolean))
-          const tempEntries = (Array.isArray(accounts) ? accounts : [])
-            .filter(a => a?.temporary && a?.project && (!a.expires_at || new Date(a.expires_at).getTime() > now))
-            .filter(a => !baseProjects.has(a.project))
-            .reduce((acc, a) => (acc.some(x => x.project === a.project) ? acc : [...acc, a]), [])
-            .map(a => ({
-              agentUserId: resolvedAgents?.[0]?.agentUserId || 'fro',
-              accountName: a.name,
-              project: a.project,
-              whatsappUserId: a.id,
-              token,
-              temporary: true,
-              expiresAt: a.expires_at,
-            }))
-          if (tempEntries.length) {
-            setWaAgents(prev => {
-              const merged = [...prev]
-              for (const t of tempEntries) {
-                if (!merged.some(m => m.project === t.project)) merged.push(t)
-              }
-              return merged
-            })
-          }
-        }
-      } catch { /* temp layer is optional */ }
-
-      // Fetch unread counts — use the FRO JWT for all WhatsApp API calls
-      // since agent tokens are session tokens, not JWTs compatible with the
-      // authenticate middleware.
-      const counts = { total: 0 }
-      try {
-        const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) {
-          const data = await res.json()
-          counts.total = data?.count || 0
-        }
-      } catch { /* skip */ }
-      setWaUnreadCounts(counts)
-    } catch (e) { console.error('Error:', e.message); }
-  }, [user?.id])
-  useEffect(() => { refreshWaUnread() }, [refreshWaUnread])
-
-  useRealtime('messages', {
-    event: '*',
-    onInsert: refreshWaUnread,
-    onUpdate: refreshWaUnread,
-  })
-
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
@@ -1045,7 +978,11 @@ useEffect(() => onFroAction((action) => {
   const dueItems = dedupedRows.filter(r => r.scheduled_at && new Date(r.scheduled_at) <= new Date());
   const dueCount = dueItems.length;
 
-  const meta = NAV_BASE.find(n => location.pathname === n.path)
+  const meta =
+    NAV_BASE.find(n => location.pathname === n.path) ||
+    (location.pathname === '/fro/station-whatsapp'
+      ? { id: 'station-whatsapp', path: '/fro/station-whatsapp', label: 'Station WhatsApp' }
+      : undefined)
   const userName = user?.name || 'User'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
@@ -1063,7 +1000,7 @@ useEffect(() => onFroAction((action) => {
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} waAgents={waAgents} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} si={si} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -1138,7 +1075,7 @@ useEffect(() => onFroAction((action) => {
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit Acting FRO</button>
           </div>
         )}
-        {!impersonating && tempStations.length > 0 && (
+        {!impersonating && location.pathname === '/fro/dashboard' && tempStations.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: 'rgba(29,78,216,.08)', borderBottom: '1px solid var(--line)', fontSize: 12, color: 'var(--ink)', flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>Temporary access:</span>
             {tempStations.map(s => (
@@ -1268,6 +1205,7 @@ useEffect(() => onFroAction((action) => {
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="station-whatsapp" element={<StationWhatsApp />} />
             <Route path="my-leads" element={<MyLeadsSuspense />} />
             <Route path="suspense" element={<FroSuspense />} />
             <Route path="donors" element={<Donors />} />

@@ -22,7 +22,6 @@ export async function ensureReminderPaymentSchema() {
     await db._pool.query(
       `CREATE INDEX IF NOT EXISTS idx_reminder_payments_reminder ON reminder_payments (reminder_id)`
     );
-    console.log('reminder_payments table ready');
   } catch (e) {
     console.warn('[reminder payments schema] skip:', e?.message || String(e));
   }

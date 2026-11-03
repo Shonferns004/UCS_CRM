@@ -137,5 +137,4 @@ export async function ensureTicketSchema() {
       console.warn('[ticket schema] popup ddl failed:', e?.message || String(e));
     }
   }
-  if (popupFailures === 0) console.log('ticket_popup_seen + ticket_popup_baseline tables ready');
 }

@@ -35,10 +35,6 @@ function normalizeFileValue(v) {
 }
 
 const ENV_ADMIN_KEY = process.env.ENV_ADMIN_KEY;
-if (!ENV_ADMIN_KEY) {
-  console.warn('WARNING: ENV_ADMIN_KEY is not set. Env admin endpoints are OPEN.');
-}
-
 const router = Router();
 
 const requireKey = (req, res, next) => {

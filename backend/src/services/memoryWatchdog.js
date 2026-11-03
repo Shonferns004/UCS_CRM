@@ -76,5 +76,4 @@ export function startMemoryWatchdog(options = {}) {
     process.kill(process.pid, 'SIGTERM');
   }, intervalMs);
   timer.unref?.();
-  console.log(`[memoryWatchdog] armed: restart if RSS > ${limitMb} MB sustained for ${Math.round(graceMs / 1000)}s`);
 }

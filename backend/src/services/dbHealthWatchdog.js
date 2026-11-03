@@ -102,7 +102,6 @@ export function startDbHealthWatchdog() {
   cron.schedule('*/5 * * * *', () => {
     runDbHealthCheck().catch((e) => console.error('[db-health] check error:', e.message));
   });
-  console.log('Scheduled: DB health check every 5 minutes');
 }
 
 if (!process.env.VERCEL) {

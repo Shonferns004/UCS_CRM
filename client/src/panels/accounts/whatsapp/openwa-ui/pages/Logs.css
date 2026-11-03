@@ -1,0 +1,723 @@
+.logs-page {
+  padding: 2rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.logs-page .page-header {
+  margin-bottom: 1.5rem;
+}
+
+/* H1 inherited from global */
+
+.logs-page .filters-bar {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.logs-page .search-input {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  max-width: 400px;
+  padding: 0.75rem 1rem;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.logs-page .search-input svg {
+  color: var(--text-muted);
+}
+
+.logs-page .search-input input {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.logs-page .search-input input:focus {
+  outline: none;
+}
+
+.logs-page .search-input:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.logs-page .filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.logs-page .filter-group svg {
+  color: var(--text-muted);
+}
+
+.logs-page .filter-group .custom-select {
+  flex: 1;
+}
+
+.logs-page .logs-table-container {
+  background: var(--bg-white);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.logs-page .logs-table {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+/* Unified row styling - same class for header and data */
+.logs-page .logs-table .table-row {
+  display: grid;
+  grid-template-columns: 180px 200px 150px 150px 150px 1fr;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.logs-page .logs-table .table-row:last-child {
+  border-bottom: none;
+}
+
+.logs-page .logs-table .table-row.header {
+  background: var(--bg-light);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+
+.logs-page .logs-table .table-row:not(.header):hover {
+  background: rgba(37, 211, 102, 0.05);
+}
+
+.logs-page .timestamp {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.logs-page .action {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+/* The row's message, which some actions use to name what happened: wraps under the action. */
+.logs-page .action .log-message {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.logs-page .api-key {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.logs-page .ip {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.logs-page .severity-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.logs-page .logs-table .table-row > span:last-child {
+  justify-self: end;
+}
+
+.logs-page .severity-badge.info {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--info);
+}
+
+.logs-page .severity-badge.warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning-text);
+}
+
+.logs-page .severity-badge.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--error-text);
+}
+
+.logs-page .pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.logs-page .pagination button {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.logs-page .pagination button:hover:not(:disabled) {
+  background: var(--bg-light);
+}
+
+.logs-page .pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.logs-page .page-numbers {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.logs-page .page-numbers button {
+  min-width: 36px;
+  padding: 0.5rem;
+}
+
+.logs-page .page-numbers button.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #0f172a;
+}
+
+/* Empty Table State */
+.logs-page .empty-table-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.logs-page .empty-table-state svg {
+  margin-bottom: 1rem;
+  opacity: 0.4;
+  color: var(--text-muted);
+}
+
+.logs-page .empty-table-state h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem;
+}
+
+.logs-page .empty-table-state p {
+  margin: 0;
+  font-size: 0.875rem;
+  max-width: 300px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .logs-page {
+    padding: 1rem;
+  }
+
+  .logs-page .filters-bar {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .logs-page .search-input {
+    max-width: none;
+  }
+
+  .logs-page .filter-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .logs-page .filter-group .custom-select {
+    flex: 1;
+  }
+
+  .logs-page .logs-table-container {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .logs-page .logs-table {
+    display: block;
+  }
+
+  .logs-page .logs-table .table-row.header {
+    display: none;
+  }
+
+  .logs-page .logs-table .table-row:not(.header) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: start;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: var(--bg-white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 0.75rem;
+  }
+
+  /* Cells inherit centering from the desktop grid; force a start-aligned, scannable card. */
+  .logs-page .logs-table .table-row:not(.header) > span {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: start;
+  }
+
+  .logs-page .logs-table .table-row:not(.header):hover {
+    background: var(--bg-white);
+  }
+
+  /* Action label prominent at top */
+  .logs-page .logs-table .table-row .action {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    order: 1;
+    margin-bottom: 0.25rem;
+  }
+
+  /* Timestamp secondary */
+  .logs-page .logs-table .table-row .timestamp {
+    order: 2;
+    font-size: 0.75rem;
+  }
+
+  /* Session, API Key, IP - inline info */
+  .logs-page .logs-table .table-row > span:nth-child(3),
+  .logs-page .logs-table .table-row > span:nth-child(4),
+  .logs-page .logs-table .table-row > span:nth-child(5) {
+    display: none;
+  }
+
+  /* Severity badge stays visible */
+  .logs-page .logs-table .table-row > span:last-child {
+    order: 3;
+    justify-self: flex-start;
+  }
+
+  .logs-page .pagination {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .logs-page .pagination button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .logs-page .page-numbers button {
+    min-width: 32px;
+    padding: 0.5rem 0.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .logs-page {
+    padding: 0.75rem;
+  }
+}
+
+/* Session-wise message logs */
+/* Session-wise deleted-message view: the page itself must not scroll, only the table body.
+   The embed container is a definite-height flex column, so the page can claim the rest of it. */
+.logs-page-fixed {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.logs-page-fixed .page-header,
+.logs-page-fixed .logs-view-tabs {
+  flex: 0 0 auto;
+}
+
+.logs-page-fixed .message-logs-page {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.message-logs-page {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.message-logs-sessions {
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.message-logs-sessions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.message-logs-session {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.message-logs-session:hover,
+.message-logs-session.active {
+  background: var(--bg-light);
+}
+
+.message-logs-session.active {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.message-logs-session-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-logs-session-phone {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.message-logs-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.message-logs-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+/* Month + station, the two questions a deleted-message log is actually asked: when, and from
+   whose station. Options come from the server, so neither can return an empty table. */
+.message-logs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.message-logs-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 160px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-white);
+  color: var(--text-muted);
+}
+
+.message-logs-filter .custom-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-logs-filter .custom-select-trigger {
+  padding: 0.4rem 0;
+  font-size: 0.8rem;
+  gap: 0.35rem;
+  color: var(--text-primary);
+}
+
+.message-logs-list-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.message-logs-list-head p {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.message-logs-table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.message-log-row {
+  display: grid;
+  grid-template-columns: 150px 110px 120px minmax(140px, 1fr) minmax(180px, 1.4fr);
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+
+.message-log-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-light);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.message-log-time {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Date over time: one glance gives the day and the moment without wrapping the column. */
+.message-log-time {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+}
+
+.message-log-time strong {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-log-time small {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.message-log-chat,
+.message-log-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The message is the point of this log: two lines of it beat one clipped line. */
+.message-log-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  color: var(--text-primary);
+}
+
+.message-log-type {
+  display: block;
+  margin-top: 1px;
+}
+
+.message-logs-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .message-logs-page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.logs-view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.logs-view-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.logs-view-tabs button.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--primary);
+}
+
+.message-log-row.deleted-only {
+  grid-template-columns: 110px 170px 90px minmax(120px, 1fr) minmax(180px, 1.6fr);
+}
+
+.message-log-actor,
+.message-log-station {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.message-log-actor strong {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+.message-log-actor small,
+.message-log-type {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-transform: none;
+}
+
+.message-log-body em {
+  color: var(--text-muted);
+}
+
+/* The accounts panel leaves this list a narrow column on a laptop screen: stack each entry
+   instead of forcing a horizontal scroll. Container-based so it follows the list, not the
+   window. */
+.message-logs-list {
+  container-type: inline-size;
+}
+
+@container (max-width: 700px) {
+  .message-log-row.deleted-only {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'time actor station'
+      'chat chat chat'
+      'body body body';
+    row-gap: 2px;
+    align-items: start;
+  }
+
+  .message-log-row.deleted-only.message-log-header {
+    display: none;
+  }
+
+  .message-log-time {
+    grid-area: time;
+  }
+
+  .message-log-actor {
+    grid-area: actor;
+  }
+
+  .message-log-station {
+    grid-area: station;
+    white-space: nowrap;
+  }
+
+  .message-log-chat {
+    grid-area: chat;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .message-log-body {
+    grid-area: body;
+    display: block;
+    -webkit-line-clamp: none;
+    white-space: normal;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 900px) {
+  .message-log-row.deleted-only {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .message-log-row.deleted-only.message-log-header {
+    display: none;
+  }
+}

@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => {
       // machines on the LAN can open http://192.168.1.154:5173.
       host: true,
       port: 5173,
+      // Filesystem events are unreliable on this machine (edits were served
+      // stale until a restart), so poll instead of trusting the watcher.
+      watch: { usePolling: true, interval: 400 },
       // Fail loudly instead of silently moving to 5174 - the LAN URL people
       // bookmark is http://192.168.1.154:5173 and must stay stable.
       strictPort: true,

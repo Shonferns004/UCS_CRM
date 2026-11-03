@@ -20,7 +20,7 @@ async function loadUws() {
     try {
       uwsImpl = await import('./realtime/uws.js');
     } catch (e) {
-      console.error('[socket] uWebSockets failed to load, falling back to Socket.IO:', e?.message);
+      // Native uWS module is optional; Socket.IO fallback is intentionally quiet.
     }
   })();
   return uwsLoadPromise;

@@ -26,7 +26,6 @@ ALTER TABLE assets ADD COLUMN IF NOT EXISTS team_leader TEXT;
 export async function ensureAssetSchema() {
   try {
     await db._pool.query(ENSURE_COLUMNS_SQL);
-    console.log('assets register columns ready');
   } catch (e) {
     console.warn('[asset schema] skip:', e?.message || String(e));
   }

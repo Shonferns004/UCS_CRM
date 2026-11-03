@@ -1,0 +1,597 @@
+/* Theme + isolation for the vendored OpenWA Chats page.
+   The dashboard's App.css variables are redeclared on the embed container so the
+   copied CSS keeps its look without touching the CRM's own design tokens. */
+
+.openwa-chat-embed {
+  --primary: #25d366;
+  --primary-text: #167c3b;
+  --focus-ring: var(--primary-text);
+  --primary-hover: #1da851;
+  --primary-soft: rgba(37, 211, 102, 0.12);
+  --bg-light: #f8fafc;
+  --bg-white: #ffffff;
+  --bg-card: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --error: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error-text: #b93232;
+  --success-text: #157b3b;
+  --warning-text: #935f06;
+  --info: #2563eb;
+  --read-tick: #7dd3fc;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --radius: 10px;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--text-primary);
+  background: var(--bg-light);
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+}
+
+.openwa-chat-embed[data-theme='dark'] {
+  --bg-light: #0f172a;
+  --bg-white: #1e293b;
+  --bg-card: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border: #334155;
+  --info: #60a5fa;
+  --error-text: #f77b7b;
+  --success-text: var(--success);
+  --warning-text: var(--warning);
+  --primary-soft: rgba(37, 211, 102, 0.18);
+  --primary-text: var(--primary);
+}
+
+.openwa-chat-embed *,
+.openwa-chat-embed *::before,
+.openwa-chat-embed *::after {
+  box-sizing: border-box;
+}
+
+.openwa-chat-embed h1,
+.openwa-chat-embed h2,
+.openwa-chat-embed h3,
+.openwa-chat-embed p {
+  margin: 0;
+}
+
+.openwa-chat-embed a {
+  text-decoration: none;
+}
+
+.openwa-chat-embed button,
+.openwa-chat-embed input,
+.openwa-chat-embed select,
+.openwa-chat-embed textarea {
+  font-family: inherit;
+}
+
+.openwa-chat-embed svg {
+  flex-shrink: 0;
+}
+
+/* Portaled modal root: keeps the OpenWA variables/typography while escaping the CRM
+   panel's stacking context, so the overlay dims the CRM header too. */
+.openwa-chat-embed.openwa-modal-root {
+  display: block;
+  height: auto;
+  min-height: 0;
+  background: transparent;
+}
+
+.openwa-modal-root .modal-overlay {
+  z-index: 2147483000;
+}
+
+.openwa-chat-embed .assign-modal {
+  max-width: 720px;
+}
+
+.openwa-chat-embed .assign-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 2px;
+}
+
+.openwa-chat-embed .assign-search {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-white);
+  color: var(--text-muted);
+}
+
+.openwa-chat-embed .assign-search input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.openwa-chat-embed .assign-station-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 4px;
+  margin-top: 8px;
+}
+
+.openwa-chat-embed .assign-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 26px;
+  margin-top: 10px;
+}
+
+.openwa-chat-embed .assign-selected-empty {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.openwa-chat-embed .assign-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.openwa-chat-embed .assign-chip:hover {
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}
+
+.openwa-chat-embed .assign-chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.openwa-chat-embed .assign-station-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-light);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.openwa-chat-embed .assign-station-card:hover {
+  border-color: var(--primary-text);
+}
+
+.openwa-chat-embed .assign-station-card.checked {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.openwa-chat-embed .assign-station-card input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+.openwa-chat-embed .assign-station-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.openwa-chat-embed .assign-station-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.openwa-chat-embed .assign-station-fro {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.openwa-chat-embed .assign-station-check {
+  flex-shrink: 0;
+  color: var(--primary-text);
+}
+
+@media (max-width: 600px) {
+  .openwa-chat-embed .assign-station-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Must come after the base `.openwa-chat-embed .modal-overlay` rule (equal specificity)
+   and beat the CRM panel header's z-index: 2000. */
+.openwa-chat-embed.openwa-modal-root .modal-overlay {
+  z-index: 2147483000;
+}
+
+/* The dashboard page is written for a full-height layout; the CRM panel supplies it. */
+.openwa-chat-embed .chats-page {
+  height: 100% !important;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Global primitives the vendored pages expect from the OpenWA dashboard's
+   index.css / App.css, scoped to the embed so they never reach the CRM.
+   --------------------------------------------------------------------------- */
+
+.openwa-chat-embed h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--text-primary);
+}
+
+.openwa-chat-embed h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.openwa-chat-embed h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.openwa-chat-embed button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+
+.openwa-chat-embed button:focus-visible,
+.openwa-chat-embed a:focus-visible,
+.openwa-chat-embed [tabindex]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.openwa-chat-embed .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--primary, #25d366);
+  color: #0f172a;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.openwa-chat-embed .btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover, #1da851);
+}
+
+.openwa-chat-embed .btn-primary:disabled,
+.openwa-chat-embed .btn-secondary:disabled,
+.openwa-chat-embed .btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.openwa-chat-embed .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-light, #f8fafc);
+  color: var(--text-secondary, #64748b);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.openwa-chat-embed .btn-secondary:hover:not(:disabled) {
+  background: var(--bg-white, #fff);
+  border-color: var(--text-muted, #94a3b8);
+  color: var(--text-primary, #1e293b);
+}
+
+.openwa-chat-embed .btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--error, #ef4444);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.openwa-chat-embed .btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.openwa-chat-embed .btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-light, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary, #64748b);
+  transition: all 0.2s;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.openwa-chat-embed .btn-icon:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--error-text);
+}
+
+/* Modal (index.css) */
+.openwa-chat-embed .modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: owa-fadeIn 0.2s ease;
+}
+
+.openwa-chat-embed .modal {
+  background: var(--bg-white, #fff);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 90%;
+  max-width: 480px;
+  animation: owa-slideUp 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.openwa-chat-embed .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
+}
+
+.openwa-chat-embed .modal-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  margin: 0;
+}
+
+.openwa-chat-embed .modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.openwa-chat-embed .modal-body > label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 0.5rem;
+}
+
+.openwa-chat-embed .modal-body input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  background: var(--bg-light, #f8fafc);
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.openwa-chat-embed .modal-body select {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  background: var(--bg-light, #f8fafc);
+  color: var(--text-primary);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.openwa-chat-embed .modal-body select:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  background: var(--bg-white, #fff);
+  box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.1);
+}
+
+.openwa-chat-embed .modal-body input:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  background: var(--bg-white, #fff);
+  box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.1);
+}
+
+.openwa-chat-embed .modal-body input[type='radio'],
+.openwa-chat-embed .modal-body input[type='checkbox'] {
+  width: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  flex: none;
+}
+
+.openwa-chat-embed .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem 1.5rem;
+  flex-shrink: 0;
+}
+
+.openwa-chat-embed .error-banner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.openwa-chat-embed .error-banner svg {
+  color: var(--error-text);
+}
+
+.openwa-chat-embed .error-banner-text {
+  color: var(--error-text);
+}
+
+.openwa-chat-embed .text-muted {
+  color: var(--text-muted);
+}
+
+.openwa-chat-embed .mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.openwa-chat-embed .toggle-switch {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.openwa-chat-embed .toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.openwa-chat-embed .toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--border);
+  border-radius: 26px;
+  transition: all 0.2s;
+}
+
+.openwa-chat-embed .toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.openwa-chat-embed .toggle-switch input:checked + .toggle-slider {
+  background: var(--primary);
+}
+
+.openwa-chat-embed .toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(22px);
+}
+
+.openwa-chat-embed .toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.openwa-chat-embed .animate-spin {
+  animation: owa-spin 1s linear infinite;
+}
+
+.openwa-chat-embed .spin-slow {
+  animation: owa-spin 2s linear infinite;
+}
+
+@keyframes owa-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes owa-fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes owa-slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

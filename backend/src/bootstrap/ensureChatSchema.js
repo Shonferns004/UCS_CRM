@@ -148,7 +148,6 @@ export async function ensureChatSchema() {
     try {
       await backfillGroupParticipantUids();
       await backfillParticipantDepartments();
-      console.log('chat schema ready; group participant uids backfilled');
     } catch (e) {
       console.warn('[chat schema] group uid backfill skipped:', e?.message || String(e));
     }
@@ -184,7 +183,6 @@ export async function ensureChatSchema() {
     }
     const { seated, dropped } = await syncCommunityParticipants(convo.id);
     const note = dropped ? `, dropped ${dropped} stale` : '';
-    console.log(`chat schema ready; community room "${convo.slug}" has ${seated} participants${note}`);
   } catch (e) {
     // A chat failure must not stop the rest of the API from booting.
     console.warn('[chat schema] skip:', e?.message || String(e));

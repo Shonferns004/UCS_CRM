@@ -55,7 +55,6 @@ CREATE TABLE IF NOT EXISTS historical_column_mappings (
 export async function ensureHistoricalImportSchema() {
   try {
     await db._pool.query(CREATE_TABLE_SQL);
-    console.log('historical import tables ready');
   } catch (e) {
     console.warn('[historical import schema] skip:', e?.message || String(e));
   }

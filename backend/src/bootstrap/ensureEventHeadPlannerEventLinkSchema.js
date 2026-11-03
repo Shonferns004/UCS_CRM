@@ -31,6 +31,5 @@ export async function ensureEventHeadPlannerEventLinkSchema() {
     }
     console.log('event_head_planner_event_links schema ready');
   } catch (e) {
-    console.warn('[event_head_planner_event_links schema] skip:', e?.message || String(e));
   }
 }

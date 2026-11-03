@@ -29,7 +29,6 @@ CREATE INDEX IF NOT EXISTS idx_absence_proofs_worker_date ON absence_proofs(work
 export async function ensureAbsenceProofSchema() {
   try {
     await db._pool.query(CREATE_TABLE_SQL);
-    console.log('absence_proofs table ready');
   } catch (e) {
     console.warn('[absence proof schema] skip:', e?.message || String(e));
   }
