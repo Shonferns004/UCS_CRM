@@ -770,7 +770,7 @@ async function computeLateDeductionFor(workerId, month, rollbackMinutes = 0) {
   const startDate = `${month}-01`;
   const endDate = `${month}-${String(daysInMonth).padStart(2, '0')}`;
 
-  const worker = await getWorkerById(workerId);
+  const worker = await getWorkerById(workerId).catch(() => null);
   if (!worker) return null;
 
   const records = await getMonthlyAttendance(workerId, startDate, endDate);
