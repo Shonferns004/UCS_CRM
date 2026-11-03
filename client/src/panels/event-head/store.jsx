@@ -7,9 +7,9 @@ import {
   getObservancesOnDate,
 } from '@observances'
 export const apiGet = (path) => api(path, { _prefix: 'ucs' })
-export const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
-export const apiDelete = (path) => api(path, { method: 'DELETE', _prefix: 'ucs' })
-export const apiPut = (path, body) => api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' })
+export const apiPost = (path, body, opts = {}) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs', ...opts })
+export const apiDelete = (path, opts = {}) => api(path, { method: 'DELETE', _prefix: 'ucs', ...opts })
+export const apiPut = (path, body, opts = {}) => api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs', ...opts })
 
 const PALETTE = ['#7B5EA7','#B5603A','#C08A2E','#4F6472','#5B6B4E','#88693D','#3485D4'];
 export const avatarColor = (name) => {
@@ -450,6 +450,21 @@ const localObservances = (start, end, scope) => {
   }
 }
 
+const fallbackRange = (params = {}) => {
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  if (params.start && params.end) return { start: params.start, end: params.end }
+  const year = Number(params.year)
+  const month = Number(params.month)
+  if (Number.isInteger(year) && year >= 1900 && year <= 2200 && Number.isInteger(month) && month >= 1 && month <= 12) {
+    const start = `${year}-${String(month).padStart(2, '0')}-01`
+    const next = new Date(year, month, 1)
+    const end = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`
+    return { start, end }
+  }
+  const today = new Date()
+  return { start: iso(new Date(today.getTime() - 62 * 86400000)), end: iso(today) }
+}
+
 export const fetchCalendarObservances = async (params = {}) => {
   const qs = new URLSearchParams()
   if (params.start) qs.set('start', params.start)
@@ -461,10 +476,7 @@ export const fetchCalendarObservances = async (params = {}) => {
     if (d && Array.isArray(d.observances)) return { ...d, source: 'server' }
     throw new Error('unexpected observance response')
   } catch (err) {
-    const today = new Date()
-    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    const end = params.end || iso(today)
-    const start = params.start || iso(new Date(today.getTime() - 62 * 86400000))
+    const { start, end } = fallbackRange(params)
     const scope = params.scope || 'all'
     console.warn('fetchCalendarObservances: server calendar unavailable, using bundled reference calendar:', err?.message || err)
     return localObservances(start, end, scope)
@@ -510,10 +522,7 @@ export const fetchImportantDays = async (params = {}) => {
     }
     throw new Error('unexpected important-days response')
   } catch (err) {
-    const today = new Date()
-    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    const end = params.end || iso(today)
-    const start = params.start || iso(new Date(today.getTime() - 62 * 86400000))
+    const { start, end } = fallbackRange(params)
     const scope = params.scope || 'all'
     const fallback = localObservances(start, end, scope)
     const reason = err?.message || String(err || '')
@@ -722,7 +731,7 @@ export const getPlannerManualRows = async (params = {}) => {
   return Array.isArray(res) ? res : (res?.rows || [])
 }
 
-export const savePlannerManualRow = async (payload = {}) => {
+export const savePlannerManualRow = async (payload = {}, opts = {}) => {
   const res = await apiPut('/event-head/planner/manual-rows', {
     month: payload.month,
     year: payload.year,
@@ -736,13 +745,13 @@ export const savePlannerManualRow = async (payload = {}) => {
     mode: payload.mode,
     beneficiary: payload.beneficiary,
     location: payload.location,
-  })
+  }, opts)
   return res?.row || null
 }
 
-export const deletePlannerManualRow = async (payload = {}) => {
+export const deletePlannerManualRow = async (payload = {}, opts = {}) => {
   const q = new URLSearchParams(Object.entries(payload).filter(([, v]) => v != null)).toString()
-  return apiDelete('/event-head/planner/manual-rows' + (q ? '?' + q : ''))
+  return apiDelete('/event-head/planner/manual-rows' + (q ? '?' + q : ''), opts)
 }
 
 /* Saves the row's Beneficiary dropdown choice onto that festival's stored

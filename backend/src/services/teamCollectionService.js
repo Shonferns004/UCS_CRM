@@ -211,11 +211,22 @@ export async function buildTeamCollection({ from, to, ngoIds, froId, youTeam } =
   // targets" instead of taking the leaderboard down - the board is still the primary
   // thing on screen.
   try {
-    const months = await getTeamTargetMonths();
     // Month of the board's own window end, not "today": an admin looking at a past
     // range should see that month's plan.
     const monthKey = String(to || '').slice(0, 7);
-    const byTeamTgt = monthKey && months[monthKey] ? months[monthKey] : {};
+
+    // Team targets are the SUM of the members' individual targets, so resolve them
+    // live. The dynamic import breaks the module cycle - the sync service reads the
+    // roster from this module. If it is unavailable the stored per-month numbers
+    // are still a correct-at-last-save fallback rather than "no targets".
+    let byTeamTgt = {};
+    try {
+      const { resolveTeamTargets } = await import('./teamTargetSyncService.js');
+      byTeamTgt = (await resolveTeamTargets(monthKey)).byTeam;
+    } catch {
+      const months = await getTeamTargetMonths();
+      byTeamTgt = monthKey && months[monthKey] ? months[monthKey] : {};
+    }
     const mb = istMonthBounds(new Date(to));
 
     const mwhere = [

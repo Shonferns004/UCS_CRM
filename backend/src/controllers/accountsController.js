@@ -5711,7 +5711,6 @@ export const updateReceipt = async (req, res) => {
 };
 
 const TARGETS_SETTING_KEY = 'accounts_report_targets';
-const TEAM_TARGETS_SETTING_KEY = 'team_monthly_targets';
 
 // Compute working days from month start -> today for a given NGO.
 // Working days = Mon-Sat days minus that NGO's holidays, PLUS one extra Sunday
@@ -5811,64 +5810,74 @@ export const putReportTargets = async (req, res) => {
 };
 
 // Team-wise monthly collection targets, keyed per month so switching the report
-// month never overwrites another month's plan. Shape: { months: { '2026-10': { UFS1: 150000 } } }
+// month never overwrites another month's plan.
+//
+// Since team targets are the SUM of the team's members' individual targets, this
+// endpoint no longer reads the setting directly: services/teamTargetSyncService
+// merges the saved plan (manual overrides) with the live member sum and returns
+// both the effective number and the members behind it, so the editor can show
+// where a team's target came from.
 const TEAM_MONTH_RE = /^\d{4}-\d{2}$/;
 
-const readTeamTargetMonths = async () => {
-  const raw = await getSetting(TEAM_TARGETS_SETTING_KEY);
-  let parsed = null;
-  try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
-  if (parsed && parsed.months && typeof parsed.months === 'object') return parsed.months;
-  // Legacy single-month shape written before months existed; migrate on read.
-  if (parsed && parsed.month && parsed.byTeam && typeof parsed.byTeam === 'object') {
-    return { [String(parsed.month)]: parsed.byTeam };
-  }
-  return {};
-};
-
-const cleanByTeam = (byTeam) => {
-  const out = {};
-  if (byTeam && typeof byTeam === 'object') {
-    for (const [name, val] of Object.entries(byTeam)) {
-      const key = String(name || '').trim().toUpperCase();
-      const amount = Number(val);
-      if (!key || !Number.isFinite(amount) || amount < 0) continue;
-      out[key] = amount;
-    }
-  }
-  return out;
-};
+const teamTargetResponse = (resolved) => ({
+  month: resolved.month,
+  byTeam: resolved.byTeam,
+  modes: resolved.modes,
+  // Kept under `teams` for the existing editor code; `resolved` carries the
+  // per-team detail (mode, member count, synced value, members).
+  teams: resolved.roster,
+  resolved: resolved.teams,
+  totals: resolved.totals,
+  unassigned: resolved.unassigned,
+  syncedAt: resolved.syncedAt,
+});
 
 // GET /accounts/team-targets?month=YYYY-MM
 export const getTeamTargets = async (req, res) => {
   try {
-    const months = await readTeamTargetMonths();
+    const { resolveTeamTargets } = await import('../services/teamTargetSyncService.js');
     const requested = (req.query.month || '').trim();
     const month = TEAM_MONTH_RE.test(requested) ? requested : new Date().toISOString().slice(0, 7);
-    const byTeam = months[month] || {};
-    const roster = await (await import('../services/teamCollectionService.js')).getTeamRoster();
-    return res.json({ month, byTeam, teams: roster });
+    return res.json(teamTargetResponse(await resolveTeamTargets(month)));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
 
-// PUT /accounts/team-targets { month, byTeam }
+// PUT /accounts/team-targets { month, byTeam, modes }
 export const putTeamTargets = async (req, res) => {
   try {
-    const { month, byTeam } = req.body;
+    const { saveTeamTargetPlan } = await import('../services/teamTargetSyncService.js');
+    const { month, byTeam, modes } = req.body || {};
     const m = (month || '').trim();
     const key = TEAM_MONTH_RE.test(m) ? m : new Date().toISOString().slice(0, 7);
-    const months = await readTeamTargetMonths();
-    months[key] = cleanByTeam(byTeam);
-    await upsertSetting(TEAM_TARGETS_SETTING_KEY, JSON.stringify({ months }));
-    // The collection board caches this row; drop it so the dashboard reflects the
-    // save on its next poll rather than up to 30s later.
-    try {
-      const { invalidateTeamTargetCache } = await import('../services/teamCollectionService.js');
-      invalidateTeamTargetCache();
-    } catch { /* cache module unavailable - the TTL will catch up */ }
-    return res.json({ month: key, byTeam: months[key] });
+    const resolved = await saveTeamTargetPlan({
+      month: key,
+      byTeam,
+      modes,
+      savedBy: req.user?.id || null,
+    });
+    return res.json(teamTargetResponse(resolved));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/team-targets/sync { month, teams? }
+// Switches the named teams (or every roster team) to AUTO and re-materialises
+// their target from the members' individual targets.
+export const postSyncTeamTargets = async (req, res) => {
+  try {
+    const { syncTeamTargets } = await import('../services/teamTargetSyncService.js');
+    const { month, teams } = req.body || {};
+    const m = (month || '').trim();
+    const key = TEAM_MONTH_RE.test(m) ? m : new Date().toISOString().slice(0, 7);
+    const resolved = await syncTeamTargets({
+      month: key,
+      teams: Array.isArray(teams) ? teams : null,
+      savedBy: req.user?.id || null,
+    });
+    return res.json(teamTargetResponse(resolved));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

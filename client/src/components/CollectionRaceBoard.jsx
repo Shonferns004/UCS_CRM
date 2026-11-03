@@ -19,7 +19,7 @@ import { Trophy } from 'lucide-react';
 
 // Height of one lane. The track's height and every row's translateY are both
 // derived from this, so it is the one number that must stay consistent.
-export const ROW_H = 40;
+export const ROW_H = 54;
 
 // One colour per lane position, cycling. Indexed by position rather than looked up
 // by name: teams are user-managed (Accounts > Teams can add / rename / remove), so
@@ -223,9 +223,17 @@ export default function CollectionRaceBoard({
         {rows.map((r, i) => {
           const st = styleFor(r, i);
           const amount = Number(r.amount) || 0;
-          // A zero lane still gets a 2% stub so it is visibly occupied rather than
-          // looking like a rendering gap or a dropped row.
-          const pct = maxAmount > 0 ? Math.max(2, Math.round((amount / maxAmount) * 1000) / 10) : 2;
+          // Bar width is MONTH-TO-DATE progress toward the team's monthly target,
+          // not the filtered window's share of the leader. Targets are monthly while
+          // the board is date-filtered, so a leader-scaled bar showed "100%" for a
+          // team that was only 7% of target and read as success. Using the same
+          // achievement % as the chips keeps the bar, Target, Rem and % on one scale.
+          // Teams without a target fall back to the relative race share, and every
+          // lane keeps a 2% stub so it looks occupied rather than dropped.
+          const targetPctVal = Number(r.targetPct) || 0;
+          const pct = Number(r.target) > 0
+            ? Math.min(100, Math.max(2, targetPctVal))
+            : (maxAmount > 0 ? Math.max(2, Math.round((amount / maxAmount) * 1000) / 10) : 2);
           const rank = Number(r.rank) || i + 1;
           const isLead = rank === 1 && amount > 0;
           return (
@@ -238,20 +246,39 @@ export default function CollectionRaceBoard({
                 style={{ background: st.tint, color: st.text }} title={r.labelTitle || r.label}>
                 {r.label}
               </span>
-              <span className="twc-bar-track">
-                <span className="twc-bar" style={{
-                  width: wiped ? '0%' : `${pct}%`,
-                  background: isLead ? `linear-gradient(90deg, ${st.bar}, #fbbf24)` : st.bar,
-                  transitionDelay: `${Math.min(i, 12) * 90}ms`,
-                }} />
-              </span>
-              <span className="twc-amount">{rupee(amount)}</span>
-              <span className="twc-meta"
-                title={r.target > 0
-                  ? `Target ${rupee(r.target)} · this month ${rupee(r.month_amount || 0)} (${Math.round(r.targetPct || 0)}% achieved)`
-                  : `${Number(r.share) || 0}% of the board`}>
-                {r.target > 0 ? `${Math.round(r.targetPct || 0)}%` : ((Number(r.share) || 0) + '%')}
-              </span>
+              <div className="twc-mid">
+                <div className="twc-topline">
+                  <span className="twc-bar-track">
+                    <span className="twc-bar" style={{
+                      width: wiped ? '0%' : `${pct}%`,
+                      background: isLead ? `linear-gradient(90deg, ${st.bar}, #fbbf24)` : st.bar,
+                      transitionDelay: `${Math.min(i, 12) * 90}ms`,
+                    }} />
+                  </span>
+                  <span className="twc-amount">{rupee(amount)}</span>
+                </div>
+                <div className="twc-submeta"
+                  title={r.target > 0
+                    ? `Target ${rupee(r.target)} · this month ${rupee(r.month_amount || 0)} (${Math.round(r.targetPct || 0)}% achieved)`
+                    : `${Number(r.share) || 0}% of the board`}>
+                  {r.target > 0 ? (() => {
+                    const rem = (Number(r.target) || 0) - (Number(r.month_amount) || 0);
+                    const pctVal = Math.round(r.targetPct || 0);
+                    const pctTone = pctVal >= 100 ? 'is-done' : pctVal >= 50 ? 'is-mid' : 'is-low';
+                    return (
+                      <>
+                        <span className="twc-chip twc-chip-target"><span className="twc-chip-lbl">Target</span>{rupee(r.target)}</span>
+                        {rem > 0
+                          ? <span className="twc-chip twc-chip-rem"><span className="twc-chip-lbl">Rem</span>{rupee(rem)}</span>
+                          : <span className="twc-chip twc-chip-done">Target met</span>}
+                        <span className={`twc-chip twc-chip-pct ${pctTone}`}>{pctVal}%</span>
+                      </>
+                    );
+                  })() : (
+                    <span className="twc-chip twc-chip-share">{Number(r.share) || 0}% of board</span>
+                  )}
+                </div>
+              </div>
             </div>
           );
         })}

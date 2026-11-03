@@ -32,5 +32,16 @@ export default defineConfig({
       },
     }),
   ],
-  server: { port: 3001, strictPort: true },
+  server: {
+    port: 3001,
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'https://audio-diagnoses-ream.ngrok-free.dev',
+        changeOrigin: true,
+        secure: true,
+        headers: { 'ngrok-skip-browser-warning': '1' },
+      },
+    },
+  },
 })

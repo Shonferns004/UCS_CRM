@@ -449,50 +449,70 @@ const NGO_LOCATION_GROUPS = [
 ]
 
 const ngoLocationCode = (n) => String(n?.code || '').trim().toLowerCase()
+/* One stable array for the "All NGOs" scope. It must NOT be rebuilt on every
+   render: a fresh array reference made the child's sync effect run on unrelated
+   re-renders and wipe the text being typed in the "Other…" box. */
+const ALL_NGO_LOCATIONS = NGO_LOCATION_GROUPS.flatMap((g) => g.list)
 /* With a single NGO in scope its locations alone are offered; on "All NGOs"
    there is no owner to filter by, so every NGO's spots are listed. */
 const ngoLocationList = (n) => {
-  if (!n) return NGO_LOCATION_GROUPS.flatMap((g) => g.list)
+  if (!n) return ALL_NGO_LOCATIONS
   return NGO_LOCATION_GROUPS.find((g) => g.code === ngoLocationCode(n))?.list || []
 }
 
-function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
-  const isCustom = Boolean(value) && !list.includes(value)
+/* `onDraftChange` reports the in-progress "Other…" text to the parent on every
+   keystroke, so a refresh with the cursor still in the box no longer loses it.
+   `onChange` is the committed value (blur / Enter / picking a known place) and
+   is what updates the stored suggestions. */
+function FestivalLocationSelect({ value, list, disabled, title, onChange, onDraftChange }) {
+  const safeList = Array.isArray(list) ? list : []
+  const isCustom = Boolean(value) && !safeList.includes(value)
   const [showOther, setShowOther] = useState(isCustom)
   const [draft, setDraft] = useState(isCustom ? String(value) : '')
   const draftRef = useRef(draft)
+  const focusedRef = useRef(false)
   useEffect(() => { draftRef.current = draft }, [draft])
   const selectValue = isCustom || showOther ? OTHER_LOCATION : (value || '')
   const showingInput = selectValue === OTHER_LOCATION
   const lastValue = useRef(value)
-  useEffect(() => {
-    const custom = Boolean(value) && !list.includes(value)
+   useEffect(() => {
+    // React only to an actual change of `value`. `list` can be a new array on
+    // any parent render ("All NGOs" used to be), and resetting on that wiped a
+    // half-typed location mid-keystroke.
+    if (value === lastValue.current) return
+    lastValue.current = value
+    // While the box is focused the user is editing: never let this effect
+    // overwrite the in-progress text or toggle the box closed. The local input
+    // already holds the truth and onDraftChange is mirroring it to the parent.
+    if (focusedRef.current) return
+    const custom = Boolean(value) && !safeList.includes(value)
     if (custom) {
       setShowOther(true)
-      if (String(value) !== draftRef.current) {
-        setDraft(String(value))
-      }
+      setDraft(String(value))
     } else if (!value) {
       setShowOther(false)
       setDraft('')
-    } else if (list.includes(value)) {
+    } else {
+      // A known place was picked from the dropdown — leave the Other box.
       setShowOther(false)
       setDraft('')
     }
-    lastValue.current = value
-  }, [value, list])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
   const commitDraft = () => {
     const next = (draftRef.current || '').trim().slice(0, 200)
-    if (next === String(value || '').trim()) {
-      setDraft(next)
-      return
-    }
     setDraft(next)
     if (!next) {
       setShowOther(false)
-      if (value) onChange('')
+      onChange('')
       return
     }
+    // Typed text that happens to match a known place collapses back to that
+    // option instead of leaving the row stuck on "Other…".
+    if (safeList.includes(next)) setShowOther(false)
+    // The parent already received every keystroke through onDraftChange, but
+    // this is what also updates the festival's stored suggestions. It is
+    // idempotent, so running it on blur is always safe.
     onChange(next)
   }
   return (
@@ -506,7 +526,11 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           const v = e.target.value
           if (v === OTHER_LOCATION) {
             setShowOther(true)
-            setDraft(isCustom ? String(value) : draft)
+            const seed = isCustom && value ? String(value) : ''
+            setDraft(seed)
+            // Opening the box is not an edit: the value is only reported to the
+            // parent once the user actually types (see the input below), so an
+            // idle "Other…" cannot clear a stored place by itself.
           } else {
             setShowOther(false)
             setDraft('')
@@ -528,9 +552,15 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange }) {
           placeholder="Type the location…"
           autoFocus
           onChange={(e) => {
-            setDraft(e.target.value)
+            const v = e.target.value
+            setDraft(v)
+            if (onDraftChange) onDraftChange(v)
           }}
-          onBlur={commitDraft}
+          onFocus={() => { focusedRef.current = true }}
+          onBlur={() => {
+            focusedRef.current = false
+            commitDraft()
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
@@ -1220,7 +1250,7 @@ async function downloadEventPoster(args = {}) {
    loaded into it, so a correction is typed into the form that captured it — not
    into a second, different screen. Only the save target changes: update the
    event that is already linked to the row instead of creating a new one. */
-function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSaved }) {
+export function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSaved }) {
   const isEdit = Boolean(entry?.editing)
   const [name, setName] = useState(entry?.name || '')
   const [date] = useState(entry?.date || '')
@@ -1333,7 +1363,7 @@ function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose, onSav
       // Hand the created event back to the planner immediately, so the row's
       // "Download" button appears without waiting for the PDF to finish. The
       // PDF is still built below and cached when it is ready.
-      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit })
+      onSaved({ key: entry?.key, event, pdf: null, ngoId, editing: isEdit, suggestion: entry?.suggestion })
       // The detail sheet is the download the head asked for. A PDF failure must
       // never lose the event that was already created. The same payload is handed
       // back to the planner so the row's "Download" button can re-issue it later.
@@ -1634,14 +1664,16 @@ function AssignTaskModal({ month, onClose, onNotify }) {
 
 export default function ActivityPlanner({ taskAssignment = false }) {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const initialMonth = searchParams.get('month') || currentMonthYmd()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialMonth = searchParams.get('month') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_month')) || currentMonthYmd()
   const [ngos, setNgos] = useState([])
   const [sectors, setSectors] = useState([])
-  // Resolved to BSCT once the NGO list arrives (see defaultNgoId) — the tabs
-  // have nothing to highlight before that, and an empty scope is the honest
-  // state until the list says which tab to land on.
-  const [ngoId, setNgoId] = useState('')
+  // Start from the tab this user had open last time (validated against the
+  // fetched list below) so a reload does not briefly land on "All NGOs" and
+  // then switch to BSCT — that auto-switch used to discard pending typing.
+  const [ngoId, setNgoId] = useState(() => {
+    try { return localStorage.getItem('ap_ngo') || '' } catch { return '' }
+  })
   const [month, setMonth] = useState(() => initialMonth)
   useEffect(() => {
     const m = searchParams.get('month')
@@ -1705,7 +1737,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // without a stored suggestion to link to still hides its button at once.
   // Both are keyed "ngo::date::festival": a row's NGO is part of its identity,
   // so MANN creating an event never hides BSCT's row button.
-  const [createEventFor, setCreateEventFor] = useState(null)
   const [createdKeys, setCreatedKeys] = useState(() => new Set())
   // Payload of the Event Detail Sheet for each row whose event was created THIS
   // session, so its "Download" button can re-issue the same PDF (no second event).
@@ -1733,6 +1764,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const next = part === 'year' ? `${value}-${m}` : `${y}-${pad2(Number(value) + 1)}`
     setMonth(next)
     setYear(Number(next.split('-')[0]))
+    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set('month', next); return n }, { replace: true })
+    try { localStorage.setItem('ap_month', next) } catch { /* ignore */ }
   }
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2800) }
@@ -1751,6 +1784,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   )
 
   useEffect(() => {
+    console.log('[manual] mount searchParams', searchParams.toString())
     fetchWorkspaceNgos()
       .then((l) => {
         const list = Array.isArray(l) ? l : []
@@ -1759,7 +1793,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // still matches) is never overridden, so a late response cannot yank
         // the page away from a choice made while it loaded.
         setNgoId((cur) => {
-          const wanted = searchParams.get('ngo')
+          const wanted = searchParams.get('ngo') || (typeof localStorage !== 'undefined' && localStorage.getItem('ap_ngo')) || ''
           if (wanted && list.some((n) => String(n.id) === String(wanted))) return String(wanted)
           return (cur && list.some((n) => String(n.id) === String(cur))) ? String(cur) : defaultNgoId(list)
         })
@@ -1869,6 +1903,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     if (!ngoId && ngos.length === 1) setNgoId(String(ngos[0].id))
   }, [ngos, ngoId])
+  useEffect(() => {
+    if (ngoId) { try { localStorage.setItem('ap_ngo', String(ngoId)) } catch { /* ignore */ } }
+  }, [ngoId])
+  useEffect(() => {
+    if (month) { try { localStorage.setItem('ap_month', String(month)) } catch { /* ignore */ } }
+  }, [month])
 
   /* "All NGOs" is a real choice, not an empty state: with no ngoId both
      endpoints drop the filter and return every row, which is what the
@@ -1914,8 +1954,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         }
         setPlannerLinkMap(map)
       })
-      .catch(() => setPlannerLinkMap({}))
-  }, [month])
+       .catch(() => setPlannerLinkMap({}))
+   }, [month])
+
+   /* Re-read the month's events and durable planner links when the tab regains
+      focus, so an event created elsewhere (e.g. the Monthly Report) shows its
+      Download button here without a manual month change. */
+   useEffect(() => {
+     const onFocus = () => { loadMonthEvents(); loadPlannerLinks() }
+     window.addEventListener('focus', onFocus)
+     return () => window.removeEventListener('focus', onFocus)
+   }, [loadMonthEvents, loadPlannerLinks])
 
   /* Monthly target "Done" is counted from the month's own event feed (see
      eventsByNgo below), not from the monthly report endpoint. That endpoint's
@@ -1943,6 +1992,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // from the day that started it, while the grid disables only that row.
   const [festGenerating, setFestGenerating] = useState(null)
   const [festBusy, setFestBusy] = useState(false)
+  const [savingKey, setSavingKey] = useState('')
+  const [dirtyRows, setDirtyRows] = useState(() => new Set())
   // Pending beneficiary choice per festival, keyed "date::festival". A festival
   // with stored suggestions keeps showing the category they were generated for
   // until the user picks another; the new choice reaches the server the next
@@ -1962,7 +2013,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   /* The user's own programme per festival and the "cleared" flag per festival.
      Session-only by request: a reload starts them empty and they are NEVER
      written to localStorage, sessionStorage or the URL. */
-  const [festManual, setFestManual] = useState(() => ({}))
+   const [festManual, setFestManual] = useState(() => ({}))
+   const manualLoadedRef = useRef(false)
+   // Locations typed in the "Other…" box this session. Kept separately from
+   // festManual because a location can be the row's ONLY value, and these are
+   // what the debounced save flushes so a refresh never loses the typing.
+   const dirtyLocRef = useRef(new Set())
   const [festCleared, setFestCleared] = useState(() => new Set())
   // Per-row NGO overrides — the NGO column is an editable dropdown, so one
   // festival row can be pointed at a different NGO than the page-wide pick.
@@ -2017,9 +2073,43 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   /* A new NGO has its own stored suggestions and its own default group, so a
      pending choice made under the previous NGO must not leak into it. An open
      block belongs to the NGO it was generated for — every row collapses back
-     to its button, so switching NGO or month always starts fresh. */
-  useEffect(() => { setFestBenef({}) }, [ngoId])
-  useEffect(() => { setFestLoc({}) }, [ngoId])
+     to its button, so switching NGO or month always starts fresh.
+     ONE exception: the page starts on ngoId='' and is auto-pointed at BSCT as
+     soon as the NGO list arrives. That is not the user switching tabs, and
+     clearing here would throw away anything typed while the list loaded (the
+     common "typed Other…, then it vanished" case). Only a real switch clears. */
+  const prevScopeRef = useRef({ ngoId, month })
+  useEffect(() => {
+    const prev = prevScopeRef.current
+    prevScopeRef.current = { ngoId, month }
+    const monthChanged = prev.month !== month
+    const ngoChanged = prev.ngoId !== ngoId
+    if (!monthChanged && !ngoChanged) return
+    // '' -> a real NGO is the initial auto-selection; keep pending edits and
+    // re-key anything typed while the page was briefly on "All NGOs".
+    if (ngoChanged && !monthChanged && !prev.ngoId) {
+      const from = `all|${month}|`
+      const to = `${ngoId}|${month}|`
+      setFestManual((cur) => {
+        let changed = false
+        const next = { ...cur }
+        for (const k of Object.keys(cur)) {
+          if (!k.startsWith(from)) continue
+          next[to + k.slice(from.length)] = cur[k]
+          delete next[k]
+          changed = true
+        }
+        return changed ? next : cur
+      })
+      setDirtyRows(new Set())
+      return
+    }
+    setFestBenef({})
+    setFestLoc({})
+    // A pending "Other…" draft belongs to the NGO/month that is being left.
+    dirtyLocRef.current.clear()
+    setDirtyRows(new Set())
+  }, [ngoId, month])
   useEffect(() => { setFestOpen(new Set()) }, [ngoId, month])
   useEffect(() => { setFestExtra({}) }, [ngoId, month])
   useEffect(() => { setExtraRowDate(`${month}-01`) }, [month])
@@ -2029,16 +2119,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     const [y, m] = month.split('-').map(Number)
     let cancelled = false
-    getPlannerManualRows({ month: m, year: y, ngo_id: ngoId || '' })
+    manualLoadedRef.current = false
+    console.log('[manual] load start', { month: m, year: y, ngoId })
+    getPlannerManualRows({ month: m, year: y, ngo_id: 'all' })
       .then((rows) => {
         if (cancelled) return
-        const prefix = `${ngoId || 'all'}|${month}|`
+        console.log('[manual] load rows', rows)
+        manualLoadedRef.current = true
         setFestManual((cur) => {
           const next = { ...cur }
-          for (const r of rows) {
-            const date = String(r?.observance_date || '').slice(0, 10)
-            const festival = String(r?.festival ?? '')
-            next[`${prefix}${date}::${festival}`] = {
+           for (const r of rows) {
+             // Manual text is scoped by the page NGO (matches updateFestivalManual),
+             // not by the row's own NGO dropdown value.
+             const scopeNgo = String(r?.ngo_id || '')
+             const prefix = `${scopeNgo || 'all'}|${month}|`
+             const date = String(r?.observance_date || '').slice(0, 10)
+             const festival = String(r?.festival ?? '')
+             next[`${prefix}${date}::${festival}`] = {
               text: String(r?.body_text || ''),
               selected: Boolean(r?.is_selected),
               ...(r?.mode ? { mode: r.mode } : {}),
@@ -2082,14 +2179,20 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           for (const r of rows) {
             if (r?.location == null) continue
             const date = String(r?.observance_date || '').slice(0, 10)
-            next[`${date}::${String(r?.festival ?? '')}`] = String(r.location)
+            const key = `${date}::${String(r?.festival ?? '')}`
+            // Never overwrite a value the user has typed but not yet saved —
+            // a slow load must not win over the live "Other…" text.
+            if (dirtyLocRef.current.has(key)) continue
+            next[key] = String(r.location)
           }
           return next
         })
       })
-      .catch(() => {})
+       .catch(() => {})
+      if (!cancelled) setDirtyRows(new Set())
     return () => { cancelled = true }
   }, [month, ngoId])
+
   /* Every selectable day of the month, a festival-less date included. */
   const festivalDates = useMemo(() => daysInMonth(month), [month])
 
@@ -2129,7 +2232,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       if (k.startsWith(scopedManualPrefix)) out[k.slice(scopedManualPrefix.length)] = festManual[k]
     }
     return out
-  }, [festManual, scopedManualPrefix])
+   }, [festManual, scopedManualPrefix])
 
   /* The manual row's export value in one place: selected AND actually typed,
      so an emptied textarea can never claim a slot in the download. */
@@ -2154,7 +2257,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     }
   }, [])
 
-  const persistManualRow = useCallback((key, override = {}) => {
+  const persistManualRow = useCallback((key, override = {}, opts = {}) => {
     if (!key) return Promise.resolve(null)
     const [y, m] = month.split('-').map(Number)
     const { date, festival } = manualKeyParts(key)
@@ -2175,28 +2278,133 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const body = String(override.text !== undefined ? override.text : (entry.text || ''))
     const selected = override.selected !== undefined ? Boolean(override.selected) : Boolean(entry.selected)
     const mode = override.mode !== undefined ? (override.mode ? String(override.mode) : null) : (entry.mode ? String(entry.mode) : null)
-    const beneficiary = override.beneficiary !== undefined ? override.beneficiary : (entry.beneficiary !== undefined ? entry.beneficiary : (festBenef[key] || null))
-    const location = override.location !== undefined ? override.location : (entry.location !== undefined ? entry.location : (festLoc[key] || null))
+    const beneficiary = override.beneficiary !== undefined
+      ? override.beneficiary
+      : (entry.beneficiary !== undefined ? entry.beneficiary : (key in festBenef ? festBenef[key] : null))
+    const location = override.location !== undefined
+      ? override.location
+      : (entry.location !== undefined ? entry.location : (key in festLoc ? festLoc[key] : null))
     // A normal festival row with nothing typed and no tick needs no stored row.
     // An extra row is kept even while empty: its existence IS the row.
-    if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
-      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }).catch(() => null)
-    }
-    return savePlannerManualRow({
-      month: m,
-      year: y,
-      observance_date: date,
-      festival,
-      ngo_id: scopeNgo,
-      row_ngo_id: rowNgo,
-      name,
-      body_text: body,
-      is_selected: selected,
-      mode,
-      beneficiary,
-      location,
-    }).catch(() => null)
+     if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
+       console.log('[manual] delete', { date, festival, scopeNgo })
+       return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }, opts)
+         .then((res) => { dirtyLocRef.current.delete(key); setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n }); return res })
+         .catch((e) => { console.error('deleteManualRow failed', e); return null })
+     }
+     console.log('[manual] save', { month: m, year: y, date, festival, scopeNgo, rowNgo, name, body })
+     return savePlannerManualRow({
+       month: m,
+       year: y,
+       observance_date: date,
+       festival,
+       ngo_id: scopeNgo || rowNgo || '',
+       row_ngo_id: rowNgo,
+       name,
+       body_text: body,
+       is_selected: selected,
+       mode,
+       beneficiary,
+       location,
+     }, opts).then((res) => {
+       console.log('[manual] save result', res)
+       if (res) {
+         dirtyLocRef.current.delete(key)
+         setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n })
+       }
+       if (!res) showToast('Could not save programme. Please try again.')
+       return res
+     }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
   }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
+
+  /* Explicit per-row save used by the "Save" buttons. Awaits the write so the
+     button can show success/failure instead of relying on auto-save timing. */
+  const markDirty = useCallback((key) => {
+    if (!key) return
+    setDirtyRows((prev) => {
+      if (prev.has(key)) return prev
+      const next = new Set(prev)
+      next.add(key)
+      return next
+    })
+  }, [])
+
+  const saveRow = useCallback(async (key) => {
+    if (!key || savingKey) return
+    setSavingKey(key)
+    try {
+      const res = await persistManualRow(key)
+      if (res) {
+        dirtyLocRef.current.delete(key)
+        setDirtyRows((prev) => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
+        showToast('Saved')
+      } else {
+        showToast('Could not save. Please try again.')
+      }
+    } catch (e) {
+      showToast('Could not save. ' + (e?.message || ''))
+    } finally {
+      setSavingKey('')
+    }
+  }, [persistManualRow, savingKey])
+
+  /* Best-effort flush when the tab is closed/refreshed. It now also covers the
+     Location / Beneficiary pending values (a row can carry ONLY a location) and
+     uses keepalive so the request is allowed to finish after the page unloads. */
+  useEffect(() => {
+    const flush = () => {
+      const keys = new Set([
+        ...Object.keys(scopedManual || {}),
+        ...dirtyLocRef.current,
+      ])
+      for (const k of keys) {
+        try { persistManualRow(k, {}, { keepalive: true }) } catch { /* best effort */ }
+      }
+    }
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [scopedManual, persistManualRow])
+
+  /* Debounced auto-save: persist manual rows 800ms after the last edit so a
+     refresh never loses typed text, even without an explicit blur. */
+  useEffect(() => {
+    if (!manualLoadedRef.current) return
+    const t = setTimeout(() => {
+      for (const k of Object.keys(scopedManual || {})) {
+        persistManualRow(k).catch(() => {})
+      }
+    }, 800)
+    return () => clearTimeout(t)
+  }, [scopedManual, persistManualRow])
+
+  /* Typing in the "Other…" location box. The value reaches festLoc on every
+     keystroke (so it survives a refresh), and this debounce writes it to the
+     server even if the box never blurs. Nothing is sent while the manual rows
+     are still loading, so a slow first load cannot resurrect stale values. */
+  useEffect(() => {
+    if (!manualLoadedRef.current) return
+    const keys = [...dirtyLocRef.current]
+    if (!keys.length) return
+    const t = setTimeout(() => {
+      for (const k of keys) {
+        if (!dirtyLocRef.current.has(k)) continue
+        // Keep the key dirty until the write actually succeeds: then a refresh
+        // right after the debounce still gets a keepalive retry on unload.
+        persistManualRow(k, { location: festLoc[k] })
+          .then(() => { dirtyLocRef.current.delete(k) })
+          .catch(() => {})
+      }
+    }, 700)
+    return () => clearTimeout(t)
+  }, [festLoc, persistManualRow])
 
   const deleteManualRow = useCallback((key) => {
     const { date, festival } = manualKeyParts(key)
@@ -2301,7 +2509,13 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      reach the download under the old NGO. Stored ideas are never deleted, only
      the selection is dropped. */
   const changeRowNgo = (key, value) => {
+    markDirty(key)
     const prevId = rowNgoId(key)
+    const hasData = Boolean(scopedManual[key]) || (key in festLoc) || (key in festBenef)
+    if (hasData) {
+      // Persist while the old NGO's location/beneficiary are still in state.
+      persistManualRow(key, { row_ngo_id: value })
+    }
     setFestNgo((cur) => ({ ...cur, [key]: value }))
     setFestBenef((cur) => { const next = { ...cur }; delete next[key]; return next })
     setFestLoc((cur) => { const next = { ...cur }; delete next[key]; return next })
@@ -2326,7 +2540,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      starts on "Select a category…" and shows only what the user picks, so the
      grid never claims an audience nobody chose. */
   const festivalBeneficiaryFor = useCallback((key) => {
-    if (festBenef[key]) return festBenef[key]
+    // `in` (not truthiness) so a cleared dropdown stays cleared instead of
+    // falling back to an old stored category.
+    if (key in festBenef) return festBenef[key]
     const stored = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean)
     return stored || ''
   }, [festBenef, rowSuggestionsFor])
@@ -2339,6 +2555,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      server holds: a category that looks chosen but exports as the old one is
      worse than an honest error. */
   const handleFestivalBeneficiary = async (key, value) => {
+    markDirty(key)
     const prevFor = festivalBeneficiaryFor(key)
     setFestBenef((cur) => ({ ...cur, [key]: value }))
     let ownerId = ''
@@ -2374,10 +2591,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      keeps showing the truth. Never read from anywhere else — a row starts on
      "Select a location…" and every shown place was picked or typed. */
   const festivalLocationFor = useCallback((key) => {
-    if (festLoc[key]) return festLoc[key]
+    // `in` (not truthiness) so a cleared location stays cleared and a
+    // half-typed "Other…" value (already mirrored into festLoc) cannot fall
+    // back to the previously stored place mid-typing.
+    if (key in festLoc) return festLoc[key]
     const stored = rowSuggestionsFor(key).map((s) => s.location).find(Boolean)
     return stored || ''
   }, [festLoc, rowSuggestionsFor])
+
+  /* Every keystroke in the "Other…" box lands here: the pending value is kept
+     in festLoc (so the display, the debounced save and the unload flush all see
+     it) and marked dirty. It deliberately sends nothing per keystroke — the
+     debounce and the blur handler do the writing. */
+  const markFestivalLocationDraft = useCallback((key, value) => {
+    markDirty(key)
+    setFestLoc((cur) => ({ ...cur, [key]: value }))
+    dirtyLocRef.current.add(key)
+  }, [markDirty])
 
   /* Changing the row's Location dropdown / "Other…" box. Mirrors the
      Beneficiary handler: the pending choice shows at once, and when the
@@ -2388,6 +2618,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      to on "All NGOs". A failed save rolls the row back to what the server
      holds. */
   const handleFestivalLocation = async (key, value) => {
+    markDirty(key)
     const prevFor = festivalLocationFor(key)
     setFestLoc((cur) => ({ ...cur, [key]: value }))
     const stored = rowSuggestionsFor(key)
@@ -2540,6 +2771,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   /* The typed programme lives in React state only, so the AI suggestions
      behind it are never changed in the database. */
   const updateFestivalManual = (key, patch) => {
+    markDirty(key)
     setFestManual((cur) => {
       const fk = `${scopedManualPrefix}${key}`
       const had = cur[fk]
@@ -3007,14 +3239,18 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       .map((s) => {
         const n = ngoById.get(String(s.ngo_id))
         const observed = String(s.observance_date || '')
+        // The dropdown choice (pending or reloaded from the manual row) wins
+        // over the value stored with the suggestion, so the file matches what
+        // the grid shows after a refresh.
+        const key = festivalKeyOf(s)
         return {
           date: observed,
           dateLabel: shortDate(observed),
           weekday: observed ? new Date(`${observed}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
           festival: s.festival || '—',
           ngoLabel: ngoShortLabel(n),
-          beneficiary: s.beneficiary || '—',
-          location: s.location || '—',
+          beneficiary: (key in festBenef ? festBenef[key] : s.beneficiary) || '—',
+          location: (key in festLoc ? festLoc[key] : s.location) || '—',
           programme: s.title || '—',
           status: s.suggested_event_id ? 'Scheduled' : 'Draft',
         }
@@ -3037,8 +3273,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         weekday: d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }) : '—',
         festival: festival || '—',
         ngoLabel: rowNgo(k) ? ngoShortLabel(rowNgo(k)) : '—',
-        beneficiary: rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean) || festBenef[k] || '—',
-        location: rowSuggestionsFor(k).map((s) => s.location).find(Boolean) || festLoc[k] || '—',
+        beneficiary: (k in festBenef ? festBenef[k] : rowSuggestionsFor(k).map((s) => s.beneficiary).find(Boolean)) || '—',
+        location: (k in festLoc ? festLoc[k] : rowSuggestionsFor(k).map((s) => s.location).find(Boolean)) || '—',
         programme: text,
         status: 'Draft',
       })
@@ -3078,9 +3314,20 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     } catch { stored = [] }
 
     const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
-    const bannerByEvent = new Map(
-      monthEvents.map((ev) => [String(ev?.id), ev?.extendedProps?.banner || null])
-    )
+    // Pre-fetch banner images as blob URLs via the authenticated proxy so
+    // html2canvas can render them (raw S3 URLs fail CORS in the capture).
+    const bannerByEvent = new Map()
+    await Promise.all(monthEvents.map(async (ev) => {
+      const id = String(ev?.id)
+      const raw = ev?.extendedProps?.banner || null
+      if (!raw) { bannerByEvent.set(id, null); return }
+      try {
+        const blobUrl = await fetchEventBannerObjectUrl(ev.id)
+        bannerByEvent.set(id, blobUrl)
+      } catch {
+        bannerByEvent.set(id, raw)
+      }
+    }))
     const manualText = (k) => {
       const e = scopedManual[k]
       return e?.selected ? String(e?.text || '').trim() : ''
@@ -3557,25 +3804,46 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      the planner — never because some unrelated event happens to share a date,
      name or NGO. */
   const findScheduledEvent = (key, date, label) => {
-    const rowLink = key ? plannerLinkMap[linkMapKey(key, rowNgoId(key))] : null
-    const linkedId = rowLink
-      ? rowLink.event_id
+    const link = findDurableLink(key)
+    const linkedId = link
+      ? link.event_id
       : (key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null)
     if (linkedId) return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
     return findExistingPlannedEvent(key, date, label)
   }
 
-  // Only events that are genuinely linked to this row (durable row link or a
-  // suggestion-level link) count as "already scheduled" for the Download
-  // button. The name+date+NGO fallback is intentionally NOT used here, because
-  // it also matches unrelated events that happen to share a name/date, which
-  // surfaced Download buttons on rows that never produced an event.
+  // Resolve the durable row → event link for a programme row. The link is
+  // ngo-scoped in storage, but a row can still find a link that was saved
+  // under a different NGO (e.g. the event was created from the Monthly Report
+  // with the event's own NGO): fall back to a date + festival match across
+  // all stored links, ignoring the NGO, so the Download button still appears.
+  const findDurableLink = (key) => {
+    if (!key) return null
+    const exact = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
+    if (exact) return exact
+    const sep = key.indexOf('::')
+    const date = (sep >= 0 ? key.slice(0, sep) : key).slice(0, 10)
+    const festival = (sep >= 0 ? key.slice(sep + 2) : '').trim().toLowerCase()
+    if (!date || !festival) return null
+    for (const l of Object.values(plannerLinkMap || {})) {
+      const ld = String(l?.observance_date || '').slice(0, 10)
+      const lf = String(l?.festival || '').trim().toLowerCase()
+      if (ld === date && lf === festival) return l
+    }
+    return null
+  }
+
+  // Only a DURABLE planner link (row → event, created via the Daily Report
+  // "Create Event" flow or loaded from the server) counts as "already
+  // scheduled" for the Download button. A suggestion-level suggested_event_id
+  // is deliberately NOT enough: ideas can gain one through other flows (e.g.
+  // Plan Programme) without the row ever owning a downloadable event sheet,
+  // which surfaced Download buttons before the head created the event. The
+  // name+date+NGO fallback is also excluded here.
   const findLinkedScheduledEvent = (key, date, label) => {
     if (!key) return null
-    const rowLink = plannerLinkMap[linkMapKey(key, rowNgoId(key))]
-    const linkedId = rowLink
-      ? rowLink.event_id
-      : (rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id ?? null)
+    const link = findDurableLink(key)
+    const linkedId = link ? link.event_id : null
     if (!linkedId) return null
     return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
   }
@@ -3632,20 +3900,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     if (stored?.name) return stored.name
     const ev = findScheduledEvent(key, date, label)
     return String(ev?.title || '').split(' · ')[0].trim()
-  }
-
-  /* Open the "Create Event" confirm modal for a programme whose five
-     deliverables are all Done. Prefills the programme's name (its selected AI
-     suggestion, or the typed programme, or the festival name), its date and its
-     NGO, so the head only reviews and confirms. */
-  const openCreateEvent = (key, date, label) => {
-    const sugg = rowSuggestionsFor(key).find((s) => s.is_selected) || null
-    const name = programmeNameForKey(key, label)
-    const benef = rowSuggestionsFor(key).map((s) => s.beneficiary).find(Boolean) || festBenef[key] || ''
-    const location = festivalLocationFor(key)
-    // The row's own NGO is what the form locks to; a row saved before NGOs were
-    // tracked falls back to its selected suggestion rather than coming up blank.
-    setCreateEventFor({ key, date: programmeDateForKey(key, date), name, ngoId: rowNgoId(key) || (sugg?.ngo_id ? String(sugg.ngo_id) : ''), suggestion: sugg, beneficiary: benef, location })
   }
 
   /* The row's Edit button reopens the Create Event form with the linked event's
@@ -3705,7 +3959,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     setFestNgo((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
-    deleteManualRow(key)
+    const rowNgo = rowNgoId(key)
+    deletePlannerManualRow({ observance_date: date, festival: (key.split('::')[1] || ''), ngo_id: rowNgo || ngoId || '' }).catch(() => null)
   }
   /* A user-added programme row: same columns as every other row, with an
      editable name in the Festival / Day column, an NGO that starts on the row it
@@ -3727,6 +3982,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             onBlur={() => persistManualRow(key)}
             style={{ width: '100%', minWidth: 0, marginTop: 5, padding: '7px 9px', fontSize: 12.5, borderRadius: 9, boxSizing: 'border-box', color: 'var(--eh-ink, #1f2430)' }}
           />
+          {(dirtyRows.has(key) || savingKey === key) && (
+            <button
+              className="eh-btn eh-btn-sm"
+              style={{ marginTop: 6, marginRight: 6 }}
+              disabled={festBusy || savingKey === key}
+              title="Save this programme row now"
+              onClick={() => saveRow(key)}
+            >
+              {savingKey === key ? 'Saving…' : 'Save'}
+            </button>
+          )}
           <button
             className="eh-btn eh-btn-sm"
             style={{ marginTop: 6 }}
@@ -3775,6 +4041,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             disabled={festBusy || festGenerating !== null}
             title="Where this event happens"
             onChange={(v) => handleFestivalLocation(key, v)}
+            onDraftChange={(v) => markFestivalLocationDraft(key, v)}
           />
         </td>
         <td className="sel divider">
@@ -3800,7 +4067,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      row → event link is also saved server-side so the Download button survives a
      reload / other device. Re-running it for an edit is safe: the row already
      exists in both maps and the link row is upserted on its own key. */
-  const afterEventCreated = ({ key, event, pdf, ngoId, editing } = {}) => {
+  const afterEventCreated = ({ key, event, pdf, ngoId, editing, suggestion } = {}) => {
     if (key) {
       // The row's NGO, resolved once: it decides which row owns this record.
       const linkNgo = ngoId || event?.ngo_id || rowNgoId(key) || ''
@@ -3843,7 +4110,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
          })
       }
     }
-    setCreateEventFor(null)
+    if (suggestion?.id && event?.id) {
+      setFestivalSuggestions((list) => list.map((s) => String(s.id) === String(suggestion.id) ? { ...s, suggested_event_id: event.id } : s))
+    }
     showToast(event?.name ? `Event “${event.name}” ${editing ? 'updated' : 'created'}.` : (editing ? 'Event updated.' : 'Event created.'))
     loadMonthTasks()
     loadMonthEvents()
@@ -3930,20 +4199,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return acceptedDays.has(`${row.assignee_id}::${date}`) ||
       (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
   }
-  // All five deliverables green is what unlocks the "Create Event" button. Only
-  // after the event is actually created (recorded this session or linked on the
-  // suggestion) does the cell offer the download — and only while the five
-  // deliverables are still done. An unsigned row never shows a download.
+  // All five deliverables green means the programme is ready, but the event is
+  // created only from the Daily Report. Until an event exists for this row, the
+  // cell must not show the Done / Download state.
+  const TEST_LABELS = new Set(['demo', 'dem0', 'test', 'werwer'])
   const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
-  const allDone = deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-    const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) || Boolean(findScheduledEvent(key, date, label))
+  const allDone = !TEST_LABELS.has(String(label || '').trim().toLowerCase()) &&
+    deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
+  const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) ||
+    Boolean(findLinkedScheduledEvent(key, date, label)) ||
+    (allDone && Boolean(findExistingPlannedEvent(key, date, label)))
   return (
     <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {/* Once all five are done the green Done rows are dropped — the cell
             carries just the action: create the event, or download its sheet
             again if the file is needed later. */}
-        {!allDone && CONTENT_TYPES.map((ct) => {
+        {!alreadyScheduled && !allDone && CONTENT_TYPES.map((ct) => {
           const row = taskMap[`${date}::${label}::${ct.value}`]
           const value = row ? String(row.assignee_id) : ''
           const done = deliverableDone(row)
@@ -3998,21 +4270,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             </label>
           )
         })}
-        {allDone && !alreadyScheduled && (
-          <button
-            className="eh-btn eh-btn-primary"
-            style={{ marginTop: 6, width: '100%', justifyContent: 'center', padding: '8px 12px', borderRadius: 10, fontSize: 12.5 }}
-            title="All five deliverables are done — create the event and download its detail sheet"
-            onClick={() => openCreateEvent(key, date, label)}
+        {!alreadyScheduled && allDone && (
+          <div
+            style={{ marginTop: 6, padding: '8px 10px', borderRadius: 10, background: '#f8fafc', color: 'var(--eh-ink-soft)', fontSize: 11.5, lineHeight: 1.45 }}
+            title="Events are created from the Daily Report once all five deliverables are done"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 5v14" />
-              <path d="M5 12h14" />
-            </svg>
-            Create Event
-          </button>
+            Event not created yet. Create it from the Daily Report.
+          </div>
         )}
-        {alreadyScheduled && allDone && (
+        {alreadyScheduled && (
           /* Both actions share one line — stacked full-width buttons pushed the
              Edit below the cell's edge on narrow columns. */
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
@@ -4108,7 +4374,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                     type="button"
                     className="eh-btn eh-btn-sm"
                     aria-pressed={on}
-                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }}
+                    onClick={() => { setNgoId(String(n.id)); setSectorFilter(''); setBeneficiaryFilter(''); setSearch(''); setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set('ngo', String(n.id)); return next }, { replace: true }); try { localStorage.setItem('ap_ngo', String(n.id)) } catch { /* ignore */ } }}
                     style={on ? { background: 'var(--eh-primary)', borderColor: 'var(--eh-primary)', color: '#fff', fontWeight: 700 } : undefined}
                   >
                     {ngoShortLabel(n)}
@@ -4129,6 +4395,27 @@ export default function ActivityPlanner({ taskAssignment = false }) {
             </div>
           </Field>
 
+          <button
+            className="eh-btn"
+            disabled={festBusy || !!savingKey || dirtyRows.size === 0}
+            onClick={async () => {
+              const keys = Object.keys(scopedManual || {})
+              if (!keys.length) { showToast('Nothing to save.'); return }
+              setSavingKey('__all__')
+              let ok = 0
+              for (const k of keys) {
+                try {
+                  const res = await persistManualRow(k)
+                  if (res) { dirtyLocRef.current.delete(k); ok += 1 }
+                } catch { /* continue */ }
+              }
+              setSavingKey('')
+              showToast(ok === keys.length ? `Saved ${ok} row(s)` : `Saved ${ok} of ${keys.length} row(s)`)
+            }}
+            title="Save all edited rows to the database now"
+          >
+            {savingKey === '__all__' ? 'Saving…' : 'Save all'}
+          </button>
           <SearchInput value={search} onChange={setSearch} placeholder="Search activities…" style={{ flex: '1 1 180px', minWidth: 160 }} />
         </div>
       </div>
@@ -4386,6 +4673,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           disabled={festBusy || festGenerating !== null}
                           title="Where this date's event happens"
                           onChange={(v) => handleFestivalLocation(key, v)}
+                          onDraftChange={(v) => markFestivalLocationDraft(key, v)}
                         />
                       </td>
                       <td className="sel divider">
@@ -4399,6 +4687,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             persistManualRow(key, { selected: e.target.checked })
                           }}
                         />
+                        {(dirtyRows.has(key) || savingKey === key) && (
+                          <button
+                            className="eh-btn eh-btn-sm"
+                            style={{ marginTop: 4, fontSize: 11 }}
+                            disabled={festBusy || savingKey === key}
+                            onClick={() => saveRow(key)}
+                            title="Save this row to the database now"
+                          >
+                            {savingKey === key ? 'Saving…' : 'Save'}
+                          </button>
+                        )}
                       </td>
                       {taskCell(date, (manual?.name || '').trim() || 'Programme', 1, key)}
                     </tr>
@@ -4508,6 +4807,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                               disabled={festBusy || festGenerating !== null}
                               title={`Where ${o.name}’s programme happens — one place per festival`}
         onChange={(v) => { handleFestivalLocation(key, v) }}
+        onDraftChange={(v) => markFestivalLocationDraft(key, v)}
                             />
                         </td>
                         <td className="sel divider" />
@@ -4564,6 +4864,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                         disabled={festBusy || festGenerating !== null}
                         title={`Where ${o.name}’s programme happens — one place per festival`}
                         onChange={(v) => handleFestivalLocation(key, v)}
+                        onDraftChange={(v) => markFestivalLocationDraft(key, v)}
                       />
                     </td>
                   )
@@ -4600,6 +4901,17 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             onChange={(e) => updateFestivalManual(key, { text: e.target.value })}
                             onBlur={() => persistManualRow(key)}
                           />
+                          {(dirtyRows.has(key) || savingKey === key) && (
+                            <button
+                              className="eh-btn eh-btn-sm"
+                              style={{ marginTop: 6, marginLeft: 6 }}
+                              disabled={festBusy || savingKey === key}
+                              title="Save this programme row now"
+                              onClick={() => saveRow(key)}
+                            >
+                              {savingKey === key ? 'Saving…' : 'Save'}
+                            </button>
+                          )}
                           {manualChecked && manualOn && (
                             <div className="fest-manual-hint">
                               {manualOnly
@@ -4886,16 +5198,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           month={month}
           onClose={() => setPlanEntry(null)}
           onSaved={afterPlanned}
-        />
-      )}
-
-      {createEventFor && (
-        <CreateEventFromProgrammeModal
-          entry={createEventFor}
-          ngos={ngos}
-          activities={activities}
-          onClose={() => setCreateEventFor(null)}
-          onSaved={afterEventCreated}
         />
       )}
 
