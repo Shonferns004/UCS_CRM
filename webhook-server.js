@@ -103,21 +103,37 @@ function pullLatest() {
   }
 }
 
+let restarting = false;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function restartServices() {
   if (!AUTO_RESTART) { log('AUTO_RESTART=false -> not restarting services'); return; }
-  log('restarting backend + frontend...');
-  // Kill only the backend (port 5000) and frontend (port 5173) - not this webhook server
-  for (const port of [5000, 5173]) {
-    try {
-      const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
-      const pids = new Set();
-      for (const line of out.split(/\r?\n/)) { const m = line.trim().match(/\s+(\d+)\s*$/); if (m) pids.add(m[1]); }
-      for (const pid of pids) { try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' }); } catch {} }
-    } catch {}
+  if (restarting) { log('restart already in progress -> skipping duplicate restart'); return; }
+  restarting = true;
+  try {
+    log('restarting backend + frontend...');
+    // Kill only the backend (port 5000) and frontend (port 5173) - not this webhook server
+    for (const port of [5000, 5173]) {
+      try {
+        const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
+        const pids = new Set();
+        for (const line of out.split(/\r?\n/)) { const m = line.trim().match(/\s+(\d+)\s*$/); if (m) pids.add(m[1]); }
+        for (const pid of pids) {
+          try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' }); } catch {}
+        }
+      } catch {}
+    }
+    // Give the OS a moment to release the ports before the new processes bind.
+    sleepSync(1500);
+    spawn('C:\\Program Files\\nodejs\\node.exe', ['src/index.js'], { cwd: PROJECT_ROOT + '/backend', detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    spawn('cmd.exe', ['/c', 'npm run dev -- --host'], { cwd: PROJECT_ROOT + '/client', detached: true, stdio: 'ignore', windowsHide: true, shell: true }).unref();
+    log('backend + frontend restarted');
+  } finally {
+    restarting = false;
   }
-  spawn('C:\\Program Files\\nodejs\\node.exe', ['src/index.js'], { cwd: PROJECT_ROOT + '/backend', detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  spawn('cmd.exe', ['/c', 'npm run dev -- --host'], { cwd: PROJECT_ROOT + '/client', detached: true, stdio: 'ignore', windowsHide: true, shell: true }).unref();
-  log('backend + frontend restarted');
 }
 
 const server = http.createServer((req, res) => {

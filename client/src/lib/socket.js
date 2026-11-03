@@ -5,7 +5,6 @@
 import { API_BASE } from './apiBase'
 
 console.log('[ws-module] loaded')
-alert('[ws-module] loaded - socket module is running')
 
 let socket = null // underlying WebSocket
 let shim = null
