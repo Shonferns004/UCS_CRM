@@ -48,6 +48,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   String _workerName = '';
   String _workerId = '';
   int _pendingPunchCount = 0;
+  // Frontend-only streak indicator: consecutive working days marked late.
+  int _lateStreakDays = 0;
+  DateTime? _lastStreakFetch;
   bool _backendUnreachable = false;
   String _officeStartTime = '10:00';
   late final AnimationController _pulseCtrl;
@@ -215,6 +218,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         });
       }
     } catch (_) {}
+
+    // Refreshed at most every 5 minutes — the history endpoint is heavier than
+    // the status poll and the streak only changes once a day.
+    if (_lastStreakFetch == null ||
+        DateTime.now().difference(_lastStreakFetch!) > const Duration(minutes: 5)) {
+      _lastStreakFetch = DateTime.now();
+      _loadLateStreak();
+    }
   }
 
   void _applyTodayStatus(Map<String, dynamic> today) {
@@ -252,6 +263,39 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   Future<void> _updatePendingBadge() async {
     final count = await OfflinePunchQueue.pendingCount();
     if (mounted) setState(() => _pendingPunchCount = count);
+  }
+
+  // Counts the latest run of working days that are all marked "late".
+  // Weekends/holidays have no rows and leave rows are skipped, so the streak
+  // is measured in actual working days. UI-only: no payroll maths here.
+  Future<void> _loadLateStreak() async {
+    try {
+      List<dynamic>? history;
+      try {
+        history = await ApiService.getHistory();
+      } catch (_) {
+        history = await ApiService.getCachedHistory();
+      }
+      if (history == null || !mounted) return;
+
+      final working = history.where((r) {
+        final s = r['status']?.toString();
+        return s == 'present' || s == 'late' || s == 'half-day' || s == 'absent';
+      }).toList()
+        ..sort((a, b) => (b['date']?.toString() ?? '').compareTo(a['date']?.toString() ?? ''));
+
+      var streak = 0;
+      for (final r in working) {
+        if (r['status']?.toString() == 'late') {
+          streak++;
+        } else {
+          break;
+        }
+      }
+      if (mounted && streak != _lateStreakDays) {
+        setState(() => _lateStreakDays = streak);
+      }
+    } catch (_) {}
   }
 
   /// Makes an unreachable backend visible instead of failing silently.
@@ -1362,6 +1406,36 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
+            if (_lateStreakDays >= 3)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), 0),
+                  child: Container(
+                    padding: EdgeInsets.all(Responsive.pad(context, 14)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFFD59E)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(LucideIcons.alertTriangle, size: Responsive.sp(context, 18), color: const Color(0xFFB45309)),
+                        SizedBox(width: Responsive.pad(context, 10)),
+                        Expanded(
+                          child: Text(
+                            '$_lateStreakDays days continuous late - half day deducted',
+                            style: TextStyle(
+                              fontSize: Responsive.sp(context, 12.5),
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF8A4B08),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             if (_pendingLoans.isNotEmpty &&
                 RemoteConfigService.instance.featureFlag('show_pending_loans'))
               SliverToBoxAdapter(

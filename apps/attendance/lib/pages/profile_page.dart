@@ -691,6 +691,24 @@ class _ProfilePageState extends State<ProfilePage> {
     return _lateMinutesForMonth(_calYear * 100 + _calMonth);
   }
 
+  // Latest run of working days that are all "late" (weekends have no rows,
+  // leave rows are skipped). UI-only indicator — payroll maths is untouched.
+  int get _continuousLateDays {
+    final working = _statusByDate.entries
+        .where((e) => ['present', 'late', 'half-day', 'absent'].contains(e.value))
+        .toList()
+      ..sort((a, b) => b.key.compareTo(a.key));
+    var streak = 0;
+    for (final e in working) {
+      if (e.value == 'late') {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
   Widget _lateDeductionCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
     return Container(
       padding: EdgeInsets.all(Responsive.pad(context, 16)),
@@ -720,6 +738,37 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           ),
+          if (_continuousLateDays >= 3) ...[
+            SizedBox(height: Responsive.pad(context, 12)),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.pad(context, 10),
+                vertical: Responsive.pad(context, 8),
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFFFFD59E)),
+              ),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.alertTriangle, size: Responsive.sp(context, 14), color: const Color(0xFFB45309)),
+                  SizedBox(width: Responsive.pad(context, 8)),
+                  Expanded(
+                    child: Text(
+                      '$_continuousLateDays days continuous late - half day deducted',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(context, 11.5),
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF8A4B08),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           SizedBox(height: Responsive.pad(context, 14)),
           Row(
             children: [
