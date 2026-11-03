@@ -1,5 +1,8 @@
 # DEPLOY — Full working-tree update (attendance/payroll + WhatsApp → OpenWA)
 
+> **Merge/package/env conflicts ke liye alag guide hai: [`SETUP-AFTER-MERGE.md`](SETUP-AFTER-MERGE.md)**
+> — pull ke baad kuch bhi toote to wahan dekho.
+
 Ye document **poore pending kaam** ke liye hai jo is working tree me hai (3,000+
 file changes), sirf attendance wale update ke liye nahi. Server pe isi order me
 chalao.
