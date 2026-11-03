@@ -361,7 +361,12 @@ export const getPayrollData = async (month, extended = false) => {
   for (const w of workers) {
     const sal = latestSalary[w.id];
     const salary = sal ? parseFloat(sal.salary) : 0;
-    if (salary <= 0) continue;
+    // An active employee stays in the sheet even before HR enters their salary,
+    // so the name cannot silently disappear from the file (that is exactly how
+    // a batch of new joiners went missing). Absconded/offboarded rows only earn
+    // a line when there is money to settle.
+    const statusKey = String(w.employment_status || '').toLowerCase();
+    if (salary <= 0 && statusKey !== 'active') continue;
 
     const perDay = salary / daysInMonth;
     const workerAtt = attByWorker[w.id] || [];
@@ -479,9 +484,9 @@ export const getPresentDaysByMonth = async (month) => {
 
   let { data: workers, error: wErr } = await db
     .from('workers')
-    .select('id, name, created_at');
+    .select('id, name, created_at, employment_status, is_test');
   if (wErr) throw wErr;
-  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
+  workers = (workers || []).filter(w => !w.is_test && !joinedAfterMonth(w.created_at, endDate));
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
   let graceByWorker = {};
@@ -622,9 +627,9 @@ export const getPagarExportData = async (month) => {
   // never leak into a previous month's file.
   let { data: workers, error: wErr } = await db
     .from('workers')
-    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id, documents_submitted');
+    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id, documents_submitted, is_test');
   if (wErr) throw wErr;
-  workers = (workers || []).filter(w => !joinedAfterMonth(w.created_at, endDate));
+  workers = (workers || []).filter(w => !w.is_test && !joinedAfterMonth(w.created_at, endDate));
 
   // Per-person late grace (tolerant: empty map if column/migration missing).
   let graceByWorker = {};
@@ -965,7 +970,11 @@ export const getPagarExportData = async (month) => {
   for (const w of workers) {
     const sal = latestSalary[w.id];
     const salary = sal ? parseFloat(sal.salary) : 0;
-    if (salary <= 0) continue; // skip workers without salary
+    // Same rule as the payroll sheet: an active employee is always listed (with
+    // 0 until HR enters a salary) so a missing salary cannot erase their name
+    // from the exported file. Absconded/offboarded rows need a salary to appear.
+    const statusKey = String(w.employment_status || '').toLowerCase();
+    if (salary <= 0 && statusKey !== 'active') continue;
 
     const workerAtt = attByWorker[w.id] || [];
     const attResult = computePaidDays({
