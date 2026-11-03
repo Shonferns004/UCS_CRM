@@ -10,9 +10,10 @@
 // added EXACTLY ONCE, never re-added at higher tiers. Equivalently:
 // effectiveLate = total + grace, then the proportional rule on effectiveLate.
 //
-// Absences are deliberately NOT part of this calculation: an absent day
-// already costs its own full day, so charging the month's late minutes on top
-// of it would deduct the same absence twice.
+// Absences: an absent day already costs its own full day, but an UNAUTHORIZED
+// absence also forfeits the month's free grace — the grace is added to the late
+// pool once and the plain tier ladder runs on that. Admins can give the minutes
+// back for one worker+month (see salary_late_rollbacks on the backend).
 
 export function lateThresholds(graceValue) {
   const n = Number(graceValue);
@@ -23,9 +24,18 @@ export function lateThresholds(graceValue) {
   return { grace, half, full };
 }
 
-export function calcLateDeductionDays(totalLateMinutes, graceValue) {
+export function calcLateDeductionDays(totalLateMinutes, graceValue, graceForfeited = false) {
   const total = Number(totalLateMinutes) || 0;
   const { grace, half, full } = lateThresholds(graceValue);
+  if (graceForfeited) {
+    // Unauthorized absence: grace charged up-front (single budget — the
+    // clawback does NOT add it a second time). Plain tier ladder on the total.
+    const eff = total + grace;
+    if (eff > full) return Math.round((eff / full) * 2) / 2;
+    if (eff > half) return 1;
+    if (eff > grace) return 0.5;
+    return 0;
+  }
   if (total <= 0) return 0;
   // Grace clawback: once the 1-day tier is reached the grace is charged too,
   // added exactly once (see header).

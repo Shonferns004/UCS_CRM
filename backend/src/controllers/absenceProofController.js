@@ -233,8 +233,8 @@ export const review = async (req, res) => {
       existing.worker_id,
       status === 'approved' ? 'Absence proof approved' : 'Absence proof rejected',
       status === 'approved'
-        ? `Your proof for ${String(existing.date).slice(0, 10)} was approved.`
-        : `Your proof for ${String(existing.date).slice(0, 10)} was rejected — the absence stays recorded.`,
+        ? `Your proof for ${String(existing.date).slice(0, 10)} was approved — your late grace is safe.`
+        : `Your proof for ${String(existing.date).slice(0, 10)} was rejected — this month's late grace is forfeited.`,
       'absence_proof',
       id,
     ).catch(() => {});

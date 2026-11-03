@@ -220,10 +220,8 @@ test('old: a Sunday punch in September still counts late minutes', () => {
   assert.ok(r.lateDeductionDays > 0);
 });
 
-test('absences never add a late deduction on top of the absent days', () => {
-  // Vaishali Sawant, Oct 2026: 26 min late once, absent on 27/28/29.
-  // The 3 absent days are the full cost of those days — they must not also
-  // forfeit the 180 min late grace (that would charge the same absence twice).
+test('an unauthorized absence forfeits the grace, and the admin rollback gives it back', () => {
+  // Vaishali Sawant, Oct 2026: 26 min late once, absent on 27/28/29 (no leave).
   const dim = daysInMonth(2026, 9);
   const absent = new Set(['2026-10-27', '2026-10-28', '2026-10-29']);
   const records = [];
@@ -233,14 +231,28 @@ test('absences never add a late deduction on top of the absent days', () => {
     if (absent.has(date)) continue;
     records.push(date === '2026-10-17' ? rec(date, 'late', 26) : rec(date, 'present'));
   }
-  const r = computePaidDays({
+  const run = (lateRollbackMinutes) => computePaidDays({
     year: 2026, month: 9, daysInMonth: dim, records,
     createdAt: '2021-06-01T00:00:00.000Z', holidayDates: [], viewingToday: dim,
     lateGraceMinutes: 180, includeHolidayPay: false, compensatoryWorkdays: [],
+    lateRollbackMinutes,
   });
-  assert.equal(r.totalLateMinutes, 26);
-  assert.equal(r.lateDeductionDays, 0); // inside the 180 min grace
-  assert.equal(r.absentDatesAfterJoin.length, 3);
+
+  // Unauthorized absence -> grace charged: 26 + 180 = 206 -> half day.
+  const forfeited = run(0);
+  assert.equal(forfeited.totalLateMinutes, 26);
+  assert.equal(forfeited.graceForfeited, true);
+  assert.equal(forfeited.lateDeductionDaysRaw, 0.5);
+  assert.equal(forfeited.lateDeductionDays, 0.5);
+  assert.equal(forfeited.absentDatesAfterJoin.length, 3);
+
+  // Admin rollback of the 180 min grace -> nothing left to charge.
+  const rolledBack = run(180);
+  assert.equal(rolledBack.lateRollbackMinutes, 180);
+  assert.equal(rolledBack.chargeableLateMinutes, 0);
+  assert.equal(rolledBack.lateDeductionDays, 0);
+  assert.equal(rolledBack.lateRollbackDays, 0.5);
+  assert.equal(rolledBack.totalDueDays, forfeited.totalDueDays + 0.5);
 });
 
 test('180-min grace rollback gives the minutes back before the ladder runs', () => {

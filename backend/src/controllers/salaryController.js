@@ -848,9 +848,13 @@ export const setLateRollback = async (req, res) => {
       ? Math.round(requested)
       : base.lateGraceMinutes;
 
-    if (minutes > base.totalLateMinutes) {
+    // What can be given back = the late pool, plus the grace itself when an
+    // unauthorized absence charged it up-front. Without the second part a
+    // worker with 26 late minutes could never roll the charged 180 min back.
+    const maxRollback = base.totalLateMinutes + (base.graceForfeited ? base.lateGraceMinutes : 0);
+    if (minutes > maxRollback) {
       return res.status(400).json({
-        message: `This month has only ${base.totalLateMinutes} late minute(s) — cannot roll back ${minutes}`,
+        message: `Only ${maxRollback} minute(s) can be rolled back for ${month} (${base.totalLateMinutes} late + ${base.graceForfeited ? base.lateGraceMinutes : 0} grace)`,
       });
     }
     if (minutes <= 0) {

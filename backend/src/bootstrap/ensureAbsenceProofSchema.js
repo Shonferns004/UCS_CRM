@@ -3,9 +3,9 @@ import db from '../config/db.js';
 // Idempotent bootstrap for the absence-proof table.
 // A worker who was absent on a day covered by a REJECTED or PENDING leave
 // uploads a proof from the app home screen; the admin reviews it on the
-// admin UCS app home screen. The proof is evidence for the record — it does
-// not change pay either way, since an absent day is already deducted in full.
-// A no-leave absence never gets a proof row.
+// admin UCS app home screen. Approved proof keeps that month's late grace;
+// rejected / never uploaded forfeits it ONCE per calendar month.
+// A no-leave absence never gets a proof row (auto-forfeit, no second chance).
 const CREATE_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS absence_proofs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

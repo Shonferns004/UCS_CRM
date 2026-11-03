@@ -665,10 +665,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     .filter(a => (!joinedThisMonth || a.date >= joinCutoff) && a.status !== 'half-day')
     .reduce((sum, a) => sum + (a.late_minutes || 0), 0);
 
-  // Absences are already deducted as absent days, so they never touch the late
-  // grace — lateness is scored purely on the minutes accumulated.
+  // An unauthorized absence forfeits the month's free grace (single budget with
+  // the clawback — whichever arrives first spends it, never both).
   const graceForfeitedNow = !!absenceGrace[effectiveMonthKey];
-  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace);
+  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace, graceForfeitedNow);
   let totalDue;
   totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
 
@@ -763,7 +763,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     const pLateMins = pAtt
       .filter(a => (!pJoined || a.date >= pJoinCutoff) && !isVoluntarySunday(a.date) && a.status !== 'half-day')
       .reduce((s, a) => s + (a.late_minutes || 0), 0);
-    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace);
+    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace, !!absenceGrace[prevMonthKey]);
     const pPaid = Math.max(0, pAvailable - pDeducted.size);
     const pJoining = (pJoined && monthsEmployed <= 3) ? 1.5 : 0;
     prevTotalDue = pPerDay * Math.max(0, pPaid - pLateDays - pJoining);
@@ -1524,10 +1524,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                       {/* Late minutes badge */}
                       <div style={{ marginBottom:14 }}>
                         {graceForfeitedNow && (
-                          <div style={{ padding:'8px 14px', border:'1px solid #e0a800', borderRadius:8, background:'#fffbea', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
-                            <strong style={{ color:'#8a6400' }}>Unauthorized absence this month</strong>
+                          <div style={{ padding:'8px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
+                            <strong style={{ color:'#d9534f' }}>Grace forfeited (unauthorized absence)</strong>
                             <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
-                              Absent days are already deducted as full days. They add nothing to the late deduction — the {lateT.grace} min late grace still applies in full.
+                              The {lateT.grace} min grace is charged up-front this month — {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} late deduction applies. Use the admin app to roll it back if this was applied wrongly.
                             </div>
                           </div>
                         )}

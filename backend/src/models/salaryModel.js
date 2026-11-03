@@ -12,9 +12,9 @@ import { getLateRollbacksForMonth } from './lateRollbackModel.js';
 const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
 
 // Leaves + absence proofs for a month, grouped by worker. Used by both
-// computePaidDays call sites so unauthorized absences can be reported
-// (utils/absenceRules.js). They do not affect any deduction. Tolerant: empty
-// maps if a table is missing.
+// computePaidDays call sites so an unauthorized absence can forfeit the
+// month's late grace (utils/absenceRules.js). Tolerant: empty maps if a
+// table is missing.
 async function loadLeaveAndProofMaps(startDate, endDate) {
   const leavesByWorker = {};
   const proofsByWorker = {};

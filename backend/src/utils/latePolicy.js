@@ -19,10 +19,17 @@
 // expression: round((total + grace) / full * 2) / 2.
 // Example (grace 180, full 480): 245 -> (245+180)/480 -> 1 day; 720 -> 2 days.
 //
-// Absences are NOT part of this calculation. An absent day already costs its
-// own full day (it is excluded from present days), so charging the month's
-// late minutes on top of it would deduct the same absence twice. Lateness is
-// therefore judged only on the late minutes actually accumulated.
+// Absences and lateness:
+//   An absent day already costs its own full day (it is excluded from present
+//   days), so the month's late minutes are NOT charged for it by default.
+//   But an UNAUTHORIZED absence (no approved leave, or a rejected/pending
+//   leave with no proof) forfeits the month's free grace: the grace minutes
+//   are added to the late pool ONCE and the plain tier ladder runs on that.
+//   Admins can give the minutes back for a single worker+month (see
+//   salary_late_rollbacks) when the charge was a mistake.
+//
+//   Forfeited path example (grace 180): total 26 -> eff 206 -> half day;
+//   total 100 -> eff 280 -> 1.0 day; total 250 -> eff 430 -> 1.0 day.
 
 export const DEFAULT_LATE_GRACE_MINUTES = 180;
 const BASE_GRACE = 180;
@@ -58,9 +65,18 @@ export function getLateThresholds(graceMinutes) {
   return { grace, half, full };
 }
 
-export function calcLateDeductionDays(totalLateMinutes, graceMinutes) {
+export function calcLateDeductionDays(totalLateMinutes, graceMinutes, opts = {}) {
   const total = Number(totalLateMinutes) || 0;
   const { grace, half, full } = getLateThresholds(graceMinutes);
+  if (opts.graceForfeited) {
+    // Unauthorized absence: the grace is charged up-front (single budget — the
+    // clawback does NOT add it a second time). Plain tier ladder on the total.
+    const eff = total + grace;
+    if (eff > full) return Math.round((eff / full) * 2) / 2;
+    if (eff > half) return 1;
+    if (eff > grace) return 0.5;
+    return 0;
+  }
   if (total <= 0) return 0;
   // Grace clawback: once the 1-day tier is reached the grace is charged too,
   // added exactly once (see header). Never reduces the deduction vs the old

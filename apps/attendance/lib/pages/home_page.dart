@@ -713,9 +713,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     )),
                     Text(
                       _absenceGraceForfeited
-                          ? 'Absent days are already deducted in full — your late grace is unaffected'
+                          ? 'Late grace forfeited this month'
                           : needsProofCount > 0
-                              ? '$needsProofCount proof${needsProofCount == 1 ? '' : 's'} needed for approval'
+                              ? 'Late grace at risk · $needsProofCount proof${needsProofCount == 1 ? '' : 's'} needed'
                               : '${_absenceDays.length} day${_absenceDays.length == 1 ? '' : 's'} without approved leave',
                       style: TextStyle(
                         fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
@@ -2412,8 +2412,8 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
       setState(() => _items = _items.where((p) => p['id'] != proof['id']).toList());
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(status == 'approved'
-            ? 'Proof approved'
-            : 'Proof rejected — the absence stays recorded'),
+            ? 'Proof approved — worker grace is safe'
+            : 'Proof rejected — this month\u2019s grace is forfeited'),
         backgroundColor: status == 'approved' ? const Color(0xFF146c2e) : const Color(0xFF93000a),
       ));
     } catch (e) {
@@ -2458,7 +2458,7 @@ class _ProofReviewSheetState extends State<_ProofReviewSheet> {
             Text('Absence Proofs',
                 style: GoogleFonts.hankenGrotesk(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            Text('${_items.length} awaiting review \u00B7 approve or reject the uploaded proof',
+            Text('${_items.length} awaiting review \u00B7 approving keeps the worker\u2019s late grace',
                 style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
             const SizedBox(height: 16),
             Expanded(
