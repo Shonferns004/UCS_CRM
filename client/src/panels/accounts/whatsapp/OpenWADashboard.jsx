@@ -7,6 +7,7 @@ import {
   Webhook,
   Layers,
   Megaphone,
+  Sparkles,
   ScrollText,
   Blocks,
 } from 'lucide-react'
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'number-checker', label: 'Number Checker', icon: UserCheck },
   { id: 'webhooks', label: 'Webhooks', icon: Webhook },
   { id: 'templates', label: 'Templates', icon: Layers },
+  { id: 'smart-replies', label: 'Smart replies', icon: Sparkles, adminOnly: true },
   { id: 'message-tester', label: 'Broadcast Message', icon: Megaphone },
   { id: 'plugins', label: 'Plugins', icon: Blocks, adminOnly: true },
   { id: 'logs', label: 'Logs', icon: ScrollText, adminOnly: true },
@@ -63,7 +65,7 @@ export default function OpenWADashboard() {
   const active = items.find((item) => item.id === section) || items[0]
   // Dashboard, Sessions, Chats and Broadcast are the vendored OpenWA pages; they bring their own
   // header and full-height layout, so the WhatsApp topbar and content padding step aside.
-  const fullBleed = ['overview', 'sessions', 'chats', 'number-checker', 'webhooks', 'templates', 'message-tester', 'plugins', 'logs'].includes(active?.id)
+  const fullBleed = ['overview', 'sessions', 'chats', 'number-checker', 'webhooks', 'templates', 'smart-replies', 'message-tester', 'plugins', 'logs'].includes(active?.id)
 
   return (
     <div className="owa">
@@ -136,6 +138,11 @@ export default function OpenWADashboard() {
           {active?.id === 'templates' && (
             <Suspense fallback={<div className="owa-empty"><Spinner size={22} /><span>Loading templates…</span></div>}>
               <OpenWAEmbed page="templates" />
+            </Suspense>
+          )}
+          {active?.id === 'smart-replies' && (
+            <Suspense fallback={<div className="owa-empty"><Spinner size={22} /><span>Loading smart replies…</span></div>}>
+              <OpenWAEmbed page="smart-replies" />
             </Suspense>
           )}
           {active?.id === 'message-tester' && (

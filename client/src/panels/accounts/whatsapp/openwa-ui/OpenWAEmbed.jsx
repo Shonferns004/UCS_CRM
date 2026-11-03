@@ -16,6 +16,7 @@ import { Templates } from './pages/Templates'
 import { NumberChecker } from './pages/NumberChecker'
 import Plugins from './pages/Plugins'
 import { Logs } from './pages/Logs'
+import { SmartReplies } from './pages/SmartReplies'
 import { setApiBaseUrl } from './services/api'
 import { API_BASE } from '../../../../lib/apiBase'
 import './theme.css'
@@ -89,6 +90,8 @@ export default function OpenWAEmbed({ page = 'chats', onNavigate, fro = false, l
                   <NumberChecker onNavigate={onNavigate} />
                 ) : page === 'plugins' ? (
                   <Plugins />
+                ) : page === 'smart-replies' ? (
+                  <SmartReplies />
                 ) : page === 'logs' ? (
                   <Logs />
                 ) : (

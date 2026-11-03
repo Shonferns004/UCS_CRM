@@ -95,6 +95,7 @@ import { ChatActions } from '../components/chats/ChatRowMenu';
 import { Modal } from '../components/Modal';
 import ChatThread from '../components/chats/ChatThread';
 import ChatComposer, { type StagedAttachment } from '../components/chats/ChatComposer';
+import { SmartReplyPanel } from '../components/SmartReplyPanel';
 import StatusMedia from '../components/chats/StatusMedia';
 import StatusComposeModal from '../components/chats/StatusComposeModal';
 import './Chats.css';
@@ -484,6 +485,29 @@ export function Chats({
   const activeChatTitle = activeChat ? activeChat.name || activePhoneText || activeChat.id.split('@')[0] : '';
   const activeChatTitleText =
     activeChat && !activeChat.name && activePhoneText ? <bdi dir="ltr">{activePhoneText}</bdi> : activeChatTitle;
+
+  // The newest inbound message nobody has answered yet — the smart-reply card's trigger. An
+  // outgoing message sent after it means the operator already replied, so nothing is suggested;
+  // anything older than a day is history, not a conversation waiting for an answer.
+  const pendingInbound = useMemo(() => {
+    if (!activeChat) return null;
+    let latest: { id: string; body: string; at: number } | null = null;
+    let lastOutgoingAt = 0;
+    for (const message of messages) {
+      const at = new Date(message.createdAt).getTime();
+      if (message.direction === 'incoming') {
+        if (message.body && message.body.trim()) {
+          latest = { id: message.id, body: message.body, at: Number.isFinite(at) ? at : 0 };
+        }
+      } else if (Number.isFinite(at) && at > lastOutgoingAt) {
+        lastOutgoingAt = at;
+      }
+    }
+    if (!latest) return null;
+    if (!latest.at || Date.now() - latest.at > 24 * 60 * 60 * 1000) return null;
+    if (lastOutgoingAt >= latest.at) return null;
+    return { id: latest.id, body: latest.body };
+  }, [messages, activeChat]);
 
   // The list loaders below reach the translator and the error toast through a ref, not as
   // dependencies: both change identity on a language switch, which re-ran the session load (it
@@ -2495,6 +2519,17 @@ export function Chats({
                   onReact={handleReactMessage}
                   onDelete={handleDeleteMessage}
                   onClickButton={handleClickButton}
+                />
+
+                {/* Draft reply for the latest inbound message — shown for confirmation, never
+                    sent without pressing Send (components/SmartReplyPanel). */}
+                <SmartReplyPanel
+                  sessionId={selectedSessionId}
+                  chatId={activeChat.id}
+                  inbound={pendingInbound}
+                  onSent={text =>
+                    promoteSentChat(selectedSessionId, activeChat.id, text, Math.floor(Date.now() / 1000))
+                  }
                 />
 
                 {/* Composer: attachment preview, emoji panel, reply banner, input bar —
