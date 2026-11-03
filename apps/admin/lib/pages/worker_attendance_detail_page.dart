@@ -22,6 +22,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
+  Map<String, dynamic>? _rollback;
 
   String get _monthKey => '$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}';
 
@@ -50,14 +51,20 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   Future<void> _load({bool silent = false}) async {
     if (!silent) setState(() { _loading = true; _error = null; });
     try {
-      final records = await ApiService.getWorkerMonthlyAttendance(
-        widget.worker['id'].toString(),
-        _monthKey,
-      );
+      final workerId = widget.worker['id'].toString();
+      // The rollback summary rides along with the month load so the card can
+      // show payroll's computed figure without a second round trip.
+      final results = await Future.wait([
+        ApiService.getWorkerMonthlyAttendance(workerId, _monthKey),
+        ApiService.getLateRollbackInfo(workerId, _monthKey),
+      ]);
+      final records = results[0] as List<dynamic>;
+      final rollback = results[1] as Map<String, dynamic>?;
       if (mounted) {
         setState(() {
           _records = List<dynamic>.from(records)
             ..sort((a, b) => (b['date']?.toString() ?? '').compareTo(a['date']?.toString() ?? ''));
+          _rollback = rollback;
           _loading = false;
         });
       }
@@ -193,6 +200,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
             _buildHeader(scheme, tt),
             const SizedBox(height: 12),
             _buildMonthBar(scheme, tt),
+            _buildRollbackBar(scheme, tt),
             const SizedBox(height: 12),
             Expanded(
               child: _loading
@@ -317,6 +325,256 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         ],
       ),
     );
+  }
+
+  String _fmtDays(double v) => v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  // Payroll's late deduction for this month, with the admin grace rollback (if
+  // any) applied. Only the 180-min grace is waivable — that is the number that
+  // gets charged by mistake when a leave/proof lands after payroll runs.
+  Widget _buildRollbackBar(ColorScheme scheme, TextTheme tt) {
+    final info = _rollback;
+    if (info == null) return const SizedBox.shrink();
+
+    final computed = (info['computedLateDeductionDays'] as num?)?.toDouble() ?? 0;
+    final waivedMinutes = (info['waivedMinutes'] as num?)?.toInt() ?? 0;
+    final effective = (info['effectiveLateDeductionDays'] as num?)?.toDouble() ?? computed;
+    final graceMinutes = (info['graceMinutes'] as num?)?.toInt() ?? 180;
+    final hasRollback = waivedMinutes > 0;
+    final lateMinutes = (info['totalLateMinutes'] as num?)?.toInt() ?? 0;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+      child: Container(
+        margin: EdgeInsets.only(top: Responsive.pad(context, 10)),
+        padding: EdgeInsets.fromLTRB(
+          Responsive.pad(context, 12),
+          Responsive.pad(context, 8),
+          Responsive.pad(context, 4),
+          Responsive.pad(context, 8),
+        ),
+        decoration: BoxDecoration(
+          color: hasRollback ? const Color(0xFFEDF7F0) : scheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasRollback ? const Color(0xFFB7DFC4) : scheme.outlineVariant.withValues(alpha: 0.6),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              LucideIcons.undo2,
+              size: Responsive.sp(context, 18),
+              color: hasRollback ? const Color(0xFF2a6a4b) : scheme.onSurfaceVariant,
+            ),
+            SizedBox(width: Responsive.pad(context, 10)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    computed > 0
+                        ? 'Late deduction: ${_fmtDays(effective)} day(s)'
+                        : 'No late deduction this month',
+                    style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurface),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    hasRollback
+                        ? '$graceMinutes min grace rolled back · $lateMinutes late min'
+                        : computed > 0
+                            ? 'From $lateMinutes late min · roll back the $graceMinutes min grace'
+                            : '$lateMinutes late min · within grace',
+                    style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: (computed > 0 || hasRollback) ? _openRollbackSheet : null,
+              child: Text(hasRollback ? 'Manage' : 'Rollback'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openRollbackSheet() async {
+    final info = _rollback;
+    if (info == null) return;
+
+    final computed = (info['computedLateDeductionDays'] as num?)?.toDouble() ?? 0;
+    final lateMinutes = (info['totalLateMinutes'] as num?)?.toInt() ?? 0;
+    final graceMinutes = (info['graceMinutes'] as num?)?.toInt() ?? 180;
+    final existing = info['rollback'] as Map<String, dynamic>?;
+    final waivedMinutes = (existing?['waivedMinutes'] as num?)?.toInt() ?? 0;
+    final monthLabel = DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth));
+
+    final reasonCtrl = TextEditingController();
+    var busy = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            Future<void> submit() async {
+              final reason = reasonCtrl.text.trim();
+              if (reason.length < 3) {
+                _toast('A reason is required');
+                return;
+              }
+              setSheet(() => busy = true);
+              try {
+                await ApiService.setLateRollback(widget.worker['id'].toString(), _monthKey, reason);
+                if (ctx.mounted) Navigator.pop(ctx);
+                await _load(silent: true);
+                _toast('$graceMinutes min grace rolled back');
+              } catch (e) {
+                if (ctx.mounted) setSheet(() => busy = false);
+                _toast(e.toString().replaceFirst('Exception: ', ''));
+              }
+            }
+
+            Future<void> remove() async {
+              setSheet(() => busy = true);
+              try {
+                await ApiService.clearLateRollback(widget.worker['id'].toString(), _monthKey);
+                if (ctx.mounted) Navigator.pop(ctx);
+                await _load(silent: true);
+                _toast('Rollback removed');
+              } catch (e) {
+                if (ctx.mounted) setSheet(() => busy = false);
+                _toast(e.toString().replaceFirst('Exception: ', ''));
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                Responsive.pad(ctx, 20),
+                Responsive.pad(ctx, 16),
+                Responsive.pad(ctx, 20),
+                MediaQuery.viewInsetsOf(ctx).bottom + Responsive.pad(ctx, 20),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: Responsive.pad(ctx, 40),
+                      height: Responsive.pad(ctx, 4),
+                      decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  SizedBox(height: Responsive.pad(ctx, 16)),
+                  Text('Roll back $graceMinutes min grace', style: TextStyle(
+                    fontSize: Responsive.sp(ctx, 17), fontWeight: FontWeight.w700, color: const Color(0xFF1f1f1f),
+                  )),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$monthLabel · $lateMinutes late min · currently ${_fmtDays(computed)} day(s) deducted',
+                    style: TextStyle(fontSize: Responsive.sp(ctx, 12), color: const Color(0xFF6B7280)),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: EdgeInsets.all(Responsive.pad(ctx, 10)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF4F6FA),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E6EF)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(LucideIcons.info, size: 16, color: Color(0xFF5B6472)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'The $graceMinutes free minutes are given back, then the normal tiers are recomputed on '
+                            '${lateMinutes - graceMinutes} late min for this month.',
+                            style: TextStyle(fontSize: Responsive.sp(ctx, 12), color: const Color(0xFF5B6472)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (waivedMinutes > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: EdgeInsets.all(Responsive.pad(ctx, 10)),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEDF7F0),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFB7DFC4)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(LucideIcons.circleCheck, size: 16, color: Color(0xFF2a6a4b)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '$waivedMinutes min already rolled back'
+                              '${existing?['reason'] != null ? '\nReason: ${existing!['reason']}' : ''}',
+                              style: TextStyle(fontSize: Responsive.sp(ctx, 12), color: const Color(0xFF2a6a4b)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: Responsive.pad(ctx, 14)),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                    maxLength: 200,
+                    decoration: InputDecoration(
+                      labelText: 'Reason (kept in the audit trail)',
+                      hintText: 'e.g. leave proof was approved after payroll ran',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  SizedBox(height: Responsive.pad(ctx, 4)),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: busy ? null : submit,
+                      child: busy
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Text(waivedMinutes > 0 ? 'Update reason' : 'Roll back $graceMinutes min'),
+                    ),
+                  ),
+                  if (waivedMinutes > 0) ...[
+                    SizedBox(height: Responsive.pad(ctx, 8)),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: busy ? null : remove,
+                        child: const Text('Remove rollback'),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    reasonCtrl.dispose();
   }
 
   Widget _buildError(ColorScheme scheme, TextTheme tt) {

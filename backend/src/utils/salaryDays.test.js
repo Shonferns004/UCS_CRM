@@ -220,6 +220,64 @@ test('old: a Sunday punch in September still counts late minutes', () => {
   assert.ok(r.lateDeductionDays > 0);
 });
 
+test('absences never add a late deduction on top of the absent days', () => {
+  // Vaishali Sawant, Oct 2026: 26 min late once, absent on 27/28/29.
+  // The 3 absent days are the full cost of those days — they must not also
+  // forfeit the 180 min late grace (that would charge the same absence twice).
+  const dim = daysInMonth(2026, 9);
+  const absent = new Set(['2026-10-27', '2026-10-28', '2026-10-29']);
+  const records = [];
+  for (let d = 1; d <= dim; d++) {
+    const date = `2026-10-${String(d).padStart(2, '0')}`;
+    if (new Date(date + 'T00:00:00Z').getUTCDay() === 0) continue;
+    if (absent.has(date)) continue;
+    records.push(date === '2026-10-17' ? rec(date, 'late', 26) : rec(date, 'present'));
+  }
+  const r = computePaidDays({
+    year: 2026, month: 9, daysInMonth: dim, records,
+    createdAt: '2021-06-01T00:00:00.000Z', holidayDates: [], viewingToday: dim,
+    lateGraceMinutes: 180, includeHolidayPay: false, compensatoryWorkdays: [],
+  });
+  assert.equal(r.totalLateMinutes, 26);
+  assert.equal(r.lateDeductionDays, 0); // inside the 180 min grace
+  assert.equal(r.absentDatesAfterJoin.length, 3);
+});
+
+test('180-min grace rollback gives the minutes back before the ladder runs', () => {
+  const dim = daysInMonth(2026, 9);
+  const records = [];
+  for (let d = 1; d <= dim; d++) {
+    const date = `2026-10-${String(d).padStart(2, '0')}`;
+    if (new Date(date + 'T00:00:00Z').getUTCDay() === 0) continue;
+    records.push(date === '2026-10-05' ? rec(date, 'late', 1000) : rec(date, 'present'));
+  }
+  const run = (lateRollbackMinutes) => computePaidDays({
+    year: 2026, month: 9, daysInMonth: dim, records,
+    createdAt: '2021-06-01T00:00:00.000Z', holidayDates: [], viewingToday: dim,
+    lateGraceMinutes: 180, includeHolidayPay: false, compensatoryWorkdays: [], lateRollbackMinutes,
+  });
+
+  const base = run(0);
+  assert.equal(base.totalLateMinutes, 1000);
+  assert.equal(base.lateDeductionDaysRaw, 2.5); // (1000 + 180) / 480 -> 2.5
+  assert.equal(base.lateDeductionDays, 2.5);
+  assert.equal(base.lateRollbackMinutes, 0);
+
+  // 180 minutes back: the ladder now runs on 820 min -> (820+180)/480 = 2.08 -> 2.0
+  const waived = run(180);
+  assert.equal(waived.lateRollbackMinutes, 180);
+  assert.equal(waived.chargeableLateMinutes, 820);
+  assert.equal(waived.lateDeductionDaysRaw, 2.5);
+  assert.equal(waived.lateDeductionDays, 2);
+  assert.equal(waived.lateRollbackDays, 0.5);
+  assert.equal(waived.totalDueDays, base.totalDueDays + 0.5);
+
+  // Never more than the pool, never negative.
+  assert.equal(run(5000).chargeableLateMinutes, 0);
+  assert.equal(run(5000).lateRollbackMinutes, 1000);
+  assert.equal(run(-180).lateDeductionDays, 2.5);
+});
+
 test('new: Sundays before the join date are not paid', () => {
   const dim = daysInMonth(2026, 9);
   const records = [];

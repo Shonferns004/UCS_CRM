@@ -990,6 +990,53 @@ class ApiService {
     }
   }
 
+  // ---- Late-deduction rollback (admin) ----
+  //
+  // Payroll pools a month's late minutes into a deduction; when that figure is
+  // wrong for a non-lateness reason (leave/proof approved late, bad punch, HR
+  // correction) an admin can waive part or all of it for that worker+month.
+
+  static Future<Map<String, dynamic>?> getLateRollbackInfo(String workerId, String month) async {
+    try {
+      final res = await _get(
+        Uri.parse('$baseUrl/salary/late-rollback/$workerId?month=$month'),
+        headers: await _headers(),
+      );
+      if (res.statusCode != 200) return null;
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>> setLateRollback(
+    String workerId,
+    String month,
+    String reason,
+  ) async {
+    final res = await _put(
+      Uri.parse('$baseUrl/salary/late-rollback/$workerId'),
+      headers: await _headers(),
+      body: jsonEncode({'month': month, 'reason': reason}),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) {
+      throw Exception(body is Map ? (body['message'] ?? 'Failed to save rollback') : 'Failed to save rollback');
+    }
+    return (body is Map ? body : <String, dynamic>{}) as Map<String, dynamic>;
+  }
+
+  static Future<void> clearLateRollback(String workerId, String month) async {
+    final res = await _delete(
+      Uri.parse('$baseUrl/salary/late-rollback/$workerId?month=$month'),
+      headers: await _headers(),
+    );
+    if (res.statusCode != 200) {
+      final body = jsonDecode(res.body);
+      throw Exception(body is Map ? (body['message'] ?? 'Failed to remove rollback') : 'Failed to remove rollback');
+    }
+  }
+
   // ---- Calendar API ----
 
   static Future<Map<String, dynamic>> getCalendar({int? year, int? month}) async {

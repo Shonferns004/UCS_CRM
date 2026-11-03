@@ -7,13 +7,14 @@ import { getSetting, upsertSetting } from './settingsModel.js';
 import { LIVE_LOAN_STATUSES } from './loanModel.js';
 import { getLeavesInRange } from './leaveModel.js';
 import { getAbsenceProofsInRange } from './absenceProofModel.js';
+import { getLateRollbacksForMonth } from './lateRollbackModel.js';
 
 const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
 
 // Leaves + absence proofs for a month, grouped by worker. Used by both
-// computePaidDays call sites so an unauthorized absence can forfeit the
-// month's late grace (utils/absenceRules.js). Tolerant: empty maps if a
-// table is missing.
+// computePaidDays call sites so unauthorized absences can be reported
+// (utils/absenceRules.js). They do not affect any deduction. Tolerant: empty
+// maps if a table is missing.
 async function loadLeaveAndProofMaps(startDate, endDate) {
   const leavesByWorker = {};
   const proofsByWorker = {};
@@ -512,6 +513,8 @@ export const getPresentDaysByMonth = async (month) => {
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
 
   const { leavesByWorker, proofsByWorker } = await loadLeaveAndProofMaps(startDate, endDate);
+  // Admin late-deduction rollbacks for this month, one row per worker.
+  const lateRollbacksByWorker = await getLateRollbacksForMonth(monthStr).catch(() => ({}));
 
   const { data: collLogs, error: collErr } = await db
     .from('fro_donor_logs')
@@ -552,6 +555,7 @@ export const getPresentDaysByMonth = async (month) => {
       lateGraceMinutes: graceByWorker[w.id] ?? null,
       leaves: leavesByWorker[w.id] || [],
       absenceProofs: proofsByWorker[w.id] || [],
+      lateRollbackMinutes: lateRollbacksByWorker[w.id] || 0,
     });
     return {
       worker_id: w.id,
@@ -564,6 +568,9 @@ export const getPresentDaysByMonth = async (month) => {
       leave: c.leave,
       paid_days: calc.paidDays,
       late_deduction_days: calc.lateDeductionDays,
+      late_deduction_days_raw: calc.lateDeductionDaysRaw,
+      late_rollback_days: calc.lateRollbackDays,
+      late_rollback_minutes: calc.lateRollbackMinutes,
       late_grace_minutes: calc.lateGraceMinutes,
       late_thresholds: calc.lateThresholds,
       grace_forfeited: calc.graceForfeited,
@@ -950,6 +957,9 @@ export const getPagarExportData = async (month) => {
   const holdByWorker = {};
   for (const h of holds || []) holdByWorker[h.worker_id] = h.reason || '';
 
+  // Admin late-deduction rollbacks for this month, one row per worker.
+  const lateRollbacksByWorker = await getLateRollbacksForMonth(monthStr).catch(() => ({}));
+
   // 8. Compute per worker
   const rows = [];
   for (const w of workers) {
@@ -971,6 +981,7 @@ export const getPagarExportData = async (month) => {
       lateGraceMinutes: w.late_grace_minutes ?? null,
       leaves: payrollLeavesByWorker[w.id] || [],
       absenceProofs: payrollProofsByWorker[w.id] || [],
+      lateRollbackMinutes: lateRollbacksByWorker[w.id] || 0,
     });
 
     const target = targetByWorker[w.id] || 0;
@@ -1047,6 +1058,9 @@ export const getPagarExportData = async (month) => {
       absent_days: attResult.absentDatesAfterJoin.length,
       half_days: attResult.halfDayCount * 0.5,
       late_deduction_days: lateDeductionDays,
+      late_deduction_days_raw: attResult.lateDeductionDaysRaw,
+      late_rollback_days: attResult.lateRollbackDays,
+      late_rollback_minutes: attResult.lateRollbackMinutes,
       late_grace_minutes: attResult.lateGraceMinutes,
       late_thresholds: attResult.lateThresholds,
       total_late_minutes: attResult.totalLateMinutes,
