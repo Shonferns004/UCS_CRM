@@ -348,7 +348,23 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
 
 export const removeSalary = async (req, res) => {
   try {
+    const current = await getSalaryById(req.params.id);
     const result = await deleteSalary(req.params.id);
+
+    // Deleting a row that was layered on top of an older one must hand the
+    // salary back to it: the previous row was closed (to_month = month before
+    // this one) when the new row was added, so without this the worker shows no
+    // active salary at all and payroll drops to 0 for the older month.
+    if (current) {
+      const rest = await getSalariesByWorker(current.worker_id).catch(() => []);
+      const latest = (rest || [])
+        .slice()
+        .sort((a, b) => String(b.from_month).localeCompare(String(a.from_month)))[0];
+      if (latest && latest.to_month) {
+        await updateSalary(latest.id, { to_month: null });
+      }
+    }
+
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
