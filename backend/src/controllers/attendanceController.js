@@ -2,6 +2,7 @@ import {
   getTodayAttendance,
   createAttendance,
   getAttendanceById,
+  getAttendanceByWorkerDate,
   updateAttendance,
   getMonthlyLateMinutes,
   getAttendanceHistory,
@@ -19,6 +20,7 @@ import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { calculateAttendanceStatus } from '../utils/attendanceStatus.js';
 import { isVoluntarySunday } from '../utils/sundayRules.js';
+import { resolvePunchTime } from '../utils/punchTime.js';
 import { attachSignedSelfieUrls, attachSignedSelfieUrlsToList } from '../services/signatureMediaLink.js';
 
 const MAX_LATE_MINUTES = 180;
@@ -112,10 +114,21 @@ async function isHalfDayByEarlyPunchOut(punchOutTime, workerId) {
 
 export const punchIn = async (req, res) => {
   try {
-    const { code, latitude, longitude } = req.body;
+    const { code, latitude, longitude, punch_time, punch_method } = req.body;
     if (!code || latitude === undefined || longitude === undefined) {
       return res.status(400).json({ message: 'QR code, latitude, and longitude are required' });
     }
+
+    const { time: punchTime, error: timeError } = resolvePunchTime(punch_time);
+    if (timeError) return res.status(400).json({ message: timeError });
+
+    // The QR/selfie flow that produced this punch, for the audit trail.
+    const method = punch_method == null ? null : String(punch_method).slice(0, 20);
+
+    // A punch queued offline belongs to the day it happened, not the day it
+    // finally reaches the server.
+    const punchDate = istDateStr(punchTime);
+    const today = istDateStr();
 
     const qr = await getQRByCode(code);
     if (!qr) {
@@ -129,37 +142,40 @@ export const punchIn = async (req, res) => {
       });
     }
 
-    const existing = await getTodayAttendance(req.user.id);
+    const existing = await getAttendanceByWorkerDate(req.user.id, punchDate);
     if (existing && existing.punch_in_time) {
-      return res.status(400).json({ message: 'Already punched in today' });
+      return res.status(400).json({
+        message: punchDate === today ? 'Already punched in today' : `Already punched in for ${punchDate}`,
+      });
     }
 
-    const now = new Date();
-    const lateMinutes = await calculateLateMinutes(now, req.user.id);
-    const status = await calculateAttendanceStatus({ workerId: req.user.id, punchInTime: now });
+    const lateMinutes = await calculateLateMinutes(punchTime, req.user.id);
+    const status = await calculateAttendanceStatus({ workerId: req.user.id, punchInTime: punchTime });
 
     if (existing) {
       const updated = await updateAttendance(existing.id, {
-        punch_in_time: now.toISOString(),
+        punch_in_time: punchTime.toISOString(),
         punch_in_lat: latitude,
         punch_in_lng: longitude,
         late_minutes: lateMinutes,
         status,
+        ...(method ? { punch_method: method } : {}),
       });
-      return res.json({ message: 'Punch in recorded', attendance: updated, lateMinutes });
+      return res.json({ message: 'Punch in recorded', attendance: updated, lateMinutes, date: punchDate });
     }
 
     const attendance = await createAttendance({
       worker_id: req.user.id,
-      date: istDateStr(now),
-      punch_in_time: now.toISOString(),
+      date: punchDate,
+      punch_in_time: punchTime.toISOString(),
       punch_in_lat: latitude,
       punch_in_lng: longitude,
       late_minutes: lateMinutes,
       status,
+      ...(method ? { punch_method: method } : {}),
     });
 
-    return res.status(201).json({ message: 'Punch in recorded', attendance, lateMinutes });
+    return res.status(201).json({ message: 'Punch in recorded', attendance, lateMinutes, date: punchDate });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -167,22 +183,37 @@ export const punchIn = async (req, res) => {
 
 export const punchOut = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, punch_time, punch_method } = req.body;
     if (latitude === undefined || longitude === undefined) {
       return res.status(400).json({ message: 'Latitude and longitude are required' });
     }
 
-    const existing = await getTodayAttendance(req.user.id);
+    const { time: punchTime, error: timeError } = resolvePunchTime(punch_time);
+    if (timeError) return res.status(400).json({ message: timeError });
+
+    const method = punch_method == null ? null : String(punch_method).slice(0, 20);
+
+    const punchDate = istDateStr(punchTime);
+    const today = istDateStr();
+    const dayLabel = punchDate === today ? 'today' : punchDate;
+
+    // Same day the punch happened — a queued punch-out must close that day's
+    // record, never whatever happens to be open when the sync finally runs.
+    const existing = await getAttendanceByWorkerDate(req.user.id, punchDate);
     if (!existing || !existing.punch_in_time) {
-      return res.status(400).json({ message: 'No punch in record for today' });
+      return res.status(400).json({ message: `No punch in record for ${dayLabel}` });
     }
     if (existing.punch_out_time) {
-      return res.status(400).json({ message: 'Already punched out today' });
+      return res.status(400).json({ message: `Already punched out ${dayLabel}` });
     }
 
-    const now = new Date();
+    const punchInAt = new Date(existing.punch_in_time);
+    if (punchTime.getTime() <= punchInAt.getTime()) {
+      return res.status(400).json({ message: 'Punch out time is before the punch in time' });
+    }
+
     const MIN_PUNCHOUT_MINUTES = 5;
-    const elapsedMin = (now.getTime() - new Date(existing.punch_in_time).getTime()) / 60000;
+    const elapsedMin = (punchTime.getTime() - punchInAt.getTime()) / 60000;
     if (elapsedMin < MIN_PUNCHOUT_MINUTES) {
       const remainingSec = Math.ceil(MIN_PUNCHOUT_MINUTES * 60 - elapsedMin * 60);
       return res.status(400).json({
@@ -191,15 +222,16 @@ export const punchOut = async (req, res) => {
     }
 
     const updates = {
-      punch_out_time: now.toISOString(),
+      punch_out_time: punchTime.toISOString(),
       punch_out_lat: latitude,
       punch_out_lng: longitude,
+      ...(method ? { punch_method: method } : {}),
     };
     if (existing.status !== 'leave' && existing.status !== 'absent') {
       updates.status = await calculateAttendanceStatus({
         workerId: req.user.id,
         punchInTime: existing.punch_in_time,
-        punchOutTime: now,
+        punchOutTime: punchTime,
       });
       // A half-day caused by a late arrival must not also carry late minutes.
       if (updates.status === 'half-day' && await isHalfDayByLatePunch(existing.punch_in_time, req.user.id)) {
@@ -208,10 +240,9 @@ export const punchOut = async (req, res) => {
     }
     const updated = await updateAttendance(existing.id, updates);
 
-    const punchIn = new Date(existing.punch_in_time);
-    const hoursWorked = ((now - punchIn) / 3600000).toFixed(1);
+    const hoursWorked = ((punchTime.getTime() - punchInAt.getTime()) / 3600000).toFixed(1);
 
-    return res.json({ message: 'Punch out recorded', attendance: updated, hoursWorked });
+    return res.json({ message: 'Punch out recorded', attendance: updated, hoursWorked, date: punchDate });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -543,7 +574,13 @@ export const getWorkerMonthlyAttendance = async (req, res) => {
     }
     const startDate = month + '-01';
     const [y, m] = month.split('-').map(Number);
-    const endDate = new Date(y, m, 0).toISOString().slice(0, 10);
+    // Last day of the month as a plain YYYY-MM-DD string. Formatting the
+    // locally-constructed date through toISOString() converts it to UTC, so on
+    // any server east of UTC (IST is +5:30) midnight on the 1st of next month
+    // became 18:30Z on the last day — one day earlier. That silently dropped
+    // the final day of every month from the attendance calendar.
+    const lastDay = new Date(y, m, 0).getDate();
+    const endDate = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     const records = await getMonthlyAttendance(id, startDate, endDate);
 
     const allLeaves = await getApprovedLeaves(id);

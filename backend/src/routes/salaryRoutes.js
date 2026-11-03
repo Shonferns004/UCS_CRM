@@ -23,6 +23,9 @@ import {
   setSalaryHold,
   releaseSalaryHold,
   downloadAttendanceReport,
+  getLateRollbackInfo,
+  setLateRollback,
+  clearLateRollback,
 } from '../controllers/salaryController.js';
 import { authenticateRole, authenticate, authenticateSalary } from '../middleware/authMiddleware.js';
 
@@ -56,5 +59,11 @@ router.get('/compensations', authenticateRole('accounts'), getAccountsSalaryComp
 router.get('/hold/:workerId', adminHrAccounts, getSalaryHold);
 router.put('/hold', adminHrAccounts, setSalaryHold);
 router.delete('/hold/:workerId', adminHrAccounts, releaseSalaryHold);
+
+// Late-deduction rollback: wave part/all of one month's late deduction for a
+// worker when it was applied wrongly (late-approved leave, bad punch, HR fix).
+router.get('/late-rollback/:workerId', adminHrAccounts, getLateRollbackInfo);
+router.put('/late-rollback/:workerId', adminHrAccounts, setLateRollback);
+router.delete('/late-rollback/:workerId', adminHrAccounts, clearLateRollback);
 
 export default router;

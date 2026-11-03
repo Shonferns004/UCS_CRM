@@ -383,8 +383,16 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? punchMethod}) async {
-    final body = {'code': code, 'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod};
+  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? punchMethod, DateTime? punchTime}) async {
+    final body = {
+      'code': code,
+      'latitude': lat,
+      'longitude': lng,
+      if (punchMethod != null) 'punch_method': punchMethod,
+      // The instant the QR was scanned. An offline punch is replayed later, so
+      // without this the server would stamp the sync time (and the sync day).
+      if (punchTime != null) 'punch_time': punchTime.toUtc().toIso8601String(),
+    };
     final res = await _post(
       Uri.parse('$baseUrl/attendance/punch-in'),
       headers: await _headers(),
@@ -393,11 +401,17 @@ class ApiService {
     return _decodePunchResponse(res, 'Punch in failed');
   }
 
-  static Future<Map<String, dynamic>> punchOut(double lat, double lng, {String? punchMethod}) async {
+  static Future<Map<String, dynamic>> punchOut(double lat, double lng, {String? punchMethod, DateTime? punchTime}) async {
+    final body = {
+      'latitude': lat,
+      'longitude': lng,
+      if (punchMethod != null) 'punch_method': punchMethod,
+      if (punchTime != null) 'punch_time': punchTime.toUtc().toIso8601String(),
+    };
     final res = await _post(
       Uri.parse('$baseUrl/attendance/punch-out'),
       headers: await _headers(),
-      body: jsonEncode({'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod}),
+      body: jsonEncode(body),
     );
     return _decodePunchResponse(res, 'Punch out failed');
   }

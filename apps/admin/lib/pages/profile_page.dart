@@ -575,14 +575,13 @@ class _ProfilePageState extends State<ProfilePage> {
     return (480 * (_lateGrace / 180)).round();
   }
 
-  // Unauthorized absence forfeits the month's grace (Option A single budget —
-  // the backend breakdown already computed it, including proof outcomes).
+  // Unauthorized absences are reported by the backend (absence-proof flow) but
+  // they no longer change pay: an absent day already costs its own full day.
   bool get _graceForfeited => _selectedBreakdown?['graceForfeited'] == true;
 
-  // With forfeiture the grace is charged up-front, so the tier ladder runs on
-  // (used + grace) — mirrors backend/src/utils/latePolicy.js forfeited path.
-  double get _lateEffectiveMinutes =>
-      _graceForfeited ? (_selectedLateMinutes + _lateGrace).toDouble() : _selectedLateMinutes.toDouble();
+  // Absences never join the late arithmetic — mirrors
+  // backend/src/utils/latePolicy.js (lateness is scored on minutes only).
+  double get _lateEffectiveMinutes => _selectedLateMinutes.toDouble();
 
   double get _lateTier {
     final used = _lateEffectiveMinutes;
@@ -634,15 +633,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String get _lateTierDesc {
     final used = _selectedLateMinutes;
-    if (_graceForfeited) {
-      return 'Unauthorized absence this month — the $_lateGrace min grace is charged up-front '
-          '(eff = $used + $_lateGrace), then the normal tiers apply. Approved proof keeps the grace safe.';
-    }
+    final absenceNote = _graceForfeited
+        ? 'Unauthorized absence this month — absent days are already deducted as full days, '
+            'so they add nothing to the late deduction.\n'
+        : '';
     switch (_lateTier) {
-      case 0: return '$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
-      case 1: return '$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
-      case 2: return '$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
-      case 3: return '$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
+      case 0: return '$absenceNote$used min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
+      case 1: return '$absenceNote$used min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
+      case 2: return '$absenceNote$used min used — exceeds half-day threshold. The $_lateGrace free minutes are charged too (added once): ($used + $_lateGrace) ÷ $_lateFull, rounded to the nearest half day.';
+      case 3: return '$absenceNote$used min used — exceeds $_lateFull min. Proportional deduction (($used + $_lateGrace) ÷ $_lateFull, grace charged once), rounded to the nearest half day.';
       default: return '';
     }
   }
@@ -865,19 +864,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
   num get _fallbackLateDeductionDays {
     final minutes = _selectedLateMinutes;
-    if (_graceForfeited) {
-      // Grace charged up-front (single budget — clawback does NOT add it a
-      // second time). Plain tier ladder on the effective total.
-      final eff = minutes + _lateGrace;
-      if (eff > _lateFull) return (((eff / _lateFull) * 2).roundToDouble()) / 2;
-      if (eff > _lateHalf) return 1;
-      if (eff > _lateGrace) return 0.5;
-      return 0;
-    }
+    // Absences are already charged as their own days, so they never increase
+    // the late deduction (mirrors backend/src/utils/latePolicy.js).
     if (minutes <= _lateGrace) return 0;
     if (minutes <= _lateHalf) return 0.5;
-    // Grace clawback (mirrors backend/src/utils/latePolicy.js): once the 1-day
-    // tier is reached the grace is charged too, added exactly once.
+    // Grace clawback: once the 1-day tier is reached the grace is charged too,
+    // added exactly once.
     return (((minutes + _lateGrace) / _lateFull) * 2).roundToDouble() / 2;
   }
 

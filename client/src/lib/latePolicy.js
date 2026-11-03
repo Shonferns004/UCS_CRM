@@ -10,12 +10,9 @@
 // added EXACTLY ONCE, never re-added at higher tiers. Equivalently:
 // effectiveLate = total + grace, then the proportional rule on effectiveLate.
 //
-// Grace forfeiture (unauthorized absence, Option A single grace budget): an
-// absent day with rejected/pending leave (proof rejected or never uploaded)
-// — or with no leave at all — forfeits the month's free grace. Whichever
-// mechanism arrives first spends the 180, NEVER both. The forfeited path
-// charges the grace up-front (eff = total + grace) and runs the PLAIN tier
-// ladder on eff — the same 180 the clawback would have taken, just earlier.
+// Absences are deliberately NOT part of this calculation: an absent day
+// already costs its own full day, so charging the month's late minutes on top
+// of it would deduct the same absence twice.
 
 export function lateThresholds(graceValue) {
   const n = Number(graceValue);
@@ -26,18 +23,9 @@ export function lateThresholds(graceValue) {
   return { grace, half, full };
 }
 
-export function calcLateDeductionDays(totalLateMinutes, graceValue, graceForfeited = false) {
+export function calcLateDeductionDays(totalLateMinutes, graceValue) {
   const total = Number(totalLateMinutes) || 0;
   const { grace, half, full } = lateThresholds(graceValue);
-  if (graceForfeited) {
-    // Unauthorized absence: grace charged up-front (single budget — the
-    // clawback does NOT add it a second time). Plain tier ladder on eff.
-    const eff = total + grace;
-    if (eff > full) return Math.round((eff / full) * 2) / 2;
-    if (eff > half) return 1;
-    if (eff > grace) return 0.5;
-    return 0;
-  }
   if (total <= 0) return 0;
   // Grace clawback: once the 1-day tier is reached the grace is charged too,
   // added exactly once (see header).
