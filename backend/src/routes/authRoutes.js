@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { adminLogin, unifiedLogin, salaryLogin, impersonateFRO, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, changePassword, logout, refreshAccessToken } from '../controllers/authController.js';
+import { adminLogin, unifiedLogin, salaryLogin, impersonateFRO, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, changePassword, logout, refreshAccessToken, getMe } from '../controllers/authController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -9,6 +9,7 @@ router.post('/worker/login', unifiedLogin);
 // Mobile apps swap their expired access token for a new one here.
 router.post('/refresh', refreshAccessToken);
 router.post('/login', unifiedLogin);
+router.get('/me', authenticate, getMe);
 router.post('/salary-login', salaryLogin);
 router.post('/impersonate', authenticate, impersonateFRO);
 router.get('/fro-workers', authenticate, getFroWorkersForImpersonation);

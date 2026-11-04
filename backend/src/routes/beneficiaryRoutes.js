@@ -5,6 +5,7 @@ import {
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
   markBeneficiaryKitGiven, lookupBeneficiaryByToken, deleteBeneficiariesController,
+  photoVerificationController, uploadBeneficiaryPhotoController,
   parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
   sendCollectionOtp, verifyCollectionOtp,
@@ -94,6 +95,14 @@ router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accou
 // (documents, fingerprints, disability, family, benefits, audit of BULK_DELETED).
 router.post('/bulk-delete', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), deleteBeneficiariesController);
 router.delete('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), deleteBeneficiariesController);
+
+// Photo fallback — used when the fingerprint scanner cannot read a finger.
+// Stores the captured photo as a distribution_proof document and logs it.
+router.post('/:id/photo-verification', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), photoVerificationController);
+
+// Profile photo upload — stores the photo in the beneficiary-documents bucket
+// (S3) and writes the public URL to beneficiaries.photo.
+router.post('/:id/photo', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), uploadBeneficiaryPhotoController);
 
 // Kit given — records that the event kit was handed to the beneficiary
 // (operator swipe flow on the beneficiaries app).

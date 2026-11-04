@@ -77,6 +77,7 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
 
   /// Data URL of the beneficiary photo, or null when the record has none.
   String? _photo;
+  String? _photoBase64;
   bool _photoBusy = false;
 
   // Documents already on the server, so an operator does not re-scan a copy
@@ -528,6 +529,33 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     if (_loading) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
+
+    // If a new photo was captured, upload it to S3 first and replace the
+    // inline data URL with the returned public URL.
+    if (_photo != null &&
+        _photo!.startsWith('data:image') &&
+        _photoBase64 != null &&
+        _photoBase64!.isNotEmpty) {
+      final id = widget.beneficiary['id'];
+      try {
+        final res = await ApiService.post(
+          '/beneficiaries/$id/photo',
+          body: {'file_base64': _photoBase64, 'mime_type': 'image/jpeg'},
+          timeout: const Duration(minutes: 2),
+        );
+        final url = res['file_url']?.toString();
+        if (url != null && url.isNotEmpty) {
+          _photo = url;
+          _photoBase64 = null;
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _loading = false);
+          showAppSnackbar(context, 'Photo upload failed: $e', error: true);
+        }
+        return;
+      }
+    }
 
     final body = <String, dynamic>{};
     if (_fullNameController.text.trim().isNotEmpty) {
@@ -1052,7 +1080,11 @@ class _EditBeneficiaryPageState extends State<EditBeneficiaryPage> {
     try {
       final dataUrl = await compute(photoDataUrl, bytes);
       if (!mounted) return;
-      setState(() => _photo = dataUrl);
+      final comma = dataUrl.indexOf(',');
+      setState(() {
+        _photo = dataUrl;
+        _photoBase64 = comma == -1 ? dataUrl : dataUrl.substring(comma + 1);
+      });
     } catch (e) {
       if (!mounted) return;
       showAppSnackbar(context, 'Could not use that photo: $e', error: true);

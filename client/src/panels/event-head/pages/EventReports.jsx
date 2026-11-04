@@ -1294,7 +1294,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const [reportType, setReportType] = useState('material')
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('Submitted')
+  const [statusFilter, setStatusFilter] = useState('')
   const [allData, setAllData] = useState(null)
   const [allLoading, setAllLoading] = useState(false)
 
@@ -1523,22 +1523,77 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     return () => { alive = false }
   }, [mode, plannerCardsMonth, plannerCardsYear, plannerCardsNgo, plannerCardsReload])
 
+  // Resolve every planner card to the event it produced (durable link → suggested
+  // event → date + NGO + name match), so the Show filter and the cards read the
+  // same event and the same status. Without this the filter could not tell what
+  // a card's status is, because the cards are planner rows, not events.
+  const plannerEventIndex = useMemo(() => {
+    const eventById = new Map((events || []).map(e => [String(e.id), e]))
+    const index = new Map()
+    for (const s of plannerCards) {
+      const sDate = String(s.observance_date || s.date || '').slice(0, 10)
+      let id = null
+      if (sDate) {
+        const link = (plannerLinks || []).find(l =>
+          String(l.observance_date || '').slice(0, 10) === sDate &&
+          String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase() &&
+          (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
+        )
+        if (link && link.event_id) id = link.event_id
+      }
+      if (id == null && s.suggested_event_id) id = s.suggested_event_id
+      if (id == null && sDate) {
+        const match = (events || []).find(e => {
+          if (!e) return false
+          const sameDate = String(e.date || '').slice(0, 10) === sDate
+          const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
+          const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
+            String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+          return sameDate && sameNgo && nameMatch
+        })
+        if (match) id = match.id
+      }
+      index.set(s.id, { id, event: id != null ? (eventById.get(String(id)) || null) : null })
+    }
+    return index
+  }, [plannerCards, plannerLinks, events])
+
+  // The Show dropdown lists the statuses that actually occur on this month's
+  // planner cards, so every option can match at least one card.
+  const statusOptions = useMemo(() => {
+    const seen = new Set()
+    for (const v of plannerEventIndex.values()) {
+      const st = String(v?.event?.status || '').trim()
+      if (st) seen.add(st)
+    }
+    const order = ['Submitted', 'Completed', 'Approved', 'Rejected', 'Draft']
+    return [...seen].sort((a, b) => {
+      const ia = order.indexOf(a)
+      const ib = order.indexOf(b)
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b)
+    })
+  }, [plannerEventIndex])
+
   // Cards are shown date-wise: the festivals/planner rows of one day sit together
   // under that date, in calendar order, instead of one mixed grid for the month.
+  // The Show dropdown filters these cards by the status of their linked event.
   const plannerCardGroups = useMemo(() => {
     const byDate = new Map()
     for (const s of plannerCards) {
       const d = String(s.observance_date || s.date || '').slice(0, 10)
       if (!d) continue
+      if (statusFilter) {
+        const linked = plannerEventIndex.get(s.id)
+        const st = linked?.event ? String(linked.event.status || '') : ''
+        if (st !== statusFilter) continue
+      }
       if (!byDate.has(d)) byDate.set(d, [])
       byDate.get(d).push(s)
     }
     return [...byDate.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, cards]) => ({ date, cards }))
-  }, [plannerCards])
-
-  const filteredEvents = events.filter(e => !statusFilter || (statusFilter === 'Submitted' ? isSubmitted(e.status) : String(e.status) === statusFilter))
+  }, [plannerCards, plannerEventIndex, statusFilter])
 
   const generate = async (forceId) => {
     // Guard against a DOM/SyntheticEvent (e.g. a bare onClick={generate}
@@ -2226,9 +2281,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
               <label style={labelStyle}>Show</label>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={selectStyle}>
                 <option value="">All Events</option>
-                <option value="Submitted">Submitted only</option>
-                <option value="Completed">Completed only</option>
-                <option value="Draft">Draft only</option>
+                {statusOptions.map(st => <option key={st} value={st}>{st}</option>)}
               </select>
             </div>
 
@@ -2294,6 +2347,8 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
               <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading planner events…</div>
             ) : plannerCards.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>No festivals for this month.</div>
+            ) : plannerCardGroups.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>No events match this filter.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                 {plannerCardGroups.map(group => (
@@ -2306,29 +2361,11 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
                       {group.cards.map((s, i) => {
-                  // Resolve the linked event: prefer suggested_event_id, fall back to
-                  // matching an event in the loaded events list by date + NGO + name.
-                  const sDate = s.observance_date || s.date
-                  // Resolve created event: durable planner link first, then suggested_event_id, then events-list match
-                  let evId = null
-                  const link = (plannerLinks || []).find(l =>
-                    String(l.observance_date || '').slice(0, 10) === String(sDate || '').slice(0, 10) &&
-                    String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase() &&
-                    (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
-                  )
-                  if (link && link.event_id) evId = link.event_id
-                  else if (s.suggested_event_id) evId = s.suggested_event_id
-                  else {
-                    const match = (events || []).find(e => {
-                      if (!e || !sDate) return false
-                      const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
-                      const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
-                      const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
-                        String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
-                      return sameDate && sameNgo && nameMatch
-                    })
-                    if (match) evId = match.id
-                  }
+                  // Resolution is shared with the Show filter (plannerEventIndex),
+                  // so a card and the filter can never disagree about its event.
+                  const linked = plannerEventIndex.get(s.id)
+                  const evId = linked?.id ?? null
+                  const linkedEv = linked?.event ?? null
                   const isDone = Boolean(evId)
                   return (
                     <div key={s.id || i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: '#fff' }}>
@@ -2347,7 +2384,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                               Show
                             </button>
                             <button className="btn btn-sm" onClick={async () => {
-                              const linkedEv = (events || []).find(e => String(e.id) === String(evId))
                               const rawImages = Array.isArray(linkedEv?.images) ? linkedEv.images : []
                               const images = []
                               for (let i = 0; i < rawImages.length; i++) {

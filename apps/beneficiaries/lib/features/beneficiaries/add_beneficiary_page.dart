@@ -7,8 +7,10 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/lucide_icons.dart';
+import '../../core/constants/indian_locations.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/searchable_dropdown.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/utils/photo_utils.dart';
@@ -104,7 +106,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   List<CapturedFingerprint> _captured = [];
   bool _fingersReady = false;
   String? _photo;
+  String? _photoBase64;
   bool _photoBusy = false;
+
+  String? _selectedState;
+  String? _selectedCity;
 
   // True while OCR is reading that side of the Aadhaar card.
   bool _ocrBusyFront = false;
@@ -183,13 +189,38 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     if (area == null || !mounted) return;
     if (area.city.isEmpty && area.state.isEmpty) return;
     setState(() {
-      if (_cityController.text.trim().isEmpty && area.city.isNotEmpty) {
-        _cityController.text = area.city;
+      if ((_selectedCity == null || _selectedCity!.isEmpty) && area.city.isNotEmpty) {
+        _selectedCity = _matchCity(area.state, area.city);
+        _cityController.text = _selectedCity ?? '';
       }
-      if (_stateController.text.trim().isEmpty && area.state.isNotEmpty) {
-        _stateController.text = area.state;
+      if ((_selectedState == null || _selectedState!.isEmpty) && area.state.isNotEmpty) {
+        _selectedState = _matchState(area.state);
+        _stateController.text = _selectedState ?? '';
       }
     });
+  }
+
+  String? _matchState(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final v = value.trim().toLowerCase();
+    for (final s in indianStates) {
+      if (s.toLowerCase() == v) return s;
+    }
+    // No exact match: leave blank so the user must pick from the list.
+    return null;
+  }
+
+  String? _matchCity(String? state, String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final v = value.trim().toLowerCase();
+    final list = state == null || state.trim().isEmpty
+        ? indianCities
+        : citiesForState(state);
+    for (final c in list) {
+      if (c.toLowerCase() == v) return c;
+    }
+    // No exact match: leave blank so the user must pick from the list.
+    return null;
   }
 
   /// Captures the beneficiary's photo with the plain camera (no document scan
@@ -209,7 +240,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     try {
       final dataUrl = await compute(photoDataUrl, bytes);
       if (!mounted) return;
-      setState(() => _photo = dataUrl);
+      final comma = dataUrl.indexOf(',');
+      setState(() {
+        _photo = dataUrl;
+        _photoBase64 = comma == -1 ? dataUrl : dataUrl.substring(comma + 1);
+      });
     } catch (e) {
       if (!mounted) return;
       showAppSnackbar(context, 'Could not use that photo: $e', error: true);
@@ -554,8 +589,14 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             final cs = _extractCityState(text);
             final city = letter.city ?? cs.city;
             final st = letter.state ?? cs.state;
-            if (city != null) _cityController.text = city;
-            if (st != null) _stateController.text = st;
+            if (city != null) {
+              _selectedCity = _matchCity(st, city);
+              _cityController.text = _selectedCity ?? '';
+            }
+            if (st != null) {
+              _selectedState = _matchState(st);
+              _stateController.text = _selectedState ?? '';
+            }
             if (letter.pin != null) _pincodeController.text = letter.pin!;
             if (letter.mobile != null &&
                 _mobileController.text.trim().isEmpty) {
@@ -582,8 +623,14 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           if (pin != null && _pincodeController.text.trim().isEmpty) {
             _pincodeController.text = pin;
           }
-          if (cs.city != null) _cityController.text = cs.city!;
-          if (cs.state != null) _stateController.text = cs.state!;
+          if (cs.city != null) {
+            _selectedCity = _matchCity(cs.state, cs.city!);
+            _cityController.text = _selectedCity ?? '';
+          }
+          if (cs.state != null) {
+            _selectedState = _matchState(cs.state!);
+            _stateController.text = _selectedState ?? '';
+          }
         });
         showAppSnackbar(
           context,
@@ -2047,8 +2094,15 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       final mobile = _mobileController.text.trim();
       final occupation = _occupationValue;
       final address = _locationController.text.trim();
-      final city = _cityController.text.trim();
-      final state = _stateController.text.trim();
+      final city = (_selectedCity ?? _cityController.text).trim();
+      final state = (_selectedState ?? _stateController.text).trim();
+      if (city.isEmpty || state.isEmpty) {
+        if (mounted) {
+          showAppSnackbar(context, 'City aur State select karein, phir submit karein', error: true);
+        }
+        setState(() => _loading = false);
+        return;
+      }
       final pincode = _pincodeController.text.trim();
       final aadhaarNumber = _aadhaarController.text.replaceAll(
         RegExp(r'\D'),
@@ -2089,7 +2143,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
         if (aadhaarNumber.isNotEmpty) 'aadhaar_number': aadhaarNumber,
 
-        if (_photo != null && _photo!.isNotEmpty) 'photo': _photo,
+        // Photo is uploaded to S3 after creation (see below).
 
         // Disability API parameters
         'disabilities': [
@@ -2129,6 +2183,26 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         }
       }
 
+      // ------------------------------------------------------------
+      // PROFILE PHOTO UPLOAD (S3)
+      // ------------------------------------------------------------
+      if (id != null && _photoBase64 != null && _photoBase64!.isNotEmpty) {
+        try {
+          final photoResult = await ApiService.post(
+            '/beneficiaries/$id/photo',
+            body: {'file_base64': _photoBase64, 'mime_type': 'image/jpeg'},
+            timeout: const Duration(minutes: 2),
+          );
+          final url = photoResult['file_url']?.toString();
+          if (url != null && url.isNotEmpty) {
+            created['photo'] = url;
+          }
+        } catch (e) {
+          if (mounted) {
+            showAppSnackbar(context, 'Photo upload failed: $e', error: true);
+          }
+        }
+      }
       // ------------------------------------------------------------
       // DOCUMENT UPLOAD
       // ------------------------------------------------------------
@@ -2670,66 +2744,42 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             Row(
               children: [
                 Expanded(
-                  child: TextFormField(
-                    controller: _cityController,
-                    decoration: InputDecoration(
-                      label: Text.rich(
-                        TextSpan(
-                          children: [
-                            const TextSpan(
-                              text: 'City',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            const TextSpan(
-                              text: ' *',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.red,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    textCapitalization: TextCapitalization.words,
-                    validator: (v) => _requiredText(v, 'City'),
+                  child: SearchableDropdown(
+                    label: 'State',
+                    hint: 'Select state',
+                    value: _selectedState,
+                    items: indianStates,
                     enabled: !_loading && created == null,
+                    onChanged: (v) {
+                      setState(() {
+                        _selectedState = v;
+                        _stateController.text = v ?? '';
+                        // Reset city if it doesn't belong to the new state.
+                        if (_selectedCity != null &&
+                            !citiesForState(v).contains(_selectedCity)) {
+                          _selectedCity = null;
+                          _cityController.clear();
+                        }
+                      });
+                    },
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TextFormField(
-                    controller: _stateController,
-                    decoration: InputDecoration(
-                      label: Text.rich(
-                        TextSpan(
-                          children: [
-                            const TextSpan(
-                              text: 'State',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            const TextSpan(
-                              text: ' *',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.red,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    textCapitalization: TextCapitalization.words,
-                    validator: (v) => _requiredText(v, 'State'),
+                  child: SearchableDropdown(
+                    label: 'City',
+                    hint: 'Select city',
+                    value: _selectedCity,
+                    items: _selectedState == null || _selectedState!.isEmpty
+                        ? indianCities
+                        : citiesForState(_selectedState),
                     enabled: !_loading && created == null,
+                    onChanged: (v) {
+                      setState(() {
+                        _selectedCity = v;
+                        _cityController.text = v ?? '';
+                      });
+                    },
                   ),
                 ),
               ],

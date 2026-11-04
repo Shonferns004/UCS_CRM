@@ -432,13 +432,15 @@ export const exportBeneficiaries = async ({ search, status, ngo_id, event_id, ev
   return rows;
 };
 
-export const searchBeneficiaries = async (q) => {
+export const searchBeneficiaries = async (q, created_by = null) => {
   if (!q || q.length < 2) return [];
   const term = String(q).replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!term) return [];
-  const { data, error } = await db
+  let query = db
     .from('beneficiaries')
-    .select('id, beneficiary_code, full_name, mobile, status, city, photo, needed')
+    .select('id, beneficiary_code, full_name, mobile, status, city, photo, needed');
+  if (created_by) query = query.eq('created_by', created_by);
+  const { data, error } = await query
     .or(await beneficiarySearchOr(term))
     .limit(20);
   if (error) throw error;
@@ -496,10 +498,11 @@ export const getBeneficiaryOverview = async ({ categoryId = null } = {}) => {
   // Members per NGO (drives the Beneficiaries app "NGO Members" breakdown)
   // and per type ("Types of Beneficiaries" filter card). Both survive a
   // missing/empty table so the dashboard still renders.
-  const [{ data: ngoIdRows }, { data: ngos }, typeBreakdown] = await Promise.all([
+  const [{ data: ngoIdRows }, { data: ngos }, typeBreakdown, { data: stateRows }] = await Promise.all([
     Promise.resolve(scope(db.from('beneficiaries').select('ngo_id'))),
     db.from('ngos').select('id, name, code'),
     getTypeBreakdown().catch(() => []),
+    Promise.resolve(scope(db.from('beneficiaries').select('state'))),
   ]);
   const countByNgo = {};
   for (const r of ngoIdRows || []) {
@@ -517,6 +520,15 @@ export const getBeneficiaryOverview = async ({ categoryId = null } = {}) => {
   }
   ngoBreakdown.sort((a, b) => b.count - a.count);
 
+  const countByState = {};
+  for (const r of stateRows || []) {
+    const key = r.state && String(r.state).trim() ? String(r.state).trim() : 'Unknown';
+    countByState[key] = (countByState[key] || 0) + 1;
+  }
+  const stateBreakdown = Object.entries(countByState)
+    .map(([state, count]) => ({ state, count }))
+    .sort((a, b) => b.count - a.count);
+
   return {
     total_beneficiaries: total || 0,
     active: active || 0,
@@ -528,6 +540,7 @@ export const getBeneficiaryOverview = async ({ categoryId = null } = {}) => {
     programs: programsCount || 0,
     benefits_distributed: distributionsCount || 0,
     ngos: ngoBreakdown,
+    states: stateBreakdown,
     categories: typeBreakdown,
     active_category_id: categoryId || null,
   };
@@ -585,7 +598,7 @@ export const searchByMobile = async (mobile) => {
   return data || [];
 };
 
-export const markKitGiven = async (id, givenBy, event = null, kit = null) => {
+export const markKitGiven = async (id, givenBy, event = null, kit = null, verification = null) => {
   const now = new Date().toISOString();
   const update = {
     kit_given: true,
@@ -593,6 +606,10 @@ export const markKitGiven = async (id, givenBy, event = null, kit = null) => {
     kit_given_by: givenBy || 'system',
     updated_at: now,
   };
+  // How the beneficiary was identified for this handout (`fingerprint` or
+  // `photo_fallback`) and, for the fallback, the proof-photo URL.
+  if (verification?.method) update.kit_given_method = verification.method;
+  if (verification?.proofUrl) update.kit_given_proof_url = verification.proofUrl;
   // Only overwrite the recorded event when this handout actually had one —
   // a kit given with no event assigned keeps the beneficiary's last known event.
   if (event && event.id != null) {

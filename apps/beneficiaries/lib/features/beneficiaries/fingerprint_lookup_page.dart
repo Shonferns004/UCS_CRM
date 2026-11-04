@@ -7,6 +7,8 @@ import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
 import 'add_beneficiary_page.dart';
 import 'beneficiary_detail_page.dart';
+import 'beneficiary_search_page.dart';
+import 'photo_verification_page.dart';
 
 class FingerprintLookupPage extends StatefulWidget {
   final String name;
@@ -24,6 +26,7 @@ class FingerprintLookupPage extends StatefulWidget {
 
 class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   bool _loading = false;
+  bool _navigating = false;
   String? _error;
 
   bool? _deviceConnected;
@@ -79,7 +82,7 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   }
 
   Future<void> _findBeneficiary() async {
-    if (_loading) return;
+    if (_loading || _navigating) return;
     if (_deviceConnected != true) {
       await _checkDevice();
       if (_deviceConnected != true) {
@@ -94,10 +97,11 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
 
     try {
       await _findBeneficiaryRaw();
-    } catch (e) {
+     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _navigating = false;
         _error = e.toString().replaceFirst('Exception: ', '');
         _matchedBeneficiary = null;
       });
@@ -109,6 +113,7 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     if (!mounted) return;
     setState(() {
       _loading = false;
+      _navigating = false;
       _error = null;
       _matchedBeneficiary = null;
     });
@@ -168,9 +173,9 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     if (!mounted) return;
     final profile = Map<String, dynamic>.from(response);
     setState(() {
-      _loading = false;
       _matchedBeneficiary = profile;
       _error = null;
+      _navigating = true;
     });
     await Navigator.push(
       context,
@@ -179,7 +184,53 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       ),
     );
     if (!mounted) return;
-    setState(() => _matchedBeneficiary = null);
+    setState(() {
+      _loading = false;
+      _navigating = false;
+      _matchedBeneficiary = null;
+    });
+  }
+
+  /// Fallback when the fingerprint cannot be read: the operator searches for
+  /// the beneficiary, captures a photo as proof of collection, and only then
+  /// reaches the detail page where the kit swipe is available.
+  Future<void> _openPhotoFallback() async {
+    if (_loading) return;
+    await FingerprintService.stopCapture();
+    if (!mounted) return;
+
+    final selected = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const BeneficiarySearchPage(selectionMode: true),
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    final proof = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PhotoVerificationPage(beneficiary: selected),
+      ),
+    );
+    final url = proof?['file_url']?.toString();
+    if (url == null || url.isEmpty || !mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BeneficiaryDetailPage(
+          beneficiary: selected,
+          verificationMethod: 'photo_fallback',
+          proofDocumentUrl: url,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _error = null;
+      _matchedBeneficiary = null;
+    });
   }
 
   Future<List<Map<String, dynamic>>> _loadTemplates({
@@ -348,6 +399,17 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                           ),
                         ),
                       ),
+                    ),
+                  ),
+                if (!_loading)
+                  Positioned(
+                    left: 24,
+                    right: 24,
+                    bottom: 16,
+                    child: TextButton.icon(
+                      onPressed: _openPhotoFallback,
+                      icon: const Icon(LucideIcons.camera, size: 18),
+                      label: const Text('Manual Verification'),
                     ),
                   ),
               ],

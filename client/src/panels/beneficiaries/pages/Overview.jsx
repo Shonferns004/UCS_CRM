@@ -102,6 +102,9 @@ export default function Overview() {
   const d = reports?.distributions
   const v = reports?.volunteers
   const benTotal = b?.summary?.total || 0
+  const stateRows = (stats?.states?.length
+    ? stats.states.map((s) => ({ state: s.state ?? s.name ?? 'Unknown', count: s.count }))
+    : (b?.by_state || []).map((s) => ({ state: s.state ?? 'Unknown', count: s.count })))
   const noData = <div style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>No data available</div>
 
   return (
@@ -267,6 +270,34 @@ export default function Overview() {
             </table>
           ) : noData}
         </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>Members by State</div>
+        {stateRows.length ? (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>State</th>
+                <th style={{ ...styles.th, textAlign: 'right' }}>Members</th>
+                <th style={{ ...styles.th, textAlign: 'right' }}>%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stateRows.map((s, i) => {
+                const count = Number(s.count) || 0
+                const pct = benTotal > 0 ? Math.round((count / benTotal) * 100) : 0
+                return (
+                  <tr key={i}>
+                    <td style={styles.td}>{s.state}</td>
+                    <td style={{ ...styles.td, textAlign: 'right', fontWeight: 600 }}>{count}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{pct}%</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        ) : noData}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

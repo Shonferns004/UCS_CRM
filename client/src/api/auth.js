@@ -23,13 +23,10 @@ export function getUser(prefix) {
 
 // A 401 means the session is gone (expired token, or "No token provided" because
 // local storage was cleared). Clear it and bounce to the login screen so the
-// user is never left staring at a dead panel. When a token actually existed we
-// flag the redirect as an expiry so the login page can say so.
-function redirectToLogin(expired = false) {
+// user is never left staring at a dead panel.
+function redirectToLogin() {
   try {
-    if (window.location.pathname !== '/login') {
-      window.location.assign(expired ? '/login?expired=1' : '/login')
-    }
+    if (window.location.pathname !== '/login') window.location.assign('/login')
   } catch { /* not running in a browser */ }
 }
 
@@ -58,11 +55,10 @@ export async function api(path, options = {}) {
   try {
     const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: combinedSignal })
     if (res.status === 401) {
-      const hadToken = !!token
       const err = await res.json().catch(() => ({ message: res.statusText }))
       clearSession(options._prefix || 'ucs')
-      redirectToLogin(hadToken)
-      const e = new Error(err.message || (hadToken ? 'Session expired. Please login again.' : 'Invalid credentials'))
+      redirectToLogin()
+      const e = new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))
       // Status must be attached on this path too, not only on !res.ok below.
       // Without it a 401 reaches callers as an untyped Error and every
       // `err.status === 401` check silently fails.

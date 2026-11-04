@@ -1738,20 +1738,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   // Both are keyed "ngo::date::festival": a row's NGO is part of its identity,
   // so MANN creating an event never hides BSCT's row button.
   const [createdKeys, setCreatedKeys] = useState(() => new Set())
-  // Payload of the Event Detail Sheet for each row whose event was created THIS
-  // session, so its "Download" button can re-issue the same PDF (no second event).
-  // Same NGO-scoped key as createdKeys, so a row never re-issues another NGO's sheet.
   const [pdfCache, setPdfCache] = useState(() => new Map())
-  // The month's durable row → event links, keyed "ngo::date::festival" and loaded
-  // from the server, so a completed row's "Download" button survives a reload and
-  // shows on every device — not just the tab that created it.
   const [plannerLinkMap, setPlannerLinkMap] = useState({})
-  // The event each planner row produced, with the name it was saved under. The
-  // Festival / Day column shows it, so a name changed in the Create / Edit form
-  // is visible on the row that owns it. Keyed like the row → event links
-  // ("ngo::date::festival") — two NGOs may plan the same festival on one date.
   const [rowEventNames, setRowEventNames] = useState({})
-
   const [year, setYear] = useState(() => new Date().getFullYear())
   const yearOptions = useMemo(() => {
     const now = new Date().getFullYear()
@@ -1977,59 +1966,22 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => { loadActivities() }, [loadActivities])
   useEffect(() => { loadMonthEvents() }, [loadMonthEvents])
   useEffect(() => { loadPlannerLinks() }, [loadPlannerLinks])
-
-  /* ── Festival view of the month ──────────────────────────────────────────
-     The grid shows every date of the chosen month, matched against the
-     country's important days (Calendarific when the key is configured,
-     otherwise the curated + fixed international lists). Its job is to match a
-     festival/day to a beneficiary NGO and pick programmes for it — so unlike
-     the rows above, this grid is date-wise, not activity-wise. */
-
   const [importantDays, setImportantDays] = useState([])
   const [festivalError, setFestivalError] = useState('')
   const [festivalSuggestions, setFestivalSuggestions] = useState([])
-  // `key` = "date::festival". Held as an object so a re-run can be told apart
-  // from the day that started it, while the grid disables only that row.
   const [festGenerating, setFestGenerating] = useState(null)
   const [festBusy, setFestBusy] = useState(false)
   const [savingKey, setSavingKey] = useState('')
   const [dirtyRows, setDirtyRows] = useState(() => new Set())
-  // Pending beneficiary choice per festival, keyed "date::festival". A festival
-  // with stored suggestions keeps showing the category they were generated for
-  // until the user picks another; the new choice reaches the server the next
-  // time that festival's programmes are generated.
   const [festBenef, setFestBenef] = useState({})
-  // Pending location choice per festival, keyed "date::festival" — mirrors
-  // festBenef exactly: the new place shows at once, reaches the server when the
-  // festival's rows exist, and is never auto-filled (a row starts on
-  // "Select a location…" and shows only what the user picks).
   const [festLoc, setFestLoc] = useState({})
-  /* Festivals whose suggestion block is open THIS session, keyed
-     "date::festival". Stored suggestions are never auto-opened: a reload or a
-     navigation back starts every row collapsed on its "✦ Suggest programmes"
-     button, so asking the AI is always one click away. Everything decided in
-     this page lasts this session only — a reload starts it untouched. */
   const [festOpen, setFestOpen] = useState(() => new Set())
-  /* The user's own programme per festival and the "cleared" flag per festival.
-     Session-only by request: a reload starts them empty and they are NEVER
-     written to localStorage, sessionStorage or the URL. */
-   const [festManual, setFestManual] = useState(() => ({}))
-   const manualLoadedRef = useRef(false)
-   // Locations typed in the "Other…" box this session. Kept separately from
-   // festManual because a location can be the row's ONLY value, and these are
-   // what the debounced save flushes so a refresh never loses the typing.
-   const dirtyLocRef = useRef(new Set())
+  const [festManual, setFestManual] = useState(() => ({}))
+  const manualLoadedRef = useRef(false)
+  const dirtyLocRef = useRef(new Set())
   const [festCleared, setFestCleared] = useState(() => new Set())
-  // Per-row NGO overrides — the NGO column is an editable dropdown, so one
-  // festival row can be pointed at a different NGO than the page-wide pick.
-  // Keyed by the same "date::festival" key the row itself uses.
   const [festNgo, setFestNgo] = useState(() => ({}))
-  /* Extra programme rows the user added with "+ Add another programme", so one
-     date can carry more than one programme. Session-only; each entry is the
-     unique suffix of a "date::+#suffix" key. */
   const [festExtra, setFestExtra] = useState(() => ({}))
-  /* The date the toolbar's single "+ Add another programme" button adds under,
-     chosen from a dropdown of the month's days. */
   const [extraRowDate, setExtraRowDate] = useState(() => `${currentMonthYmd()}-01`)
 
   const loadImportantDays = useCallback(() => {
@@ -2043,15 +1995,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       .catch(() => { setImportantDays([]); setFestivalError('Could not load the festival calendar.') })
   }, [month])
 
-  // Days are a property of the month alone, so they reload on month change but
-  // not on NGO change. Errors are cleared at the top, so a stale "could not
-  // load" never lingers once a month loads fine.
   useEffect(() => { setFestivalError(''); loadImportantDays() }, [loadImportantDays])
-
-  /* The suggestions already stored for this month. Loaded for EVERY NGO (no
-     ngo_id filter) because the NGO column is now editable per row — a row may be
-     pointed at any NGO, so its stored ideas have to be available. Each row reads
-     only its own NGO's rows (see rowSuggestionsFor), so the NGOs never mix. */
   const loadFestivalSuggestions = useCallback(() => {
     const [y, m] = month.split('-').map(Number)
     getFestivalSuggestions({ month: m, year: y })

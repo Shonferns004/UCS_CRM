@@ -50,6 +50,17 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_by TEXT"
   ).catch(() => {});
 
+  // How the beneficiary was identified when the kit was handed out:
+  // 'fingerprint' (normal) or 'photo_fallback' (scanner could not read the
+  // finger). The proof URL points at the distribution_proof photo in the
+  // beneficiary-documents bucket.
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_method TEXT"
+  ).catch(() => {});
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_proof_url TEXT"
+  ).catch(() => {});
+
   // Which event the beneficiary last collected their kit at — mirrors
   // migration 176. Kept on the row so the admin list can show, filter and
   // search it (All Beneficiaries → Event column + event search).

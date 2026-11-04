@@ -225,7 +225,7 @@ export function onDbChange({ table, event = '*', filter, onInsert, onUpdate, onD
   const s = getSocket()
   const relatedSet = Array.isArray(related) && related.length ? new Set(related) : null
   const handler = (payload) => {
-    console.log('[ws] db:change', payload?.table, payload?.eventType, payload)
+    // console.log('[ws] db:change', payload?.table, payload?.eventType, payload)
     if (!payload) return
     const exact = !table || payload.table === table
     const implied = !exact && !!relatedSet && relatedSet.has(payload.table)

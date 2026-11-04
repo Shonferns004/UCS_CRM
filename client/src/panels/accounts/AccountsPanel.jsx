@@ -60,6 +60,10 @@ import IncentivesPage from '../super-admin/pages/IncentivesPage'
 import SpecialIncentives from '../super-admin/pages/SpecialIncentives'
 import SevakPanel from '../sevak-library/SevakPanel'
 import MetropadPage from './metropad/MetropadPage'
+import GoogleMapApi from './pages/GoogleMapApi'
+import BusinessFinder from './pages/BusinessFinder'
+import GooglePlacesSearch from './pages/GooglePlacesSearch'
+import OsmPlacesSearch from './pages/OsmPlacesSearch'
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
@@ -200,6 +204,21 @@ const MODULES_NAV = [
   SIM_NAV_ITEM,
 ]
 
+const API_NAV = [
+  { id: 'business-finder', path: '/accounts/business-finder', label: 'Business Finder',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+    match: (p) => p.startsWith('/accounts/business-finder') },
+  { id: 'google-map-api', path: '/accounts/google-map-api', label: 'Google Map API',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+    match: (p) => p.startsWith('/accounts/google-map-api') },
+  { id: 'google-places-search', path: '/accounts/google-places-search', label: 'Google Places Search',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+    match: (p) => p.startsWith('/accounts/google-places-search') },
+  { id: 'osm-places-search', path: '/accounts/osm-places-search', label: 'OSM Places (Free)',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>,
+    match: (p) => p.startsWith('/accounts/osm-places-search') },
+]
+
 const ALL_NAV = [
   ...NAV_TOP,
   ...DATA_SUB_NAV,
@@ -208,6 +227,7 @@ const ALL_NAV = [
   ...NAV_GROUPS.flatMap(g => g.items),
   ...SIM_NAV,
   ...MODULES_NAV,
+  ...API_NAV,
   ...NAV_BOTTOM,
 ]
 
@@ -233,6 +253,7 @@ const SIDEBAR_SECTIONS = [
         items: g.items,
       })),
       { id: 'g-modules', label: 'Modules', icon: <Boxes size={18} />, storageKey: 'modules', items: MODULES_NAV },
+      { id: 'g-api-instructions', label: 'API Instructions', icon: <Boxes size={18} />, storageKey: 'api_instructions', items: API_NAV },
     ],
   },
   { id: 'settings', heading: 'Settings', items: NAV_BOTTOM },
@@ -581,6 +602,11 @@ export default function AccountsPanel() {
                 MetropadPage renders its dashboard directly and has no routes of
                 its own (the standalone build in metropad/App.jsx owns those). */}
             <Route path="metropad" element={<MetropadPage />} />
+            <Route path="business-finder" element={<BusinessFinder />} />
+            <Route path="google-map-api" element={<GoogleMapApi />} />
+            <Route path="google-places-search" element={<GooglePlacesSearch />} />
+            <Route path="osm-places-search" element={<OsmPlacesSearch />} />
+
             <Route path="whatsapp" element={<WhatsAppManager />} />
 <Route path="whatsapp/bulk" element={<WhatsAppBulk />} />
             <Route path="whatsapp-dashboard" element={<WhatsAppOpenWADashboard />} />

@@ -16,6 +16,14 @@ import { closeOpenSession } from '../services/froTimeSessions.js';
 
 dotenv.config();
 
+// Returns the authenticated user derived from the bearer token. Used by the
+// web client to validate a stored session on startup (invalid/expired token
+// => 401), so a stale localStorage user can never keep a dead session alive.
+export const getMe = (req, res) => {
+  const u = req.user || {};
+  return res.json({ user: u });
+};
+
 // CRMs / admin and salary portals get a rolling 24h session; the mobile
 // (Flutter) worker login override below emits tokens with no expiry.
 const TOKEN_EXPIRY = '24h';

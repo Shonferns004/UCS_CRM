@@ -29,10 +29,20 @@ class BeneficiaryDetailPage extends StatefulWidget {
   /// swipe). Used by the kit-given list on the home screen.
   final bool readOnly;
 
+  /// How the operator identified the beneficiary before this screen opened.
+  /// `'fingerprint'` (default) or `'photo_fallback'`. Recorded with the
+  /// handout so the audit trail knows the fingerprint was unavailable.
+  final String verificationMethod;
+
+  /// S3 URL of the proof photo captured in the photo-fallback flow.
+  final String? proofDocumentUrl;
+
   const BeneficiaryDetailPage({
     super.key,
     required this.beneficiary,
     this.readOnly = false,
+    this.verificationMethod = 'fingerprint',
+    this.proofDocumentUrl,
   });
 
   @override
@@ -88,6 +98,9 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           final v = _b['collection_otp_verified_at'];
           _otpVerified = v != null && v.toString().trim().isNotEmpty;
         });
+        // Search results are partial, so the "already collected" decision may
+        // only become knowable after this full profile load (photo fallback).
+        if (!widget.readOnly) _maybePromptDecision();
       }
     } catch (_) {}
     try {
@@ -350,7 +363,13 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         // Reaching this swipe already means the operator chose to give again,
         // so always pass the override when the kit was given before. This
         // avoids the 3-month guard erroring out with a toast.
-        body: _kitGiven ? {'override': true} : null,
+        body: {
+          if (_kitGiven) 'override': true,
+          'method': widget.verificationMethod,
+          if (widget.proofDocumentUrl != null &&
+              widget.proofDocumentUrl!.isNotEmpty)
+            'proof_document_url': widget.proofDocumentUrl,
+        },
       );
       if (!mounted) return;
       setState(() {
@@ -510,6 +529,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildProfileCard(),
+          if (widget.verificationMethod == 'photo_fallback') ...[
+            const SizedBox(height: 16),
+            _buildPhotoVerifiedBanner(),
+          ],
           const SizedBox(height: 24),
           _buildDetailsCard(),
           const SizedBox(height: 24),
@@ -1034,6 +1057,41 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ---- photo fallback ----------------------------------------------------
+
+  Widget _buildPhotoVerifiedBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.successGreenSoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.successGreen.withAlpha(90)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            LucideIcons.camera,
+            size: 18,
+            color: AppColors.successGreen,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Photo verified — fingerprint was unavailable. '
+              'You can give the kit now.',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: AppColors.successGreen,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -71,6 +71,90 @@ export const uploadBeneficiaryDocumentBase64 = async (beneficiaryId, documentTyp
   return { fileUrl: publicUrlData?.publicUrl || null };
 };
 
+// Fallback proof when a beneficiary's fingerprint cannot be read. The operator
+// selects the beneficiary in the app, captures a photo and submits it here.
+// The photo is stored as a `distribution_proof` document (never overwriting the
+// profile photo) and logged, then the URL is sent back with the kit-given call.
+export const photoVerificationController = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'Invalid beneficiary id' });
+    }
+    const beneficiary = await getBeneficiaryById(id);
+    if (!beneficiary) return res.status(404).json({ message: 'Beneficiary not found' });
+
+    const fileBase64 = req.body?.file_base64;
+    if (!fileBase64) {
+      return res.status(400).json({ message: 'Photo is required' });
+    }
+
+    const { fileUrl } = await uploadBeneficiaryDocumentBase64(
+      id,
+      'distribution_proof',
+      fileBase64,
+      req.body?.mime_type || 'image/jpeg'
+    );
+    if (!fileUrl) {
+      return res.status(500).json({ message: 'Could not store the photo' });
+    }
+
+    const verifiedAt = new Date().toISOString();
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: id, beneficiary_id: id,
+      action: 'PHOTO_FALLBACK_VERIFIED',
+      details: { document_type: 'distribution_proof', file_url: fileUrl },
+      performed_by: req.user?.name || req.user?.email || 'system',
+    });
+
+    return res.json({ file_url: fileUrl, verified_at: verifiedAt });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Stores the beneficiary's profile photo in the beneficiary-documents bucket
+// (never inline in the DB) and writes the resulting public URL to the
+// beneficiaries.photo column. Used by both the add and edit flows.
+export const uploadBeneficiaryPhotoController = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'Invalid beneficiary id' });
+    }
+    const beneficiary = await getBeneficiaryById(id);
+    if (!beneficiary) return res.status(404).json({ message: 'Beneficiary not found' });
+
+    const fileBase64 = req.body?.file_base64;
+    if (!fileBase64) {
+      return res.status(400).json({ message: 'Photo is required' });
+    }
+
+    const { fileUrl } = await uploadBeneficiaryDocumentBase64(
+      id,
+      'profile_photo',
+      fileBase64,
+      req.body?.mime_type || 'image/jpeg'
+    );
+    if (!fileUrl) {
+      return res.status(500).json({ message: 'Could not store the photo' });
+    }
+
+    await updateBeneficiary(id, { photo: fileUrl });
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: id, beneficiary_id: id,
+      action: 'BENEFICIARY_PHOTO_UPDATED',
+      details: { file_url: fileUrl },
+      performed_by: req.user?.name || req.user?.email || 'system',
+    });
+
+    return res.json({ file_url: fileUrl });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const createNewBeneficiary = async (req, res) => {
   try {
     const {
@@ -316,6 +400,15 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     }
 
     const givenBy = req.user?.name || req.user?.email || 'system';
+    const method = String(req.body?.method || 'fingerprint').trim() || 'fingerprint';
+    const proofUrl = req.body?.proof_document_url
+      ? String(req.body.proof_document_url).trim()
+      : null;
+    // A photo-fallback handout must carry the proof uploaded beforehand so the
+    // audit trail always has evidence behind a fingerprint-less collection.
+    if (method === 'photo_fallback' && !proofUrl) {
+      return res.status(400).json({ message: 'Photo proof is required for photo fallback' });
+    }
 
     // Capture the operator's event for the day (if one is assigned) so the
     // kit-given history on the app can show which event the kit was collected
@@ -360,7 +453,7 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     const updated = await markKitGiven(beneficiary.id, givenBy, {
       id: Number.isInteger(eventId) ? eventId : null,
       name: eventName,
-    }, kitId != null ? { id: kitId, name: kitName } : null);
+    }, kitId != null ? { id: kitId, name: kitName } : null, { method, proofUrl });
 
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
@@ -371,6 +464,8 @@ export const markBeneficiaryKitGiven = async (req, res) => {
         event_id: Number.isInteger(eventId) ? eventId : null,
         kit_id: kitId,
         kit_name: kitName,
+        method,
+        proof_url: proofUrl,
       },
       performed_by: givenBy,
     });
@@ -661,7 +756,14 @@ export const getFingerprintImagesController = async (req, res) => {
 export const searchBeneficiariesController = async (req, res) => {
   try {
     const { q } = req.query;
-    const results = await searchBeneficiaries(q);
+    // Beneficiaries app operators only search their own registrations.
+    let created_by;
+    if (isBeneficiariesAppSession(req.user)) {
+      let operator = null;
+      try { operator = await getBnfOperatorBySession(req.user); } catch (_) { operator = null; }
+      created_by = operator?.name || req.user?.name || null;
+    }
+    const results = await searchBeneficiaries(q, created_by);
     return res.json(results);
   } catch (error) {
     return res.status(500).json({ message: error.message });

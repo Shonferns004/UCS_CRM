@@ -24,6 +24,22 @@ String photoDataUrl(Uint8List bytes) {
   return 'data:image/jpeg;base64,${base64Encode(img.encodeJpg(resized, quality: 80))}';
 }
 
+/// Downscales a camera frame and returns the raw JPEG base64 (no data-URL
+/// prefix), ready for the document upload endpoint.
+String photoBase64Jpeg(Uint8List bytes, {int maxDim = 900}) {
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return '';
+  final longest =
+      decoded.width > decoded.height ? decoded.width : decoded.height;
+  final scale = longest > maxDim ? maxDim / longest : 1.0;
+  final resized = img.copyResize(
+    decoded,
+    width: (decoded.width * scale).round(),
+    height: (decoded.height * scale).round(),
+  );
+  return base64Encode(img.encodeJpg(resized, quality: 80));
+}
+
 Uint8List dataUrlBytes(String dataUrl) {
   final comma = dataUrl.indexOf(',');
   final b64 = comma == -1 ? dataUrl : dataUrl.substring(comma + 1);

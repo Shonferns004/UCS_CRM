@@ -7,7 +7,12 @@ import '../../services/api_service.dart';
 import 'beneficiary_detail_page.dart';
 
 class BeneficiarySearchPage extends StatefulWidget {
-  const BeneficiarySearchPage({super.key});
+  /// When true, tapping a result returns the beneficiary map to the caller
+  /// instead of opening the detail page. Used by the photo-fallback flow,
+  /// where the caller captures a photo and then opens the detail page.
+  final bool selectionMode;
+
+  const BeneficiarySearchPage({super.key, this.selectionMode = false});
 
   @override
   State<BeneficiarySearchPage> createState() => _BeneficiarySearchPageState();
@@ -41,11 +46,12 @@ class _BeneficiarySearchPageState extends State<BeneficiarySearchPage> {
       _error = null;
     });
     try {
-      final result = await ApiService.get('/beneficiaries/search', queryParams: {'q': q});
-      final list = result is List ? result : (result['data'] ?? result['results'] ?? []);
+      // /beneficiaries/search returns a bare JSON array, so use getList
+      // (which decodes arrays) instead of get (which only decodes objects).
+      final result = await ApiService.getList('/beneficiaries/search', queryParams: {'q': q});
       if (!mounted) return;
       setState(() {
-        _results = List<dynamic>.from(list);
+        _results = List<dynamic>.from(result);
         _loading = false;
       });
     } catch (e) {
@@ -126,7 +132,10 @@ Widget _buildBody() {
         separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final b = _results[index];
-          return _BeneficiaryCard(beneficiary: b);
+          return _BeneficiaryCard(
+            beneficiary: b,
+            selectionMode: widget.selectionMode,
+          );
         },
       ),
     );
@@ -135,7 +144,11 @@ Widget _buildBody() {
 
 class _BeneficiaryCard extends StatelessWidget {
   final Map<String, dynamic> beneficiary;
-  const _BeneficiaryCard({required this.beneficiary});
+  final bool selectionMode;
+  const _BeneficiaryCard({
+    required this.beneficiary,
+    this.selectionMode = false,
+  });
 
 @override
   Widget build(BuildContext context) {
@@ -148,10 +161,18 @@ class _BeneficiaryCard extends StatelessWidget {
       name: name,
       code: code,
       subtitle: [mobile, city].where((e) => e.isNotEmpty).join(' • '),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => BeneficiaryDetailPage(beneficiary: beneficiary)),
-      ),
+      onTap: () {
+        if (selectionMode) {
+          Navigator.pop(context, Map<String, dynamic>.from(beneficiary));
+          return;
+        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => BeneficiaryDetailPage(beneficiary: beneficiary),
+          ),
+        );
+      },
     );
   }
 }

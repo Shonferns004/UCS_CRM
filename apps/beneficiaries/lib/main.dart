@@ -74,6 +74,7 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool? _loggedIn;
   bool _splashDone = false;
+  bool _checking = true;
 
   @override
   void initState() {
@@ -82,15 +83,56 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _checkAuth() async {
-    final loggedIn = await ApiService.isLoggedIn();
-    if (mounted) setState(() => _loggedIn = loggedIn);
+    final hasToken = await ApiService.isLoggedIn();
+    if (!hasToken) {
+      if (mounted) setState(() {
+        _loggedIn = false;
+        _checking = false;
+      });
+      return;
+    }
+    // Validate the stored token against the server. An invalid/expired token
+    // must never leave a stale session alive on the dashboard.
+    try {
+      await ApiService.get('/auth/me');
+      if (mounted) setState(() {
+        _loggedIn = true;
+        _checking = false;
+      });
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      // Only an explicit auth failure should drop the session. A 404 (endpoint
+      // not deployed yet) or a network error must not log the user out.
+      if (msg.contains('401') || msg.contains('invalid token') || msg.contains('no token')) {
+        await ApiService.clearAuth();
+        if (mounted) setState(() {
+          _loggedIn = false;
+          _checking = false;
+        });
+      } else {
+        if (mounted) setState(() {
+          _loggedIn = true;
+          _checking = false;
+        });
+      }
+    }
   }
 
-  void _onLogin() => setState(() => _loggedIn = true);
+  void _onLogin() => setState(() {
+    _loggedIn = true;
+    _checking = false;
+  });
 
   void _onLogout() => setState(() => _loggedIn = false);
 
   Widget _buildContent() {
+    if (_checking) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
     if (_loggedIn == null) {
       return const Scaffold(
         body: Center(
