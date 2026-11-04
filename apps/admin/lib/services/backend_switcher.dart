@@ -27,12 +27,34 @@ class BackendSwitcher {
   static const String prefsKey = 'app_backend_url';
 
   static String _url = _urlFor(defaultId);
+  static bool _userSelected = false;
+
+  /// True when the user explicitly picked a backend. In that case the remote
+  /// config must not silently move the app to a different host.
+  static bool get hasSavedSelection => _userSelected;
 
   static String _urlFor(String id) {
     for (final o in options) {
       if (o['id'] == id) return o['url']!;
     }
     return options.first['url']!;
+  }
+
+  /// Trims whitespace and trailing slashes so `$url/api` and `$url/$path`
+  /// never produce a double slash (which Express answers with an HTML 404).
+  static String normalize(String url) {
+    var value = url.trim();
+    while (value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value;
+  }
+
+  static bool isHttpUrl(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
   }
 
   /// The backend base URL (no trailing /api).
@@ -57,16 +79,32 @@ class BackendSwitcher {
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(prefsKey);
-      if (saved != null && saved.isNotEmpty) _url = saved;
+      if (saved == null || saved.isEmpty) return;
+      final normalized = normalize(saved);
+      if (isHttpUrl(normalized)) {
+        _url = normalized;
+        _userSelected = true;
+      } else {
+        // Garbage left over from an old build — fall back to the default.
+        await prefs.remove(prefsKey);
+      }
     } catch (_) {}
   }
 
   /// Persist a choice (option id or a raw URL).
-  static Future<void> set(String idOrUrl) async {
-    _url = idOrUrl.startsWith('http') ? idOrUrl : _urlFor(idOrUrl);
+  ///
+  /// Returns false when the URL is not a usable http(s) address, so the picker
+  /// can tell the user instead of switching to something that cannot work.
+  static Future<bool> set(String idOrUrl) async {
+    final raw = idOrUrl.startsWith('http') ? idOrUrl : _urlFor(idOrUrl);
+    final normalized = normalize(raw);
+    if (!isHttpUrl(normalized)) return false;
+    _url = normalized;
+    _userSelected = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(prefsKey, _url);
     } catch (_) {}
+    return true;
   }
 }

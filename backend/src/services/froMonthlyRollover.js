@@ -4,46 +4,33 @@ import { makeNonOverlap } from '../utils/noOverlap.js';
 import cron from 'node-cron';
 
 // ─── Monthly FRO lead rollover ───────────────────────────────────────────────
-// Every billing month the FRO work cycle restarts: EVERY lead worked last month
-// goes back to 'pending' so each FRO gets a fresh, complete list rather than a
-// shrinking remainder. Without this, an FRO's list only ever loses leads.
+// The month boundary must NOT throw away work or promises:
 //
-// The rule is deliberately blunt: the new month starts with everything pending,
-// except follow-ups, which are promises to a donor and carry over.
-// Only three statuses are preserved:
-//   • pending    — already in the target state; nothing to do.
-//   • reassigned — the lead left this FRO (expired transfer). Not theirs to reset.
-//   • dnd        — the ONLY permanent stop. DND is a deliberate, audited
-//                  decision recorded in donor_dnd (migration 165); a month
-//                  boundary is not a reason to undo it. Note the donor stays
-//                  suppressed by donor_dnd regardless of this assignment's
-//                  status, so preserving 'dnd' keeps the two in agreement.
+//   • A lead that was already dispositioned (donation done, refusal, wrong
+//     number, completed call, …) keeps its status, so it stays in History and
+//     does NOT reappear in My Leads as a "fresh pending" lead.
+//   • A follow-up keeps everything: the status (follow_up / callback /
+//     scheduled / promise), next_follow_up and its fro_scheduled_contacts row.
+//     An October follow-up therefore still shows up in November (Follow Ups if
+//     it is still ahead, Overdue if its time has passed).
 //
-// Everything else resets to 'pending', including:
-//   • ringing / busy / unreachable / call_disconnected / wrong_number / …
-//   • not_interested / not_interested_now  — refusals come back with the month
-//   • promise_to_pay / payment_pending / will_donate_online / whatsapp_sent
-//   • scheduled / callback / follow_up      — the follow-up DATE survives (below),
-//                                             only the status goes back to pending
-//   • donation_collected / lead_done / done / already_donated
+// This job used to reset every worked status to 'pending' AND clear
+// next_follow_up AND delete the open scheduled contacts. On 2026-11-01 that
+// wiped 116,939 leads back into My Leads and destroyed 1,429 open follow-ups
+// (769 scheduled + 660 callback), which is exactly the "last month's follow-ups
+// vanished" complaint. The status reset is now disabled; the only thing that
+// re-opens a lead is the rolling refusal cooldown below (a deliberate 60-day
+// rule).
 //
-// Resets stamp rollover_from_status/rollover_at (migration 167) so the previous
-// status is still visible on the lead and getDonorLogs prepends a "monthly reset"
-// entry to the CRM timeline. Nothing is lost — the job only moves the status.
-//
-// Survives every reset, whatever the old status:
-//   • next_follow_up           — a callback date promised to a donor does not
-//                                 expire on the 1st, so the rollover never clears
-//                                 it. Only a new disposition rewrites it.
-//   • fro_scheduled_contacts   — never written by this job at all.
-// This is why the job rewrites `status` and nothing else.
+// What the job still does:
+//   • archives the previous month's non-financial call log (History reads it
+//     through ?all_months=true, so nothing is lost from the FRO's view);
+//   • runs the rolling not_interested cooldown;
+//   • records the month in fro_month_rollover_log for audit.
 //
 // Scope note: DND is per (donor, ngo). A donor marked DND at one NGO stays
 // callable at an unrelated NGO; that is the approved behaviour.
-const PRESERVED_STATUSES = ['pending', 'reassigned', 'dnd'];
-
-// Written to the audit row. The single supported behaviour now.
-export const ROLLOVER_MODE = 'reset_except_preserved';
+export const ROLLOVER_MODE = 'preserve_statuses';
 
 // A refusal resets on its own rolling clock, not on the 1st: this many days after
 // the last refusal call the lead goes back to pending and is callable again. Kept
@@ -304,18 +291,15 @@ export async function runMonthlyRollover(opts = {}) {
   // NOT updated_at alone. fro_assignments has no trigger maintaining updated_at
   // and the FRO disposition path only writes last_contacted_at, so updated_at
   // lags by days or weeks on ~20k rows; using it alone wrongly reset 5,420 leads
-  // that had already been worked in the current month. last_contacted_at is
-  // written on every contact, so it is the correct "last worked" stamp; the
-  // fallbacks cover rows never contacted.
+  // that had already been worked in the current month.
   //
-  // This predicate is what makes the job safe to run daily and safe to re-run:
-  // a row reset now becomes 'pending' (preserved), so it is excluded for the
-  // rest of the month regardless of its activity stamp.
+  // Month-start is still used to decide which log rows belong to the previous
+  // month (the archive step below), never to decide which lead statuses reset.
   const monthStart = opts.monthStart || istMonthStartUtc();
 
   // Refusal cooldown first and unconditional: it is a rolling daily schedule,
-  // not part of the monthly claim below, so a refusal returns on its due day even
-  // after the month's bulk reset is already finished.
+  // so a refusal returns on its due day whether or not the month's claim below
+  // has already finished.
   const cooldownReset = await runNotInterestedCooldown();
 
   if (!opts.force) {
@@ -327,72 +311,22 @@ export async function runMonthlyRollover(opts = {}) {
     }
   }
 
-  const preserved = new Set(PRESERVED_STATUSES);
-  const detail = { monthStart: monthStart.toISOString() };
-  let rowsReset = 0;
+  const detail = { monthStart: monthStart.toISOString(), statusReset: 'disabled' };
+  const rowsReset = 0;
 
   try {
-    // Walk the table in id order so batching is a simple cursor rather than a
-    // repeated OFFSET scan (which gets slower each page on a 200k-row table).
-    let cursor = 0;
-    for (;;) {
-      const batch = await db._pool.query(
-        `SELECT id, donor_id, ngo_id, station, status, assigned_at, updated_at, last_contacted_at
-           FROM public.fro_assignments
-          WHERE id > $1
-            AND status <> ALL($2::text[])
-            AND COALESCE(last_contacted_at, updated_at, assigned_at, to_timestamp(0)) < $3
-          ORDER BY id
-          LIMIT $4`,
-        [cursor, PRESERVED_STATUSES, monthStart, BATCH_SIZE]
-      );
-      const rows = batch.rows || [];
-      if (rows.length === 0) break;
-      cursor = rows[rows.length - 1].id;
+    // Statuses are deliberately NOT reset. A month boundary is not a reason to
+    // turn a used lead back into "fresh pending" work, and it is definitely not
+    // a reason to move it out of History. Likewise next_follow_up and
+    // fro_scheduled_contacts are never touched: a follow-up is a promise made to
+    // a donor, so an October follow-up must still be visible in November.
+    await recordProgress(monthKey, { rowsReset, detail, finished: false });
 
-      const resetRows = rows.filter(r => !preserved.has(r.status));
-      if (resetRows.length) {
-        const resetIds = resetRows.map(r => r.id);
-        // Only `status` is rewritten. next_follow_up is deliberately NOT touched:
-        // a lead that was promised a callback keeps its date across the month
-        // boundary, because the promise was made to the donor and does not expire
-        // on the 1st. Clearing it silently dropped unkept call promises, which is
-        // the opposite of what a fresh month should do. Scheduled contacts in
-        // fro_scheduled_contacts are likewise left alone.
-        //
-        // rollover_from_status = status reads the OLD value: in a single UPDATE
-        // every right-hand column reference sees the pre-update row, so the reset
-        // records what the lead was before this statement flipped it to pending.
-        // The FRO then sees "was ringing, monthly reset" instead of a bare pending.
-        await db._pool.query(
-          `UPDATE public.fro_assignments
-              SET status = 'pending',
-                  rollover_from_status = status, rollover_at = now(),
-                  next_follow_up = NULL
-            WHERE id = ANY($1::int[])`,
-          [resetIds]
-        );
-        await db._pool.query(
-          `DELETE FROM public.fro_scheduled_contacts
-            WHERE assignment_id = ANY($1::int[])
-              AND is_completed = false`,
-          [resetIds]
-        );
-        rowsReset += resetIds.length;
-        for (const r of resetRows) detail[`reset:${r.status}`] = (detail[`reset:${r.status}`] || 0) + 1;
-      }
-
-      await recordProgress(monthKey, { rowsReset, detail, finished: false });
-    }
-
-    // Archive the previous month's call log only after the status reset succeeded,
-    // so History and the lead states can never disagree mid-run. Non-financial
-    // disposition rows only — see archivePriorMonthLogs for what is never touched.
     const logsArchived = await archivePriorMonthLogs(monthStart, monthKey);
     detail.logsArchived = logsArchived;
 
     await recordProgress(monthKey, { rowsReset, detail, finished: true });
-    console.log(`FRO monthly rollover ${monthKey} (${mode}): reset ${rowsReset}; archived ${logsArchived} prior-month call logs; refusal cooldown reset ${cooldownReset}`);
+    console.log(`FRO monthly rollover ${monthKey} (${mode}): preserved all lead statuses/follow-ups; archived ${logsArchived} prior-month call logs; refusal cooldown reset ${cooldownReset}`);
     return { monthKey, mode, rowsReset, cooldownReset, logsArchived, detail };
   } catch (err) {
     // Leave the claim in place with partial totals. Clearing it would let a

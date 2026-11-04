@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, CheckCircle2, UserX, Smartphone, ChevronRight, Phone, Search, Inbox, MapPin } from 'lucide-react';
+import { Users, CheckCircle2, UserX, Smartphone, ChevronRight, Phone, Search, Inbox, MapPin, CalendarDays } from 'lucide-react';
 import { getMyDonors, getDonorDetail, getDonorReceipts } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
@@ -43,6 +43,19 @@ const ACTIVITY_TABS = [
 
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+const formatDonationDate = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const formatAmount = (value) => (
+  value == null || value === '' || Number.isNaN(Number(value))
+    ? null
+    : `₹${Number(value).toLocaleString('en-IN')}`
+);
+
 const buildReceiptDonor = (receipt, fallbackName) => ({
   'Receipt No.': receipt.receipt_no || '',
   'Receipt Date': receipt.receipt_date || '',
@@ -82,7 +95,12 @@ export default function Donors() {
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    const opts = { verifiedOnly: true, period };
+    // Donor book, not the calling queue: show every donor allotted to this FRO
+    // (all statuses) so the last-donation date is available for the whole list.
+    // The old `verifiedOnly` filter reduced the page to the handful of donors
+    // whose donation was verified, which made a 4,000-donor station look empty
+    // (one FRO saw a single donor).
+    const opts = { allStatuses: true, includeSuppressed: true, period };
     if (filter === 'active') opts.activeOnly = true;
     else if (filter === 'inactive') opts.inactiveOnly = true;
     getMyDonors(null, null, opts)
@@ -310,7 +328,7 @@ export default function Donors() {
               <Inbox size={24} />
             </span>
             <div style={{ fontSize: 13, fontWeight: 600 }}>{search || filter !== 'all' ? 'No matching donors' : 'No donors yet'}</div>
-            <div style={{ fontSize: 11 }}>{search || filter !== 'all' ? 'Try a different name, mobile or filter.' : 'Verified donors will appear here.'}</div>
+            <div style={{ fontSize: 11 }}>{search || filter !== 'all' ? 'Try a different name, mobile or filter.' : 'Donors allotted to you will appear here.'}</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -343,6 +361,27 @@ export default function Donors() {
                       <span>{d.donor_mobile || '—'}</span>
                       {d.donor_city && <><span style={{ color: 'var(--line)', margin: '0 2px' }}>•</span><MapPin size={10} /><span>{d.donor_city}</span></>}
                       {d.donor_project && <><span style={{ color: 'var(--line)', margin: '0 2px' }}>•</span><span>{d.donor_project}</span></>}
+                    </div>
+                    {/* Every donor in the list carries the last donation date and
+                        amount taken from their most recent receipt (not from the
+                        current period), so a donor whose last gift was last month
+                        still shows it. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, marginTop: 3, color: 'var(--ink-soft)', flexWrap: 'wrap' }}>
+                      <CalendarDays size={11} />
+                      <span>
+                        Last donated:{' '}
+                        <strong style={{ color: formatDonationDate(d.last_donation_date) ? 'var(--ink)' : 'var(--ink-soft)', fontWeight: 700 }}>
+                          {formatDonationDate(d.last_donation_date) || 'Not yet'}
+                        </strong>
+                      </span>
+                      {formatDonationDate(d.last_donation_date) && formatAmount(d.last_donation_amount) && (
+                        <>
+                          <span style={{ color: 'var(--line)' }}>·</span>
+                          <strong style={{ color: 'var(--sage)', fontWeight: 800 }}>
+                            {formatAmount(d.last_donation_amount)}
+                          </strong>
+                        </>
+                      )}
                     </div>
                   </div>
                   {d.donor_mobile && (
@@ -410,6 +449,12 @@ export default function Donors() {
                 <span>&#127963; {modalDonor.donor_city || '—'}</span>
                 {modalDonor.donor_pan && <><span className="donor-modal-sep">|</span><span>PAN: {modalDonor.donor_pan}</span></>}
                 {modalDonor.donor_dob && <><span className="donor-modal-sep">|</span><span>DOB: {new Date(modalDonor.donor_dob).toLocaleDateString('en-GB')}</span></>}
+                {formatDonationDate(modalDonor.last_donation_date) && (
+                  <><span className="donor-modal-sep">|</span><span>
+                    Last donated: {formatDonationDate(modalDonor.last_donation_date)}
+                    {formatAmount(modalDonor.last_donation_amount) ? ` · ${formatAmount(modalDonor.last_donation_amount)}` : ''}
+                  </span></>
+                )}
               </div>
               {modalDonor.donor_project && <div className="donor-modal-project">&#128196; Project: {modalDonor.donor_project}</div>}
               {modalDonor.donor_address && <div className="donor-modal-address">&#127968; {modalDonor.donor_address}</div>}
