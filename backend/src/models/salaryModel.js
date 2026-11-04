@@ -662,14 +662,20 @@ export const getPagarExportData = async (month) => {
     if (s.to_month) continue;
     if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
   }
-  // Only workers with a current salary get a row in this file; receipts credited
-  // to anyone else must fall into the Unattributed bucket so columns still tally
-  // exactly with the Collection Report cards.
-  const salariedWorkerIds = new Set();
-  for (const w of workers) {
+  // A worker gets a row in this file when they have a current salary OR are an
+  // active employee (the row loop below lists active employees even with no
+  // salary so a missing salary entry cannot erase them). Receipts are attributed
+  // to exactly that set, so a collection for an active no-salary FRO (e.g.
+  // Priyank Shah / Anjana Vyas) lands on their own attendance row instead of a
+  // duplicate collection-only bucket row. Receipts credited to anyone not in
+  // the file still fall into a bucket so the columns tally with the Collection
+  // Report cards.
+  const hasExportRow = (w) => {
     const sl = latestSalary[w.id];
-    if (sl && parseFloat(sl.salary) > 0) salariedWorkerIds.add(w.id);
-  }
+    return (sl && parseFloat(sl.salary) > 0)
+      || String(w.employment_status || '').toLowerCase() === 'active';
+  };
+  const includedWorkerIds = new Set(workers.filter(hasExportRow).map((w) => w.id));
 
   // 3. Targets for month — manual fro_monthly_targets (latest per worker) wins over auto incentive_targets
   // fro_monthly_targets stores month as first-of-month (YYYY-MM-01), matching our startDate
@@ -794,16 +800,12 @@ export const getPagarExportData = async (month) => {
   const projectToNgo = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' };
 
   // FRO worker id by normalized name (active, non-test) - same attribution as
-  // the Accounts report.
-  const { data: froWorkers, error: frErr } = await db
-    .from('workers')
-    .select('id, name')
-    .eq('department', 'FRO')
-    .eq('employment_status', 'active')
-    .eq('is_test', false);
-  if (frErr) throw frErr;
+  // the Accounts report. Built from the already-loaded roster so the status
+  // casing and the export's row-inclusion rule stay in sync.
   const workerByKey = {};
-  for (const w of froWorkers || []) {
+  for (const w of workers) {
+    if (String(w.department || '') !== 'FRO') continue;
+    if (String(w.employment_status || '').toLowerCase() !== 'active') continue;
     const k = normKey(w.name);
     if (k && !workerByKey[k]) workerByKey[k] = w.id;
   }
@@ -881,7 +883,7 @@ export const getPagarExportData = async (month) => {
       canonical = await normalizeAgentName(rawAgent);
       wid = workerByKey[normKey(canonical)] || null;
     }
-    if (wid && salariedWorkerIds.has(wid)) {
+    if (wid && includedWorkerIds.has(wid)) {
       if (!collectionByWorker[wid]) collectionByWorker[wid] = 0;
       collectionByWorker[wid] += amount;
 
@@ -970,11 +972,10 @@ export const getPagarExportData = async (month) => {
   for (const w of workers) {
     const sal = latestSalary[w.id];
     const salary = sal ? parseFloat(sal.salary) : 0;
-    // Same rule as the payroll sheet: an active employee is always listed (with
-    // 0 until HR enters a salary) so a missing salary cannot erase their name
-    // from the exported file. Absconded/offboarded rows need a salary to appear.
-    const statusKey = String(w.employment_status || '').toLowerCase();
-    if (salary <= 0 && statusKey !== 'active') continue;
+    // Same rule as `hasExportRow` above: an active employee is always listed
+    // (with 0 until HR enters a salary) so a missing salary cannot erase their
+    // name from the exported file. Absconded/offboarded rows need a salary.
+    if (!hasExportRow(w)) continue;
 
     const workerAtt = attByWorker[w.id] || [];
     const attResult = computePaidDays({
@@ -1142,11 +1143,28 @@ export const getPagarExportData = async (month) => {
     makeCategoryRow(categoryLabels[c], categoryByNgo[c], 'CATEGORY', '');
   }
 
-  // Anjana FRO / Priyank Shah are treated as ACTIVE FRO rows (so they live in
-  // the Active section and feed the Active FRO + Grand totals), with zero
-  // salary / target / present-days since they are pure collection buckets.
+  // Anjana FRO / Priyank Shah are fallback buckets for receipts that could not
+  // be matched to a worker row in this file. When that person has their own row
+  // (the normal case), fold the bucket into it so they appear once with
+  // attendance and collection together. Only a bucket with no matching person
+  // row is emitted as a trailing collection-only row, so its money still shows
+  // instead of silently disappearing.
   for (const c of ['anjana_fro', 'priyank_shah']) {
-    makeCategoryRow(categoryLabels[c], categoryByNgo[c], 'ACTIVE', 'FRO');
+    const cat = categoryByNgo[c];
+    if ((cat?.total || 0) <= 0) continue;
+    const target = rows.find((r) => r.id && (
+      c === 'anjana_fro'
+        ? isAnjanaAgent(r.name)
+        : normKey(r.name) === 'priyank shah'
+    ));
+    if (!target) {
+      makeCategoryRow(categoryLabels[c], cat, 'ACTIVE', 'FRO');
+      continue;
+    }
+    target.achieved = (target.achieved || 0) + cat.total;
+    target.achieved_bsct = (target.achieved_bsct || 0) + (cat.BSCT || 0);
+    target.achieved_aflf = (target.achieved_aflf || 0) + (cat.AFLF || 0);
+    target.achieved_mann = (target.achieved_mann || 0) + (cat.MANN || 0);
   }
 
   // Sort: Active first (by dept), then Absconded (by dept), then other
