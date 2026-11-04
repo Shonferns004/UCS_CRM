@@ -112,6 +112,34 @@ const isNaJunk = v => {
 };
 const notNa = v => (isNaJunk(v) ? '' : String(v).trim());
 
+// One number = one address/PAN in exports. The receipts API already resolves
+// each row against the donor master, but receipts with no donor profile still
+// carry their own copy — so pin one value per mobile here too. Rows arrive
+// newest-receipt-first, so the first non-empty value wins and a single export
+// never shows two addresses (or a blank) for the same number.
+const mobileKey10 = (r) => String(r?.donor_mobile || '').replace(/\D/g, '').slice(-10);
+
+function normalizeDonorByMobile(rows) {
+  const master = new Map();
+  for (const r of rows) {
+    const key = mobileKey10(r);
+    if (key.length !== 10) continue;
+    const cur = master.get(key) || {};
+    master.set(key, {
+      address: cur.address || notNa(r.address),
+      address_2: cur.address_2 || notNa(r.address_2),
+      pan_number: cur.pan_number || r.pan_number || '',
+      email: cur.email || r.email || '',
+    });
+  }
+  return rows.map(r => {
+    const m = master.get(mobileKey10(r));
+    return m
+      ? { ...r, address: m.address, address_2: m.address_2, pan_number: m.pan_number, email: m.email }
+      : r;
+  });
+}
+
 function buildDonor(r, lead) {
   return {
     'Receipt No.': r.receipt_no || '',
@@ -638,7 +666,7 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (all.length === 0) { alert('No receipts match the current filter'); setTodayDownloading(false); return; }
-      setHistoryForDownload(all);
+      setHistoryForDownload(normalizeDonorByMobile(all));
     } catch (err) {
       alert('Failed to fetch: ' + err.message);
       setTodayDownloading(false);
@@ -651,6 +679,7 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
+      const rows = normalizeDonorByMobile(all);
       const fmtDate = (d) => {
         if (!d) return 'NA';
         const formatted = formatReceiptDate(d);
@@ -706,9 +735,9 @@ export default function ReceiptHistory() {
       const wb = new ExcelJS.Workbook();
       const isSuspenseEntry = r => !r.receipt_no || (!r.donor_mobile && (!r.agent_name || r.agent_name === 'Suspense'));
       const groups = {
-        beingsevak: all.filter(r => r.project_id === 'bsct'),
-        ashray: all.filter(r => r.project_id === 'aflf'),
-        manncare: all.filter(r => r.project_id === 'mann'),
+        beingsevak: rows.filter(r => r.project_id === 'bsct'),
+        ashray: rows.filter(r => r.project_id === 'aflf'),
+        manncare: rows.filter(r => r.project_id === 'mann'),
       };
       const ws1 = wb.addWorksheet('BeingSevak');
       await buildSheet(ws1, groups.beingsevak.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));

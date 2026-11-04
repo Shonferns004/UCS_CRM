@@ -50,6 +50,7 @@ test('Bulk send and its supporting endpoints stay mounted', () => {
 test('Chats tab endpoints stay mounted', () => {
   const required = [
     ['GET', '/chats'],
+    ['POST', '/chats/:phone/read'],
     ['GET', '/conversations/:phone'],
     ['POST', '/send-text'],
     ['POST', '/send-media'],

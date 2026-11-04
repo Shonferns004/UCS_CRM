@@ -1784,6 +1784,68 @@ export const getReceipt = async (req, res) => {
   }
 };
 
+// ─── Master donor fields (address / PAN) ──────────────────
+// A receipt keeps its own copy of address/PAN, so one mobile number can carry
+// several different (or blank) values across its receipts. The donor profile is
+// the master for that number: Address Import and the receipt editor both write
+// there. Resolving each row against that master makes the list, the Excel
+// export and the PDF receipts show one address/PAN per number instead of the
+// mix the receipts happen to carry.
+const mobileKey10 = (v) => String(v ?? '').replace(/\D/g, '').slice(-10);
+
+async function attachDonorMaster(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+  const mobiles = [...new Set(rows.map(r => mobileKey10(r.donor_mobile)).filter(m => m.length === 10))];
+  const donorIds = [...new Set(rows.map(r => Number(r.donor_id)).filter(n => Number.isInteger(n) && n > 0))];
+  if (mobiles.length === 0 && donorIds.length === 0) return rows;
+
+  // Same expression as idx_donor_profiles_mobile_digits (ensureDashboardIndexes)
+  // so the lookup is an index scan, not a 125k-row seq scan per page.
+  const { rows: profiles } = await db._pool.query(
+    `SELECT id,
+            right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) AS mob,
+            address_1, address_2, pan_number, email, updated_at
+       FROM donor_profiles
+      WHERE id = ANY($1::int[])
+         OR right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) = ANY($2::text[])
+      ORDER BY updated_at DESC NULLS LAST, id ASC`,
+    [donorIds, mobiles]
+  );
+
+  // Deterministic pick. Duplicate normalized numbers exist (e.g. "+91..." and
+  // "..." rows), so the first profile per key must not be arbitrary: the query
+  // orders newest-updated first and we keep the first hit.
+  const byId = new Map();
+  const byMob = new Map();
+  for (const p of profiles) {
+    if (!byId.has(p.id)) byId.set(p.id, p);
+    if (p.mob && !byMob.has(p.mob)) byMob.set(p.mob, p);
+  }
+
+  // Field-by-field: the linked profile wins, then the profile that owns the
+  // mobile number, then the receipt's own copy. Per-field rather than
+  // per-profile so a linked profile with only an address does not hide the PAN
+  // that the mobile's profile carries.
+  const firstNonEmpty = (...sources) => {
+    for (const v of sources) {
+      if (v != null && String(v).trim() !== '') return v;
+    }
+    return null;
+  };
+
+  for (const r of rows) {
+    const p1 = byId.get(Number(r.donor_id)) || null;
+    const p2 = byMob.get(mobileKey10(r.donor_mobile)) || null;
+    if (!p1 && !p2) continue;
+    r.address = firstNonEmpty(p1?.address_1, p2?.address_1, r.address) ?? r.address;
+    r.address_2 = firstNonEmpty(p1?.address_2, p2?.address_2, r.address_2) ?? r.address_2;
+    r.pan_number = firstNonEmpty(p1?.pan_number, p2?.pan_number, r.pan_number) ?? r.pan_number;
+    r.email = firstNonEmpty(p1?.email, p2?.email, r.email) ?? r.email;
+  }
+  return rows;
+}
+
 export const getReceiptList = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -1971,7 +2033,7 @@ export const getReceiptList = async (req, res) => {
         params
       );
       return res.json({
-        data: rowsRes.rows,
+        data: await attachDonorMaster(rowsRes.rows),
         total: totalRes.rows[0].n,
         statsByProject: statsRes.rows,
         monthStatsByProject,
@@ -2014,7 +2076,7 @@ export const getReceiptList = async (req, res) => {
     );
 
     return res.json({
-      data: rowsRes.rows,
+      data: await attachDonorMaster(rowsRes.rows),
       total: totalRes.rows[0].n,
       statsByProject: statsRes.rows,
       monthStatsByProject,
@@ -3847,8 +3909,11 @@ export const getReceiptByMobile = async (req, res) => {
       return res.status(400).json({ message: 'A valid mobile number is required' });
     }
     const { rows } = await db._pool.query(
-      `SELECT r.donor_name, r.address, r.pan_number, r.donor_mobile, r.donor_id, r.receipt_no, r.receipt_date,
-              r.email,
+      `SELECT r.donor_name,
+              COALESCE(NULLIF(dp.address_1, ''), r.address) AS address,
+              COALESCE(NULLIF(dp.pan_number, ''), r.pan_number) AS pan_number,
+              r.donor_mobile, r.donor_id, r.receipt_no, r.receipt_date,
+              COALESCE(NULLIF(dp.email, ''), r.email) AS email,
               COALESCE(dp.address_2, '') AS address_2,
               COALESCE(dp.city, '') AS city,
               COALESCE(dp.pin_code, '') AS pin_code
@@ -5686,6 +5751,32 @@ export const updateReceipt = async (req, res) => {
         }
       } catch (err) {
         console.error('Failed to update donor profile on receipt edit:', err.message);
+      }
+    }
+
+    // One number = one address/PAN. Saving these on one receipt must not leave
+    // the donor's other receipts showing a different or blank value, otherwise
+    // the Excel export and the PDF receipts disagree row to row. The donor
+    // profile above is already updated; this carries the same values across the
+    // sibling receipts of this mobile number. Blank edits are ignored so a
+    // cleared field never wipes every receipt, and nothing propagates when the
+    // mobile itself was changed — those siblings belong to a different number.
+    const oldMobileKey = mobileKey10(receipt.donor_mobile);
+    const newMobileKey = mobileKey10(receiptPatch.donor_mobile ?? receipt.donor_mobile);
+    const propagateKey = oldMobileKey === newMobileKey ? newMobileKey : '';
+    const propagateFields = ['address', 'address_2', 'pan_number', 'email']
+      .filter(f => f in receiptPatch && String(receiptPatch[f] ?? '').trim() !== '');
+    if (propagateKey.length === 10 && propagateFields.length > 0) {
+      try {
+        const setSql = propagateFields.map((f, i) => `${f} = $${i + 1}`).join(', ');
+        await db._pool.query(
+          `UPDATE receipts SET ${setSql}
+            WHERE id <> $${propagateFields.length + 1}
+              AND right(regexp_replace(donor_mobile, '[^0-9]', '', 'g'), 10) = $${propagateFields.length + 2}`,
+          [...propagateFields.map(f => receiptPatch[f]), receiptId, propagateKey]
+        );
+      } catch (err) {
+        console.error('Failed to propagate donor fields to sibling receipts:', err.message);
       }
     }
 

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { apiGet } from '../api/auth';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { apiGet, apiPost } from '../api/auth';
+import { onDbChange, onSocketConnect } from '../../../lib/socket';
 import WhatsAppThread, { WhatsAppThreadEmpty } from './WhatsAppThread';
 import './whatsAppChat.css';
 
@@ -45,9 +46,14 @@ function isToday(iso) {
 }
 
 function previewOf(thread) {
-  const text = String(thread.replyText || thread.lastMessage || '').trim();
+  const text = String(thread.lastMessage || thread.replyText || '').trim();
   if (!text) return 'No messages yet';
-  return text;
+  return thread.direction === 'outbound' ? `You: ${text}` : text;
+}
+
+function threadKeyOf(thread) {
+  if (!thread) return '';
+  return thread.threadKey || `${thread.phone || ''}::${thread.accountId || thread.project || 'unknown'}`;
 }
 
 function IconSearch() {
@@ -108,6 +114,14 @@ export default function WhatsAppChatWindow() {
   const [accountFilter, setAccountFilter] = useState('all');
   const [selected, setSelected] = useState(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [replyAlerts, setReplyAlerts] = useState([]);
+
+  // Last inbound reply seen per phone. A reply only pops up when its timestamp
+  // moves forward, so re-renders, filters and the 20s poll cannot repeat an
+  // alert for a message that was already announced.
+  const seenRepliesRef = useRef(new Map());
+  const selectedRef = useRef(null);
+  const alertTimersRef = useRef(new Map());
 
   const [showNewChat, setShowNewChat] = useState(false);
   const [newPhone, setNewPhone] = useState('');
@@ -121,6 +135,67 @@ export default function WhatsAppChatWindow() {
       .catch(() => setAccounts([]));
   }, []);
 
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  useEffect(() => () => {
+    for (const timer of alertTimersRef.current.values()) clearTimeout(timer);
+    alertTimersRef.current.clear();
+  }, []);
+
+  const dismissReplyAlert = useCallback((alertId) => {
+    const timer = alertTimersRef.current.get(alertId);
+    if (timer) {
+      clearTimeout(timer);
+      alertTimersRef.current.delete(alertId);
+    }
+    setReplyAlerts((prev) => prev.filter((alert) => alert.alertId !== alertId));
+  }, []);
+
+  const showReplyAlert = useCallback((thread) => {
+    const threadKey = threadKeyOf(thread);
+    const alertId = `${threadKey}:${thread.lastReplyAt}`;
+    setReplyAlerts((prev) => {
+      const withoutSameThread = prev.filter((alert) => threadKeyOf(alert) !== threadKey);
+      return [...withoutSameThread, { ...thread, alertId }].slice(-4);
+    });
+    const existingTimer = alertTimersRef.current.get(alertId);
+    if (existingTimer) clearTimeout(existingTimer);
+    const timer = setTimeout(() => dismissReplyAlert(alertId), 30000);
+    alertTimersRef.current.set(alertId, timer);
+  }, [dismissReplyAlert]);
+
+  const markThreadRead = useCallback((thread) => {
+    const key = threadKeyOf(thread);
+    setThreads((prev) => prev.map((t) => (threadKeyOf(t) === key ? { ...t, unreadCount: 0 } : t)));
+    const qs = thread.accountId ? `?accountId=${encodeURIComponent(thread.accountId)}` : '';
+    apiPost(`/whatsapp/chats/${encodeURIComponent(thread.phone)}/read${qs}`).catch(() => {});
+  }, []);
+
+  const detectNewReplies = useCallback((list) => {
+    const seen = seenRepliesRef.current;
+    for (const thread of list) {
+      if (!thread?.phone) continue;
+      const threadKey = threadKeyOf(thread);
+      const current = thread.lastReplyAt || null;
+      if (!seen.has(threadKey)) {
+        // First sighting of this thread: take its current reply timestamp as
+        // the baseline instead of popping up for history.
+        seen.set(threadKey, current);
+        continue;
+      }
+      const previous = seen.get(threadKey);
+      if (!current || (previous && new Date(current) <= new Date(previous))) continue;
+      seen.set(threadKey, current);
+      const isOpenAndVisible = threadKeyOf(selectedRef.current) === threadKey
+        && typeof document !== 'undefined'
+        && document.visibilityState === 'visible';
+      if (isOpenAndVisible) markThreadRead(thread);
+      else showReplyAlert(thread);
+    }
+  }, [markThreadRead, showReplyAlert]);
+
   const loadThreads = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
       setLoadingThreads(true);
@@ -129,7 +204,9 @@ export default function WhatsAppChatWindow() {
     try {
       const qs = accountFilter !== 'all' ? `?accountId=${encodeURIComponent(accountFilter)}` : '';
       const data = await apiGet(`/whatsapp/chats${qs}`);
-      setThreads(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setThreads(list);
+      detectNewReplies(list);
       if (!silent) setLoadError(null);
     } catch (e) {
       if (!silent) {
@@ -139,27 +216,74 @@ export default function WhatsAppChatWindow() {
     } finally {
       if (!silent) setLoadingThreads(false);
     }
-  }, [accountFilter]);
+  }, [accountFilter, detectNewReplies]);
 
   useEffect(() => {
     loadThreads();
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       loadThreads({ silent: true });
-    }, 20000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [loadThreads]);
 
-  const filtered = threads.filter((thread) => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return [thread.phone, thread.recipientName, thread.lastMessage, thread.replyText, thread.accountName, thread.project]
-      .some((value) => String(value || '').toLowerCase().includes(q));
-  });
+  // Catch up immediately when the operator returns to the tab or the socket
+  // reconnects, so a reply that arrived while this screen was in the background
+  // is never waiting for the next poll.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadThreads({ silent: true });
+    };
+    const unsubscribeReconnect = onSocketConnect(() => loadThreads({ silent: true }));
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      unsubscribeReconnect?.();
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [loadThreads]);
+
+  // Instant path: the webhook inserts an inbound message, the backend broadcasts
+  // db:change, and the chat list refreshes within a beat so the reply popup does
+  // not wait for the 20s safety poll.
+  useEffect(() => {
+    let timer = null;
+    const unsubscribe = onDbChange({
+      table: 'messages',
+      event: 'INSERT',
+      onInsert: (row) => {
+        if (String(row?.direction || '') !== 'inbound') return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => loadThreads({ silent: true }), 200);
+      },
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe?.();
+    };
+  }, [loadThreads]);
+
+  const filtered = threads
+    .filter((thread) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      return [thread.phone, thread.recipientName, thread.lastMessage, thread.replyText, thread.accountName, thread.project]
+        .some((value) => String(value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
 
   const handleSelect = (thread) => {
     setSelected(thread);
     setMobileShowChat(true);
+    // Opening a chat clears its unread chip immediately, like WhatsApp.
+    markThreadRead(thread);
+  };
+
+  const openReplyAlert = (alert) => {
+    setSelected(alert);
+    setMobileShowChat(true);
+    dismissReplyAlert(alert.alertId);
   };
 
   const handleCloseThread = () => {
@@ -184,6 +308,7 @@ export default function WhatsAppChatWindow() {
       lastMessage: '',
       lastAt: new Date().toISOString(),
       direction: 'outbound',
+      threadKey: `${digits}::${account?.id || 'unknown'}`,
     };
     setThreads((prev) => [thread, ...prev.filter((t) => t.phone !== phone)]);
     setSelected(thread);
@@ -219,7 +344,7 @@ export default function WhatsAppChatWindow() {
     URL.revokeObjectURL(url);
   };
 
-  const activeThread = selected?.phone;
+  const activeThread = threadKeyOf(selected);
 
   return (
     <div className={`wac-root ${mobileShowChat ? 'is-chatting' : ''}`}>
@@ -334,11 +459,12 @@ export default function WhatsAppChatWindow() {
           )}
 
           {!loadingThreads && !loadError && filtered.map((thread) => {
-            const active = activeThread === thread.phone;
+            const threadKey = threadKeyOf(thread);
+            const active = activeThread === threadKey;
             const color = accountColor(thread.accountName || thread.project);
             return (
               <div
-                key={thread.phone}
+                key={threadKey}
                 className={`wac-row ${active ? 'is-active' : ''}`}
                 onClick={() => handleSelect(thread)}
                 role="button"
@@ -365,9 +491,12 @@ export default function WhatsAppChatWindow() {
 
                   <div className="wac-row-foot">
                     <span className="wac-badge">{thread.accountName || thread.project || 'WhatsApp'}</span>
-                    {thread.recipientName && <span className="wac-badge">{thread.phone}</span>}
+                    {thread.phone && <span className="wac-badge">{thread.phone}</span>}
                     {thread.hasReply && (
                       <span className="wac-badge" style={{ background: '#dcfce7', color: '#15803d' }}>Replied</span>
+                    )}
+                    {Number(thread.unreadCount) > 0 && (
+                      <span className="wac-unread">{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</span>
                     )}
                   </div>
                 </div>
@@ -380,7 +509,7 @@ export default function WhatsAppChatWindow() {
       <main className="wac-main">
         {selected ? (
           <WhatsAppThread
-            key={`${selected.phone}-${selected.accountId || 'all'}`}
+            key={threadKeyOf(selected)}
             phone={selected.phone}
             accountId={selected.accountId || undefined}
             accounts={accounts}
@@ -446,6 +575,43 @@ export default function WhatsAppChatWindow() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {replyAlerts.length > 0 && (
+        <div className="wac-reply-alerts" role="status" aria-live="polite">
+          {replyAlerts.map((alert) => (
+            <div className="wac-reply-alert" key={alert.alertId}>
+              <div className="wac-reply-alert-head">
+                <span className="wac-reply-alert-dot" />
+                <strong>New WhatsApp reply</strong>
+                <button
+                  type="button"
+                  className="wac-reply-alert-close"
+                  onClick={() => dismissReplyAlert(alert.alertId)}
+                  aria-label="Dismiss reply notification"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="wac-reply-alert-who">
+                {alert.recipientName && alert.recipientName !== alert.phone && (
+                  <span className="wac-reply-alert-name">{alert.recipientName}</span>
+                )}
+                <span className="wac-reply-alert-phone">{alert.phone}</span>
+              </div>
+
+              <p className="wac-reply-alert-text">
+                {String(alert.replyText || alert.lastMessage || 'New message').slice(0, 220)}
+              </p>
+
+              <div className="wac-reply-alert-foot">
+                <span>{alert.accountName || alert.project || 'WhatsApp'} · {chatTime(alert.lastReplyAt)}</span>
+                <button type="button" onClick={() => openReplyAlert(alert)}>Open chat</button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

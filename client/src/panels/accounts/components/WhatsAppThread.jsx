@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { api, apiGet, apiPost } from '../api/auth';
+import { onDbChange, onSocketConnect } from '../../../lib/socket';
 import WhatsAppMessageList from './WhatsAppMessageList';
 import './whatsAppChat.css';
 
@@ -244,8 +245,43 @@ export default function WhatsAppThread({
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       loadMessages({ silent: true });
-    }, 12000);
+    }, 3000);
     return () => clearInterval(timer);
+  }, [loadMessages]);
+
+  // Returning to the tab or reconnecting the socket refreshes the open thread
+  // immediately instead of waiting for the 3s safety poll.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadMessages({ silent: true });
+    };
+    const unsubscribeReconnect = onSocketConnect(() => loadMessages({ silent: true }));
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      unsubscribeReconnect?.();
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [loadMessages]);
+
+  // A reply lands in the open thread as soon as the webhook writes it instead
+  // of waiting for the 12s poll.
+  useEffect(() => {
+    let timer = null;
+    const unsubscribe = onDbChange({
+      table: 'messages',
+      event: 'INSERT',
+      onInsert: (row) => {
+        if (String(row?.direction || '') !== 'inbound') return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => loadMessages({ silent: true }), 250);
+      },
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe?.();
+    };
   }, [loadMessages]);
 
   useEffect(() => {

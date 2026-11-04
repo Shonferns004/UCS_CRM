@@ -51,9 +51,16 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [accountTemplates, setAccountTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templateForm, setTemplateForm] = useState({
-    name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', headerHandle: '', body: '', footer: '',
+    name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', headerHandle: '', headerUrl: '', body: '', footer: '',
     buttons: [],
   });
+  // Header media picked in the Add Template drawer. The file is uploaded to
+  // Meta straight away (Meta only accepts an uploaded handle or a public URL
+  // as the header example), so headerHandle holds the returned handle and
+  // these three pieces of state only drive the picker/preview.
+  const [templateMediaUploading, setTemplateMediaUploading] = useState(false);
+  const [templateMediaName, setTemplateMediaName] = useState('');
+  const [templateMediaPreview, setTemplateMediaPreview] = useState('');
   const [revealToken, setRevealToken] = useState({});
   const [showToken, setShowToken] = useState(false);
   const [search, setSearch] = useState('');
@@ -223,20 +230,71 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     } catch (err) { alert(err.message); }
   };
 
+  const resetTemplateMedia = () => {
+    setTemplateMediaUploading(false);
+    setTemplateMediaName('');
+    setTemplateMediaPreview('');
+  };
+
   const openTemplateForm = (account) => {
-    setTemplateForm({ name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', body: '', footer: '', buttons: [] });
+    setTemplateForm({ name: '', language: 'en', category: 'UTILITY', headerType: 'NONE', headerText: '', headerHandle: '', headerUrl: '', body: '', footer: '', buttons: [] });
+    resetTemplateMedia();
     setTemplateFormAccount(account);
   };
 
   const closeTemplateForm = () => {
     setTemplateFormAccount(null);
     setCreatingTemplate(false);
+    resetTemplateMedia();
+  };
+
+  const handleTemplateMediaPick = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !templateFormAccount) return;
+
+    const headerType = templateForm.headerType;
+    const maxMb = headerType === 'IMAGE' ? 5 : 16;
+    if (file.size > maxMb * 1024 * 1024) {
+      toast(`File is too large. It must be under ${maxMb} MB.`, 'error');
+      return;
+    }
+
+    setTemplateMediaUploading(true);
+    // Show the picked file immediately; the preview must not wait for Meta's
+    // upload round-trip (and stays visible if the upload fails).
+    setTemplateMediaName(file.name);
+    if (String(file.type || '').startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setTemplateMediaPreview(String(reader.result || ''));
+      reader.readAsDataURL(file);
+    } else {
+      setTemplateMediaPreview('');
+    }
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await apiPost(`/whatsapp/accounts/${templateFormAccount.id}/templates/upload-media`, fd);
+      if (!res?.handle) throw new Error('Meta did not return a media handle');
+      setTemplateForm(p => ({ ...p, headerHandle: res.handle, headerUrl: '' }));
+      toast('Header media uploaded to Meta', 'success');
+    } catch (err) {
+      toast(err.message || 'Could not upload header media', 'error');
+    } finally {
+      setTemplateMediaUploading(false);
+    }
   };
 
   const handleCreateTemplate = async () => {
     if (!templateFormAccount) return;
     if (!templateForm.name.trim() || !templateForm.body.trim()) {
       alert('Template name and body are required');
+      return;
+    }
+    const isMediaHeader = ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateForm.headerType);
+    const headerHandle = (templateForm.headerUrl || '').trim() || (templateForm.headerHandle || '').trim();
+    if (isMediaHeader && !headerHandle) {
+      alert(`Please upload a header ${templateForm.headerType.toLowerCase()} or paste a public media URL.`);
       return;
     }
     setCreatingTemplate(true);
@@ -247,7 +305,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
         category: templateForm.category,
         headerType: templateForm.headerType,
         headerText: (templateForm.headerText || '').trim() || undefined,
-        headerHandle: (templateForm.headerHandle || '').trim() || undefined,
+        headerHandle: isMediaHeader ? headerHandle : undefined,
         body: templateForm.body.trim(),
         footer: (templateForm.footer || '').trim() || undefined,
         buttons: (templateForm.buttons || [])
@@ -552,7 +610,11 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
               </label>
               <label className="wa-f">
                 <span className="wa-f-label">Header type</span>
-                <select className="wa-select" value={templateForm.headerType} onChange={e => setTemplateForm(p => ({ ...p, headerType: e.target.value }))}>
+                <select className="wa-select" value={templateForm.headerType} onChange={e => {
+                  const headerType = e.target.value;
+                  setTemplateForm(p => ({ ...p, headerType, headerHandle: '', headerUrl: '' }));
+                  resetTemplateMedia();
+                }}>
                   <option value="NONE">None</option>
                   <option value="TEXT">Text</option>
                   <option value="IMAGE">Image</option>
@@ -567,11 +629,71 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
                  </label>
                )}
                {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateForm.headerType) && (
-                 <label className="wa-f wa-field-wide">
-                   <span className="wa-f-label">Header media URL (public)</span>
-                   <input className="wa-input" value={templateForm.headerHandle} onChange={e => setTemplateForm(p => ({ ...p, headerHandle: e.target.value }))} placeholder="https://example.com/image.jpg" />
-                   <span style={{ fontSize: 11, color: '#6b7280' }}>Paste a publicly accessible media URL (Meta will fetch it).</span>
-                 </label>
+                 <div className="wa-f wa-field-wide">
+                   <span className="wa-f-label">
+                     {templateForm.headerType === 'IMAGE' ? 'Header image' : templateForm.headerType === 'VIDEO' ? 'Header video' : 'Header document'}
+                   </span>
+                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: 12, border: '1.5px dashed #cbd5e1', borderRadius: 12, background: '#f8fafc' }}>
+                     {templateMediaPreview ? (
+                       <img
+                         src={templateMediaPreview}
+                         alt="Header preview"
+                         style={{ width: 84, height: 84, objectFit: 'cover', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', flex: '0 0 auto' }}
+                       />
+                     ) : (
+                       <div style={{ width: 84, height: 84, borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 6, color: '#94a3b8', fontSize: 11, flex: '0 0 auto' }}>
+                         {templateMediaUploading ? 'Uploading…' : 'No file'}
+                       </div>
+                     )}
+                     <div style={{ flex: 1, minWidth: 180 }}>
+                       <div style={{ fontSize: 12, fontWeight: 600, color: '#0f172a', wordBreak: 'break-all' }}>
+                         {templateMediaName || (templateForm.headerHandle ? 'Uploaded to Meta' : 'No file selected')}
+                       </div>
+                       <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                         {templateForm.headerType === 'IMAGE'
+                           ? 'PNG or JPG, up to 5 MB.'
+                           : templateForm.headerType === 'VIDEO'
+                             ? 'MP4 or 3GP, up to 16 MB.'
+                             : 'PDF, up to 16 MB.'}
+                       </div>
+                       <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                         <label className="wa-btn wa-btn-outline" style={{ cursor: templateMediaUploading ? 'wait' : 'pointer', margin: 0 }}>
+                           {templateMediaUploading ? 'Uploading…' : templateMediaName ? 'Replace file' : 'Upload file'}
+                           <input
+                             type="file"
+                             accept={templateForm.headerType === 'IMAGE' ? 'image/png,image/jpeg' : templateForm.headerType === 'VIDEO' ? 'video/mp4,video/3gpp' : 'application/pdf'}
+                             onChange={handleTemplateMediaPick}
+                             disabled={templateMediaUploading}
+                             style={{ display: 'none' }}
+                           />
+                         </label>
+                         {templateMediaName && !templateMediaUploading && (
+                           <button
+                             type="button"
+                             className="wa-btn wa-btn-ghost"
+                             onClick={() => {
+                               setTemplateForm(p => ({ ...p, headerHandle: '' }));
+                               setTemplateMediaName('');
+                               setTemplateMediaPreview('');
+                             }}
+                           >
+                             Remove
+                           </button>
+                         )}
+                       </div>
+                     </div>
+                   </div>
+                   <input
+                     className="wa-input"
+                     style={{ marginTop: 10 }}
+                     value={templateForm.headerUrl}
+                     onChange={e => setTemplateForm(p => ({ ...p, headerUrl: e.target.value }))}
+                     placeholder="Or paste a public media URL"
+                   />
+                   <span style={{ fontSize: 11, color: '#6b7280' }}>
+                     Upload a file (sent straight to Meta) or paste a publicly accessible URL. One of the two is required.
+                   </span>
+                 </div>
                )}
               <label className="wa-f wa-field-wide">
                 <span className="wa-f-label">Body</span>
