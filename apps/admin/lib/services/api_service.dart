@@ -6,6 +6,7 @@ import 'package:http/io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
+import 'api_exception.dart';
 
 class ApiService {
   static String get baseUrl => Config.apiBaseUrl;
@@ -136,12 +137,58 @@ class ApiService {
   }
 
   static Future<bool> checkConnectivity() async {
+    // A DNS lookup is not connectivity: a stopped tunnel, a captive portal and
+    // a stale Backend URL all resolve fine and then answer with an HTML page.
+    // Only a JSON `/config` response proves the API is actually reachable.
     try {
-      await _resolveHost().timeout(const Duration(seconds: 8));
-      return true;
+      final res = await http
+          .get(
+            Uri.parse('$baseUrl/config'),
+            headers: const {'Accept': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode != 200) return false;
+      return jsonDecode(res.body) is Map;
     } catch (_) {
       return false;
     }
+  }
+
+  /// Every endpoint in this app answers JSON. A web page or a plain-text
+  /// interstitial (ngrok ERR_NGROK_*, captive portal, stale Backend URL) means
+  /// the request never reached the API. Report that plainly instead of letting
+  /// `jsonDecode` throw `FormatException: Unexpected character ...`.
+  static void _ensureJsonResponse(http.Response res) {
+    final body = res.body.trim();
+    if (body.isEmpty) return;
+
+    final contentType = (res.headers['content-type'] ?? '').toLowerCase();
+    final first = body[0];
+    final looksLikeJson = first == '{' ||
+        first == '[' ||
+        first == '"' ||
+        first == '-' ||
+        (first.codeUnitAt(0) >= 0x30 && first.codeUnitAt(0) <= 0x39) ||
+        body == 'true' ||
+        body == 'false' ||
+        body == 'null';
+    if (looksLikeJson && !contentType.contains('text/html')) return;
+
+    final requested = res.request?.url.toString() ?? baseUrl;
+    final isWebPage = contentType.contains('text/html') || first == '<';
+    throw ApiException(
+      isWebPage
+          ? 'The server returned a web page instead of data (HTTP ${res.statusCode}).\n'
+              'Request: $requested\n'
+              'Backend: $baseUrl\n'
+              'Check the Backend setting — it may be pointing at a website or '
+              'an outdated server instead of the API.'
+          : 'The server returned an unexpected response (HTTP ${res.statusCode}).\n'
+              'Request: $requested\n'
+              'Backend: $baseUrl\n'
+              'Check the Backend setting or try again once the server is back.',
+      statusCode: res.statusCode,
+    );
   }
 
   static Future<http.Response> _send(
@@ -156,6 +203,7 @@ class ApiService {
     if (!skipRefresh && res.statusCode == 401) {
       await _refreshAccessToken();
     }
+    _ensureJsonResponse(res);
     return res;
   }
 
@@ -345,6 +393,7 @@ class ApiService {
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       'ngrok-skip-browser-warning': 'true',
       if (token != null) 'Authorization': 'Bearer $token',
     };
@@ -359,7 +408,16 @@ class ApiService {
     );
     try {
       final body = jsonDecode(res.body);
-      if (res.statusCode != 200) throw Exception(body['message'] ?? 'Login failed');
+      if (res.statusCode != 200) {
+        throw Exception(body is Map ? (body['message'] ?? 'Login failed') : 'Login failed');
+      }
+      if (body is! Map<String, dynamic>) {
+        throw Exception('Unexpected response from the server. Please contact admin.');
+      }
+      final token = body['token'];
+      if (token is! String || token.isEmpty) {
+        throw Exception(body['message']?.toString() ?? 'Login failed');
+      }
       return body;
     } on FormatException {
       throw Exception('Server error (${res.statusCode}). Please contact admin.');

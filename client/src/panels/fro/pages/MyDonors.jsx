@@ -294,10 +294,11 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // an FRO can reconcile "X of Y pending" against the station's donor count
   // instead of wondering where the rest went.
   const [allottedTotal, setAllottedTotal] = useState(0);
-  // History view: when true, fetch disposed leads from ALL months (live + archived)
-  // instead of only the current billing month, so closed leads worked in previous
-  // months are also visible.
-  const [historyAllTime, setHistoryAllTime] = useState(false);
+  // History view: fetch disposed leads from ALL months (live + archived).
+  // Default ON: a lead used in October is still "used" in November, so History
+  // must show it even though the monthly rollover archived its call log. The
+  // toggle narrows the book to the current month when the FRO wants that.
+  const [historyAllTime, setHistoryAllTime] = useState(true);
   const [dataTab, setDataTab] = useState('new');
   const [isTempStationView, setIsTempStationView] = useState(false);
   // High Tier tab is shown only to FROs who actually hold high-tier allotment.
@@ -1714,7 +1715,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     }) : visible;
     const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
     const historyFiltered = isHistory ? historyScoped.filter(d => {
-      if (d.has_donated_current_month || d.has_verified_donation_current_month) return false;
+      // Do NOT hide a lead that produced a donation this month: it is used, and
+      // History is exactly where it belongs. (Hiding it made donated leads look
+      // like they had vanished from both Leads and History.)
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
       return (d.donor_name || '').toLowerCase().includes(q)

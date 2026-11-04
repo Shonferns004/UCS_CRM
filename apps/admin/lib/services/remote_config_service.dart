@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
+import 'backend_switcher.dart';
 
 /// Fetches app config from the backend (no Firebase Remote Config).
 /// The bootstrap URL is the only hardcoded endpoint; everything else
@@ -22,18 +23,34 @@ class RemoteConfigService {
 
   Map<String, dynamic> get raw => Map.unmodifiable(_config);
 
-  String get apiBaseUrl =>
-      _config['api_base_url'] as String? ?? Config.bootstrapBaseUrl;
+  String get apiBaseUrl {
+    final value = _config['api_base_url'];
+    if (value is String && value.trim().isNotEmpty) {
+      return BackendSwitcher.normalize(value);
+    }
+    return Config.bootstrapBaseUrl;
+  }
 
-  String get socketUrl =>
-      _config['socket_url'] as String? ??
-      (Config.bootstrapBaseUrl.endsWith('/api')
-          ? Config.bootstrapBaseUrl.substring(0, Config.bootstrapBaseUrl.length - 4)
-          : Config.bootstrapBaseUrl);
+  String get socketUrl {
+    final value = _config['socket_url'];
+    if (value is String && value.trim().isNotEmpty) {
+      return BackendSwitcher.normalize(value);
+    }
+    final base = Config.bootstrapBaseUrl;
+    return base.endsWith('/api')
+        ? base.substring(0, base.length - 4)
+        : base;
+  }
 
-  String get minimumVersion => _config['minimum_version'] as String? ?? '0.0.0';
+  String get minimumVersion {
+    final value = _config['minimum_version'];
+    return value is String ? value : '0.0.0';
+  }
 
-  String get updateUrl => _config['update_url'] as String? ?? '';
+  String get updateUrl {
+    final value = _config['update_url'];
+    return value is String ? value : '';
+  }
 
   Map<String, dynamic>? get announcement {
     final a = _config['announcement'];
@@ -90,7 +107,17 @@ class RemoteConfigService {
     await _loadFromPrefs();
     // Refresh in the background — cached config (or bootstrap defaults) is
     // already applied, so the first frame is not blocked by the network.
-    _fetch().timeout(_fetchTimeout).then((_) => null).catchError((_) => null);
+    refresh();
+  }
+
+  /// Re-fetches the config from the currently selected backend. Used after the
+  /// user switches backends so feature flags/text come from the new server.
+  Future<void> refresh() async {
+    try {
+      await _fetch().timeout(_fetchTimeout);
+    } catch (_) {
+      // Keep the cached/last-known config.
+    }
   }
 
   Future<void> _loadFromPrefs() async {
@@ -105,9 +132,23 @@ class RemoteConfigService {
 
   Future<void> _fetch() async {
     final uri = Uri.parse('${Config.bootstrapBaseUrl}/config');
-    final res = await http.get(uri).timeout(_fetchTimeout);
+    final res = await http.get(uri, headers: const {
+      'Accept': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    }).timeout(_fetchTimeout);
     if (res.statusCode != 200) return;
-    final body = jsonDecode(res.body);
+
+    // A web page is not a config document (wrong backend, ngrok interstitial,
+    // captive portal). Keep the cached config instead of throwing.
+    final raw = res.body.trim();
+    final contentType = (res.headers['content-type'] ?? '').toLowerCase();
+    if (raw.isEmpty ||
+        contentType.contains('text/html') ||
+        raw.startsWith('<')) {
+      return;
+    }
+
+    final body = jsonDecode(raw);
     if (body is Map<String, dynamic>) {
       _apply(body);
       final prefs = await SharedPreferences.getInstance();
@@ -117,7 +158,12 @@ class RemoteConfigService {
 
   void _apply(Map<String, dynamic> config) {
     _config = config;
-    Config.apiBaseUrl = apiBaseUrl;
-    Config.socketUrl = socketUrl;
+    // An explicit Backend choice wins over the server document. Otherwise the
+    // config would immediately drag the app back to whichever host it was
+    // published from (e.g. picking Local but then being sent to the tunnel).
+    if (!BackendSwitcher.hasSavedSelection) {
+      Config.apiBaseUrl = apiBaseUrl;
+      Config.socketUrl = socketUrl;
+    }
   }
 }

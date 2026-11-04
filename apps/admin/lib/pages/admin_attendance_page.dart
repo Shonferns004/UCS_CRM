@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../services/backend_picker.dart';
 import '../services/realtime_service.dart';
 import '../main.dart';
 import '../utils/responsive.dart';
@@ -494,15 +495,25 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
 
   Widget _buildError(ColorScheme scheme, TextTheme tt) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(LucideIcons.cloudOff, size: Responsive.sp(context, 40), color: scheme.outline),
-          const SizedBox(height: 12),
-          Text(_error ?? 'Failed to load attendance', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-          const SizedBox(height: 12),
-          OutlinedButton(onPressed: _load, child: const Text('Retry')),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.cloudOff, size: Responsive.sp(context, 40), color: scheme.outline),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _error ?? 'Failed to load attendance',
+                textAlign: TextAlign.center,
+                style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(onPressed: _load, child: const Text('Retry')),
+            BackendPicker(onChanged: () => _load()),
+          ],
+        ),
       ),
     );
   }

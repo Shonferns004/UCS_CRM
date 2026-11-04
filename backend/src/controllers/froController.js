@@ -138,7 +138,7 @@ const FRO_DONORS_REDIS_MAX_BYTES = 512 * 1024;
 // the wrong queue.
 const FRO_DONORS_KEY_PARAMS = [
   'status', 'status_group', 'ngo_id', 'station', 'new_only', 'old_only', 'high_tier_only',
-  'verified_only', 'active_only', 'inactive_only', 'include_suppressed',
+  'verified_only', 'active_only', 'inactive_only', 'include_suppressed', 'all_statuses',
   'period', 'limit', 'offset',
 ];
 
@@ -3000,6 +3000,10 @@ export const getMyDonors = async (req, res) => {
 
     const limit = parseInt(req.query.limit, 10);
     const offset = parseInt(req.query.offset, 10);
+    // Donor-book mode: return EVERY allotted donor (all statuses) instead of the
+    // pending-only My Leads queue. Used by the FRO "Donors" page so an FRO can
+    // look up any donor in their stations and see when they last donated.
+    const allStatuses = req.query.all_statuses === 'true';
     let assignments = null;
     // Scope-wide high-tier flag for the client's tab visibility. Computed from
     // the rows we already fetched (BEFORE the new/old/high_tier in-memory split
@@ -3305,7 +3309,10 @@ export const getMyDonors = async (req, res) => {
         donor_type: d.donor_type || '',
         donation_count: hasScopedSet.has(a.id) ? (d.donation_count || 0) : 0,
         total_donated: hasScopedSet.has(a.id) ? (d.total_amount || 0) : 0,
-        last_donation_date: hasScopedSet.has(a.id) ? (d.last_donation_date || null) : null,
+        last_donation_date: d.last_donation_date || null,
+        // Filled for the donor book below (all_statuses=true). Kept null for the
+        // calling queue, which does not need to run the extra receipt lookup.
+        last_donation_amount: null,
         first_donation_date: hasScopedSet.has(a.id) ? (d.first_donation_date || null) : null,
         donor_frequency: d.donation_frequency || '',
         has_donated_current_fy: activeSet.has(a.id),
@@ -3554,7 +3561,7 @@ export const getMyDonors = async (req, res) => {
     // include_suppressed=true serves the FULL list (allotted rows) with each
     // donor flagged, which is what "show me all my data" means. The counts in
     // the response make the split self-explanatory instead of a mystery.
-    const includeSuppressed = req.query.include_suppressed === 'true';
+    const includeSuppressed = req.query.include_suppressed === 'true' || allStatuses;
     if (includeSuppressed && baseFiltered !== null) {
       filtered = result;
     }
@@ -3595,7 +3602,7 @@ export const getMyDonors = async (req, res) => {
     // isTempStationView already computed above (early) so tab filters can use it.
 
     console.log('[getMyDonors] worker=', workerId, 'effectiveStations=', effectiveStations, 'tempStationScopes=', tempStationScopes, 'isTempStationView=', isTempStationView);
-    if (req.query.verified_only !== 'true' && !isTempStationView) {
+    if (req.query.verified_only !== 'true' && !isTempStationView && !allStatuses) {
       if (isHighTierView) {
         // The tab shows the batch, not a work queue, so NOTHING is deleted:
         //   • a row the FRO dispositioned TODAY keeps its place — it is part of
@@ -3723,6 +3730,39 @@ export const getMyDonors = async (req, res) => {
         console.error('queue_current error for worker', workerId, ':', queueErr.message);
         // Fall back to the plain list behaviour so the FRO does not dead-end.
         return res.json({ donors: workableFiltered, total: workableFiltered.length });
+      }
+    }
+
+    // ─── Donor book: last donation amount ───────────────────────────────────
+    // donor_profiles.amount is the LARGEST single gift (donorProfileModel uses
+    // GREATEST), not the last one. The most recent receipt is the only reliable
+    // "last donated amount", and it pairs with last_donation_date shown on the
+    // Donors page. Scoped by donor id only (not project) so the amount matches
+    // the donor's overall last-donation date even when that gift was booked
+    // under a different NGO.
+    if (allStatuses) {
+      const bookDonorIds = [...new Set(result.map(r => r.donor_id).filter(Boolean))];
+      if (bookDonorIds.length > 0) {
+        try {
+          const { rows: lastReceipts } = await db._pool.query(
+            `SELECT DISTINCT ON (donor_id) donor_id, amount
+               FROM public.receipts
+              WHERE donor_id = ANY($1::int[])
+                AND receipt_date IS NOT NULL
+              ORDER BY donor_id, receipt_date DESC, id DESC`,
+            [bookDonorIds]
+          );
+          const lastAmountByDonor = new Map(
+            (lastReceipts || []).map(r => [r.donor_id, Number(r.amount || 0)])
+          );
+          for (const r of result) {
+            r.last_donation_amount = lastAmountByDonor.has(r.donor_id)
+              ? lastAmountByDonor.get(r.donor_id)
+              : null;
+          }
+        } catch (e) {
+          console.warn('[getMyDonors] last donation amount lookup skipped:', e?.message || String(e));
+        }
       }
     }
 
@@ -4914,6 +4954,96 @@ async function buildCollectedReceiptEvidence(donorIds, ngoIds) {
   };
 }
 
+// Disposition details that create an open promise on the assignment.
+const FRO_FOLLOWUP_DETAILS = [
+  'scheduled', 'callback', 'follow_up', 'office_visit_scheduled',
+  'program_visit_scheduled', 'office_program_visit',
+];
+
+/**
+ * Recover follow-ups wiped by an earlier monthly rollover.
+ *
+ * The 2026-11 rollover deleted the open `fro_scheduled_contacts` and cleared
+ * `next_follow_up` for every row it reset. The disposition log (with its
+ * `scheduled_at`) was archived, so the promise is still on record. This reads
+ * that archive for the current rollover month and returns promises whose latest
+ * activity is still that archived follow-up: nothing newer in the live or
+ * archived log, and no open live schedule. That makes it self-clearing — once
+ * the FRO works the lead again the recovered row disappears.
+ *
+ * Read-only. Nothing is written back, so it is safe on every request and needs
+ * no data migration. Returns [] on any failure: this is a recovery aid, never a
+ * reason for the Follow Ups/Overdue tabs to fail.
+ */
+async function fetchWipedFollowUps({ monthKey, stationNames, myScope, user }) {
+  if (!monthKey || !stationNames || stationNames.length === 0) return [];
+  try {
+    const { rows } = await db._pool.query(
+      `WITH candidates AS (
+         SELECT DISTINCT ON (a.assignment_id)
+                a.assignment_id, a.donor_id, a.disposition_detail, a.scheduled_at, a.created_at
+           FROM public.fro_donor_logs_archive a
+          WHERE a.archive_month = $1
+            AND a.action = 'disposition'
+            AND a.scheduled_at IS NOT NULL
+            AND a.scheduled_at >= now() - interval '12 months'
+          ORDER BY a.assignment_id, a.created_at DESC
+       )
+       SELECT c.assignment_id, c.donor_id, c.disposition_detail, c.scheduled_at,
+              c.created_at AS log_created_at,
+              fa.id, fa.ngo_id, fa.station, fa.status, fa.batch_type,
+              fa.fro_worker_id, fa.next_follow_up, fa.last_contacted_at,
+              n.name AS ngo_name
+         FROM candidates c
+         JOIN public.fro_assignments fa ON fa.id = c.assignment_id
+         LEFT JOIN public.ngos n ON n.id = fa.ngo_id
+        WHERE c.disposition_detail = ANY($2::text[])
+          AND fa.station = ANY($3::text[])
+          AND (fa.status IS NULL OR fa.status <> 'reassigned')
+          AND NOT EXISTS (
+            SELECT 1 FROM public.fro_donor_logs_archive a2
+             WHERE a2.assignment_id = c.assignment_id
+               AND a2.archive_month = $1
+               AND a2.action = 'disposition'
+               AND a2.created_at > c.created_at
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM public.fro_scheduled_contacts s
+             WHERE s.assignment_id = fa.id
+               AND s.is_completed = false
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM public.fro_donor_logs l
+             WHERE l.assignment_id = fa.id
+               AND l.action = 'disposition'
+               AND l.created_at > c.created_at
+          )
+        LIMIT 2000`,
+      [monthKey, FRO_FOLLOWUP_DETAILS, stationNames]
+    );
+
+    const scoped = filterByScope(rows || [], myScope, r => `${r.station}|${r.ngo_id}`);
+    const keep = await buildFollowUpOwnerFilter(scoped, user);
+    return scoped.filter(keep).map(r => ({
+      assignment_id: r.assignment_id,
+      donor_id: r.donor_id,
+      ngo_id: r.ngo_id,
+      ngo_name: r.ngo_name || '',
+      station: r.station || null,
+      batch_type: r.batch_type || null,
+      status: r.status,
+      next_follow_up: r.next_follow_up || null,
+      fro_worker_id: r.fro_worker_id || null,
+      scheduled_at: r.scheduled_at,
+      disposition_detail: r.disposition_detail || null,
+      recovered: true,
+    }));
+  } catch (e) {
+    console.warn('[fro] wiped follow-up recovery skipped:', e?.message || String(e));
+    return [];
+  }
+}
+
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -4935,28 +5065,51 @@ export const getFroScheduled = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
-    const monthStart = istMonthBounds(new Date()).month;
-    const isCurrentMonthActivity = (a) => {
-      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
-      if (!ts) return true;
-      return new Date(ts).getTime() >= new Date(monthStart).getTime();
-    };
-    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments) && isCurrentMonthActivity(c.fro_assignments));
+    // Follow-ups are promises, not month-scoped work: an October follow-up must
+    // still be visible in November. Do NOT filter by current-month activity.
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
 
-    const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
-    const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
+    // Restore open follow-ups whose live schedule/date was wiped by the old
+    // rollover (see fetchWipedFollowUps). They come back as synthetic contacts so
+    // the rest of this handler (donor lookup, scope, dedupe) works unchanged.
+    const recovered = await fetchWipedFollowUps({
+      monthKey: istMonthKey(),
+      stationNames,
+      myScope,
+      user: req.user,
+    });
+    const recoveredContacts = recovered.map(r => ({
+      scheduled_at: r.scheduled_at,
+      notes: 'Follow-up restored after the monthly reset',
+      fro_assignments: {
+        id: r.assignment_id,
+        donor_id: r.donor_id,
+        ngo_id: r.ngo_id,
+        station: r.station,
+        fro_worker_id: r.fro_worker_id,
+        batch_type: r.batch_type,
+        status: r.status,
+        next_follow_up: r.next_follow_up,
+        ngos: { name: r.ngo_name },
+      },
+      recovered: true,
+    }));
+    const allContacts = [...(personalContacts || []), ...recoveredContacts];
+
+    const donorIds = [...new Set(allContacts.map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set(allContacts.map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
       : { data: [] };
     const donorMap = {};
     for (const d of donors || []) donorMap[d.id] = d;
-    const ownerNameMap = await resolveWorkerNames(personalContacts.map(c => c.fro_assignments?.fro_worker_id));
+    const ownerNameMap = await resolveWorkerNames(allContacts.map(c => c.fro_assignments?.fro_worker_id));
 
     const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
 
     const seen = new Set();
     const result = [];
-    for (const c of personalContacts || []) {
+    for (const c of allContacts) {
       const a = c.fro_assignments;
       if (!a) continue;
       const d = donorMap[a.donor_id];
@@ -4980,6 +5133,7 @@ export const getFroScheduled = async (req, res) => {
         schedule_id: c.id,
         schedule_notes: c.notes,
         assignment_id: a.id,
+        recovered: !!c.recovered,
       });
     }
     return res.json(result);
@@ -5218,13 +5372,37 @@ export const getFroOverdue = async (req, res) => {
         assignmentById[a.id] = a;
       }
     }
-    const monthStart = istMonthBounds(new Date()).month;
-    const isCurrentMonthActivity = (a) => {
-      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
-      if (!ts) return true;
-      return new Date(ts).getTime() >= new Date(monthStart).getTime();
-    };
-    const assignments = Object.values(assignmentById).filter(isCurrentMonthActivity);
+    // Restore past-due follow-ups whose live date/schedule was wiped by the old
+    // rollover (see fetchWipedFollowUps). Future ones belong to Follow Ups, so
+    // only past rows are merged here.
+    const recovered = await fetchWipedFollowUps({
+      monthKey: istMonthKey(),
+      stationNames,
+      myScope,
+      user: req.user,
+    });
+    for (const r of recovered) {
+      if (new Date(r.scheduled_at).getTime() >= nowTs) continue;
+      if (assignmentById[r.assignment_id]) continue;
+      assignmentById[r.assignment_id] = {
+        id: r.assignment_id,
+        donor_id: r.donor_id,
+        ngo_id: r.ngo_id,
+        station: r.station,
+        status: r.status,
+        fro_worker_id: r.fro_worker_id,
+        next_follow_up: r.next_follow_up || istDateString(r.scheduled_at),
+        last_contacted_at: null,
+        batch_type: r.batch_type,
+        disposition_detail: r.disposition_detail,
+        ngos: { name: r.ngo_name },
+        recovered: true,
+      };
+    }
+
+    // Follow-ups are promise-based, not month-scoped: an October follow-up must
+    // still be visible in November. Do NOT filter by current-month activity.
+    const assignments = Object.values(assignmentById);
 
     // Same-day rework rule: an assignment worked at any point today leaves
     // Overdue immediately instead of lingering on its old past follow-up date
@@ -5310,9 +5488,12 @@ export const getFroOverdue = async (req, res) => {
         station: a.station || null,
         batch_type: a.batch_type || null,
         status: a.status,
-        type: typeFromStatus(a.status),
+        type: a.recovered
+          ? (a.disposition_detail === 'callback' ? 'callback' : 'scheduled')
+          : typeFromStatus(a.status),
         is_overdue: true,
         assignment_id: a.id,
+        recovered: !!a.recovered,
       });
     }
     return res.json(result);
@@ -5450,13 +5631,9 @@ export const getFollowUps = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
-    const monthStart = istMonthBounds(new Date()).month;
-    const isCurrentMonthActivity = (a) => {
-      const ts = a?.last_contacted_at || a?.updated_at || a?.assigned_at;
-      if (!ts) return true;
-      return new Date(ts).getTime() >= new Date(monthStart).getTime();
-    };
-    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments) && isCurrentMonthActivity(c.fro_assignments));
+    // A follow-up survives the month boundary (see froMonthlyRollover) — never
+    // narrow this list to current-month activity.
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
 
     const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
@@ -7469,7 +7646,11 @@ export const getMyDisposedLeads = async (req, res) => {
       } catch (e) {
         console.warn('[getMyDisposedLeads] archive read skipped:', e?.message || String(e));
       }
-      disposedLogs.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+      // Newest-first: the per-donor map below keeps the FIRST in-scope row, so
+      // this order is what makes History show each lead's LATEST disposition.
+      // (It used to sort ascending while the comment claimed newest-first, which
+      // put a recently-used lead at the position of its oldest call.)
+      disposedLogs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     } else {
       let disposedQuery = db
         .from('fro_donor_logs')
@@ -7480,7 +7661,7 @@ export const getMyDisposedLeads = async (req, res) => {
       }
       const { data, error } = await disposedQuery
         .gte('created_at', istMonthBounds(new Date()).month)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(10000);
       disposedLogs = data || [];
       logErr = error;
@@ -7536,6 +7717,7 @@ export const getMyDisposedLeads = async (req, res) => {
     });
 
     const inScopeAssignIds = new Set(scopedAssignments.map(a => a.id));
+    const matchedIdSet = new Set(matchedIds);
     // Pick each donor's most recent disposition THAT WAS LOGGED IN SCOPE, not
     // simply their most recent disposition. Anchoring on the latest log globally
     // meant a donor vanished from History whenever their newest call happened at
@@ -7545,7 +7727,7 @@ export const getMyDisposedLeads = async (req, res) => {
     // already newest-first, so the first in-scope log per donor wins.
     const scopedDispMap = {};
     for (const dl of disposedLogs || []) {
-      if (!matchedIds.includes(dl.donor_id)) continue;
+      if (!matchedIdSet.has(dl.donor_id)) continue;
       if (!inScopeAssignIds.has(dl.assignment_id)) continue;
       if (scopedDispMap[dl.donor_id]) continue;
       scopedDispMap[dl.donor_id] = dl;
