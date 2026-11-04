@@ -388,9 +388,9 @@ const CS = 'http://localhost:9999';
 
 const SERVICES = [
   { key:'backend',  label:'Backend',  sub:'(Node/Express)', port:5000, cmd:'cd backend; node src/index.js', tag:'node / express',
-    links:[['Health JSON','http://192.168.1.152:5000/api/health'],['API base','http://192.168.1.152:5000/api']] },
+    links:[['Health JSON','http://192.168.1.32:5000/api/health'],['API base','http://192.168.1.32:5000/api']] },
   { key:'frontend', label:'Frontend', sub:'(Vite)', port:5173, cmd:'cd client; npm run dev -- --host', tag:'npm / vite',
-    links:[['Open app','http://192.168.1.152:5173'],['localhost','http://localhost:5173']] },
+    links:[['Open app','http://192.168.1.32:5173'],['localhost','http://localhost:5173']] },
   { key:'webhook',  label:'Webhook Server', sub:'', port:9000, cmd:'node webhook-server.js', tag:'auto-pull',
     links:[['Endpoint','http://localhost:9000/health'],['Sync status','http://localhost:9000/poll-status']] },
   { key:'tunnel',   label:'Backend Tunnel', sub:'(ngrok)', port:'—', cmd:'ngrok http --domain=audio-diagnoses-ream.ngrok-free.dev 5000', tag:'tunnel',
