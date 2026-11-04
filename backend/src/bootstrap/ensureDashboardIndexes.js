@@ -40,6 +40,17 @@ const INDEXES = [
      WHERE action = 'disposition' AND disposition_detail = 'lead_done' AND fro_worker_id IS NOT NULL`,
 ];
 
+// The donor-master lookup (address/PAN per mobile number, see
+// accountsController.attachDonorMaster) filters on an expression, so the
+// planner needs statistics for that expression before it will use the index.
+// Without the ANALYZE it estimates ~half of donor_profiles and seq-scans 125k
+// rows on every page of the receipt list. Both statements only run when the
+// index is missing, so a normal boot stays a catalog lookup.
+const DONOR_MOBILE_INDEX = 'idx_donor_profiles_mobile_digits';
+const DONOR_MOBILE_INDEX_SQL =
+  `CREATE INDEX IF NOT EXISTS ${DONOR_MOBILE_INDEX}
+     ON public.donor_profiles ((right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10)))`;
+
 export async function ensureDashboardIndexes() {
   let ok = 0;
   const failed = [];
@@ -53,6 +64,19 @@ export async function ensureDashboardIndexes() {
       const name = sql.match(/IF NOT EXISTS (\S+)/)?.[1] || '(unknown)';
       failed.push(`${name}: ${e?.message || String(e)}`);
     }
+  }
+  try {
+    const { rows } = await db._pool.query(
+      `SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`,
+      [DONOR_MOBILE_INDEX]
+    );
+    if (rows.length === 0) {
+      await db._pool.query(DONOR_MOBILE_INDEX_SQL);
+      await db._pool.query('ANALYZE public.donor_profiles');
+      ok += 1;
+    }
+  } catch (e) {
+    failed.push(`${DONOR_MOBILE_INDEX}: ${e?.message || String(e)}`);
   }
   if (failed.length) {
     console.warn(`[ensureDashboardIndexes] ${ok} ok, ${failed.length} skipped:`);
