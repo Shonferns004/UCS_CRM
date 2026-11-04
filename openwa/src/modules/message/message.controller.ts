@@ -26,6 +26,7 @@ import {
   BatchStatusResponseDto,
   BatchCancelResponseDto,
 } from './dto/bulk-message.dto';
+import { BatchHistoryResponseDto, BatchReportResponseDto } from './dto/batch-report.dto';
 import {
   MessageActionResponseDto,
   MessageListResponseDto,
@@ -571,6 +572,24 @@ export class MessageController {
     return { success: true };
   }
 
+  // Declared before ':chatId/history' for the same reason as the batch routes below: a one-segment
+  // 'batches' path must not be read as a chat id.
+  @Get('batches')
+  @ApiOperation({ summary: 'List recent bulk batches with delivery and reply totals' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max batches (default 20, cap 50)' })
+  @ApiResponse({ status: 200, description: 'Recent batches, newest first', type: BatchHistoryResponseDto })
+  @ApiResponse({
+    status: 403,
+    description:
+      'The calling key is restricted with `allowedChats`. A batch row has no key owner, so the ' +
+      "history cannot be checked against the key's allowlist and a chat-restricted key is refused.",
+  })
+  async listBatchReports(@Param('sessionId') sessionId: string, @Query('limit') limit?: string) {
+    const parsed = Number.parseInt(String(limit ?? ''), 10);
+    return this.bulkMessageService.listBatchReports(sessionId, Number.isFinite(parsed) ? parsed : 20);
+  }
+
   // Declared before ':chatId/history': Express takes the first matching route, so a batch whose
   // caller-supplied id is 'history' would otherwise be read as the chat history of chat 'batch'.
   @Get('batch/:batchId')
@@ -603,6 +622,29 @@ export class MessageController {
       startedAt: batch.startedAt,
       completedAt: batch.completedAt,
     };
+  }
+
+  // Delivery + reply view for one batch: the ack upgraded the stored message row, and the donor's
+  // answer is an inbound row, so neither is in the batch result itself. Declared before
+  // ':chatId/history' for the same reason as the status route above.
+  @Get('batch/:batchId/report')
+  @ApiOperation({ summary: 'Get delivery and reply report for a batch' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiParam({ name: 'batchId', description: 'Batch ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Per-recipient delivery state and the first yes/no/other reply, with totals',
+    type: BatchReportResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Batch not found' })
+  @ApiResponse({
+    status: 403,
+    description:
+      'The calling key is restricted with `allowedChats`. A batch row has no key owner, so the ' +
+      "report cannot be checked against the key's allowlist and a chat-restricted key is refused.",
+  })
+  async getBatchReport(@Param('sessionId') sessionId: string, @Param('batchId') batchId: string) {
+    return this.bulkMessageService.getBatchReport(sessionId, batchId);
   }
 
   @Post('batch/:batchId/cancel')

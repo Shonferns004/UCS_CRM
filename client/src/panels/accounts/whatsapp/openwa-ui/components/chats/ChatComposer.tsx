@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { FileText, Loader2, Plus, Send, Smile, X } from 'lucide-react';
+import { FileText, Loader2, Plus, Send, Smile, Sparkles, X } from 'lucide-react';
 import { messageApi, type Chat, type MessageType } from '../../services/api';
 import { type ChatMessageView } from '../../utils/chatMessages';
 import { chatTitle } from '../../utils/formatPhone';
@@ -56,6 +56,11 @@ interface ChatComposerProps {
   setAttachment: Dispatch<SetStateAction<StagedAttachment | null>>;
   previewUrl: string | null;
   setPreviewUrl: Dispatch<SetStateAction<string | null>>;
+  /** Human-review mode: the page prefills generated drafts instead of letting the plugins send. */
+  draftMode?: boolean;
+  draftModeBusy?: boolean;
+  /** Admin-only switch; omitted for a role that may not change the gateway plugin state. */
+  onToggleDraftMode?: () => void;
 }
 
 // The composer half of the chat room: attachment preview, emoji panel, reply banner, and the input
@@ -78,6 +83,9 @@ function ChatComposer({
   setAttachment,
   previewUrl,
   setPreviewUrl,
+  draftMode = false,
+  draftModeBusy = false,
+  onToggleDraftMode,
 }: ChatComposerProps) {
   const { t } = useTranslation();
   const { canWrite } = useRole();
@@ -439,6 +447,30 @@ function ChatComposer({
               aria-label={t('chats.templates', 'Templates')}
             >
               <FileText size={22} />
+            </button>
+          )}
+
+          {/* Admin switch: OFF lets the FAQ/AI plugins auto-send; ON disables them and the page
+              prefills the same generated reply here for review. */}
+          {onToggleDraftMode && (
+            <button
+              type="button"
+              onClick={onToggleDraftMode}
+              disabled={draftModeBusy}
+              className={`btn-input-accessory ${draftMode ? 'active' : ''}`}
+              title={
+                draftMode
+                  ? t('chats.draftModeOn', 'Draft mode ON — replies are ready in the input, nothing is auto-sent')
+                  : t('chats.draftModeOff', 'Draft mode OFF — auto-reply may send')
+              }
+              aria-label={
+                draftMode
+                  ? t('chats.draftModeOn', 'Draft mode ON — replies are ready in the input, nothing is auto-sent')
+                  : t('chats.draftModeOff', 'Draft mode OFF — auto-reply may send')
+              }
+              aria-pressed={draftMode}
+            >
+              {draftModeBusy ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
             </button>
           )}
 

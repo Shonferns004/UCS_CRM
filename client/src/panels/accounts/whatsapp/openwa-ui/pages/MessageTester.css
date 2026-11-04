@@ -574,6 +574,303 @@
   color: var(--error-text);
 }
 
+/* Delivery + reply report for the batch on screen. */
+.message-tester .batch-report {
+  margin-bottom: 1rem;
+  padding: 0.875rem 1rem;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.message-tester .batch-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.message-tester .batch-report-head h3 {
+  margin: 0 0 0.125rem;
+  font-size: 0.9375rem;
+}
+
+.message-tester .batch-report-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.message-tester .batch-report-refresh {
+  color: var(--text-secondary);
+  border-color: var(--border);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.message-tester .batch-report-refresh:hover:not(:disabled) {
+  background: var(--bg-white);
+}
+
+.message-tester .batch-report-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.message-tester .batch-report-stat {
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius);
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+}
+
+.message-tester .batch-report-stat-value {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.message-tester .batch-report-stat-label {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-tester .batch-report-stat.ok .batch-report-stat-value { color: var(--primary-text); }
+.message-tester .batch-report-stat.yes .batch-report-stat-value { color: #15803d; }
+.message-tester .batch-report-stat.no .batch-report-stat-value { color: #b91c1c; }
+.message-tester .batch-report-stat.bad .batch-report-stat-value { color: var(--error-text); }
+.message-tester .batch-report-stat.muted .batch-report-stat-value { color: var(--text-secondary); }
+
+.message-tester .batch-report-error {
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--error-text);
+}
+
+.message-tester .batch-report-empty {
+  padding: 0.75rem 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.message-tester .batch-report-table-wrap {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-white);
+}
+
+.message-tester .batch-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.message-tester .batch-report-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.5rem 0.625rem;
+  text-align: start;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  background: var(--bg-light);
+  border-bottom: 1px solid var(--border);
+}
+
+.message-tester .batch-report-table td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.message-tester .batch-report-table tr:last-child td {
+  border-bottom: none;
+}
+
+.message-tester .batch-report-name {
+  font-weight: 600;
+}
+
+.message-tester .batch-report-phone {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.message-tester .batch-report-pill {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--text-secondary);
+}
+
+.message-tester .batch-report-pill.delivered,
+.message-tester .batch-report-pill.read,
+.message-tester .batch-report-pill.reply-yes {
+  background: rgba(37, 211, 102, 0.14);
+  color: #15803d;
+}
+
+.message-tester .batch-report-pill.sent {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--info);
+}
+
+.message-tester .batch-report-pill.failed,
+.message-tester .batch-report-pill.reply-no {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--error-text);
+}
+
+.message-tester .batch-report-pill.cancelled,
+.message-tester .batch-report-pill.none {
+  background: rgba(100, 116, 139, 0.10);
+  color: var(--text-secondary);
+}
+
+.message-tester .batch-report-more {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* Full-width history of past bulk batches. */
+.message-tester .broadcast-history {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.message-tester .broadcast-history-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+
+.message-tester .broadcast-history-head h2 {
+  margin: 0 0 0.25rem;
+}
+
+.message-tester .broadcast-history-head p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.message-tester .broadcast-history-table-wrap {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.message-tester .broadcast-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.message-tester .broadcast-history-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.5rem 0.625rem;
+  text-align: start;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  background: var(--bg-light);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.message-tester .broadcast-history-table td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.message-tester .broadcast-history-table tbody tr {
+  cursor: pointer;
+}
+
+.message-tester .broadcast-history-table tbody tr:hover {
+  background: var(--bg-light);
+}
+
+.message-tester .broadcast-history-table tbody tr.selected {
+  background: rgba(37, 211, 102, 0.10);
+}
+
+.message-tester .broadcast-history-table td.yes {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.message-tester .broadcast-history-table td.no {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.message-tester .broadcast-history-preview {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.message-tester .broadcast-history-status {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.message-tester .broadcast-history-empty {
+  padding: 1rem 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.message-tester > .batch-report,
+.message-tester .broadcast-history-detail .batch-report {
+  margin-top: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.message-tester .broadcast-history-detail {
+  scroll-margin-top: 1rem;
+}
+
+.message-tester .broadcast-history-detail .batch-report-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 @media (max-width: 1000px) {
   .message-tester .tester-panels {
     grid-template-columns: 1fr;

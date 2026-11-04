@@ -55,7 +55,13 @@ let warnedRemoteTrust = false;
 // change, and a pin only moves forward, so older builds are dropped); a failure is not, so the next
 // start retries.
 export const PINNED_HTML_TIMEOUT_MS = 10_000;
-const PINNED_HTML_MIN_LENGTH = 1024;
+// A complete WhatsApp Web document is ~900 KB. A registry snapshot whose download was cut short still
+// parses as HTML and still ends with </html>, but carries only a fraction of the page — and the part
+// that goes missing is the inline module bootstrap, so whatsapp-web.js's inject() dies at
+// window.require('WAWebSocketModel').Socket ("Cannot read properties of null (reading 'Socket')").
+// A page this small is a partial snapshot, not a build worth serving; drop the pin and let the live
+// build load instead (the existing fallback for an unusable pin). Exported for tests.
+export const PINNED_HTML_MIN_LENGTH = 500_000;
 const PINNED_HTML_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 const pinnedHtml = new Map<string, string>();
 const pinnedHtmlInFlight = new Map<string, Promise<string>>();
@@ -250,7 +256,9 @@ export async function resolveWebVersionPin(
 /**
  * Download the pinned HTML (bounded) into `<cacheDir>/<version>.html` and answer a strict local cache
  * for it. When it cannot be had, say so by name and answer no pin: the session then loads the live
- * build, as the docs promise, instead of hanging on an unbounded fetch that ends the same way.
+ * build, as the docs promise, instead of hanging on an unbounded fetch that ends the same way. The
+ * same fallback covers a registry snapshot that arrives truncated (see PINNED_HTML_MIN_LENGTH): a
+ * partial page would otherwise be served and break whatsapp-web.js at inject().
  */
 async function localisePin(
   pin: RemoteWebVersionPin,
@@ -300,8 +308,13 @@ async function downloadPinnedHtml(remotePath: string, fetcher: typeof fetch): Pr
     const res = await fetcher(href, { signal: controller.signal, headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const html = await res.text();
-    if (html.length < PINNED_HTML_MIN_LENGTH || !/<html/i.test(html)) {
-      throw new Error('the response is not a WhatsApp Web page');
+    if (!/<html/i.test(html)) throw new Error('the response is not a WhatsApp Web page');
+    // Checked after the HTML test so a genuinely truncated page is named as such in the warning,
+    // not mistaken for something that was never a page.
+    if (html.length < PINNED_HTML_MIN_LENGTH) {
+      throw new Error(
+        `the response is only ${html.length} bytes — a partial WhatsApp Web snapshot (expected at least ${PINNED_HTML_MIN_LENGTH})`,
+      );
     }
     pinnedHtml.clear();
     pinnedHtml.set(remotePath, html);

@@ -10,4 +10,16 @@ export const chatTemplatesApi = {
       ngoName?: string | null;
       templates: MessageTemplate[];
     }>,
+
+  // A suggested reply for a donor message, generated from the same FAQ rules / AI prompt as the
+  // auto-responder but returned as text only. Nothing is sent.
+  draft: (sessionId: string, text: string) =>
+    api('/openwa-chat/draft', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, text }),
+    }) as Promise<{ draft: string; source: 'faq' | 'ai' | 'none'; pattern?: string }>,
+
+  // True while the gateway FAQ/AI plugins are enabled and sending on their own.
+  replyMode: () =>
+    api('/openwa-chat/reply-mode', { cache: 'no-store' }) as Promise<{ autoReply: boolean }>,
 };

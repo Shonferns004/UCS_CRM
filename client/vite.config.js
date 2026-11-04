@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'path'
 
 // The API and the realtime listener usually run on another box on the LAN
@@ -22,10 +23,32 @@ function wsOriginOf(value, fallback) {
   return origin.replace(/^ws/, 'http')
 }
 
+// Read client/.env directly. Vite otherwise lets a variable inherited from the
+// terminal override the file, and a shell that carries a stale
+// `VITE_API_URL=http://localhost:3000` then rewrites the proxy target and the
+// bundle to a port nothing listens on. The file is the project's env config, so
+// it wins here for the values this app actually ships with.
+function readEnvFile(file) {
+  if (!existsSync(file)) return {}
+  return Object.fromEntries(
+    readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .filter(line => line.includes('=') && !line.trim().startsWith('#'))
+      .map(line => {
+        const at = line.indexOf('=')
+        return [line.slice(0, at).trim(), line.slice(at + 1).trim()]
+      }),
+  )
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '')
-  const apiTarget = originOf(env.VITE_API_URL, 'http://127.0.0.1:5000')
-  const wsTarget = wsOriginOf(env.VITE_WS_URL, 'http://127.0.0.1:5001')
+  const fileEnv = readEnvFile(path.resolve(__dirname, '.env'))
+  const apiUrl = fileEnv.VITE_API_URL || env.VITE_API_URL
+  const socketUrl = fileEnv.VITE_SOCKET_URL || env.VITE_SOCKET_URL
+  const wsUrl = fileEnv.VITE_WS_URL || env.VITE_WS_URL
+  const apiTarget = originOf(apiUrl, 'http://127.0.0.1:5000')
+  const wsTarget = wsOriginOf(wsUrl, 'http://127.0.0.1:5001')
 
   return {
     base: '/',
@@ -38,6 +61,14 @@ export default defineConfig(({ mode }) => {
         // truth means festival dates can never drift between the two.
         '@observances': path.resolve(__dirname, '../backend/src/utils/observances.js'),
       },
+    },
+    // Pin the three endpoints to the value in client/.env for BOTH dev and the build.
+    // `import.meta.env.VITE_API_URL` in the app code stays the same — only the source
+    // of truth is fixed: the env file, not a stray variable inherited from the shell.
+    define: {
+      'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl ?? ''),
+      'import.meta.env.VITE_SOCKET_URL': JSON.stringify(socketUrl ?? ''),
+      'import.meta.env.VITE_WS_URL': JSON.stringify(wsUrl ?? ''),
     },
     server: {
       // Listen on every interface, not just localhost, so phones and other

@@ -940,9 +940,18 @@ class _ProfilePageState extends State<ProfilePage> {
     final presentCount = hasBd
         ? bdRecords.where((r) => r['status'] == 'present' || r['status'] == 'late').length
         : (monthStats['present'] ?? 0) + (monthStats['late'] ?? 0);
-    final absentCount = hasBd
-        ? (((bd['absentCount'] as num?) ?? 0).toInt())
-        : (monthStats['absent'] ?? 0);
+    // Approved leave is still an absence from work — the day is paid as neither
+    // present nor worked — so it belongs in the Absence total. A leave date with
+    // no attendance row is already fabricated as absent by payroll
+    // (bd['absentCount']); only real `leave` rows are added here, so the two
+    // never double-count.
+    final leaveCount = hasBd
+        ? bdRecords.where((r) => r['status'] == 'leave').length
+        : (monthStats['leave'] ?? 0);
+    final absentCount = (hasBd
+            ? (((bd['absentCount'] as num?) ?? 0).toInt())
+            : (monthStats['absent'] ?? 0)) +
+        leaveCount;
     final halfDay = hasBd
         ? (((bd['halfDayCount'] as num?) ?? 0) * 0.5)
         : ((monthStats['half-day'] ?? 0) * 0.5);

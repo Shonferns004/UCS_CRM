@@ -15,7 +15,7 @@ import { ShutdownService } from '../../common/services/shutdown.service';
 import { ConfigService } from '@nestjs/config';
 import { captureSessionWrites, SessionWriteScope } from '../../common/utils/session-write-scope';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, QueryDeepPartialEntity, Repository, EntityManager } from 'typeorm';
+import { In, IsNull, MoreThanOrEqual, Not, QueryDeepPartialEntity, Repository, EntityManager } from 'typeorm';
 import { createHash, randomUUID } from 'crypto';
 import { setTimeout } from 'node:timers/promises';
 import {
@@ -29,7 +29,17 @@ import { SendBulkMessageDto } from './dto/bulk-message.dto';
 import { MENTIONS_MAX, MENTION_WID_MAX_LENGTH } from './dto/send-message.dto';
 import { isMentionWid } from './dto/is-mention-wid.validator';
 import { isMediaUrl } from '../../common/media/media-url';
-import { MessageStatus } from './entities/message.entity';
+import { Message, MessageDirection, MessageStatus } from './entities/message.entity';
+import { LidMappingStoreService } from '../../engine/identity/lid-mapping-store.service';
+import {
+  BatchReportInbound,
+  BatchReportLabel,
+  BatchReportOutbound,
+  BatchReportResponse,
+  BatchReportSummary,
+  buildBatchReport,
+  summariseBatchReport,
+} from './batch-report';
 import { EngineRegistry } from '../../engine/engine-registry.service';
 import { MessageService, DEFAULT_TEMPLATE_RENDER_MAX_CHARS } from './message.service';
 import {
@@ -157,6 +167,16 @@ export class BulkMessageService implements OnModuleInit, OnApplicationBootstrap,
     // new batches are refused on it: one accepted before the drain runs until the teardown fails it.
     @Optional()
     private readonly shutdownService?: ShutdownService,
+    // The persisted message rows carry the delivery ack and the donor's answer, which a batch row
+    // only records as sent/failed. Trailing @Optional, like the two above: direct-construction unit
+    // tests omit it, and a report then falls back to the batch's own sent/failed status.
+    @Optional()
+    @InjectRepository(Message, 'data')
+    private readonly messageRepository?: Repository<Message>,
+    // WhatsApp sends to `phone@c.us` but a reply can arrive as a privacy `lid@lid`; this maps one to
+    // the other so the answer is counted against the right recipient.
+    @Optional()
+    private readonly lidMappings?: LidMappingStoreService,
   ) {}
 
   /**
@@ -465,6 +485,197 @@ export class BulkMessageService implements OnModuleInit, OnApplicationBootstrap,
     }
 
     return batch;
+  }
+
+  /**
+   * Delivery and reply counts for a bulk batch.
+   *
+   * The batch row knows only what the send returned (sent / failed). A recipient's delivery receipt
+   * lands later as an ack that updates the stored `messages` row, and their answer is a separate
+   * inbound row, so both are read here and joined by the batch's own message ids. Read-only.
+   */
+  async getBatchReport(sessionId: string, batchId: string): Promise<BatchReportResponse> {
+    const batch = await this.getBatchStatus(sessionId, batchId);
+    const { outbound, inbound, aliases } = await this.loadBatchReportPool(sessionId, [batch]);
+    return buildBatchReport({
+      batchId,
+      batch,
+      outbound,
+      inbound,
+      labels: this.labelsForBatch(batch),
+      aliases,
+    });
+  }
+
+  /**
+   * Recent bulk batches for a session, each reduced to the delivery/reply totals the broadcast
+   * history list shows. The gateway already persists every batch, so this is a read over rows the
+   * send wrote — no new storage.
+   */
+  async listBatchReports(sessionId: string, limit = 20): Promise<{ batches: BatchReportSummary[] }> {
+    const batches = await this.batchRepository.find({
+      where: { sessionId },
+      order: { createdAt: 'DESC' },
+      take: Math.max(1, Math.min(50, limit)),
+    });
+    const { outbound, inbound, aliases } = await this.loadBatchReportPool(sessionId, batches);
+    return {
+      batches: batches.map(batch => {
+        const report = buildBatchReport({
+          batchId: batch.batchId,
+          batch,
+          outbound,
+          inbound,
+          labels: this.labelsForBatch(batch),
+          aliases,
+        });
+        return summariseBatchReport(report, batch, this.previewForBatch(batch));
+      }),
+    };
+  }
+
+  /** Donor labels the caller put in the batch's own template variables, keyed by chat id. */
+  private labelsForBatch(batch: MessageBatch): Map<string, BatchReportLabel> {
+    const labels = new Map<string, BatchReportLabel>();
+    for (const message of batch.messages ?? []) {
+      const variables = message.variables ?? {};
+      const name = variables.name ?? variables.donor_name ?? null;
+      const mobile = variables.mobile ?? null;
+      if (name || mobile) labels.set(message.chatId, { name, mobile });
+    }
+    return labels;
+  }
+
+  /** First line of the batch's message, for the history list. */
+  private previewForBatch(batch: MessageBatch): string | null {
+    const first = batch.messages?.[0];
+    if (!first) return null;
+    const content = (first.content ?? {}) as Record<string, unknown>;
+    const text =
+      typeof content.text === 'string'
+        ? content.text
+        : typeof content.caption === 'string'
+          ? content.caption
+          : '';
+    if (!text) return `[${first.type}]`;
+    return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+  }
+
+  /**
+   * One read for the whole batch set: outbound rows by message id, and every inbound row since the
+   * oldest batch started. Listing 20 batches then costs one scan instead of 20.
+   */
+  private async loadBatchReportPool(
+    sessionId: string,
+    batches: MessageBatch[],
+  ): Promise<{
+    outbound: BatchReportOutbound[];
+    inbound: BatchReportInbound[];
+    aliases: Map<string, string[]>;
+  }> {
+    if (!this.messageRepository || batches.length === 0) {
+      return { outbound: [], inbound: [], aliases: new Map() };
+    }
+
+    const messageIds = [
+      ...new Set(
+        batches.flatMap(batch =>
+          (Array.isArray(batch.results) ? batch.results : [])
+            .map(result => result.messageId)
+            .filter((id): id is string => !!id),
+        ),
+      ),
+    ];
+    const outbound: BatchReportOutbound[] = [];
+    // Chunked: a 10k-recipient batch would otherwise compile one IN (...) with 10k bind parameters,
+    // past SQLite's usable bound on older builds.
+    for (let i = 0; i < messageIds.length; i += 500) {
+      const rows = await this.messageRepository.find({
+        where: { sessionId, waMessageId: In(messageIds.slice(i, i + 500)) },
+        select: { waMessageId: true, status: true, createdAt: true },
+      });
+      for (const row of rows) {
+        outbound.push({ waMessageId: row.waMessageId, status: row.status, createdAt: row.createdAt });
+      }
+    }
+
+    // Earliest batch start wins: every later reply is still after its own batch's send, and the
+    // builder filters per recipient by that batch's own sent time.
+    let since = new Date();
+    for (const batch of batches) {
+      const start = batch.startedAt ?? batch.createdAt;
+      if (start && start < since) since = start;
+    }
+    const inboundRows = await this.messageRepository.find({
+      where: {
+        sessionId,
+        direction: MessageDirection.INCOMING,
+        createdAt: MoreThanOrEqual(since),
+      },
+      select: { chatId: true, from: true, body: true, createdAt: true },
+      order: { createdAt: 'ASC' },
+      // A batch's replies are a small slice of one session's traffic. The cap keeps a report on a
+      // very busy session bounded; beyond it, replies still count as "no reply" rather than
+      // failing the whole report.
+      take: 10000,
+    });
+    const inbound: BatchReportInbound[] = inboundRows.map(row => ({
+      chatId: row.chatId,
+      from: row.from,
+      body: row.body ?? null,
+      createdAt: row.createdAt,
+    }));
+
+    const recipientChatIds = [
+      ...new Set(
+        batches.flatMap(batch =>
+          (Array.isArray(batch.results) ? batch.results : []).map(result => result.chatId),
+        ),
+      ),
+    ];
+    const aliases = await this.buildReportAliases(recipientChatIds);
+    return { outbound, inbound, aliases };
+  }
+
+  /**
+   * Resolve a recipient's phone id and privacy lid to each other, so an answer sent from `lid@lid`
+   * still counts against the `phone@c.us` the batch addressed. Two batched table reads for the whole
+   * set, not one per recipient.
+   */
+  private async buildReportAliases(chatIds: string[]): Promise<Map<string, string[]>> {
+    const aliases = new Map<string, string[]>();
+    for (const chatId of chatIds) aliases.set(chatId, [chatId]);
+    if (!this.lidMappings || chatIds.length === 0) return aliases;
+
+    const digitsOf = (id: string): string => id.split('@')[0].replace(/\D/g, '');
+    const phoneIds = [...new Set(chatIds.filter(id => id.endsWith('@c.us') || id.endsWith('@s.whatsapp.net')))];
+    const lidIds = [...new Set(chatIds.filter(id => id.endsWith('@lid')))];
+    const phones = [...new Set(phoneIds.map(digitsOf).filter(Boolean))];
+    const lids = [...new Set(lidIds.map(digitsOf).filter(Boolean))];
+
+    const [lidsByPhone, phonesByLid] = await Promise.all([
+      phones.length > 0 && this.lidMappings.lidsForPhonesPersisted
+        ? this.lidMappings
+            .lidsForPhonesPersisted(phones)
+            .catch((): Record<string, string[]> => ({}))
+        : Promise.resolve({} as Record<string, string[]>),
+      lids.length > 0 && this.lidMappings.phonesForLidsPersisted
+        ? this.lidMappings
+            .phonesForLidsPersisted(lids)
+            .catch((): Record<string, string | null> => ({}))
+        : Promise.resolve({} as Record<string, string | null>),
+    ]);
+
+    for (const chatId of chatIds) {
+      const list = aliases.get(chatId)!;
+      if (chatId.endsWith('@lid')) {
+        const phone = phonesByLid[digitsOf(chatId)];
+        if (phone) list.push(`${phone}@c.us`, `${phone}@s.whatsapp.net`);
+      } else {
+        for (const lid of lidsByPhone[digitsOf(chatId)] ?? []) list.push(`${lid}@lid`);
+      }
+    }
+    return aliases;
   }
 
   async cancelBatch(sessionId: string, batchId: string): Promise<MessageBatch> {
