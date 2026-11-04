@@ -102,9 +102,9 @@ export function Templates() {
   useDocumentTitle(t('templates.title'));
   const { canWrite } = useRole();
 
-  // A template belongs to an NGO, not to one phone number: the library is the union of
-  // the templates of every session assigned to the selected NGO, and a new template is
-  // stored against the first of those sessions (the number itself does not matter).
+  // A template belongs to an NGO, not to one phone number: the library can be built
+  // before any WhatsApp session exists, and every session later assigned to the NGO
+  // reads the same set.
   const ngoQuery = useQuery({
     queryKey: ['openwa-ngos'],
     queryFn: openwaAssignmentsApi.meta,
@@ -118,9 +118,7 @@ export function Templates() {
     isLoading: loadingTemplates,
     error: templatesError,
     refetch: refetchTemplates,
-    sessionIds,
   } = useNgoTemplates(selectedNgoId);
-  const createSessionId = sessionIds[0] || '';
   const selectedNgo = ngos.find(ngo => ngo.id === selectedNgoId);
 
   const [form, setForm] = useState<TemplateForm>(emptyForm);
@@ -253,7 +251,6 @@ export function Templates() {
 
   const handleSave = async () => {
     if (!selectedNgoId || !form.name.trim() || !form.body.trim()) return;
-    if (!editingTemplate && !createSessionId) return;
     if (isMediaTemplate && (!mediaUrlValue || mediaUrlInvalid)) return;
     const savedForm = form;
     const draft = draftRef.current;
@@ -261,17 +258,19 @@ export function Templates() {
     try {
       let saved: MessageTemplate;
       if (editingTemplate) {
-        saved = await updateMutation.mutateAsync({
-          sessionId: editingTemplate.sessionId,
+        const result = await updateMutation.mutateAsync({
+          ngoId: editingTemplate.ngoId || selectedNgoId,
           id: editingTemplate.id,
           data: toPayload(form),
         });
+        saved = result.template;
         toast.success(t('templates.toasts.updated'));
       } else {
-        saved = await createMutation.mutateAsync({
-          sessionId: createSessionId,
+        const result = await createMutation.mutateAsync({
+          ngoId: selectedNgoId,
           data: toPayload(form),
         });
+        saved = result.template;
         toast.success(t('templates.toasts.created'));
       }
       void refetchTemplates();
@@ -295,7 +294,10 @@ export function Templates() {
     if (!deleteTarget) return;
     const draft = draftRef.current;
     try {
-      await deleteMutation.mutateAsync({ sessionId: deleteTarget.sessionId, id: deleteTarget.id });
+      await deleteMutation.mutateAsync({
+        ngoId: deleteTarget.ngoId || selectedNgoId,
+        id: deleteTarget.id,
+      });
       void refetchTemplates();
       toast.success(t('templates.toasts.deleted'));
       if (draftRef.current === draft && editingTemplate?.id === deleteTarget.id) resetForm();
@@ -385,7 +387,7 @@ export function Templates() {
               />
             </div>
 
-            {/* No session selected yet means the first-session effect has not run: the read is still to start. */}
+            {/* No NGO selected yet means the first-NGO effect has not run: the read is still to start. */}
             {loadingTemplates || !selectedNgoId ? (
               <div className="templates-loading-inline">
                 <Loader2 className="animate-spin" size={24} />
@@ -492,11 +494,6 @@ export function Templates() {
             </div>
 
             <div className="template-form">
-              {selectedNgoId && sessionIds.length === 0 && (
-                <p className="field-error" role="status">
-                  No WhatsApp session is assigned to this NGO. Assign one from the Sessions page before creating templates.
-                </p>
-              )}
               <div className="form-group">
                 <label htmlFor="tpl-1">{t('common.name')}</label>
                 <input
@@ -651,7 +648,7 @@ export function Templates() {
                   className="btn-primary"
                   onClick={handleSave}
                   disabled={
-                    !canWrite || isSaving || !selectedNgoId || (!editingTemplate && !createSessionId) || !form.name.trim() || !form.body.trim() || overLimit ||
+                    !canWrite || isSaving || !selectedNgoId || !form.name.trim() || !form.body.trim() || overLimit ||
                     mediaUrlMissing || mediaUrlInvalid
                   }
                   type="button"

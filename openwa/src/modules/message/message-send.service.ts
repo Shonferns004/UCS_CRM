@@ -610,6 +610,11 @@ export class MessageSendService {
       };
     });
 
+    // A quoted reply is still an outbound text send: give it the same humanising pause the plain
+    // send path has. Plugin auto-responders (FAQ / AI / Typebot) go through reply(), so without this
+    // their answers left instantly even though SIMULATE_TYPING is on.
+    await this.simulateTypingIfEnabled(engine, finalDto.chatId, finalDto.text);
+
     let result: MessageResult;
     try {
       // Widened only as far as the caller asked, exactly like the send path: a reply with no tags
@@ -1071,15 +1076,17 @@ export class MessageSendService {
   private async simulateTypingIfEnabled(engine: IWhatsAppEngine, chatId: string, text: string): Promise<void> {
     const { simulateTyping, simulateTypingMaxMs } = resolveFeatureFlags(this.configService);
     if (!simulateTyping) return;
+    const maxMs = simulateTypingMaxMs;
+    const planned = Math.min(maxMs, 500 + text.length * 45);
+    const jittered = Math.round(planned * (0.85 + Math.random() * 0.3)); // ±15% so it isn't metronomic
+    // Presence is best-effort, but the pause is not: a chat whose typing indicator cannot be set
+    // still gets the humanising delay, instead of the reply leaving instantly.
     try {
       await engine.sendChatState(chatId, 'typing');
-      const maxMs = simulateTypingMaxMs;
-      const planned = Math.min(maxMs, 500 + text.length * 45);
-      const jittered = Math.round(planned * (0.85 + Math.random() * 0.3)); // ±15% so it isn't metronomic
-      await new Promise(resolve => setTimeout(resolve, Math.min(maxMs, jittered)));
     } catch (error) {
-      this.logger.warn(`simulateTyping skipped: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn(`simulateTyping presence skipped: ${error instanceof Error ? error.message : String(error)}`);
     }
+    await new Promise(resolve => setTimeout(resolve, Math.min(maxMs, jittered)));
   }
 
   /**

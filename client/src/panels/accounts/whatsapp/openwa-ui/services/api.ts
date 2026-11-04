@@ -183,7 +183,8 @@ export interface UpdateWebhookRequest {
 
 export interface MessageTemplate {
   id: string;
-  sessionId: string;
+  /** The owning NGO. Templates are NGO-scoped, so no WhatsApp session is required. */
+  ngoId?: string;
   name: string;
   body: string;
   header?: string | null;
@@ -617,6 +618,66 @@ export interface BatchCancelResponse {
   batchId: string;
   status: BatchStatus;
   progress: BatchProgress;
+}
+
+export type BatchReportDelivery = 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'cancelled';
+export type BatchReportReply = 'yes' | 'no' | 'other' | null;
+
+export interface BatchReportRecipient {
+  chatId: string;
+  messageId: string | null;
+  delivery: BatchReportDelivery;
+  sentAt: string | null;
+  /** First inbound reply after the batch started, classified; null when nobody answered. */
+  reply: BatchReportReply;
+  replyText: string | null;
+  repliedAt: string | null;
+  /** Donor label carried by the batch's template variables, when the caller sent one. */
+  name?: string | null;
+  mobile?: string | null;
+}
+
+/** One row of the recent-broadcasts list. */
+export interface BatchReportSummary {
+  batchId: string;
+  status: BatchStatus;
+  createdAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  preview: string | null;
+  total: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  replied: number;
+  repliedYes: number;
+  repliedNo: number;
+  repliedOther: number;
+  noReply: number;
+}
+
+export interface BatchHistoryResponse {
+  batches: BatchReportSummary[];
+}
+
+/** GET batch/:batchId/report — delivery ack + first reply joined per recipient. */
+export interface BatchReportResponse {
+  batchId: string;
+  status: BatchStatus;
+  total: number;
+  attempted: number;
+  accepted: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  pending: number;
+  cancelled: number;
+  replied: number;
+  repliedYes: number;
+  repliedNo: number;
+  repliedOther: number;
+  noReply: number;
+  recipients: BatchReportRecipient[];
 }
 
 export interface HealthStatus {
@@ -1133,26 +1194,6 @@ export const webhookApi = {
 };
 
 // =============================================================================
-// Template API
-// =============================================================================
-
-export const templateApi = {
-  list: (sessionId: string) => request<MessageTemplate[]>(`/sessions/${sessionId}/templates`),
-  create: (sessionId: string, data: TemplatePayload) =>
-    request<MessageTemplate>(`/sessions/${sessionId}/templates`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  update: (sessionId: string, id: string, data: Partial<TemplatePayload>) =>
-    request<MessageTemplate>(`/sessions/${sessionId}/templates/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-  delete: (sessionId: string, id: string) =>
-    request<void>(`/sessions/${sessionId}/templates/${id}`, { method: 'DELETE' }),
-};
-
-// =============================================================================
 // Contact API
 // =============================================================================
 
@@ -1340,6 +1381,10 @@ export const messageApi = {
     }),
   getBatchStatus: (sessionId: string, batchId: string) =>
     request<BatchStatusResponse>(`/sessions/${sessionId}/messages/batch/${encodeURIComponent(batchId)}`),
+  getBatchReport: (sessionId: string, batchId: string) =>
+    request<BatchReportResponse>(`/sessions/${sessionId}/messages/batch/${encodeURIComponent(batchId)}/report`),
+  getBatchHistory: (sessionId: string, limit = 20) =>
+    request<BatchHistoryResponse>(`/sessions/${sessionId}/messages/batches?limit=${limit}`),
   cancelBatch: (sessionId: string, batchId: string) =>
     request<BatchCancelResponse>(`/sessions/${sessionId}/messages/batch/${encodeURIComponent(batchId)}/cancel`, {
       method: 'POST',

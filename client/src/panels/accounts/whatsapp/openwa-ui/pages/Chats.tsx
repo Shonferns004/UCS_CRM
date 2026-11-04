@@ -33,6 +33,7 @@ import {
   sessionApi,
   messageApi,
   contactApi,
+  pluginsApi,
   asMessageType,
   type Session,
   type Chat,
@@ -185,7 +186,7 @@ export function Chats({
   const { t } = useTranslation();
   useDocumentTitle(t('nav.chats'));
   const { error: showErrorToast, warning: showWarningToast, success: showSuccessToast } = useToast();
-  const { canWrite, engineType } = useRole();
+  const { canWrite, engineType, isAdmin } = useRole();
 
   // Sessions list & active session
   // Every listed session, ready or not: the switcher shows the others with their state.
@@ -508,6 +509,91 @@ export function Chats({
     if (lastOutgoingAt >= latest.at) return null;
     return { id: latest.id, body: latest.body };
   }, [messages, activeChat]);
+
+  // ── Draft mode ─────────────────────────────────────────────────────────────
+  // OFF (default): the gateway FAQ/AI plugins answer and send on their own.
+  // ON: those plugins are disabled and the same answer is generated as a draft into the composer,
+  // so the operator can edit it and press Send. Nothing is auto-sent in this mode.
+  const [draftMode, setDraftMode] = useState(() => localStorage.getItem('openwa_draft_mode') === '1');
+  const [draftModeBusy, setDraftModeBusy] = useState(false);
+  // The gateway is authoritative: a page loaded after an admin switched the mode must not prefill
+  // duplicates while the plugins are still auto-sending (or stay silent while they are off).
+  useEffect(() => {
+    let cancelled = false;
+    void chatTemplatesApi
+      .replyMode()
+      .then(({ autoReply }) => {
+        if (cancelled) return;
+        setDraftMode(!autoReply);
+        localStorage.setItem('openwa_draft_mode', autoReply ? '0' : '1');
+      })
+      .catch(() => {
+        /* keep the saved hint when the gateway cannot be read */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const messageInputRef = useRef(messageInput);
+  useEffect(() => {
+    messageInputRef.current = messageInput;
+  }, [messageInput]);
+  // One draft per inbound message, so a re-render/refetch does not overwrite what the operator edits.
+  const draftedReplyRef = useRef(new Set<string>());
+
+  const toggleDraftMode = useCallback(async () => {
+    if (!isAdmin || draftModeBusy) return;
+    const next = !draftMode;
+    setDraftModeBusy(true);
+    try {
+      if (next) {
+        // Draft mode must leave no auto-responder live, including Typebot if it was turned on later.
+        await Promise.all([
+          pluginsApi.disable('faq-bot'),
+          pluginsApi.disable('ai-responder'),
+          pluginsApi.disable('typebot-connector'),
+        ]);
+      } else {
+        await Promise.all([pluginsApi.enable('faq-bot'), pluginsApi.enable('ai-responder')]);
+      }
+      // The plugins answer success even for a no-op, and one leg of a failed pair may still have
+      // applied: read the real state back instead of trusting the intended one.
+      const { autoReply } = await chatTemplatesApi.replyMode();
+      setDraftMode(!autoReply);
+      localStorage.setItem('openwa_draft_mode', autoReply ? '0' : '1');
+      showSuccessToast(
+        !autoReply ? 'Draft mode ON — replies come to the input box, nothing is auto-sent' : 'Auto-reply ON',
+      );
+    } catch (err) {
+      showErrorToast('Could not switch the reply mode', err instanceof Error ? err.message : undefined);
+    } finally {
+      setDraftModeBusy(false);
+    }
+  }, [draftMode, draftModeBusy, isAdmin, showErrorToast, showSuccessToast]);
+
+  useEffect(() => {
+    if (!draftMode || !pendingInbound || !activeChat || !selectedSessionId) return;
+    const threadKey = `${selectedSessionId}\u0000${activeChat.id}`;
+    const key = `${threadKey}\u0000${pendingInbound.id}`;
+    if (draftedReplyRef.current.has(key)) return;
+    draftedReplyRef.current.add(key);
+    const timer = setTimeout(() => {
+      if (messageInputRef.current.trim()) return;
+      void chatTemplatesApi
+        .draft(selectedSessionId, pendingInbound.body)
+        .then(result => {
+          // The operator may have switched threads while the draft was being generated. Never
+          // paste a reply written for one chat into another.
+          if (draftKeyRef.current !== threadKey) return;
+          if (!result?.draft) return;
+          setMessageInput(current => (current.trim() ? current : result.draft));
+        })
+        .catch(() => {
+          /* a failed draft stays silent; the operator can still type */
+        });
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [draftMode, pendingInbound, activeChat, selectedSessionId]);
 
   // The list loaders below reach the translator and the error toast through a ref, not as
   // dependencies: both change identity on a language switch, which re-ran the session load (it
@@ -2522,15 +2608,18 @@ export function Chats({
                 />
 
                 {/* Draft reply for the latest inbound message — shown for confirmation, never
-                    sent without pressing Send (components/SmartReplyPanel). */}
-                <SmartReplyPanel
-                  sessionId={selectedSessionId}
-                  chatId={activeChat.id}
-                  inbound={pendingInbound}
-                  onSent={text =>
-                    promoteSentChat(selectedSessionId, activeChat.id, text, Math.floor(Date.now() / 1000))
-                  }
-                />
+                    sent without pressing Send (components/SmartReplyPanel). Hidden in draft mode,
+                    where the composer itself carries the generated draft. */}
+                {!draftMode && (
+                  <SmartReplyPanel
+                    sessionId={selectedSessionId}
+                    chatId={activeChat.id}
+                    inbound={pendingInbound}
+                    onSent={text =>
+                      promoteSentChat(selectedSessionId, activeChat.id, text, Math.floor(Date.now() / 1000))
+                    }
+                  />
+                )}
 
                 {/* Composer: attachment preview, emoji panel, reply banner, input bar —
                     components/chats/ChatComposer. */}
@@ -2550,6 +2639,9 @@ export function Chats({
                   setAttachment={setAttachment}
                   previewUrl={previewUrl}
                   setPreviewUrl={setPreviewUrl}
+                  draftMode={draftMode}
+                  draftModeBusy={draftModeBusy}
+                  onToggleDraftMode={isAdmin ? toggleDraftMode : undefined}
                 />
               </div>
             ) : activeChannel ? (

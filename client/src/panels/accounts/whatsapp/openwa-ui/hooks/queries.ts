@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   sessionApi,
   webhookApi,
-  templateApi,
   apiKeyApi,
   auditApi,
   infraApi,
@@ -17,6 +16,7 @@ import {
   type CreateInstanceInput,
   type UpdateInstanceInput,
 } from '../services/api';
+import { openwaTemplatesApi } from '../services/crmTemplates';
 
 // ── Query Keys ────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export const queryKeys = {
   sessionGroups: (sessionId: string) => ['sessions', sessionId, 'groups'] as const,
   sessionChats: (sessionId: string) => ['sessions', sessionId, 'chats'] as const,
   webhooks: ['webhooks'] as const,
-  templates: (sessionId: string) => ['sessions', sessionId, 'templates'] as const,
+  ngoTemplates: (ngoId: string) => ['ngo-templates', ngoId] as const,
   apiKeys: ['apiKeys'] as const,
   logs: (params: { severity?: string; page: number; limit: number }) => ['logs', params] as const,
   infraStatus: ['infra', 'status'] as const,
@@ -146,24 +146,16 @@ export function useDeleteWebhookMutation() {
   });
 }
 
-// ── Template Queries ─────────────────────────────────────────────────────────
-
-export function useTemplatesQuery(sessionId: string, enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.templates(sessionId),
-    queryFn: () => templateApi.list(sessionId),
-    enabled: enabled && !!sessionId,
-    staleTime: 30_000,
-  });
-}
+// ── NGO Template Queries ─────────────────────────────────────────────────────
+// Templates are stored by the CRM against the NGO, so none of these needs a session.
 
 export function useCreateTemplateMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { sessionId: string; data: TemplatePayload }) =>
-      templateApi.create(params.sessionId, params.data),
-    onSuccess: (_template, params) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.templates(params.sessionId) });
+    mutationFn: (params: { ngoId: string; data: TemplatePayload }) =>
+      openwaTemplatesApi.create(params.ngoId, params.data),
+    onSuccess: (_result, params) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ngoTemplates(params.ngoId) });
     },
   });
 }
@@ -171,15 +163,15 @@ export function useCreateTemplateMutation() {
 export function useUpdateTemplateMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { sessionId: string; id: string; data: Partial<TemplatePayload> }) =>
-      templateApi.update(params.sessionId, params.id, params.data),
-    onSuccess: (saved, params) => {
+    mutationFn: (params: { ngoId: string; id: string; data: Partial<TemplatePayload> }) =>
+      openwaTemplatesApi.update(params.id, params.data),
+    onSuccess: ({ template: saved }, params) => {
       // Swap the saved row into the list before the refetch lands (or fails), so reopening it in the meantime
       // loads the stored values rather than the pre-save ones that a second save would write back.
-      queryClient.setQueryData<MessageTemplate[]>(queryKeys.templates(params.sessionId), rows =>
+      queryClient.setQueryData<MessageTemplate[]>(queryKeys.ngoTemplates(params.ngoId), rows =>
         rows?.map(row => (row.id === params.id ? saved : row)),
       );
-      void queryClient.invalidateQueries({ queryKey: queryKeys.templates(params.sessionId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ngoTemplates(params.ngoId) });
     },
   });
 }
@@ -187,9 +179,9 @@ export function useUpdateTemplateMutation() {
 export function useDeleteTemplateMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { sessionId: string; id: string }) => templateApi.delete(params.sessionId, params.id),
-    onSuccess: (_template, params) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.templates(params.sessionId) });
+    mutationFn: (params: { ngoId: string; id: string }) => openwaTemplatesApi.delete(params.id),
+    onSuccess: (_result, params) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ngoTemplates(params.ngoId) });
     },
   });
 }

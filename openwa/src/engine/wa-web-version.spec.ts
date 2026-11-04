@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   __resetWebVersionCache,
+  PINNED_HTML_MIN_LENGTH,
   PINNED_HTML_TIMEOUT_MS,
   pickSettledWebVersion,
   resolveCurrentWebVersion,
@@ -280,7 +281,9 @@ describe('resolveCurrentWebVersion failure warning', () => {
 describe('resolveWebVersionPin with a cache directory', () => {
   const ORIGINAL_ENV = process.env.WWEBJS_WEB_VERSION;
   const VERSION = '2.3000.1234';
-  const HTML = `<!DOCTYPE html><html><head></head><body>${'x'.repeat(2048)}</body></html>`;
+  // A stand-in for a complete build: above the partial-snapshot floor, which real pages (~900 KB)
+  // clear comfortably.
+  const HTML = `<!DOCTYPE html><html><head></head><body>${'x'.repeat(PINNED_HTML_MIN_LENGTH)}</body></html>`;
   let dir: string;
 
   const page = (body: string, status = 200) => ({ ok: status < 400, status, text: () => Promise.resolve(body) });
@@ -372,7 +375,14 @@ describe('resolveWebVersionPin with a cache directory', () => {
 
   it.each([
     ['a non-ok status', page(HTML, 404), 'HTTP 404'],
-    ['a body too short to be the page', page('<html></html>'), 'not a WhatsApp Web page'],
+    ['a body too short to be the page', page('<html></html>'), 'partial WhatsApp Web snapshot'],
+    // The 2026-11 registry incident: a snapshot that still parses as HTML and ends with </html> but
+    // is missing most of the page, so whatsapp-web.js's inject() failed on a null WAWebSocketModel.
+    [
+      'a truncated snapshot of a real build',
+      page(`<!DOCTYPE html><html><body>${'x'.repeat(180_000)}</body></html>`),
+      'partial WhatsApp Web snapshot',
+    ],
     ['a body that is not HTML', page('x'.repeat(4096)), 'not a WhatsApp Web page'],
   ])('drops the pin on %s and writes nothing', async (_label, response, reason) => {
     const fetcher = jest.fn(() => Promise.resolve(response));
