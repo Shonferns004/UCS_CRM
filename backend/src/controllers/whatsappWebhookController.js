@@ -3,6 +3,7 @@ import { getAccountByPhoneNumberId } from '../models/whatsappAccountModel.js';
 import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
+import { normalizeDonorPhone, phoneVariantsFor } from '../services/whatsappScope.js';
 
 // Read at request time, not module load: this module is imported before
 // dotenv.config() runs in index.js, so a module-level read would capture
@@ -61,9 +62,10 @@ export async function whatsappWebhookEntry(req, res) {
     const phoneNumberId = value?.metadata?.phone_number_id;
 
     let accountProject = 'unknown';
+    let inboundAccount = null;
     if (phoneNumberId) {
-      const account = await getAccountByPhoneNumberId(phoneNumberId);
-      if (account?.project) accountProject = account.project;
+      inboundAccount = await getAccountByPhoneNumberId(phoneNumberId);
+      if (inboundAccount?.project) accountProject = inboundAccount.project;
     }
 
     const { data: webhookLog, error: logError } = await db
@@ -90,6 +92,12 @@ export async function whatsappWebhookEntry(req, res) {
         const from = groupId && message.from === groupId
           ? (value.contacts?.[0]?.wa_id || message.from)
           : message.from;
+        // Meta normally sends the full international number, but older rows in
+        // this CRM exist both as 10-digit and as 91-prefixed contacts. Canonical
+        // form here keeps the outgoing thread and this inbound reply together.
+        const fromPhone = /^\d{10,15}$/.test(String(from || ''))
+          ? normalizeDonorPhone(from)
+          : from;
         let bodyText = message.text?.body || null;
 
         if (message.type === 'image') bodyText = message.image?.caption || '[Image]';
@@ -103,18 +111,31 @@ export async function whatsappWebhookEntry(req, res) {
           bodyText = reply ? `[Reply: ${reply.title}]` : '[Interactive]';
         }
 
-        let { data: contact } = await db
-          .from('contacts')
-          .select('*')
-          .eq('phone_normalized', from)
-          .maybeSingle();
+        const contactVariants = [...phoneVariantsFor([fromPhone])];
+        const contactOr = contactVariants.map((v) => `phone_normalized.eq.${v}`).join(',');
+        let contact = null;
+        if (contactOr) {
+          const { data: contactRows } = await db
+            .from('contacts')
+            .select('*')
+            .or(contactOr)
+            .limit(1);
+          contact = contactRows?.[0] || null;
+        } else {
+          const { data: contactRow } = await db
+            .from('contacts')
+            .select('*')
+            .eq('phone_normalized', fromPhone)
+            .maybeSingle();
+          contact = contactRow || null;
+        }
 
         if (!contact) {
           const { data: newContact, error: contactErr } = await db
             .from('contacts')
             .insert({
-              phone: from,
-              phone_normalized: from,
+              phone: fromPhone,
+              phone_normalized: fromPhone,
               wa_profile_name: value.contacts?.[0]?.profile?.name,
               source: 'whatsapp',
               project: accountProject !== 'unknown' ? accountProject : null,
@@ -123,6 +144,16 @@ export async function whatsappWebhookEntry(req, res) {
             .single();
           if (contactErr) throw contactErr;
           contact = newContact;
+        }
+
+        // The first webhook for a number may arrive without the WhatsApp
+        // profile name, and contact rows created earlier often have none. Keep
+        // it filled so Chats can show the person's name alongside the number,
+        // the way WhatsApp does.
+        const profileName = value.contacts?.[0]?.profile?.name;
+        if (contact && profileName && !contact.wa_profile_name) {
+          await db.from('contacts').update({ wa_profile_name: profileName }).eq('id', contact.id);
+          contact.wa_profile_name = profileName;
         }
 
         const projectFilter = accountProject !== 'unknown' ? accountProject : null;
@@ -148,6 +179,7 @@ export async function whatsappWebhookEntry(req, res) {
               last_message_at: new Date().toISOString(),
               last_inbound_at: new Date().toISOString(),
               project: accountProject !== 'unknown' ? accountProject : null,
+              whatsapp_account_id: inboundAccount?.id || null,
               is_group: !!groupId,
               group_id: groupId,
             })
@@ -155,6 +187,14 @@ export async function whatsappWebhookEntry(req, res) {
             .single();
           if (convErr) throw convErr;
           activeConversation = newConversation;
+        } else if (!activeConversation.whatsapp_account_id && inboundAccount?.id) {
+          // Older conversations created before the account id was written still
+          // need it so the Chats tab knows which number to reply from.
+          await db
+            .from('conversations')
+            .update({ whatsapp_account_id: inboundAccount.id })
+            .eq('id', activeConversation.id);
+          activeConversation.whatsapp_account_id = inboundAccount.id;
         }
 
         const mediaId = message[message.type]?.id || null;

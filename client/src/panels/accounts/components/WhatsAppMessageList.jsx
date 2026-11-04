@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 
 const TICK_GREY = '#8696a0';
 const TICK_BLUE = '#53bdeb';
-const EMPTY_MEDIA_TEXT = /^\[(image|video|audio|document|sticker|media|template:[^\]]*)\]$/i;
+const EMPTY_MEDIA_TEXT = /^\[(image|video|audio|document|sticker|media)\]$/i;
+const TEMPLATE_PLACEHOLDER = /^\[Template:\s*(.+?)\]$/i;
 
 function fmtTime(iso) {
   if (!iso) return '';
@@ -279,7 +280,11 @@ export default function WhatsAppMessageList({ messages, loading, error, searchQu
         const m = item.message;
         const outbound = m.direction === 'outbound';
         const body = String(m.body_text || '');
-        const showBody = body && !EMPTY_MEDIA_TEXT.test(body.trim());
+        const templatePlaceholder = TEMPLATE_PLACEHOLDER.exec(body.trim());
+        const showBody = body && !EMPTY_MEDIA_TEXT.test(body.trim()) && !templatePlaceholder;
+        const templateLabel = m.template_name || (templatePlaceholder ? templatePlaceholder[1] : '');
+        const mediaTypes = ['image', 'video', 'audio', 'document', 'sticker', 'media'];
+        const hasMediaBlock = !!m.media_url || mediaTypes.includes(String(m.message_type || '').toLowerCase());
         const project = projectLabel(m);
 
         return (
@@ -292,6 +297,17 @@ export default function WhatsAppMessageList({ messages, loading, error, searchQu
               <TemplateHeaderImage message={m} />
               <MediaBlock message={m} />
               {showBody && <RichText text={body} />}
+              {!showBody && templateLabel && (
+                <div className="wac-template-chip">
+                  <span className="wac-template-chip-label">Template</span>
+                  <span>{templateLabel}</span>
+                </div>
+              )}
+              {!showBody && !templateLabel && !hasMediaBlock && (
+                <div className="wac-template-chip">
+                  <span>{m.message_type === 'reaction' ? 'Reaction' : 'Message content unavailable'}</span>
+                </div>
+              )}
               <TemplateButtons message={m} />
               <div className="wac-msg-meta">
                 <span>{fmtTime(m.created_at)}</span>

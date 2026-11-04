@@ -17,6 +17,7 @@ import {
   validateWhatsAppContacts,
   getConversationByPhone,
   listChats,
+  markChatRead,
   sendText,
   sendMedia,
 } from '../controllers/whatsappController.js';
@@ -58,6 +59,7 @@ router.get('/campaigns/:id', whatsappUser, getCampaign);
 
 // Chats tab: conversation list, thread fetch and free-text / media replies.
 router.get('/chats', whatsappUser, listChats);
+router.post('/chats/:phone/read', whatsappUser, markChatRead);
 router.post('/send-text', whatsappUser, sendText);
 router.post('/send-media', whatsappUser, sendMedia);
 router.get('/conversations/:phone', whatsappUser, getConversationByPhone);

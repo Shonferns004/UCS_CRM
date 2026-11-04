@@ -1,5 +1,20 @@
 import db from '../config/db.js';
 
+function normalizePhone(phone) {
+  const raw = String(phone || '').replace(/[^0-9]/g, '');
+  if (raw.length === 10) return `91${raw}`;
+  if (raw.length === 11 && raw.startsWith('0')) return `91${raw.slice(1)}`;
+  return raw;
+}
+
+function phoneVariants(phone) {
+  const raw = String(phone || '').replace(/[^0-9]/g, '');
+  const values = new Set([raw]);
+  if (raw.length === 10) values.add(`91${raw}`);
+  if (raw.length === 12 && raw.startsWith('91')) values.add(raw.slice(2));
+  return [...values].filter(Boolean);
+}
+
 /**
  * Persist an outbound WhatsApp send into the same contacts/conversations/messages
  * tables the inbox and the webhook use.
@@ -24,16 +39,21 @@ export async function logOutboundMessage({
   failureReason = null,
 }) {
   try {
-    const phoneNormalized = String(phone || '').replace(/[^0-9]/g, '');
+    const phoneNormalized = normalizePhone(phone);
     if (!phoneNormalized) return null;
 
     const project = account?.project || null;
 
-    let { data: contact } = await db
+    // Match every stored spelling so a send from CRM attaches to the same
+    // contact/thread the webhook writes replies to instead of creating a
+    // second 10-digit vs 91-prefixed contact row.
+    const variants = phoneVariants(phoneNormalized);
+    const { data: contactRows } = await db
       .from('contacts')
       .select('*')
-      .eq('phone_normalized', phoneNormalized)
-      .maybeSingle();
+      .or(variants.map((v) => `phone_normalized.eq.${v}`).join(','))
+      .limit(1);
+    let contact = contactRows?.[0] || null;
 
     if (!contact) {
       const { data: created, error } = await db
