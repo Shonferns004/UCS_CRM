@@ -6,7 +6,6 @@ import {
   QrCode,
   RefreshCw,
   Trash2,
-  Eye,
   Loader2,
   Play,
   Square,
@@ -14,9 +13,8 @@ import {
   Filter,
   Skull,
   Unlink,
-  Globe,
+  Pencil,
   MapPin,
-  Check,
   X,
   AlertCircle,
 } from 'lucide-react';
@@ -120,6 +118,20 @@ export function Sessions() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const selectedSession = selectedSessionId ? (sessions.find(s => s.id === selectedSessionId) ?? null) : null;
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // Rename modal: the row it edits plus the draft. The draft is validated against the other rows'
+  // names, so the current name is never reported as a duplicate of itself.
+  const [renameSession, setRenameSession] = useState<Session | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [renameAndroidName, setRenameAndroidName] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const renameIssues = sessionNameIssues(
+    renameName,
+    sessions.filter(session => session.id !== renameSession?.id).map(session => session.name),
+  );
+  const renameDirty =
+    renameName !== renameSession?.name ||
+    renameAndroidName.trim() !== (renameSession?.androidName ?? '');
+  const renameDisabled = renameBusy || renameIssues.length > 0 || !renameDirty;
   const [killConfirmId, setKillConfirmId] = useState<string | null>(null);
   const [unlinkConfirmId, setUnlinkConfirmId] = useState<string | null>(null);
   const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
@@ -321,6 +333,8 @@ export function Sessions() {
     setShowCreateModal,
     newSessionName,
     setNewSessionName,
+    androidName,
+    setAndroidName,
     useProxy,
     setUseProxy,
     proxyUrl: createProxyUrl,
@@ -534,6 +548,35 @@ export function Sessions() {
     } finally {
       setDeletingId(null);
       setDeleteConfirmId(null);
+    }
+  };
+
+  const openRename = (session: Session) => {
+    setRenameSession(session);
+    setRenameName(session.name);
+    setRenameAndroidName(session.androidName || '');
+  };
+
+  const handleRename = async () => {
+    if (!renameSession || renameDisabled) return;
+    setRenameBusy(true);
+    try {
+      const updated = await sessionApi.updateDetails(renameSession.id, {
+        name: renameName,
+        androidName: renameAndroidName.trim() || null,
+      });
+      rowWrites.current += 1;
+      updateSessions(current => replaceSession(current, updated));
+      await invalidateSessionQueries(queryClient, queryKeys.sessions);
+      toast.success(t('sessions.rename.successTitle'), t('sessions.rename.successDesc', { name: updated.name }));
+      setRenameSession(null);
+    } catch (err) {
+      toast.error(
+        t('sessions.rename.errorTitle'),
+        err instanceof Error && err.message ? err.message : t('common.unknownError'),
+      );
+    } finally {
+      setRenameBusy(false);
     }
   };
 
@@ -843,19 +886,20 @@ export function Sessions() {
     }
   };
 
-  const assignmentLabel = (sessionId: string) => {
+  const assignmentNgos = (sessionId: string): string[] => {
     const list = assignments[sessionId] || [];
-    if (list.length === 0) return 'Unassigned';
-    const byNgo = new Map<string, string[]>();
-    for (const row of list) {
-      const key = row.ngo_name || row.ngo_id;
-      const stations = byNgo.get(key) || [];
-      if (row.station) stations.push(row.station);
-      byNgo.set(key, stations);
-    }
-    return [...byNgo.entries()]
-      .map(([ngo, stations]) => (stations.length ? `${ngo} · ${stations.join(', ')}` : `${ngo} · No station`))
-      .join(' | ');
+    return [
+      ...new Set(
+        list.map(row => row.ngo_name || row.ngo_id).filter((name): name is string => !!name),
+      ),
+    ];
+  };
+
+  const assignmentStations = (sessionId: string): string[] => {
+    const list = assignments[sessionId] || [];
+    return [
+      ...new Set(list.map(row => row.station).filter((station): station is string => !!station)),
+    ];
   };
 
   const assignStationOptions = assignMeta.stations
@@ -987,6 +1031,7 @@ export function Sessions() {
           onClose={() => setShowCreateModal(false)}
           title={t('sessions.create.title')}
           closeLabel={t('common.close')}
+          className="session-create-modal"
           footer={
             <>
               <button className="btn-secondary" onClick={() => setShowCreateModal(false)}>
@@ -998,68 +1043,76 @@ export function Sessions() {
             </>
           }
         >
-          <label htmlFor="sess-1">{t('sessions.create.label')}</label>
-          <input
-            id="sess-1"
-            type="text"
-            placeholder={t('sessions.create.placeholder')}
-            value={newSessionName}
-            onChange={e => {
-              const value = e.target.value.toLowerCase().replace(/\s+/g, '-');
-              setNewSessionName(value);
-            }}
-            onKeyDown={e => e.key === 'Enter' && !isComposingKey(e.nativeEvent) && !createDisabled && handleCreate()}
-          />
-          <p className="input-hint">
-            <Trans i18nKey="sessions.create.hint" components={{ code: <code /> }} />
-          </p>
-          {nameIssues.includes('format') && <p className="input-error">{t('sessions.create.invalidChars')}</p>}
-          {nameIssues.includes('too-short') && <p className="input-error">{t('sessions.create.tooShort')}</p>}
-          {nameIssues.includes('too-long') && (
-            <p className="input-error">{t('sessions.create.tooLong', { length: newSessionName.length })}</p>
-          )}
-          {nameIssues.includes('duplicate') && <p className="input-error">{t('sessions.create.duplicate')}</p>}
-          <label htmlFor="sess-ngo">NGO *</label>
-          <select
-            id="sess-ngo"
-            value={createNgo}
-            onChange={e => setCreateNgo(e.target.value)}
-            disabled={creating}
-          >
-            <option value="">Select an NGO</option>
-            {assignMeta.ngos.map(ngo => (
-              <option key={ngo.id} value={ngo.id}>
-                {ngo.name}
-              </option>
-            ))}
-          </select>
-          {assignMetaStatus === 'error' && (
-            <p className="input-error">
-              Could not load NGOs.{' '}
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => void loadAssignMeta()}
-                disabled={assignMetaStatus === 'loading'}
-              >
-                Retry
-              </button>
-            </p>
-          )}
-          {assignMetaStatus === 'loading' && assignMeta.ngos.length === 0 && (
-            <p className="input-hint">Loading NGOs…</p>
-          )}
-          {assignMetaStatus === 'ready' && assignMeta.ngos.length === 0 && (
-            <p className="input-error">No active NGOs found. Add an NGO first.</p>
-          )}
-          <p className="input-hint">
-            The NGO is fixed for this session. Choose it here once; stations are assigned from the session card
-            afterwards.
-          </p>
+          <div className="form-field">
+            <label htmlFor="sess-ngo">NGO *</label>
+            <select
+              id="sess-ngo"
+              value={createNgo}
+              onChange={e => setCreateNgo(e.target.value)}
+              disabled={creating}
+            >
+              <option value="">Select an NGO</option>
+              {assignMeta.ngos.map(ngo => (
+                <option key={ngo.id} value={ngo.id}>
+                  {ngo.name}
+                </option>
+              ))}
+            </select>
+            {assignMetaStatus === 'error' && (
+              <p className="input-error">
+                Could not load NGOs.{' '}
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void loadAssignMeta()}
+                  disabled={assignMetaStatus === 'loading'}
+                >
+                  Retry
+                </button>
+              </p>
+            )}
+            {assignMetaStatus === 'loading' && assignMeta.ngos.length === 0 && (
+              <p className="input-hint">Loading NGOs…</p>
+            )}
+            {assignMetaStatus === 'ready' && assignMeta.ngos.length === 0 && (
+              <p className="input-error">No active NGOs found. Add an NGO first.</p>
+            )}
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="sess-android">{t('sessions.create.androidName')}</label>
+            <input
+              id="sess-android"
+              type="text"
+              maxLength={100}
+              placeholder={t('sessions.create.androidNamePlaceholder')}
+              value={androidName}
+              onChange={e => setAndroidName(e.target.value)}
+            />
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="sess-1">{t('sessions.create.label')}</label>
+            <input
+              id="sess-1"
+              type="text"
+              placeholder={t('sessions.create.placeholder')}
+              value={newSessionName}
+              onChange={e => setNewSessionName(e.target.value.replace(/\s+/g, '-'))}
+              onKeyDown={e => e.key === 'Enter' && !isComposingKey(e.nativeEvent) && !createDisabled && handleCreate()}
+            />
+            {nameIssues.includes('format') && <p className="input-error">{t('sessions.create.invalidChars')}</p>}
+            {nameIssues.includes('too-short') && <p className="input-error">{t('sessions.create.tooShort')}</p>}
+            {nameIssues.includes('too-long') && (
+              <p className="input-error">{t('sessions.create.tooLong', { length: newSessionName.length })}</p>
+            )}
+            {nameIssues.includes('duplicate') && <p className="input-error">{t('sessions.create.duplicate')}</p>}
+          </div>
+
           {/* The API refuses proxyUrl from a key below ADMIN, so the section is not offered. */}
           {canEditProxy && (
-            <div className="proxy-form-section">
-              <label className="detail-toggle-row" htmlFor="create-use-proxy">
+            <div className="form-field">
+              <label className="form-toggle" htmlFor="create-use-proxy">
                 <span>{t('sessions.proxy.enabled')}</span>
                 <input
                   id="create-use-proxy"
@@ -1081,11 +1134,64 @@ export function Sessions() {
                   {createProxyInvalid && createProxyUrl.trim() && (
                     <p className="input-error">{t('sessions.proxy.invalidUrl')}</p>
                   )}
-                  <p className="input-hint">{t('sessions.proxy.createHint')}</p>
                 </>
               )}
             </div>
           )}
+        </Modal>
+      )}
+
+      {renameSession && (
+        <Modal
+          open
+          onClose={() => {
+            if (!renameBusy) setRenameSession(null);
+          }}
+          title={t('sessions.rename.title')}
+          closeLabel={t('common.close')}
+          className="session-create-modal"
+          footer={
+            <>
+              <button className="btn-secondary" onClick={() => setRenameSession(null)} disabled={renameBusy}>
+                {t('common.cancel')}
+              </button>
+              <button className="btn-primary" onClick={() => void handleRename()} disabled={renameDisabled}>
+                {renameBusy ? <Loader2 className="animate-spin" size={16} /> : t('common.save')}
+              </button>
+            </>
+          }
+        >
+          <div className="form-field">
+            <label htmlFor="sess-rename-android">{t('sessions.rename.androidName')}</label>
+            <input
+              id="sess-rename-android"
+              type="text"
+              maxLength={100}
+              placeholder={t('sessions.create.androidNamePlaceholder')}
+              value={renameAndroidName}
+              onChange={e => setRenameAndroidName(e.target.value)}
+            />
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="sess-rename">{t('sessions.rename.label')}</label>
+            <input
+              id="sess-rename"
+              type="text"
+              placeholder={t('sessions.create.placeholder')}
+              value={renameName}
+              onChange={e => setRenameName(e.target.value.replace(/\s+/g, '-'))}
+              onKeyDown={e =>
+                e.key === 'Enter' && !isComposingKey(e.nativeEvent) && !renameDisabled && void handleRename()
+              }
+            />
+            {renameIssues.includes('format') && <p className="input-error">{t('sessions.create.invalidChars')}</p>}
+            {renameIssues.includes('too-short') && <p className="input-error">{t('sessions.create.tooShort')}</p>}
+            {renameIssues.includes('too-long') && (
+              <p className="input-error">{t('sessions.create.tooLong', { length: renameName.length })}</p>
+            )}
+            {renameIssues.includes('duplicate') && <p className="input-error">{t('sessions.create.duplicate')}</p>}
+          </div>
         </Modal>
       )}
 
@@ -1128,7 +1234,9 @@ export function Sessions() {
               // QR Code Content
               qrData.qrCode ? (
                 <>
-                  <img src={qrData.qrCode} alt="QR" style={{ maxWidth: '280px', borderRadius: '12px' }} />
+                  <div className="qr-code-frame">
+                    <img src={qrData.qrCode} alt="QR" />
+                  </div>
                   <div className="qr-instructions">
                     <p className="qr-step">
                       <Trans i18nKey="sessions.qr.step1" components={{ strong: <strong /> }} />
@@ -1262,6 +1370,7 @@ export function Sessions() {
           onClose={() => setSelectedSessionId(null)}
           title={t('sessions.details.title')}
           closeLabel={t('common.close')}
+          className="session-detail-modal"
           footer={
             <button className="btn-secondary" onClick={() => setSelectedSessionId(null)}>
               {t('common.close')}
@@ -1280,13 +1389,15 @@ export function Sessions() {
               </span>
             </div>
             <div className="detail-item">
-              <span className="detail-label">{t('sessions.details.sessionId')}</span>
-              <span className="detail-value mono">{selectedSession.id}</span>
-            </div>
-            <div className="detail-item">
               <span className="detail-label">{t('sessions.details.phone')}</span>
               <span className="detail-value">{selectedSession.phone || t('sessions.details.phoneNone')}</span>
             </div>
+            {selectedSession.androidName && (
+              <div className="detail-item">
+                <span className="detail-label">{t('sessions.card.androidName')}</span>
+                <span className="detail-value">{selectedSession.androidName}</span>
+              </div>
+            )}
             <div className="detail-item">
               <span className="detail-label">{t('sessions.details.created')}</span>
               <span className="detail-value">{new Date(selectedSession.createdAt).toLocaleString()}</span>
@@ -1314,7 +1425,6 @@ export function Sessions() {
                     <span className="toggle-slider"></span>
                   </label>
                 </div>
-                <small className="detail-hint">{t('sessions.details.autoRejectCallsHint')}</small>
               </div>
             )}
           </div>
@@ -1528,7 +1638,7 @@ export function Sessions() {
         <Modal
           open
           onClose={() => setAssignTarget(null)}
-          title={`Assign stations — ${assignTarget.name}`}
+          title={`Assign stations · ${assignTarget.name}`}
           className="assign-modal"
           closeLabel={t('common.close')}
           footer={
@@ -1546,26 +1656,13 @@ export function Sessions() {
             </>
           }
         >
-          <div className="form-group">
-            <span className="group-label">NGO</span>
-            <div
-              style={{
-                padding: '0.75rem 1rem',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                background: 'var(--bg-light)',
-                color: 'var(--text-primary)',
-                fontSize: '0.9375rem',
-                fontWeight: 600,
-              }}
-            >
+          <div className="assign-ngo-row">
+            <span className="assign-ngo-label">NGO</span>
+            <span className="assign-ngo-pill">
               {assignMeta.ngos.find((ngo) => ngo.id === assignNgo)?.name ||
                 (assignments[assignTarget.id] || [])[0]?.ngo_name ||
                 'Not set'}
-            </div>
-            <p className="input-hint">
-              The NGO was chosen when this session was created and cannot be changed here.
-            </p>
+            </span>
           </div>
 
           {!assignNgo && (
@@ -1585,26 +1682,28 @@ export function Sessions() {
                 disabled={!assignNgo}
               />
             </div>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={!assignNgo || assignSaving || assignStationOptions.length === 0}
-              onClick={() =>
-                setAssignStations((current) => [
-                  ...new Set([...current, ...assignStationOptions.map((station) => station.station)]),
-                ])
-              }
-            >
-              Select all
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={assignSaving || assignStations.length === 0}
-              onClick={() => setAssignStations([])}
-            >
-              Clear
-            </button>
+            <div className="assign-toolbar-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!assignNgo || assignSaving || assignStationOptions.length === 0}
+                onClick={() =>
+                  setAssignStations((current) => [
+                    ...new Set([...current, ...assignStationOptions.map((station) => station.station)]),
+                  ])
+                }
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={assignSaving || assignStations.length === 0}
+                onClick={() => setAssignStations([])}
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           {/* The checked stations can sit far down a long list, so the current assignment is
@@ -1642,6 +1741,10 @@ export function Sessions() {
                     key={station.station}
                     className={`assign-station-card ${checked ? 'checked' : ''}`}
                   >
+                    <span className="assign-station-info">
+                      <span className="assign-station-name">{station.station}</span>
+                      <span className="assign-station-fro">{station.worker_name || 'Unassigned'}</span>
+                    </span>
                     <input
                       type="checkbox"
                       checked={checked}
@@ -1654,33 +1757,23 @@ export function Sessions() {
                         )
                       }
                     />
-                    <span className="assign-station-info">
-                      <span className="assign-station-name">{station.station}</span>
-                      <span className="assign-station-fro">{station.worker_name || 'Unassigned'}</span>
-                    </span>
-                    {checked && <Check size={14} className="assign-station-check" />}
                   </label>
                 );
               })
             )}
           </div>
 
-          <p className="input-hint" style={{ marginTop: '0.75rem' }}>
-            {assignStations.length} station{assignStations.length === 1 ? '' : 's'} selected. Every checked
-            station's FRO sees this session's chats. To move it to another station, uncheck the old station, check
-            the new one, then save.
-          </p>
-
           {assignments[assignTarget.id]?.length > 0 && (
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => void clearAssignment()}
-              disabled={assignSaving}
-              style={{ marginTop: '0.75rem' }}
-            >
-              Remove all assignments
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => void clearAssignment()}
+                disabled={assignSaving}
+              >
+                Remove all assignments
+              </button>
+            </div>
           )}
         </Modal>
       )}
@@ -1693,11 +1786,43 @@ export function Sessions() {
             <p>{t('sessions.empty.description')}</p>
           </div>
         ) : (
-          filteredSessions.map(session => (
-            <div key={session.id} className="session-card">
+          filteredSessions.map(session => {
+            const assignedNgos = assignmentNgos(session.id);
+            const assignedStations = assignmentStations(session.id);
+            return (
+            <div
+              key={session.id}
+              className="session-card"
+              role="button"
+              tabIndex={0}
+              aria-label={`${session.name} — ${formatSessionStatus(t, session.status)}`}
+              onClick={() => setSelectedSessionId(session.id)}
+              onKeyDown={event => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setSelectedSessionId(session.id);
+                }
+              }}
+            >
               <div className="card-header">
-                <h3 title={session.name}>{session.name}</h3>
-                <span className={`status-pill ${session.status}`}>{formatSessionStatus(t, session.status)}</span>
+                <div className="card-title-text">
+                  {session.androidName && (
+                    <span className="card-subtitle" title={session.androidName}>
+                      {session.androidName}
+                    </span>
+                  )}
+                  <h3 title={session.name}>{session.name}</h3>
+                </div>
+                <div className="card-badges">
+                  <span className={`status-pill ${session.status}`}>{formatSessionStatus(t, session.status)}</span>
+                  {assignedNgos.length > 0 && (
+                    <span className="ngo-pill" title={assignedNgos.join(', ')}>
+                      {assignedNgos[0]}
+                      {assignedNgos.length > 1 ? ` +${assignedNgos.length - 1}` : ''}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {awaitsPairing(session) ? (
@@ -1723,16 +1848,18 @@ export function Sessions() {
                     <span className="info-value">{session.phone || '—'}</span>
                   </div>
                   <div className="info-row">
-                    <span className="info-label">{t('sessions.card.sessionId')}</span>
-                    <span className="info-value mono">{session.id.substring(0, 12)}</span>
-                  </div>
-                  <div className="info-row">
                     <span className="info-label">{t('sessions.card.lastActive')}</span>
                     <span className="info-value">{formatLastActive(t, session.lastActive)}</span>
                   </div>
                   <div className="info-row">
                     <span className="info-label">Assigned</span>
-                    <span className="info-value">{assignmentLabel(session.id)}</span>
+                    <span className="info-value">
+                      {assignedStations.length
+                        ? assignedStations.join(', ')
+                        : assignments[session.id]?.length
+                          ? 'No station'
+                          : '—'}
+                    </span>
                   </div>
                   {(session.status === 'failed' || session.status === 'action_required') && session.lastError ? (
                     <div className="info-row session-error">
@@ -1756,66 +1883,99 @@ export function Sessions() {
                 </div>
               )}
 
-              <div className="card-actions">
-                <button className="btn-action" onClick={() => setSelectedSessionId(session.id)}>
-                  <Eye size={16} />
-                  {t('sessions.actions.view')}
-                </button>
-                {canCreate && (
-                  <button className="btn-action" onClick={() => openAssign(session)}>
-                    <MapPin size={16} />
-                    {assignments[session.id]?.length ? 'Reassign' : 'Assign'}
+              <div className="card-actions" onClick={event => event.stopPropagation()}>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="icon-action"
+                    title={t('sessions.actions.rename')}
+                    aria-label={t('sessions.actions.rename')}
+                    onClick={() => openRename(session)}
+                  >
+                    <Pencil size={15} />
                   </button>
                 )}
-                <button className="btn-action" onClick={() => setProxySession(session)}>
-                  <Globe size={16} />
-                  {t('sessions.actions.proxy')}
-                </button>
+                {canCreate && (
+                  <button
+                    type="button"
+                    className="icon-action"
+                    title={assignments[session.id]?.length ? 'Reassign' : 'Assign'}
+                    aria-label={assignments[session.id]?.length ? 'Reassign' : 'Assign'}
+                    onClick={() => openAssign(session)}
+                  >
+                    <MapPin size={15} />
+                  </button>
+                )}
                 {canWrite && isSessionStarted(session) ? (
-                  <button className="btn-action" onClick={() => handleStop(session.id)}>
-                    <Square size={16} />
-                    {t('sessions.actions.stop')}
+                  <button
+                    type="button"
+                    className="icon-action"
+                    title={t('sessions.actions.stop')}
+                    aria-label={t('sessions.actions.stop')}
+                    onClick={() => handleStop(session.id)}
+                  >
+                    <Square size={15} />
                   </button>
                 ) : canWrite && (session.status === 'created' || session.status === 'disconnected') ? (
                   <button
-                    className="btn-action"
+                    type="button"
+                    className="icon-action"
+                    title={t('sessions.actions.start')}
+                    aria-label={t('sessions.actions.start')}
                     onClick={() => handleStart(session.id)}
                     disabled={startingIds.has(session.id)}
                   >
-                    <Play size={16} />
-                    {t('sessions.actions.start')}
+                    <Play size={15} />
                   </button>
                 ) : canWrite ? (
                   <button
-                    className="btn-action"
+                    type="button"
+                    className="icon-action"
+                    title={t('sessions.actions.reconnect')}
+                    aria-label={t('sessions.actions.reconnect')}
                     onClick={() => handleStart(session.id)}
                     disabled={startingIds.has(session.id)}
                   >
-                    <RefreshCw size={16} />
-                    {t('sessions.actions.reconnect')}
+                    <RefreshCw size={15} />
                   </button>
                 ) : null}
                 {canUnlinkSession(session, canWrite) && (
-                  <button className="btn-action danger" onClick={() => setUnlinkConfirmId(session.id)}>
-                    <Unlink size={16} />
-                    {t('sessions.actions.unlink')}
+                  <button
+                    type="button"
+                    className="icon-action danger"
+                    title={t('sessions.actions.unlink')}
+                    aria-label={t('sessions.actions.unlink')}
+                    onClick={() => setUnlinkConfirmId(session.id)}
+                  >
+                    <Unlink size={15} />
                   </button>
                 )}
                 {canWrite && (
-                  <button className="btn-action danger" onClick={() => setDeleteConfirmId(session.id)}>
-                    <Trash2 size={16} />
-                    {t('sessions.actions.delete')}
+                  <button
+                    type="button"
+                    className="icon-action danger"
+                    title={t('sessions.actions.delete')}
+                    aria-label={t('sessions.actions.delete')}
+                    onClick={() => setDeleteConfirmId(session.id)}
+                  >
+                    <Trash2 size={15} />
                   </button>
                 )}
                 {canForceKillSession(session, canWrite) && (
-                  <button className="btn-action danger" onClick={() => setKillConfirmId(session.id)}>
-                    <Skull size={16} />
-                    {t('sessions.actions.killStuck')}
+                  <button
+                    type="button"
+                    className="icon-action danger"
+                    title={t('sessions.actions.killStuck')}
+                    aria-label={t('sessions.actions.killStuck')}
+                    onClick={() => setKillConfirmId(session.id)}
+                  >
+                    <Skull size={15} />
                   </button>
                 )}
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

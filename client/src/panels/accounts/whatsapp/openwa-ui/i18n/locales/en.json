@@ -449,16 +449,25 @@
     "create": {
       "title": "Create New Session",
       "label": "Session Name",
-      "placeholder": "e.g., marketing-bot",
-      "hint": "Use lowercase letters, numbers, and hyphens only. Example: <code>customer-support</code>, <code>bot-1</code>",
-      "invalidChars": "Invalid characters. Only lowercase letters, numbers, and hyphens allowed.",
+      "placeholder": "e.g., Marketing-Bot",
+      "invalidChars": "Invalid characters. Only letters, numbers, and hyphens allowed.",
       "tooLong": "Name must be 50 characters or less ({{length}}/50).",
       "duplicate": "Session with this name already exists.",
+      "androidName": "Android name",
+      "androidNamePlaceholder": "e.g., Office Android",
       "successTitle": "Session Created",
       "successDesc": "Session \"{{name}}\" created successfully",
       "errorTitle": "Create Failed",
       "errorDefault": "Failed to create session",
       "tooShort": "Name must be at least 3 characters."
+    },
+    "rename": {
+      "title": "Edit Session",
+      "label": "Session Name",
+      "androidName": "Android name",
+      "successTitle": "Session Updated",
+      "successDesc": "Session \"{{name}}\" updated",
+      "errorTitle": "Update Failed"
     },
     "delete": {
       "title": "Confirm Delete",
@@ -518,6 +527,7 @@
     },
     "actions": {
       "view": "View",
+      "rename": "Edit",
       "proxy": "Proxy",
       "start": "Start",
       "stop": "Stop",
@@ -538,7 +548,9 @@
       "stopFailedTitle": "Stop Failed"
     },
     "card": {
+      "eyebrow": "WhatsApp session",
       "phone": "Phone",
+      "androidName": "Android name",
       "sessionId": "Session ID",
       "lastActive": "Last Active",
       "error": "Error",
@@ -737,6 +749,7 @@
     "createTitle": "Create Template",
     "editTitle": "Edit Template",
     "newTemplate": "New Template",
+    "targetNgo": "NGO",
     "createTemplate": "Create Template",
     "saveChanges": "Save Changes",
     "viewOnly": "View Only",
@@ -753,7 +766,7 @@
     "previewValuePlaceholder": "Sample value",
     "previewEmpty": "Start writing a template to preview it here.",
     "noPlaceholders": "Use {{name}} placeholders to test substitutions.",
-    "savedTitle": "Saved Templates",
+    "savedTitle": "Templates",
     "count": "{{count}} total",
     "deleteTitle": "Delete Template",
     "deleteConfirm": "Delete template \"{{name}}\"? This action cannot be undone.",

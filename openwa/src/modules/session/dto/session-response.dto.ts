@@ -47,6 +47,17 @@ export class SessionResponseDto {
   @ApiPropertyOptional({ type: String, example: '628123456789', nullable: true })
   phone?: string | null;
 
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description:
+      'A name for the Android phone/account entered when the session was created, so several ' +
+      'accounts on one phone can be told apart before pairing. `phone` is the number WhatsApp ' +
+      'reports after linking.',
+    example: 'Office Android',
+  })
+  androidName?: string | null;
+
   @ApiPropertyOptional({ type: String, example: 'John Doe', nullable: true })
   pushName?: string | null;
 
@@ -118,6 +129,7 @@ export class SessionResponseDto {
       name: session.name,
       status: session.status,
       phone: session.phone,
+      androidName: session.androidName,
       pushName: session.pushName,
       connectedAt: session.connectedAt,
       lastActive: session.lastActiveAt,

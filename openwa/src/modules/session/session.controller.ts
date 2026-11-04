@@ -24,6 +24,7 @@ import {
   UpdateSessionConfigDto,
   SessionProxyResponseDto,
   UpdateSessionProxyDto,
+  UpdateSessionDetailsDto,
   SessionResponseDto,
   QRCodeResponseDto,
   MarkChatReadDto,
@@ -183,6 +184,34 @@ export class SessionController {
   @ApiResponse({ status: 404, description: 'Session not found' })
   async findOne(@Param('sessionId', ParseUUIDPipe) id: string): Promise<SessionResponseDto> {
     const session = await this.sessionService.findOne(id);
+    return this.transformSession(session);
+  }
+
+  @Patch(':sessionId')
+  @RequireRole(ApiKeyRole.OPERATOR)
+  @ApiOperation({ summary: 'Edit a session name and Android name' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Session labels updated',
+    type: SessionResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'The session id is not a UUID, the name is invalid, or neither field was supplied',
+  })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  @ApiResponse({ status: 409, description: 'Session name already exists' })
+  async updateDetails(
+    @Param('sessionId', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSessionDetailsDto,
+  ): Promise<SessionResponseDto> {
+    const session = await this.sessionService.updateDetails(id, dto);
+    await this.auditService.logInfo(AuditAction.SESSION_DETAILS_UPDATED, {
+      sessionId: session.id,
+      sessionName: session.name,
+      metadata: { androidName: session.androidName },
+    });
     return this.transformSession(session);
   }
 

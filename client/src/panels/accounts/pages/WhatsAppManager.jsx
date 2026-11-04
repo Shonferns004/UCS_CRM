@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import ConversationViewer from '../components/ConversationViewer';
-import { apiGet } from '../api/auth';
+import { apiGet, apiPost } from '../api/auth';
 import WhatsAppBulk from './WhatsAppBulk';
 import WhatsAppChatWindow from '../components/WhatsAppChatWindow';
 import WhatsAppAccountsManager from '../components/WhatsAppAccountsManager';

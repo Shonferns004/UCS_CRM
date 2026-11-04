@@ -88,10 +88,16 @@
 /* Primary/secondary/danger buttons on this page come from the shared global classes (index.css).
    .templates-new-btn only overrides metrics for the compact header button. */
 .templates-page .templates-new-btn {
-  min-height: 36px;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.8125rem;
+  min-height: 32px;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  gap: 0.25rem;
   white-space: nowrap;
+}
+
+.templates-page .templates-filter-btn {
+  width: 32px;
+  height: 32px;
 }
 
 .templates-page .templates-search {
@@ -520,4 +526,180 @@
   .templates-page .template-variable-panel {
     padding: 1rem;
   }
+}
+
+/* Message-type selector: individual rounded choices, active one tinted with the page accent. */
+.templates-page .template-form .toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.templates-page .template-form .toggle-group button {
+  padding: 0.5rem 0.8125rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-light);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.templates-page .template-form .toggle-group button:hover:not(:disabled) {
+  border-color: var(--focus-ring);
+  color: var(--text-primary);
+}
+
+.templates-page .template-form .toggle-group button.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.templates-page .template-form .toggle-group button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* NGO filter beside New Template: a filter icon whose menu drops below the button. */
+.templates-page .templates-library-header {
+  flex-wrap: wrap;
+}
+
+.templates-page .templates-library-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.templates-page .templates-filter {
+  position: relative;
+}
+
+.templates-page .templates-filter-btn.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.templates-page .templates-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-end: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 180px;
+  max-width: 240px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 0.375rem;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+.templates-page .templates-filter-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.templates-page .templates-filter-menu button:hover {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+
+.templates-page .templates-filter-menu button.active {
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  font-weight: 700;
+}
+
+/* Target NGO for a new template: the library can show All NGOs, but a template still belongs to one. */
+.templates-page .template-form select {
+  width: 100%;
+  padding: 0.8125rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-light);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+}
+
+.templates-page .template-form select:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  background: var(--bg-white);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.templates-page .template-list-ngo {
+  align-self: flex-start;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Keep the library title, count, filter and New Template on one compact row. */
+.templates-page .templates-library-header {
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  min-height: auto;
+  padding: 0.75rem 1rem;
+}
+
+.templates-page .templates-library-header > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.templates-page .templates-library-header > div:first-child h2 {
+  white-space: nowrap;
+}
+
+.templates-page .templates-library-header > div:first-child span {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.templates-page .templates-library-actions {
+  flex-shrink: 0;
+  gap: 0.375rem;
+}
+
+.templates-page .templates-new-btn {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+.templates-page .templates-filter-btn {
+  width: 28px;
+  height: 28px;
 }
