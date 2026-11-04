@@ -74,8 +74,11 @@ export const MUST_STAY_UNMARKED: ReadonlyArray<readonly [string, string]> = [
   // is revoked; revoking returns a fresh link, so both routes hand the key the same capability.
   ['group.controller.ts', 'getInviteCode'],
   ['group.controller.ts', 'revokeInviteCode'],
-  // A batch row has no key owner, so its status and cancel cannot be checked against an allowlist.
+  // A batch row has no key owner, so its status, report and cancel cannot be checked against an
+  // allowlist.
   ['message.controller.ts', 'getBatchStatus'],
+  ['message.controller.ts', 'getBatchReport'],
+  ['message.controller.ts', 'listBatchReports'],
   ['message.controller.ts', 'cancelBatch'],
 ];
 

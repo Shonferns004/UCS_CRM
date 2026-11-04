@@ -7,6 +7,8 @@ import {
   contactApi,
   type SendMediaPayload,
   type MessageResponse,
+  type BatchReportResponse,
+  type BatchReportSummary,
   type BatchStatus,
   type BatchStatusResponse,
   type BulkMessageItem,
@@ -33,6 +35,8 @@ import {
 } from '../utils/bulkMedia';
 import { PageHeader } from '../components/PageHeader';
 import { GroupPicker } from '../components/GroupPicker';
+import { BatchReportPanel, type BroadcastRecipientLabel } from '../components/BatchReportPanel';
+import { BroadcastHistory } from '../components/BroadcastHistory';
 import { groupLabel, isGatewayRefusal, planGroupSend } from '../utils/groupSelection';
 import { normalizePhoneText } from '../utils/phone';
 import { sendSequentially } from '../utils/sendSequentially';
@@ -241,6 +245,20 @@ export function MessageTester({
   // The session a running batch belongs to: the user may switch the selector mid-batch, and
   // poll/cancel must keep addressing the session the batch was created on.
   const batchSessionRef = useRef('');
+  // Delivery/reply report for the batch on screen. The gateway joins the send's message ids to the
+  // later delivery ack and the donor's inbound answer, which the batch progress alone cannot show.
+  const [batchReport, setBatchReport] = useState<BatchReportResponse | null>(null);
+  const [batchReportLoading, setBatchReportLoading] = useState(false);
+  const [batchReportError, setBatchReportError] = useState<string | null>(null);
+  // Recipients as they were at send time: the form may be edited or the NGO switched before the
+  // report is read, and the report must still name the people it was actually sent to.
+  const broadcastRecipientsRef = useRef<BroadcastRecipientLabel[]>([]);
+  // Past batches for this session (the gateway persists them) and the one whose full report is open.
+  const [batchHistory, setBatchHistory] = useState<BatchReportSummary[]>([]);
+  const [batchHistoryLoading, setBatchHistoryLoading] = useState(false);
+  const [batchHistoryError, setBatchHistoryError] = useState<string | null>(null);
+  const [selectedHistoryBatchId, setSelectedHistoryBatchId] = useState<string | null>(null);
+  const historyDetailRef = useRef<HTMLDivElement>(null);
 
   const {
     data: groups = [],
@@ -281,6 +299,57 @@ export function MessageTester({
     };
   }, []);
 
+  const loadBatchReport = async (batchSessionId: string, batchId: string) => {
+    setBatchReportLoading(true);
+    setBatchReportError(null);
+    try {
+      const report = await messageApi.getBatchReport(batchSessionId, batchId);
+      if (!unmountedRef.current) setBatchReport(report);
+    } catch (err) {
+      if (!unmountedRef.current) {
+        setBatchReportError(err instanceof Error ? err.message : t('messageTester.sendFailed'));
+      }
+    } finally {
+      if (!unmountedRef.current) setBatchReportLoading(false);
+    }
+  };
+
+  const loadBatchHistory = async (sessionId: string) => {
+    setBatchHistoryLoading(true);
+    setBatchHistoryError(null);
+    try {
+      const data = await messageApi.getBatchHistory(sessionId);
+      if (!unmountedRef.current) setBatchHistory(data.batches || []);
+    } catch (err) {
+      if (!unmountedRef.current) {
+        setBatchHistoryError(err instanceof Error ? err.message : t('messageTester.sendFailed'));
+      }
+    } finally {
+      if (!unmountedRef.current) setBatchHistoryLoading(false);
+    }
+  };
+
+  // A different session means a different batch history (batches are session-scoped).
+  useEffect(() => {
+    setSelectedHistoryBatchId(null);
+    if (session) void loadBatchHistory(session);
+  }, [session]);
+
+  const selectHistoryBatch = (batchId: string) => {
+    if (!session) return;
+    setSelectedHistoryBatchId(batchId);
+    void loadBatchReport(session, batchId);
+  };
+
+  // The detail sits below the table; bring it into view once its report has rendered.
+  useEffect(() => {
+    if (!selectedHistoryBatchId || batchReport?.batchId !== selectedHistoryBatchId) return;
+    const detail = historyDetailRef.current;
+    if (!detail) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    detail.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }, [selectedHistoryBatchId, batchReport?.batchId]);
+
   const startBatchPolling = (batchSessionId: string, batchId: string) => {
     stopBatchPolling();
     if (unmountedRef.current) return;
@@ -291,7 +360,13 @@ export function MessageTester({
         // was in flight: its snapshot is older than what is on screen.
         if (batchPollRef.current !== timer) return;
         setBatchStatus(status);
-        if (TERMINAL_BATCH_STATUSES.includes(status.status)) stopBatchPolling();
+        if (TERMINAL_BATCH_STATUSES.includes(status.status)) {
+          stopBatchPolling();
+          // Delivery acks and replies keep arriving after the last send, so this is a first read;
+          // the report panel carries a Refresh button for the rest.
+          void loadBatchReport(batchSessionId, batchId);
+          void loadBatchHistory(batchSessionId);
+        }
       } catch (err) {
         if (batchPollRef.current !== timer) return;
         // A 404 (the batch or its session was deleted) or 403 (the key lost access) is permanent: stop
@@ -760,6 +835,19 @@ export function MessageTester({
 
       // Bulk is a batch, not a single send: 202 + batchId, then poll progress until terminal.
       if (messageType === 'bulk') {
+        // Captured before the send: the form/donor selection may change before the report is read,
+        // and the report must name the people this batch actually went to.
+        broadcastRecipientsRef.current =
+          bulkSource === 'stations'
+            ? stationRecipientList.map(donor => ({
+                chatId: donor.chatId,
+                name: donor.name,
+                mobile: donor.mobile,
+              }))
+            : bulkRecipientList.map(chatId => ({ chatId, mobile: chatId.split('@')[0] }));
+        setBatchReport(null);
+        setBatchReportError(null);
+        setSelectedHistoryBatchId(null);
         const batch = await messageApi.sendBulk(session, {
           messages: buildSelectedBulkMessages(),
           ...(delayMs !== undefined ? { options: { delayBetweenMessages: delayMs } } : {}),
@@ -1893,6 +1981,45 @@ export function MessageTester({
                 </div>
               )}
 
+              {response.batchId && batchReport && batchReport.batchId === response.batchId && (
+                <BatchReportPanel
+                  report={batchReport}
+                  recipients={broadcastRecipientsRef.current}
+                  loading={batchReportLoading}
+                  error={batchReportError}
+                  onRefresh={() => {
+                    if (batchSessionRef.current) {
+                      void loadBatchReport(batchSessionRef.current, response.batchId!);
+                    }
+                  }}
+                />
+              )}
+
+              {response.batchId && !batchReport && (
+                <div className="batch-report">
+                  <div className="batch-report-head">
+                    <div>
+                      <h3>{t('messageTester.report.title')}</h3>
+                      <span className="batch-report-sub">{t('messageTester.report.hint')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="batch-cancel-btn batch-report-refresh"
+                      onClick={() => {
+                        if (batchSessionRef.current) {
+                          void loadBatchReport(batchSessionRef.current, response.batchId!);
+                        }
+                      }}
+                      disabled={batchReportLoading}
+                    >
+                      {batchReportLoading ? <Loader2 size={13} className="animate-spin" /> : null}
+                      {t('messageTester.report.check')}
+                    </button>
+                  </div>
+                  {batchReportError && <div className="batch-report-error" role="alert">{batchReportError}</div>}
+                </div>
+              )}
+
               <div className="response-json">
                 <pre>{JSON.stringify(response, null, 2)}</pre>
               </div>
@@ -1904,6 +2031,43 @@ export function MessageTester({
           )}
         </div>
       </div>
+
+      <BroadcastHistory
+        items={batchHistory}
+        loading={batchHistoryLoading}
+        error={batchHistoryError}
+        selectedBatchId={selectedHistoryBatchId}
+        onSelect={selectHistoryBatch}
+        onRefresh={() => {
+          if (session) void loadBatchHistory(session);
+        }}
+      />
+
+      {selectedHistoryBatchId && (
+        <div ref={historyDetailRef} className="broadcast-history-detail">
+          {batchReport && batchReport.batchId === selectedHistoryBatchId ? (
+            <BatchReportPanel
+              report={batchReport}
+              recipients={[]}
+              loading={batchReportLoading}
+              error={batchReportError}
+              onRefresh={() => {
+                if (session) void loadBatchReport(session, selectedHistoryBatchId);
+              }}
+            />
+          ) : batchReportLoading ? (
+            <div className="batch-report">
+              <div className="batch-report-empty">
+                <Loader2 size={14} className="animate-spin" /> {t('messageTester.report.loading')}
+              </div>
+            </div>
+          ) : batchReportError ? (
+            <div className="batch-report">
+              <div className="batch-report-error" role="alert">{batchReportError}</div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
