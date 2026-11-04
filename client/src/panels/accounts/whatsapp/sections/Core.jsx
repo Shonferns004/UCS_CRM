@@ -513,13 +513,13 @@ export function SessionsSection() {
             </>
           }
         >
-          <Field label="Session name" hint="Letters, numbers and dashes. Example: support-main">
+          <Field label="Session name" hint="Any label, symbols and spaces included. Example: Hiral 1 · BFD/BOD">
             <input
               autoFocus
               value={createName}
-              maxLength={64}
+              maxLength={50}
               onChange={(event) => setCreateName(event.target.value)}
-              placeholder="support-main"
+              placeholder="Hiral 1 · BFD/BOD"
               onKeyDown={(event) => event.key === 'Enter' && createSession()}
             />
           </Field>

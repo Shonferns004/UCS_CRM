@@ -1,16 +1,21 @@
 import db from '../src/config/db.js';
 
-// Repairs the damage done by the legacy "reset every worked lead to pending"
-// monthly rollover, using the audit row the rollover itself wrote.
+// Repairs follow-up dates/schedules destroyed by the legacy monthly rollover.
 //
-//   • Restores each lead's pre-rollover status from rollover_from_status, so a
-//     used lead goes back to History / Follow Ups / Overdue instead of sitting
-//     in My Leads as "fresh pending".
-//   • Restores next_follow_up and the open fro_scheduled_contacts row from the
-//     archived disposition log, so last month's follow-ups are visible again.
+// The legacy rollover (mode 'reset_except_preserved') reset every worked lead to
+// pending, then cleared next_follow_up and deleted the open
+// fro_scheduled_contacts row. The disposition log in
+// fro_donor_logs_archive still carries the promised date, so this restores:
 //
-// Dry run by default. Pass --apply to write. Idempotent: a restored row is no
-// longer status='pending', so a second run skips it.
+//   • next_follow_up for follow-up/promise rows that lost it;
+//   • the open fro_scheduled_contacts row for scheduled/callback rows.
+//
+// It deliberately does NOT change any lead status. Re-opening a previous
+// month's work is the monthly rollover's job (see
+// src/services/froMonthlyRollover.js), and restoring statuses here would undo
+// that reset.
+//
+// Dry run by default. Pass --apply to write. Idempotent.
 //
 // Usage (from backend/):
 //   node scripts/restore-wiped-followups.mjs
@@ -38,7 +43,7 @@ const run = async () => {
     console.log('No legacy rollover audit row found — nothing to repair.');
     return;
   }
-  const { month_key: archiveMonth } = rollover;
+  const archiveMonth = rollover.month_key;
   const ranAt = new Date(rollover.ran_at);
   const finishedAt = new Date(rollover.finished_at);
   console.log(`Legacy rollover ${archiveMonth}: ${ranAt.toISOString()} → ${finishedAt.toISOString()}`);
@@ -47,19 +52,6 @@ const run = async () => {
   const window = [ranAt.toISOString(), finishedAt.toISOString()];
 
   const { rows: preview } = await db._pool.query(
-    `SELECT rollover_from_status AS prev_status, count(*)::int AS n
-       FROM public.fro_assignments
-      WHERE status = 'pending'
-        AND rollover_at >= $1 AND rollover_at <= $2
-        AND rollover_from_status IS NOT NULL
-        AND rollover_from_status NOT IN ('pending','reassigned','dnd')
-        AND (last_contacted_at IS NULL OR last_contacted_at <= rollover_at)
-      GROUP BY 1 ORDER BY 2 DESC`,
-    window
-  );
-  console.log('Statuses that would be restored:', JSON.stringify(preview, null, 1));
-
-  const { rows: schedulePreview } = await db._pool.query(
     `SELECT count(*)::int AS n
        FROM public.fro_assignments fa
        JOIN LATERAL (
@@ -73,13 +65,13 @@ const run = async () => {
           ORDER BY a.created_at DESC
           LIMIT 1
        ) a ON true
-      WHERE fa.status = 'pending'
+      WHERE fa.status = ANY($4::text[])
         AND fa.rollover_at >= $2 AND fa.rollover_at <= $3
-        AND fa.rollover_from_status = ANY($4::text[])
+        AND fa.next_follow_up IS NULL
         AND (fa.last_contacted_at IS NULL OR fa.last_contacted_at <= fa.rollover_at)`,
     [archiveMonth, ...window, [...FOLLOWUP_STATUSES, ...PROMISE_STATUSES]]
   );
-  console.log('Follow-up/promise rows with an archived date:', schedulePreview?.[0]?.n ?? 0);
+  console.log('Follow-up/promise rows missing their date:', preview?.[0]?.n ?? 0);
 
   if (!APPLY) {
     console.log('Dry run complete. Re-run with --apply to write.');
@@ -88,20 +80,6 @@ const run = async () => {
 
   await db._pool.query('BEGIN');
   try {
-    // 1. Put the status back. rollover_from_status is the exact value the legacy
-    //    reset replaced, so this is a faithful undo (not a guess).
-    const { rowCount: restored } = await db._pool.query(
-      `UPDATE public.fro_assignments
-          SET status = rollover_from_status
-        WHERE status = 'pending'
-          AND rollover_at >= $1 AND rollover_at <= $2
-          AND rollover_from_status IS NOT NULL
-          AND rollover_from_status NOT IN ('pending','reassigned','dnd')
-          AND (last_contacted_at IS NULL OR last_contacted_at <= rollover_at)`,
-      window
-    );
-
-    // 2. Put next_follow_up back from the archived disposition that created it.
     const { rowCount: datesRestored } = await db._pool.query(
       `UPDATE public.fro_assignments fa
           SET next_follow_up = sub.ist_date
@@ -124,9 +102,6 @@ const run = async () => {
       [archiveMonth, ...window, [...FOLLOWUP_STATUSES, ...PROMISE_STATUSES]]
     );
 
-    // 3. Recreate the open scheduled-contact row for scheduled/callback leads
-    //    when one is missing. This is what makes them reappear on the Follow Ups
-    //    and Overdue tabs (and excludes them from the read-time recovery).
     const { rowCount: schedulesRestored } = await db._pool.query(
       `INSERT INTO public.fro_scheduled_contacts
               (assignment_id, scheduled_at, notes, created_by, is_completed)
@@ -154,7 +129,6 @@ const run = async () => {
     );
 
     await db._pool.query('COMMIT');
-    console.log(`Restored statuses: ${restored}`);
     console.log(`Restored next_follow_up dates: ${datesRestored}`);
     console.log(`Recreated open schedules: ${schedulesRestored}`);
   } catch (err) {

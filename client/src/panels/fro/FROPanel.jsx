@@ -33,6 +33,7 @@ import IdleWarningModal from './components/IdleWarningModal'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
+import LeadWhatsAppPickerHost from './components/LeadWhatsAppPickerHost'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
@@ -530,9 +531,9 @@ function WorkAnniversaryPopup() {
 
 function Sidebar({ open, onClose, si }) {
   const location = useLocation()
-  // A station WhatsApp tab appears for every station assignment on this FRO's stations
-  // (session assignment -> NGO + station -> fro_station_assignments). One session can be
-  // shared with several stations, so this may add more than one entry.
+  // One WhatsApp tab per number this FRO may open (station assignment -> NGO + station ->
+  // fro_station_assignments). The backend groups a number that serves several stations
+  // into one entry, so a session never produces two identical tabs.
   const [stationAssignments, setStationAssignments] = useState([])
   useEffect(() => {
     let alive = true
@@ -544,7 +545,7 @@ function Sidebar({ open, onClose, si }) {
         .catch(() => {})
     read()
     // Re-read on navigation, on returning to the tab and every 15s, so a temporary
-    // grant appears (with its "(temp)" tab) shortly after the admin makes it.
+    // grant appears shortly after the admin makes it.
     const timer = setInterval(read, 15000)
     const onFocus = () => read()
     const onVisible = () => {
@@ -560,27 +561,30 @@ function Sidebar({ open, onClose, si }) {
     }
   }, [location.pathname])
   const nav = [...NAV_BASE]
-  // A worker can run the same station for several NGOs (e.g. BOD-4 in BSCT and MANN).
-  // The first assignment is their station's own WhatsApp; every extra NGO gets its
-  // own tab below it, named after the NGO. A temporary grant is labelled "(temp)".
-  // Duplicate labels fall back to NGO · station.
+  // One tab per WhatsApp NUMBER, not per station: a number assigned to BFD-1 and
+  // BOD-1 serves both, so it must appear once (the previous per-station rows showed
+  // the same WhatsApp twice). The operator's session label tells two numbers apart;
+  // without one, fall back to the station list the number covers.
   const usedLabels = new Set()
-  stationAssignments.forEach((assignment, index) => {
-    // Temporary grants show the STATION name (MOD-14 WhatsApp), never the NGO name
-    // and never a "(temp)" marker — the tab looks like any other station's WhatsApp.
-    const base =
-      index === 0 || assignment.viaTemporaryAccess
-        ? assignment.station
-        : assignment.ngoName || assignment.station
-    let label = `${base} WhatsApp`
+  stationAssignments.forEach(assignment => {
+    const stations = assignment.stations?.length
+      ? assignment.stations.map(row => row.station).filter(Boolean)
+      : [assignment.station].filter(Boolean)
+    const stationLabel = assignment.stationLabel || [...new Set(stations)].join(' · ')
+    const name = String(assignment.sessionName || '').trim()
+    const base = name || `${stationLabel} WhatsApp`
+    let label = /whatsapp/i.test(base) ? base : `${base} WhatsApp`
     if (usedLabels.has(label)) {
-      label = `${assignment.ngoName || 'NGO'} · ${assignment.station} WhatsApp`
+      // Two numbers with the same label (unnamed sessions on the same stations): a short id
+      // is the only thing guaranteed to tell them apart.
+      label = `${label} · ${String(assignment.sessionId).slice(0, 6)}`
     }
     usedLabels.add(label)
     nav.push({
-      id: `station-whatsapp-${assignment.sessionId}-${assignment.station}`,
-      path: `/fro/station-whatsapp?session=${encodeURIComponent(assignment.sessionId)}&station=${encodeURIComponent(assignment.station)}`,
+      id: `station-whatsapp-${assignment.sessionId}`,
+      path: `/fro/station-whatsapp?session=${encodeURIComponent(assignment.sessionId)}`,
       label,
+      title: stationLabel ? `${stationLabel} WhatsApp` : undefined,
       Icon: Smartphone,
     })
   })
@@ -598,7 +602,7 @@ function Sidebar({ open, onClose, si }) {
         <nav className="sidebar-nav" style={{ flex: 1 }}>
           {nav.map(n => {
             return (
-            <NavLink key={n.id} to={n.path} end
+            <NavLink key={n.id} to={n.path} end title={n.title}
               className={() => {
                 // Station tabs carry session/station in the query; a deep link also adds
                 // ?chat=..., which must not stop the tab from looking active.
@@ -1320,6 +1324,7 @@ useEffect(() => onFroAction((action) => {
           <button onClick={(e) => { e.stopPropagation(); setFroBroadcast(null); }} aria-label="Close" style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>✕</button>
         </div>
       )}
+      <LeadWhatsAppPickerHost />
       <ToastContainer />
     </div>
     </CallProvider>

@@ -8,17 +8,19 @@ import { normaliseSessionConfig, RecognisedSessionConfigConstraint } from './rec
 
 export class CreateSessionDto {
   @ApiProperty({
-    description: 'Unique name for the session (alphanumeric and hyphens only)',
-    example: 'my-bot',
-    minLength: 3,
+    description:
+      'Unique label for the session. Free text: symbols, spaces, punctuation and non-Latin ' +
+      'scripts are allowed. Line breaks and control characters are refused.',
+    example: 'Hiral 1 · BFD/BOD',
+    minLength: 1,
     maxLength: 50,
   })
   @ToStrictString()
   @IsString()
-  @MinLength(3)
+  @MinLength(1)
   @MaxLength(50)
-  @Matches(/^[a-zA-Z0-9-]+$/, {
-    message: 'Session name can only contain letters, numbers, and hyphens',
+  @Matches(/^(?=.*\S)[^\u0000-\u001F\u007F]+$/u, {
+    message: 'Session name must not be blank and cannot contain line breaks or control characters',
   })
   name!: string;
 

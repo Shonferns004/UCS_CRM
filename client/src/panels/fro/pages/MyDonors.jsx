@@ -118,6 +118,24 @@ function inActiveBucket(row, dataTab) {
   return dataTab !== 'high_tier' || row?.batch_type === 'high_tier';
 }
 
+// New/Old bucket of a History row. Legacy rows have batch_type NULL, so mirror
+// the backend's rule: NULL + is_new !== false is New; NULL + is_new == null/false
+// also counts as Old (the old read path treats a NULL is_new as Old).
+function inDataBucket(row, dataTab) {
+  if (dataTab === 'old') {
+    // Old stations carry high-tier batches (AOD-*/BOD-*); the Old tab is their
+    // natural fallback home since the High Tier tab is no longer shown.
+    return row?.batch_type === 'old_data'
+      || row?.batch_type === 'high_tier'
+      || (row?.batch_type == null && (row?.is_new === false || row?.is_new == null));
+  }
+  if (dataTab === 'new') {
+    return row?.batch_type === 'new_data'
+      || (row?.batch_type == null && row?.is_new !== false);
+  }
+  return true;
+}
+
 function dedupeDonors(list) {
   const seen = new Set();
   const out = [];
@@ -394,6 +412,16 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Leads-tab fallback: when (and only when) the whole pending queue is empty,
+  // the History book is shown in the Leads list. Nothing is reset — the rows
+  // keep their disposition — and they stay oldest-first so the latest disposed
+  // is at the bottom.
+  const [historyFallbackLeads, setHistoryFallbackLeads] = useState([]);
+  const [historyFallbackLoading, setHistoryFallbackLoading] = useState(false);
+  // When the current bucket is empty but the sibling bucket still has work,
+  // show a direct "switch to New/Old" prompt. This is the "old data is over"
+  // case: the FRO is parked on Old with 0 rows while New has thousands.
+  const [siblingTabInfo, setSiblingTabInfo] = useState(null);
   // Bumped whenever a disposition is saved. History is otherwise only fetched
   // when the tab is entered, so a lead worked in this session would not show up
   // there — nor in its count badge — until the FRO left and came back.
@@ -793,6 +821,79 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
   }, [listView, activeDonor, selectedStation, selectedNgo, historyRefresh, historyAllTime]);
+
+  // ─── Leads fallback: History only when the queue is genuinely exhausted ───
+  // "if and only if": a manual switch to an empty New/Old tab must NOT trigger
+  // this while the other tab still has workable leads, so both tabs are probed.
+  // The History rows are read, never written — their disposition/status/log is
+  // untouched. getMyDisposedLeads returns them oldest → newest, so the latest
+  // disposed stays at the bottom.
+  useEffect(() => {
+    if (listView !== 'leads' || activeDonor) return;
+    if (loading || donors.length > 0 || searchQuery.trim().length >= 2) {
+      setHistoryFallbackLeads([]);
+      setSiblingTabInfo(null);
+      return;
+    }
+    let cancelled = false;
+    setHistoryFallbackLoading(true);
+    const base = { includeSuppressed: true, limit: 1 };
+    const filteredOpts = { ...base };
+    if (selectedStation && selectedStation !== 'all') filteredOpts.station = selectedStation;
+    if (selectedNgo) filteredOpts.ngoId = selectedNgo;
+    const hasFilter = !!(filteredOpts.station || filteredOpts.ngoId);
+    const countsFor = (opts) => Promise.all([
+      getMyDonors(null, null, { ...opts, newOnly: true }),
+      getMyDonors(null, null, { ...opts, oldOnly: true }),
+    ]).then(([fresh, old]) => ({
+      fresh: fresh?.counts?.workable || 0,
+      old: old?.counts?.workable || 0,
+    }));
+    (async () => {
+      const otherTab = dataTab === 'new' ? 'old' : 'new';
+      const filtered = await countsFor(filteredOpts);
+      const otherWorkable = otherTab === 'new' ? filtered.fresh : filtered.old;
+      let sibling = null;
+      // The other bucket still has leads under the current filter: point there.
+      if (otherWorkable > 0) {
+        sibling = { tab: otherTab, workable: otherWorkable, clearFilter: false };
+      } else if (hasFilter) {
+        // A station/NGO filter can hide the whole scope (the "my old data is
+        // over" case: Old at AOD-8 is empty while New at AFD-8 has thousands).
+        const scope = await countsFor(base);
+        const scopeOther = otherTab === 'new' ? scope.fresh : scope.old;
+        const scopeCurrent = dataTab === 'new' ? scope.fresh : scope.old;
+        if (scopeOther > 0 || scopeCurrent > 0) {
+          const tab = scopeOther > 0 ? otherTab : dataTab;
+          const workable = tab === 'new' ? scope.fresh : scope.old;
+          sibling = { tab, workable, clearFilter: true };
+        }
+      }
+      if (!cancelled) setSiblingTabInfo(sibling);
+
+      // Per-bucket History fallback. The current tab is empty (donors.length is
+      // 0), so its own History donors come back — Old history in the Old tab,
+      // New history in the New tab. Nothing is reset: the rows keep their
+      // disposition and the newest disposed stays at the bottom.
+      const historyOpts = { allMonths: true };
+      if (filteredOpts.station) historyOpts.station = filteredOpts.station;
+      if (filteredOpts.ngoId) historyOpts.ngoId = filteredOpts.ngoId;
+      const historyRows = await getMyDisposedLeads(historyOpts);
+      const arr = Array.isArray(historyRows) ? historyRows : historyRows?.data || [];
+      return arr.filter(r => inDataBucket(r, dataTab));
+    })()
+      .then(rows => {
+        if (cancelled) return;
+        setHistoryFallbackLeads(Array.isArray(rows) ? rows : rows?.data || []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHistoryFallbackLeads([]);
+        setSiblingTabInfo(null);
+      })
+      .finally(() => { if (!cancelled) setHistoryFallbackLoading(false); });
+    return () => { cancelled = true; };
+  }, [listView, activeDonor, loading, donors.length, dataTab, selectedStation, selectedNgo, searchQuery, historyRefresh]);
 
   // Follow-ups: scheduled contacts + callback assignments + money promises,
   // merged/deduplicated the same way the standalone Follow Ups page did.
@@ -1713,6 +1814,16 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         || (d.donor_mobile || '').includes(q)
         || (d.station || '').toLowerCase().includes(q);
     }) : visible;
+    // Leads-tab History fallback. Enabled only when the queue is empty for BOTH
+    // New and Old (checked in the effect above), never on a filtered-empty tab
+    // that still has work elsewhere.
+    const fallbackEligible = listView === 'leads' && !loading && donors.length === 0
+      && !searching && dataTab !== 'high_tier';
+    const showHistoryFallback = fallbackEligible && historyFallbackLeads.length > 0;
+    const historyFallbackItems = fallbackEligible
+      ? historyFallbackLeads.map(r => ({ ...r, id: r.donor_id, is_disposed: true, _historyFallback: true }))
+      : [];
+    const leadsBadgeCount = total || (showHistoryFallback ? historyFallbackLeads.length : 0);
     const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
     const historyFiltered = isHistory ? historyScoped.filter(d => {
       // Do NOT hide a lead that produced a donation this month: it is used, and
@@ -1758,7 +1869,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         is_disposed: !!r.disposed_at || r.status === 'disposed',
         disposition_detail: r.disposition_detail,
         disposed_at: r.disposed_at,
-      })) : visibleForLeads);
+      })) : (showHistoryFallback ? historyFallbackItems : visibleForLeads));
 
     // Only the first `visibleCount` rows are mounted. `hasMoreRef` is read by the
     // scroll handler above to decide whether the window can still grow.
@@ -1772,7 +1883,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         savedVisibleCountRef.current = visibleCount;
         restoreScrollPendingRef.current = true;
       }
-      if (isHistory || isFollowUps || isOverdueTab) {
+      if (isHistory || isFollowUps || isOverdueTab || d._historyFallback) {
         setActiveDonor({ ...d, _fromList: listView });
         setSelected(null); setNotes(''); setLeadAmount('');
         return;
@@ -1798,7 +1909,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               <button onClick={() => setListView('leads')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'leads' ? 'var(--sage)' : 'transparent', color: listView === 'leads' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'leads' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                 Leads
-                {total ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'leads' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'leads' ? '#fff' : 'var(--ink-soft)' }}>{total}</span> : null}
+                {leadsBadgeCount ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'leads' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'leads' ? '#fff' : 'var(--ink-soft)' }}>{leadsBadgeCount}</span> : null}
               </button>
               <button onClick={() => setListView('followups')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'followups' ? 'var(--sage)' : 'transparent', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'followups' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
@@ -1903,11 +2014,54 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
             </div>
           )}
+          {siblingTabInfo && listView === 'leads' && donors.length === 0 && (
+            <div style={{ fontSize: 11, color: '#1e3a8a', lineHeight: 1.5, padding: '9px 10px', marginBottom: 8, borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span>
+                {siblingTabInfo.clearFilter ? (
+                  <>
+                    <b>No leads under this station/NGO filter.</b>{' '}
+                    {siblingTabInfo.workable.toLocaleString('en-IN')} {siblingTabInfo.workable === 1 ? 'lead is' : 'leads are'} available in {siblingTabInfo.tab === 'new' ? 'New' : 'Old'} in your full scope.
+                  </>
+                ) : showHistoryFallback ? (
+                  <>
+                    {siblingTabInfo.workable.toLocaleString('en-IN')} {siblingTabInfo.tab === 'new' ? 'New' : 'Old'} {siblingTabInfo.workable === 1 ? 'lead is' : 'leads are'} also available.
+                  </>
+                ) : (
+                  <>
+                    <b>No {dataTab === 'new' ? 'New' : 'Old'} leads left.</b>{' '}
+                    {siblingTabInfo.workable.toLocaleString('en-IN')} {siblingTabInfo.workable === 1 ? 'lead is' : 'leads are'} waiting in {siblingTabInfo.tab === 'new' ? 'New' : 'Old'}.
+                  </>
+                )}
+              </span>
+              <button
+                onClick={() => {
+                  if (siblingTabInfo.clearFilter) {
+                    setSelectedStation('all');
+                    setSelectedNgo(null);
+                  }
+                  switchTab(siblingTabInfo.tab);
+                }}
+                style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: 'var(--sage)', color: '#fff', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+              >
+                {siblingTabInfo.clearFilter ? 'Show all & switch to ' : 'Switch to '}
+                {siblingTabInfo.tab === 'new' ? 'New' : 'Old'}
+              </button>
+            </div>
+          )}
+          {showHistoryFallback && (
+            <div style={{ fontSize: 10.5, color: '#9a3412', lineHeight: 1.5, padding: '8px 10px', marginBottom: 8, borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa' }}>
+              <b>{dataTab === 'old' ? 'Old' : 'New'} data is finished.</b> Showing {dataTab === 'old' ? 'old' : 'new'} History donors below — oldest first, so the latest disposed is last. Their disposition was not reset.
+            </div>
+          )}
           {loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="sk" style={{ height: 56, borderRadius: 'var(--radius-sm)' }} />
               ))}
+            </div>
+          ) : listView === 'leads' && historyFallbackLoading ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+              Looking for History leads…
             </div>
           ) : isHistory && historyLoading ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
@@ -2182,8 +2336,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                         e.stopPropagation();
                         void openLeadWhatsApp(
                           navigate,
-                          { station: donor.station, ngoId: donor.ngo_id, mobile: donor.donor_mobile },
+                          { station: donor.station, ngoId: donor.ngo_id, mobile: donor.donor_mobile, donorName: donor.donor_name },
                           (msg) => toast(msg, 'error'),
+                          (msg) => toast(msg, 'info'),
                         );
                       }}
                       title="Chat on WhatsApp"

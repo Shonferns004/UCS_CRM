@@ -2,6 +2,8 @@ import { Router } from 'express';
 import db from '../config/db.js';
 import { authenticate, authenticateRole, normalizeRole } from '../middleware/authMiddleware.js';
 import { getActiveGrantPairs } from '../services/temporaryAccessService.js';
+import { rankLeadSessions, whatsappDigits } from '../lib/leadSessionRouting.js';
+import { assignmentBelongsToWorker } from '../lib/stationAccess.js';
 
 const router = Router();
 
@@ -9,6 +11,70 @@ const router = Router();
 // panel uses for the OpenWA pages).
 const ADMIN_ROLES = ['master', 'super_admin', 'accounts', 'admin'];
 const requireAdmin = authenticateRole(...ADMIN_ROLES);
+
+function gatewayConfig() {
+  return {
+    baseUrl: String(process.env.OPENWA_GATEWAY_URL || process.env.OPENWA_URL || '').replace(/\/+$/, ''),
+    apiKey: String(process.env.OPENWA_GATEWAY_API_KEY || process.env.OPENWA_API_KEY || ''),
+  };
+}
+
+// The gateway's session list, keyed by id. Used only for the phone number/status shown in the
+// number picker; a failure just leaves those blank and never changes which numbers are offered.
+async function fetchGatewaySessions({ baseUrl, apiKey }) {
+  if (!baseUrl) return new Map();
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions`, {
+      headers: {
+        Accept: 'application/json',
+        ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+      },
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!response.ok) return new Map();
+    const payload = await response.json().catch(() => null);
+    const list = Array.isArray(payload) ? payload : payload?.data ?? [];
+    return new Map(
+      (Array.isArray(list) ? list : [])
+        .filter((session) => session?.id)
+        .map((session) => [session.id, session]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+// One number's stored history with this donor. A read failure is reported as such (and ranked
+// as unknown), never as "no messages": that distinction is what keeps a gateway hiccup from
+// hiding a working number.
+async function fetchChatHistory(sessionId, digits, { baseUrl, apiKey }) {
+  if (!baseUrl) return { sessionId, messages: [], lookupFailed: true };
+  const chatId = `${digits}@c.us`;
+  const query = new URLSearchParams({ chatId, limit: '40', inlineMedia: 'false' });
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages?${query.toString()}`,
+      {
+        headers: {
+          Accept: 'application/json',
+          ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+        },
+        // A click waits on this; keep it short. A read that times out is ranked as unknown.
+        signal: AbortSignal.timeout(3500),
+      },
+    );
+    if (!response.ok) return { sessionId, messages: [], lookupFailed: true };
+    const payload = await response.json().catch(() => null);
+    const messages = Array.isArray(payload?.messages)
+      ? payload.messages
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    return { sessionId, messages };
+  } catch {
+    return { sessionId, messages: [], lookupFailed: true };
+  }
+}
 
 // `fro_station_assignments.station` is the source of truth for station names and
 // which FRO runs each station. A row may name the FRO directly (fro_worker_id) or
@@ -115,8 +181,11 @@ export async function stationAccessForWorker(workerId, agentId) {
   const permanent = new Set();
   for (const row of stationRows || []) {
     if (!row.station) continue;
-    const mine = row.fro_worker_id === workerId || (row.crm_agent_id && agentIds.has(row.crm_agent_id));
-    if (mine) permanent.add(stationKey(row.ngo_id, row.station));
+    // The direct worker is authoritative; the agent is only the fallback for a row that
+    // names no worker. A stale agent of record used to grant a second station's WhatsApp.
+    if (assignmentBelongsToWorker(row, workerId, agentIds)) {
+      permanent.add(stationKey(row.ngo_id, row.station));
+    }
   }
 
   // getActiveGrantPairs already re-checks the live window and fails closed, so an
@@ -292,8 +361,107 @@ router.delete('/:sessionId', requireAdmin, async (req, res) => {
   }
 });
 
+// GET /lead-route — which of the FRO's assigned numbers should open for this lead.
+//
+// A donor can block one number and still answer another, and WhatsApp gives no block signal:
+// a message to a blocking contact stays "sent" forever. So the choice is made from each number's
+// recent history with the donor (reply / delivered = good, stuck undelivered = suspected). The
+// client falls back to its old first-match behaviour when this route has no candidate.
+router.get('/lead-route', authenticate, async (req, res) => {
+  const station = String(req.query.station || '').trim();
+  const ngoId = String(req.query.ngoId || '').trim();
+  const digits = whatsappDigits(req.query.mobile);
+
+  if (!station) return res.status(400).json({ message: 'station is required' });
+  if (!digits) return res.status(400).json({ message: 'mobile is required' });
+  res.set('Cache-Control', 'no-store');
+
+  try {
+    const identity = await resolveFroIdentity(req);
+    if (!identity) return res.status(403).json({ message: 'Forbidden' });
+
+    const { permanent, temporary } = await stationAccessForWorker(
+      identity.workerId,
+      identity.agentId,
+    );
+    const allowed = new Set([...permanent, ...temporary]);
+    if (allowed.size === 0) {
+      return res.json({ sessionId: null, reason: 'no-assignment', checked: 0 });
+    }
+
+    const { data } = await db
+      .from('whatsapp_session_assignments')
+      .select('session_id, session_name, ngo_id, station')
+      .eq('station', station)
+      .order('created_at', { ascending: true });
+
+    const rows = (data || []).filter((row) =>
+      allowed.has(stationKey(row.ngo_id, row.station)),
+    );
+    // Prefer the exact (NGO, station) pair, as the client always has. Only when the lead's NGO
+    // has no session on that station do we fall back to any NGO's session there.
+    const exact = ngoId ? rows.filter((row) => row.ngo_id === ngoId) : [];
+    const scoped = exact.length > 0 ? exact : rows;
+
+    const seen = new Set();
+    const candidates = [];
+    for (const row of scoped) {
+      if (!row.session_id || seen.has(row.session_id)) continue;
+      seen.add(row.session_id);
+      candidates.push({
+        sessionId: row.session_id,
+        sessionName: row.session_name,
+        station: row.station,
+        ngoId: row.ngo_id,
+      });
+    }
+    if (candidates.length === 0) {
+      return res.json({ sessionId: null, reason: 'no-assignment', checked: 0 });
+    }
+
+    const config = gatewayConfig();
+    const [histories, gatewaySessions] = await Promise.all([
+      Promise.all(
+        candidates.map((candidate) => fetchChatHistory(candidate.sessionId, digits, config)),
+      ),
+      fetchGatewaySessions(config),
+    ]);
+    const result = rankLeadSessions(candidates, histories);
+    const describe = (row, index) => {
+      const session = gatewaySessions.get(row.sessionId);
+      return {
+        sessionId: row.sessionId,
+        sessionName: row.sessionName,
+        station: row.station,
+        ngoId: row.ngoId,
+        phone: session?.phone || null,
+        status: session?.status || null,
+        state: row.state,
+        recommended: index === 0,
+      };
+    };
+
+    return res.json({
+      sessionId: result.best?.sessionId || null,
+      sessionName: result.best?.sessionName || null,
+      station: result.best?.station || station,
+      ngoId: result.best?.ngoId || ngoId || null,
+      phone: gatewaySessions.get(result.best?.sessionId)?.phone || null,
+      reason: result.best?.state || 'unknown',
+      allBlocked: result.allBlocked,
+      blockedCount: result.blockedCount,
+      checked: candidates.length,
+      candidates: result.ranked.map(describe),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not choose a WhatsApp number' });
+  }
+});
+
 // GET /mine — sessions this FRO may open: their permanent stations plus any live
-// temporary grant. Temp rows carry viaTemporaryAccess so the sidebar can label the tab.
+// temporary grant. One gateway session is one WhatsApp number, so it is returned
+// ONCE with every station it serves. Returning a row per station made a number
+// assigned to BFD-1 and BOD-1 appear as two identical tabs.
 router.get('/mine', authenticate, async (req, res) => {
   try {
     const identity = await resolveFroIdentity(req);
@@ -310,29 +478,59 @@ router.get('/mine', authenticate, async (req, res) => {
       .from('whatsapp_session_assignments')
       .select('session_id, session_name, ngo_id, station')
       .order('created_at', { ascending: true });
-    const assignments = (data || []).filter(
+    const rows = (data || []).filter(
       (row) => row.station && allowed.has(stationKey(row.ngo_id, row.station)),
     );
 
-    // Permanent tabs first, temporary grants after them (BSCT, MANN, then BOD-1 (temp)).
+    // Permanent grants first, temporary grants after them (BSCT, MANN, then BOD-1 (temp)).
     const isTemporary = (row) =>
       !permanent.has(stationKey(row.ngo_id, row.station)) &&
       temporary.has(stationKey(row.ngo_id, row.station));
-    const ordered = [...assignments].sort(
+    // A stable partition: the Map below keeps the order rows arrive in.
+    const ordered = [...rows].sort(
       (a, b) => Number(isTemporary(a)) - Number(isTemporary(b)),
     );
 
     const ngos = await ngoNameMap(ordered.map((row) => row.ngo_id));
-    return res.json({
-      assignments: ordered.map((row) => ({
+
+    // Group by sessionId. A session may serve several stations (and several NGOs),
+    // so its rows collapse into one entry with a `stations` list.
+    const grouped = new Map();
+    for (const row of ordered) {
+      const ngoName = ngos.get(row.ngo_id)?.name || null;
+      const station = {
+        ngoId: row.ngo_id,
+        ngoName,
+        station: row.station,
+        viaTemporaryAccess: isTemporary(row),
+      };
+      const entry = grouped.get(row.session_id);
+      if (entry) {
+        entry.stations.push(station);
+        entry.viaTemporaryAccess = entry.viaTemporaryAccess && station.viaTemporaryAccess;
+        continue;
+      }
+      grouped.set(row.session_id, {
         sessionId: row.session_id,
         sessionName: row.session_name,
-        station: row.station,
-        ngoId: row.ngo_id,
-        ngoName: ngos.get(row.ngo_id)?.name || null,
-        viaTemporaryAccess: isTemporary(row),
-      })),
+        stations: [station],
+        viaTemporaryAccess: station.viaTemporaryAccess,
+      });
+    }
+
+    const assignments = [...grouped.values()].map((entry) => {
+      const [primary] = entry.stations;
+      return {
+        ...entry,
+        // Back-compat for callers that read the single-station fields.
+        station: primary.station,
+        ngoId: primary.ngoId,
+        ngoName: primary.ngoName,
+        stationLabel: [...new Set(entry.stations.map((row) => row.station))].join(' · '),
+      };
     });
+
+    return res.json({ assignments });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not load your assignment' });
   }

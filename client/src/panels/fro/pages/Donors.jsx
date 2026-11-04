@@ -389,8 +389,9 @@ export default function Donors() {
                       e.stopPropagation();
                       void openLeadWhatsApp(
                         navigate,
-                        { station: d.station, ngoId: d.ngo_id, mobile: d.donor_mobile },
+                        { station: d.station, ngoId: d.ngo_id, mobile: d.donor_mobile, donorName: d.donor_name },
                         msg => toast(msg, 'error'),
+                        msg => toast(msg, 'info'),
                       );
                     }}
                       title="Chat on WhatsApp"

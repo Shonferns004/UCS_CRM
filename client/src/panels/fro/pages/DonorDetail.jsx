@@ -285,8 +285,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
                 <button onClick={() => {
                   void openLeadWhatsApp(
                     navigate,
-                    { station: d.station || data?.station, ngoId: d.ngo_id || data?.ngo_id, mobile: d.donor_mobile },
+                    { station: d.station || data?.station, ngoId: d.ngo_id || data?.ngo_id, mobile: d.donor_mobile, donorName: d.donor_name },
                     msg => toast(msg, 'error'),
+                    msg => toast(msg, 'info'),
                   );
                 }} title="Chat on WhatsApp"
                   aria-label="Chat on WhatsApp"

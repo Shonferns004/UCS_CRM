@@ -11,11 +11,13 @@
 export type SessionNameIssue = 'empty' | 'format' | 'too-short' | 'too-long' | 'duplicate';
 
 /**
- * Letters (case is the operator's), digits and hyphens. Credentials are keyed by the session UUID,
- * so the name is only a label; the format stays narrow to keep it readable and URL/query-safe.
+ * The name is a free-text label: symbols, spaces, punctuation and non-Latin scripts are all
+ * allowed (operators name sessions after the person or station that owns the number). Credentials
+ * are keyed by the session UUID and routes use the id, so the label never has to be URL-safe.
+ * Only line breaks and control characters are refused: they break single-line logs and cards.
  */
-const NAME_FORMAT = /^[a-zA-Z0-9-]+$/;
-const NAME_MIN_LENGTH = 3;
+const NAME_FORMAT = /^[^\u0000-\u001F\u007F]+$/u;
+const NAME_MIN_LENGTH = 1;
 const NAME_MAX_LENGTH = 50;
 
 /**
