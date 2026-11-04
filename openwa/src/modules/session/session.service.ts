@@ -36,6 +36,7 @@ import {
   SessionProxyResponseDto,
   SessionResponseDto,
   UpdateSessionProxyDto,
+  UpdateSessionDetailsDto,
   projectSessionProxy,
 } from './dto';
 import { EngineRegistry } from '../../engine/engine-registry.service';
@@ -107,6 +108,12 @@ export const AUTOSTART_SHUTDOWN_WAIT_MS = 5_000;
 /** List window for {@link SessionService.findAll}, plus an optional exact session-name filter. */
 export interface SessionListOptions extends ListOptions {
   name?: string;
+}
+
+/** Trim the create form's Android label; empty is the same as absent. */
+function normalizeAndroidName(value?: string | null): string | null {
+  const name = String(value ?? '').trim();
+  return name || null;
 }
 
 /**
@@ -456,6 +463,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
 
     const session = this.sessionRepository.create({
       name: dto.name,
+      androidName: normalizeAndroidName(dto.androidName),
       config: dto.config || {},
       proxyUrl: dto.proxyUrl || null,
       proxyType: dto.proxyType || null,
@@ -497,6 +505,55 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
     });
 
     return saved;
+  }
+
+  /**
+   * Edit a session's label fields: its display name and/or the Android phone/account name entered at
+   * creation. Both are labels only — both engines key their credential directories by the session
+   * UUID — so no profile moves and no restart is needed. Name uniqueness is the same as create (the
+   * column is UNIQUE), including the check-then-save race.
+   */
+  async updateDetails(id: string, dto: UpdateSessionDetailsDto): Promise<Session> {
+    const session = await this.sessionRepository.findOne({ where: { id } });
+    if (!session) {
+      throw new NotFoundException(`Session with id '${id}' not found`);
+    }
+    if (dto.name === undefined && dto.androidName === undefined) {
+      throw new BadRequestException('Supply name or androidName');
+    }
+
+    let changed = false;
+    if (dto.name !== undefined && dto.name !== session.name) {
+      const existing = await this.sessionRepository.findOne({ where: { name: dto.name } });
+      if (existing && existing.id !== id) {
+        throw new ConflictException(`Session with name '${dto.name}' already exists`);
+      }
+      session.name = dto.name;
+      changed = true;
+    }
+    if (dto.androidName !== undefined) {
+      const androidName = normalizeAndroidName(dto.androidName);
+      if (androidName !== session.androidName) {
+        session.androidName = androidName;
+        changed = true;
+      }
+    }
+    if (!changed) return this.attachRuntimeState(session);
+
+    try {
+      await this.sessionRepository.save(session);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictException(`Session with name '${session.name}' already exists`);
+      }
+      throw err;
+    }
+    this.logger.log(`Session updated: ${session.name}`, {
+      sessionId: id,
+      action: 'update_details',
+      androidName: session.androidName,
+    });
+    return this.attachRuntimeState(session);
   }
 
   async findAll(allowedSessions?: string[] | null, opts: SessionListOptions = {}): Promise<Session[]> {

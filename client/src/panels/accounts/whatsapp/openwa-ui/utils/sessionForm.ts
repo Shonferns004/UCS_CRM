@@ -10,8 +10,11 @@
 /** Everything wrong with a proposed session name. Empty when it is acceptable. */
 export type SessionNameIssue = 'empty' | 'format' | 'too-short' | 'too-long' | 'duplicate';
 
-/** Names become on-disk directory names, so the format is deliberately narrow. */
-const NAME_FORMAT = /^[a-z0-9-]+$/;
+/**
+ * Letters (case is the operator's), digits and hyphens. Credentials are keyed by the session UUID,
+ * so the name is only a label; the format stays narrow to keep it readable and URL/query-safe.
+ */
+const NAME_FORMAT = /^[a-zA-Z0-9-]+$/;
 const NAME_MIN_LENGTH = 3;
 const NAME_MAX_LENGTH = 50;
 
