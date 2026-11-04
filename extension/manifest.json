@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "UCS Business Collector",
+  "version": "1.3.0",
+  "description": "Collect publicly visible Google Maps search results and save them to UCS CRM Business Finder.",
+  "permissions": ["storage", "activeTab", "tabs", "scripting"],
+  "host_permissions": [
+    "https://www.google.com/maps/*",
+    "https://maps.google.com/*",
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "UCS Business Collector"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps/*",
+        "https://maps.google.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>UCS Business Collector</title>
+  <style>
+    body { font-family: system-ui, sans-serif; width: 360px; padding: 12px; }
+    h3 { margin: 0 0 8px; }
+    input { width: 100%; padding: 6px; margin-bottom: 8px; box-sizing: border-box; }
+    button { padding: 6px 10px; margin-right: 6px; cursor: pointer; }
+    .item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; margin-bottom: 6px; font-size: 12px; }
+    .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    #status { font-size: 12px; color: #555; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h3>UCS Business Collector</h3>
+  <input id="keyword" placeholder="Keyword (e.g. Computer Classes)" />
+  <input id="location" placeholder="Location (e.g. Kandivali, Mumbai)" />
+  <input id="targetCount" type="number" min="0" value="100" placeholder="Max results (0 = collect all)" />
+  <div class="row">
+    <button id="searchBtn">Search Google Maps</button>
+    <button id="saveBtn">Save to CRM</button>
+    <button id="testBtn">Test Connection</button>
+  </div>
+  <div id="status"></div>
+  <div id="list" style="margin-top:10px; max-height:320px; overflow:auto;"></div>
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

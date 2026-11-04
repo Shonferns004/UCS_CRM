@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /><title>UCS Collector Options</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:520px;margin:40px auto;padding:16px;">
+  <h2>UCS Collector Settings</h2>
+  <script src="config.js"></script>
+  <label>CRM API Base URL<br/><input id="apiBase" style="width:100%;padding:6px;" placeholder="http://localhost:5000/api" /></label><br/><br/>
+  <label>JWT Token (accounts)<br/><input id="token" style="width:100%;padding:6px;" placeholder="Bearer token" /></label><br/><br/>
+  <label><input type="checkbox" id="autoSave" checked /> Auto-save collected results to CRM</label><br/><br/>
+  <label>Max results per Google Maps search (0 = collect all)<br/><input id="targetCount" type="number" min="0" value="100" style="width:100%;padding:6px;" /></label><br/><br/>
+  <button id="save">Save</button>
+  <div id="msg" style="margin-top:8px;color:green;"></div>
+  <script src="options.js"></script>
+  <script>
+    document.getElementById("save").addEventListener("click", async () => {
+      const autoSave = document.getElementById("autoSave").checked;
+      await chrome.storage.local.set({ autoSave });
+    });
+    chrome.storage.local.get("autoSave", (d) => {
+      if (d.autoSave !== undefined) document.getElementById("autoSave").checked = Boolean(d.autoSave);
+    });
+  </script>
+</body>
+</html>
