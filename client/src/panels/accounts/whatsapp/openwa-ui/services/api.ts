@@ -50,6 +50,8 @@ export interface SessionProxy {
 export interface CreateSessionOptions {
   proxyUrl?: string;
   proxyType?: SessionProxyType;
+  /** A name for the Android phone/account this session will link, so several accounts on one phone differ. */
+  androidName?: string;
 }
 
 export interface Session {
@@ -74,6 +76,8 @@ export interface Session {
    */
   engineLoaded?: boolean;
   phone?: string | null;
+  /** The Android phone/account name entered at creation; `phone` is what WhatsApp reports after pairing. */
+  androidName?: string | null;
   pushName?: string | null;
   connectedAt?: string | null;
   lastActive?: string | null;
@@ -976,7 +980,13 @@ export const sessionApi = {
       body: JSON.stringify({
         name,
         ...(options?.proxyUrl ? { proxyUrl: options.proxyUrl } : {}),
+        ...(options?.androidName ? { androidName: options.androidName } : {}),
       }),
+    }),
+  updateDetails: (id: string, data: { name?: string; androidName?: string | null }) =>
+    request<Session>(`/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
     }),
   delete: (id: string) => request<void>(`/sessions/${id}`, { method: 'DELETE' }),
   getConfig: (id: string) => request<SessionConfig>(`/sessions/${id}/config`),

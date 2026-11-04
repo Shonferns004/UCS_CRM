@@ -33,6 +33,14 @@ export class Session {
   @Column({ type: 'varchar', length: 20, nullable: true })
   phone!: string | null;
 
+  /**
+   * A name for the Android phone/account this session is meant to link, entered at creation (e.g.
+   * "Office Android" or "Redmi — accounts"). A label, not live state: `phone` is what WhatsApp
+   * reports after pairing. Lets several accounts on one phone be told apart before either connects.
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true, transformer: NulFreeTransformer })
+  androidName!: string | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true, transformer: NulFreeTransformer })
   pushName!: string | null;
 
