@@ -450,7 +450,7 @@
       "title": "Create New Session",
       "label": "Session Name",
       "placeholder": "e.g., Marketing-Bot",
-      "invalidChars": "Invalid characters. Only letters, numbers, and hyphens allowed.",
+      "invalidChars": "The name cannot contain line breaks or control characters.",
       "tooLong": "Name must be 50 characters or less ({{length}}/50).",
       "duplicate": "Session with this name already exists.",
       "androidName": "Android name",
@@ -459,7 +459,7 @@
       "successDesc": "Session \"{{name}}\" created successfully",
       "errorTitle": "Create Failed",
       "errorDefault": "Failed to create session",
-      "tooShort": "Name must be at least 3 characters."
+      "tooShort": "Name cannot be empty."
     },
     "rename": {
       "title": "Edit Session",

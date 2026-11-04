@@ -27,13 +27,27 @@ export interface OpenwaStation {
   login_id?: string | null;
 }
 
+/** One station a WhatsApp number serves. A number can serve several. */
+export interface MyAssignmentStation {
+  ngoId: string;
+  ngoName?: string | null;
+  station: string;
+  /** True when this station is reachable only through a live temporary grant. */
+  viaTemporaryAccess?: boolean;
+}
+
 export interface MyAssignment {
   sessionId: string;
   sessionName?: string | null;
+  /** Every station this number serves. One session = one WhatsApp, so it appears once. */
+  stations?: MyAssignmentStation[];
+  /** First station, kept for callers that predate the grouped response. */
   station: string;
   ngoId: string;
   ngoName?: string | null;
-  /** True when the session is reachable through a live temporary station grant. */
+  /** Station names joined for a tab label, e.g. "BFD-1 · BOD-1". */
+  stationLabel?: string;
+  /** True when every station on this number is a temporary grant. */
   viaTemporaryAccess?: boolean;
 }
 

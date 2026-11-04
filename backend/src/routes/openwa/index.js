@@ -89,13 +89,15 @@ function sessionId(req) {
 
 function normalizeSessionName(value) {
   if (typeof value !== 'string') return '';
-  return value
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^a-zA-Z0-9-]/g, '')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
+  // A session name is a free-text label (the gateway routes by UUID). Keep symbols, spaces and
+  // non-Latin scripts; only strip control characters and collapse runs of whitespace so the
+  // name stays a single readable line.
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  // Count code points, not UTF-16 units: cutting an emoji in half leaves a lone surrogate.
+  return Array.from(cleaned).slice(0, 50).join('');
 }
 
 router.use(authenticate, requireWhatsAppAdmin);

@@ -21,17 +21,22 @@ export default function StationWhatsApp() {
       .then(data => {
         if (!alive) return;
         const list = data?.assignments || [];
-        // One session can be shared with several stations, and a worker may run several
-        // NGOs at the same station, so match BOTH the session and the station from the tab.
-        const found =
-          (wantedSession &&
-            list.find(
-              item => item.sessionId === wantedSession && (!wantedStation || item.station === wantedStation),
-            )) ||
-          list[0] ||
-          null;
+        // A number can serve several stations; the query's station is only a hint, so match the
+        // session first and accept the station from its `stations` list.
+        const servesStation = item =>
+          !wantedStation ||
+          (item.stations?.some(row => row.station === wantedStation) ?? item.station === wantedStation);
+        const found = wantedSession
+          ? list.find(item => item.sessionId === wantedSession && servesStation(item)) || null
+          : list.find(servesStation) || list[0] || null;
         setAssignment(found);
-        if (!found) setError('No WhatsApp session is assigned to your station yet.');
+        if (!found) {
+          setError(
+            wantedSession
+              ? 'This WhatsApp is no longer assigned to you.'
+              : 'No WhatsApp session is assigned to your station yet.',
+          );
+        }
       })
       .catch(err => {
         if (alive) setError(err?.message || 'Could not load your WhatsApp assignment.');

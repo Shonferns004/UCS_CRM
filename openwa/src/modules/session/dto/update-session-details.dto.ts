@@ -9,18 +9,20 @@ import { ToStrictString } from '../../../common/utils/strict-boolean';
  */
 export class UpdateSessionDetailsDto {
   @ApiPropertyOptional({
-    description: 'New unique name for the session (letters, digits and hyphens only).',
-    example: 'Accounts-Bot',
-    minLength: 3,
+    description:
+      'New unique label for the session. Free text: symbols, spaces, punctuation and non-Latin ' +
+      'scripts are allowed. Line breaks and control characters are refused.',
+    example: 'Accounts · BOD-4',
+    minLength: 1,
     maxLength: 50,
   })
   @IsOptional()
   @ToStrictString()
   @IsString()
-  @MinLength(3)
+  @MinLength(1)
   @MaxLength(50)
-  @Matches(/^[a-zA-Z0-9-]+$/, {
-    message: 'Session name can only contain letters, numbers, and hyphens',
+  @Matches(/^(?=.*\S)[^\u0000-\u001F\u007F]+$/u, {
+    message: 'Session name must not be blank and cannot contain line breaks or control characters',
   })
   name?: string;
 

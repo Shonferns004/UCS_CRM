@@ -1098,7 +1098,8 @@ export function Sessions() {
               type="text"
               placeholder={t('sessions.create.placeholder')}
               value={newSessionName}
-              onChange={e => setNewSessionName(e.target.value.replace(/\s+/g, '-'))}
+              maxLength={50}
+              onChange={e => setNewSessionName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !isComposingKey(e.nativeEvent) && !createDisabled && handleCreate()}
             />
             {nameIssues.includes('format') && <p className="input-error">{t('sessions.create.invalidChars')}</p>}
@@ -1180,7 +1181,8 @@ export function Sessions() {
               type="text"
               placeholder={t('sessions.create.placeholder')}
               value={renameName}
-              onChange={e => setRenameName(e.target.value.replace(/\s+/g, '-'))}
+              maxLength={50}
+              onChange={e => setRenameName(e.target.value)}
               onKeyDown={e =>
                 e.key === 'Enter' && !isComposingKey(e.nativeEvent) && !renameDisabled && void handleRename()
               }

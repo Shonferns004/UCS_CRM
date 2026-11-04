@@ -7757,6 +7757,7 @@ export const getMyDisposedLeads = async (req, res) => {
           assignment_id: a.id,
           station: a.station || '',
           batch_type: a.batch_type || '',
+          is_new: a.is_new,
           donor_name: d.name || 'Unknown',
           donor_mobile: d.mobile_number || '',
           donor_city: d.city || '',

@@ -5,7 +5,8 @@ import { plainToInstance } from 'class-transformer';
 import { GLOBAL_VALIDATION_OPTIONS } from '../../../config/app-validation';
 import { CreateSessionDto } from './create-session.dto';
 
-// docs/06: the session name is 3 to 50 characters of ASCII letters, digits and hyphens.
+// The session name is a free-text label: only emptiness, length and control characters are refused,
+// so an operator can name a number after a person or station with the punctuation they use.
 describe('CreateSessionDto name validation', () => {
   const failing = (name: unknown): string[] =>
     validateSync(
@@ -14,21 +15,24 @@ describe('CreateSessionDto name validation', () => {
     ).map(error => error.property);
 
   it.each([
-    ['the shortest name, 3 characters', 'abc'],
+    ['a single character', 'a'],
     ['the longest name, 50 characters', 'a'.repeat(50)],
     ['letters, digits and hyphens', 'My-Bot-01'],
+    ['spaces', 'my bot'],
+    ['an underscore and a dot', 'my_bot.v2'],
+    ['symbols and a slash', 'Hiral 1 · BFD/BOD & co.'],
+    ['a non-ASCII letter', 'bot-é'],
+    ['a non-Latin script', 'हीरल-1'],
+    ['an emoji', '🔥-1'],
   ])('accepts %s', (_label, name) => {
     expect(failing(name)).toEqual([]);
   });
 
   it.each([
-    ['2 characters', 'ab'],
     ['51 characters', 'a'.repeat(51)],
     ['an empty name', ''],
-    ['an underscore', 'my_bot'],
-    ['a space', 'my bot'],
-    ['a dot', 'my.bot'],
-    ['a non-ASCII letter', 'bot-é'],
+    ['only spaces', '   '],
+    ['a control character', 'line\nbreak'],
     ['an object instead of a string', { value: 'abc' }],
   ])('rejects %s', (_label, name) => {
     expect(failing(name)).toEqual(['name']);

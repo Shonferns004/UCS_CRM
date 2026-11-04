@@ -218,8 +218,8 @@ export default function OpenWAEnginePanel() {
               type="text"
               value={newEngineName}
               onChange={(e) => setNewEngineName(e.target.value)}
-              placeholder="e.g. sales-support"
-              maxLength={64}
+              placeholder="e.g. Hiral 1 · BFD/BOD"
+              maxLength={50}
             />
             <div className="openwa-modal-footer">
               <button
