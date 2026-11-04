@@ -1,4 +1,5 @@
 export * from './create-session.dto';
+export * from './update-session-details.dto';
 export * from './session-config.dto';
 export * from './session-proxy.dto';
 export * from './session-response.dto';

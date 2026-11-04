@@ -24,6 +24,20 @@ export class CreateSessionDto {
 
   @ApiPropertyOptional({
     description:
+      'A name for the Android phone/account this session is meant to link, entered before pairing so ' +
+      'several accounts on one phone can be told apart (e.g. "Office Android"). A label only; the ' +
+      'number WhatsApp actually reports after pairing is `phone`, which is separate.',
+    example: 'Office Android',
+    maxLength: 100,
+  })
+  @IsOptional()
+  @ToStrictString()
+  @IsString()
+  @MaxLength(100)
+  androidName?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Session configuration. Only three keys are read: autoRejectCalls (boolean, default false, ' +
       'Baileys engine only) rejects incoming calls as soon as they ring, and the call.received event is still emitted ' +
       'first; maxReconnectAttempts (0-20, default unlimited) caps consecutive reconnects (the count ' +

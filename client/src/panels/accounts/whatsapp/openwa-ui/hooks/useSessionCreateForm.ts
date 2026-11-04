@@ -14,6 +14,9 @@ export interface SessionCreateForm {
   setShowCreateModal: (open: boolean) => void;
   newSessionName: string;
   setNewSessionName: (name: string) => void;
+  /** A name for the Android phone/account the session will link, so accounts on one phone differ. */
+  androidName: string;
+  setAndroidName: (value: string) => void;
   useProxy: boolean;
   setUseProxy: (enabled: boolean) => void;
   proxyUrl: string;
@@ -34,6 +37,7 @@ export function useSessionCreateForm({ onCreated, onFailed }: UseSessionCreateFo
   const toast = useToast();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
+  const [androidName, setAndroidName] = useState('');
   const [useProxy, setUseProxy] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('');
   const [creating, setCreating] = useState(false);
@@ -56,7 +60,10 @@ export function useSessionCreateForm({ onCreated, onFailed }: UseSessionCreateFo
   // cancelled create otherwise leaves a credentialed URL in memory for the life of the page, and
   // prefills it the next time the modal opens.
   useEffect(() => {
-    if (!showCreateModal) resetProxyFields();
+    if (!showCreateModal) {
+      resetProxyFields();
+      setAndroidName('');
+    }
   }, [showCreateModal]);
 
   const handleCreate = async () => {
@@ -67,12 +74,13 @@ export function useSessionCreateForm({ onCreated, onFailed }: UseSessionCreateFo
     const submittedAt = draftEdits.current;
     try {
       setCreating(true);
-      const newSession = await sessionApi.create(
-        newSessionName,
-        useProxy && proxyUrl.trim() ? { proxyUrl: proxyUrl.trim() } : undefined,
-      );
+      const newSession = await sessionApi.create(newSessionName, {
+        ...(useProxy && proxyUrl.trim() ? { proxyUrl: proxyUrl.trim() } : {}),
+        ...(androidName.trim() ? { androidName: androidName.trim() } : {}),
+      });
       if (draftEdits.current === submittedAt) {
         setNewSessionName('');
+        setAndroidName('');
         resetProxyFields();
         setShowCreateModal(false);
       }
@@ -95,6 +103,8 @@ export function useSessionCreateForm({ onCreated, onFailed }: UseSessionCreateFo
     },
     newSessionName,
     setNewSessionName: edited(setNewSessionName),
+    androidName,
+    setAndroidName: edited(setAndroidName),
     useProxy,
     setUseProxy: edited(setUseProxy),
     proxyUrl,

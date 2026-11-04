@@ -924,3 +924,640 @@
 .sessions-page .proxy-form-section input[type='text']:focus {
   border-color: var(--focus-ring);
 }
+
+/* ---------------------------------------------------------------------------
+   Portaled session modals.
+   The shared Modal renders into document.body, outside .sessions-page, so the
+   page-scoped rules above never reach it. These rules hang off the card's own
+   class instead.
+   --------------------------------------------------------------------------- */
+
+.modal.session-create-modal {
+  max-width: 540px;
+}
+
+.session-create-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-create-modal .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.session-create-modal .form-field:last-child {
+  margin-bottom: 0;
+}
+
+.session-create-modal .form-field > label {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.session-create-modal input,
+.session-create-modal select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-light);
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.session-create-modal input:focus,
+.session-create-modal select:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  background: var(--bg-white);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.session-create-modal input::placeholder {
+  color: var(--text-muted);
+}
+
+.session-create-modal .form-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-light);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.session-create-modal .form-toggle input[type='checkbox'] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.session-create-modal .input-error {
+  margin: 0;
+}
+
+.session-create-modal .input-hint {
+  margin: 0;
+}
+
+/* Session details: separated label/value cards instead of run-together text. */
+.modal.session-detail-modal {
+  max-width: 640px;
+}
+
+.session-detail-modal .detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.session-detail-modal .detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 0.875rem;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.session-detail-modal .detail-label {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.session-detail-modal .detail-value {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.session-detail-modal .detail-value.mono {
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  background: var(--bg-white);
+  padding: 0.375rem 0.5rem;
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.session-detail-modal .detail-item-toggle {
+  grid-column: 1 / -1;
+}
+
+.session-detail-modal .detail-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.session-detail-modal .detail-hint {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.session-detail-modal .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: fit-content;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.session-detail-modal .status-badge.ready {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: transparent;
+  color: var(--success-text);
+}
+
+.session-detail-modal .status-badge.connected {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: transparent;
+  color: var(--success-text);
+}
+
+.session-detail-modal .status-badge.qr_ready,
+.session-detail-modal .status-badge.initializing,
+.session-detail-modal .status-badge.authenticating {
+  background: rgba(234, 179, 8, 0.14);
+  border-color: transparent;
+  color: var(--warning-text);
+}
+
+.session-detail-modal .status-badge.failed,
+.session-detail-modal .status-badge.action_required {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: transparent;
+  color: var(--error-text);
+}
+
+@media (max-width: 600px) {
+  .session-detail-modal .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Session card refresh: clearer header with an account glyph, a calmer info
+   list, and a two-column action grid so six actions no longer wrap raggedly.
+   --------------------------------------------------------------------------- */
+
+.sessions-page .sessions-grid {
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 1.25rem;
+}
+
+.sessions-page .session-card {
+  border-radius: 16px;
+  padding: 1.25rem;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.sessions-page .session-card:hover {
+  border-color: rgba(37, 211, 102, 0.35);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.09);
+  transform: translateY(-1px);
+}
+
+.sessions-page .card-header {
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sessions-page .card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.sessions-page .card-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  color: var(--success-text);
+  background: linear-gradient(135deg, rgba(37, 211, 102, 0.2), rgba(37, 211, 102, 0.06));
+}
+
+.sessions-page .card-title-text {
+  min-width: 0;
+}
+
+.sessions-page .card-eyebrow {
+  display: block;
+  margin-bottom: 0.125rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sessions-page .card-header h3 {
+  max-width: 170px;
+  font-size: 1.0625rem;
+  line-height: 1.25;
+}
+
+.sessions-page .card-header .status-pill {
+  flex-shrink: 0;
+}
+
+.sessions-page .session-info {
+  margin-bottom: 1rem;
+}
+
+.sessions-page .info-row {
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+}
+
+.sessions-page .info-label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.sessions-page .info-value {
+  font-size: 0.8125rem;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+.sessions-page .card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border);
+}
+
+.sessions-page .btn-action {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border-radius: 8px;
+  background: var(--bg-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessions-page .btn-action.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.sessions-page .btn-action.primary:hover:not(:disabled) {
+  background: var(--primary-hover, var(--primary));
+  border-color: var(--primary-hover, var(--primary));
+  color: #0f172a;
+}
+
+.sessions-page .btn-action.delete-action {
+  grid-column: 1 / -1;
+  justify-content: center;
+}
+
+@media (max-width: 700px) {
+  .sessions-page .sessions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sessions-page .card-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.sessions-page .ngo-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 150px;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #4338ca;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Compact clickable card: icon-only actions, Android name above the session name. */
+.sessions-page .session-card {
+  padding: 1rem;
+  cursor: pointer;
+}
+
+.sessions-page .session-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.sessions-page .card-header {
+  margin-bottom: 0.75rem;
+}
+
+.sessions-page .card-subtitle {
+  display: block;
+  max-width: 170px;
+  margin-bottom: 0.125rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessions-page .info-row {
+  padding: 0.35rem 0;
+}
+
+.sessions-page .card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border);
+}
+
+.sessions-page .icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-white);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.sessions-page .icon-action:hover:not(:disabled) {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+
+.sessions-page .icon-action.danger {
+  color: var(--error-text);
+}
+
+.sessions-page .icon-action.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.sessions-page .icon-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+   QR / pairing modal. The shared Modal is portaled outside .sessions-page, so
+   these rules hang off the card's .qr-modal class instead of the page scope.
+   --------------------------------------------------------------------------- */
+
+.modal.qr-modal {
+  max-width: 560px;
+}
+
+.qr-modal .modal-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.qr-modal .session-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.qr-modal .modal-body {
+  padding: 1.25rem 1.5rem 1.5rem;
+  text-align: center;
+}
+
+.qr-modal .pairing-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  max-width: 420px;
+  margin: 0 auto 1.25rem;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.qr-modal .pairing-tab-btn {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.qr-modal .pairing-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.qr-modal .pairing-tab-btn.active {
+  background: var(--bg-white);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.qr-modal .qr-code-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  margin: 0 auto 1.25rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+.qr-modal .qr-code-frame img {
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.qr-modal .qr-instructions {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+  text-align: left;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.qr-modal .qr-step {
+  margin: 0;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.qr-modal .qr-step:last-child {
+  border-bottom: none;
+}
+
+.qr-modal .qr-step strong {
+  color: var(--text-primary);
+}
+
+.qr-modal .qr-auto-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  margin: 0.875rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.qr-modal .pairing-container {
+  text-align: left;
+}
+
+.qr-modal .pairing-warning {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--warning-text);
+  background: rgb(245 158 11 / 0.12);
+}
+
+.qr-modal .pairing-error {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--error-text);
+  background: rgb(239 68 68 / 0.12);
+}
+
+.qr-modal .pairing-form {
+  text-align: left;
+}
+
+.qr-modal .pairing-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.qr-modal .pairing-input {
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-light);
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.qr-modal .pairing-input:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  background: var(--bg-white);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.qr-modal .pairing-code-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  padding: 1rem 2rem;
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--primary-text);
+  background: var(--bg-light);
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.qr-modal .pairing-instructions-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}

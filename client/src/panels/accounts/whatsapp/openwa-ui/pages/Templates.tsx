@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Copy, FileText, Loader2, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, Copy, FileText, Filter, Loader2, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { type MessageTemplate, type TemplatePayload } from '../services/api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRole } from '../hooks/useRole';
@@ -11,7 +11,7 @@ import {
   useDeleteTemplateMutation,
   useUpdateTemplateMutation,
 } from '../hooks/queries';
-import { useNgoTemplates } from '../hooks/useNgoTemplates';
+import { useAllNgoTemplates, useNgoTemplates } from '../hooks/useNgoTemplates';
 import { openwaAssignmentsApi } from '../services/crmAssignments';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
@@ -112,14 +112,22 @@ export function Templates() {
   });
   const ngos = ngoQuery.data?.ngos || [];
   const ngosFailed = ngoQuery.isError && ngos.length === 0;
+  // '' means the "All NGOs" filter; a non-empty id narrows the library to one NGO.
   const [selectedNgoId, setSelectedNgoId] = useState('');
+  // The NGO a new template is written for. Kept separately from the filter: with "All" selected the
+  // library shows every NGO while the editor still needs one target.
+  const [targetNgoId, setTargetNgoId] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const specificTemplates = useNgoTemplates(selectedNgoId);
+  const allTemplates = useAllNgoTemplates(selectedNgoId ? [] : ngos.map(ngo => ngo.id));
   const {
     templates,
     isLoading: loadingTemplates,
     error: templatesError,
     refetch: refetchTemplates,
-  } = useNgoTemplates(selectedNgoId);
-  const selectedNgo = ngos.find(ngo => ngo.id === selectedNgoId);
+  } = selectedNgoId ? specificTemplates : allTemplates;
+  const targetNgo = ngos.find(ngo => ngo.id === targetNgoId);
 
   const [form, setForm] = useState<TemplateForm>(emptyForm);
   // The draft on screen now, read by a save that resolves after the operator may have moved on.
@@ -180,18 +188,40 @@ export function Templates() {
   // reopening it then would load them into the editor to be saved back. Every other row is current.
   const updatingId = updateMutation.isPending ? updateMutation.variables?.id : undefined;
 
-  // Select the first NGO, and again once the selected one is gone: a stale id matches no
-  // option, so the select would show another NGO while every read still went to the old one.
+  // Keep the create target valid as the NGO list loads or changes. The filter itself defaults to
+  // All, so nothing is forced into selectedNgoId here.
   useEffect(() => {
+    setTargetNgoId(current => (ngos.some(ngo => ngo.id === current) ? current : ngos[0]?.id ?? ''));
+  }, [ngos]);
+
+  // A filter id whose NGO disappeared falls back to All; the draft resets as an NGO switch did.
+  useEffect(() => {
+    if (!selectedNgoId) return;
     if (ngos.some(ngo => ngo.id === selectedNgoId)) return;
-    const next = ngos[0]?.id ?? '';
-    if (next === selectedNgoId) return;
-    setSelectedNgoId(next);
+    setSelectedNgoId('');
+    setFilterOpen(false);
     draftRef.current += 1;
     setForm(emptyForm);
     setEditingTemplate(null);
     setPreviewValues({});
   }, [selectedNgoId, ngos]);
+
+  // Close the filter menu on an outside click or Escape.
+  useEffect(() => {
+    if (!filterOpen) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) setFilterOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFilterOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [filterOpen]);
 
   useEffect(() => {
     // Built as own entries: an assignment to `__proto__` would set the prototype instead of a value.
@@ -208,6 +238,7 @@ export function Templates() {
   const openEdit = (template: MessageTemplate) => {
     draftRef.current += 1;
     setEditingTemplate(template);
+    setTargetNgoId(template.ngoId || ngos[0]?.id || '');
     setForm({
       name: template.name,
       header: template.header || '',
@@ -250,7 +281,8 @@ export function Templates() {
   };
 
   const handleSave = async () => {
-    if (!selectedNgoId || !form.name.trim() || !form.body.trim()) return;
+    const saveNgoId = editingTemplate?.ngoId || targetNgoId;
+    if (!saveNgoId || !form.name.trim() || !form.body.trim()) return;
     if (isMediaTemplate && (!mediaUrlValue || mediaUrlInvalid)) return;
     const savedForm = form;
     const draft = draftRef.current;
@@ -259,7 +291,7 @@ export function Templates() {
       let saved: MessageTemplate;
       if (editingTemplate) {
         const result = await updateMutation.mutateAsync({
-          ngoId: editingTemplate.ngoId || selectedNgoId,
+          ngoId: editingTemplate.ngoId || saveNgoId,
           id: editingTemplate.id,
           data: toPayload(form),
         });
@@ -267,7 +299,7 @@ export function Templates() {
         toast.success(t('templates.toasts.updated'));
       } else {
         const result = await createMutation.mutateAsync({
-          ngoId: selectedNgoId,
+          ngoId: saveNgoId,
           data: toPayload(form),
         });
         saved = result.template;
@@ -295,7 +327,7 @@ export function Templates() {
     const draft = draftRef.current;
     try {
       await deleteMutation.mutateAsync({
-        ngoId: deleteTarget.ngoId || selectedNgoId,
+        ngoId: deleteTarget.ngoId || targetNgoId,
         id: deleteTarget.id,
       });
       void refetchTemplates();
@@ -330,26 +362,6 @@ export function Templates() {
       <PageHeader
         title={t('templates.title')}
         subtitle={t('templates.subtitleNgo', 'Create reusable message templates for each NGO')}
-        actions={
-          <select
-            className="templates-session-select"
-            aria-label="NGO"
-            value={selectedNgoId}
-            onChange={event => {
-              setSelectedNgoId(event.target.value);
-              resetForm();
-            }}
-          >
-            {ngos.length === 0 && (
-              <option value="">{t(ngosFailed ? 'dashboard.loadError' : 'No active NGOs')}</option>
-            )}
-            {ngos.map(ngo => (
-              <option key={ngo.id} value={ngo.id}>
-                {ngo.name}
-              </option>
-            ))}
-          </select>
-        }
       />
 
       {ngosFailed ? (
@@ -372,10 +384,63 @@ export function Templates() {
                 <h2>{t('templates.savedTitle')}</h2>
                 <span>{t('templates.count', { count: templates.length })}</span>
               </div>
-              <button className="btn-primary templates-new-btn" onClick={resetForm} disabled={!canWrite}>
-                <Plus size={16} />
-                {t('templates.newTemplate')}
-              </button>
+              <div className="templates-library-actions">
+                <button
+                  type="button"
+                  className="btn-primary templates-new-btn"
+                  onClick={resetForm}
+                  disabled={!canWrite}
+                  title={t('templates.newTemplate')}
+                  aria-label={t('templates.newTemplate')}
+                >
+                  <Plus size={14} />
+                </button>
+                <div className="templates-filter" ref={filterRef}>
+                  <button
+                    type="button"
+                    className={`icon-btn templates-filter-btn ${selectedNgoId ? 'active' : ''}`}
+                    title="Filter by NGO"
+                    aria-label="Filter by NGO"
+                    aria-haspopup="menu"
+                    aria-expanded={filterOpen}
+                    onClick={() => setFilterOpen(open => !open)}
+                  >
+                    <Filter size={14} />
+                  </button>
+                  {filterOpen && (
+                    <div className="templates-filter-menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={!selectedNgoId ? 'active' : ''}
+                        onClick={() => {
+                          setSelectedNgoId('');
+                          setFilterOpen(false);
+                          resetForm();
+                        }}
+                      >
+                        All NGOs
+                      </button>
+                      {ngos.map(ngo => (
+                        <button
+                          key={ngo.id}
+                          type="button"
+                          role="menuitem"
+                          className={selectedNgoId === ngo.id ? 'active' : ''}
+                          onClick={() => {
+                            setSelectedNgoId(ngo.id);
+                            setTargetNgoId(ngo.id);
+                            setFilterOpen(false);
+                            resetForm();
+                          }}
+                        >
+                          {ngo.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="templates-search">
@@ -388,7 +453,7 @@ export function Templates() {
             </div>
 
             {/* No NGO selected yet means the first-NGO effect has not run: the read is still to start. */}
-            {loadingTemplates || !selectedNgoId ? (
+            {loadingTemplates ? (
               <div className="templates-loading-inline">
                 <Loader2 className="animate-spin" size={24} />
               </div>
@@ -438,6 +503,11 @@ export function Templates() {
                         disabled={template.id === updatingId}
                         type="button"
                       >
+                        {!selectedNgoId && (
+                          <span className="template-list-ngo">
+                            {ngos.find(ngo => ngo.id === template.ngoId)?.name || '—'}
+                          </span>
+                        )}
                         <span className="template-list-title">{template.name}</span>
                         <span className="template-list-body">{template.body}</span>
                         <span className="template-list-meta">
@@ -468,8 +538,18 @@ export function Templates() {
             <div className="template-editor-header">
               <div>
                 <h2>{editingTemplate ? t('templates.editTitle') : t('templates.createTitle')}</h2>
-                <p>{selectedNgo ? t('templates.sessionHint', { name: selectedNgo.name }) : ''}</p>
-              </div>              <div className="template-header-actions">
+                {editingTemplate && (
+                  <p>
+                    {t('templates.sessionHint', {
+                      name:
+                        ngos.find(ngo => ngo.id === editingTemplate.ngoId)?.name ||
+                        targetNgo?.name ||
+                        '',
+                    })}
+                  </p>
+                )}
+              </div>
+              <div className="template-header-actions">
                 {editingTemplate && (
                   <button
                     className="icon-btn"
@@ -494,6 +574,24 @@ export function Templates() {
             </div>
 
             <div className="template-form">
+              {!editingTemplate && (
+                <div className="form-group">
+                  <label htmlFor="tpl-ngo">{t('templates.targetNgo', 'NGO')}</label>
+                  <select
+                    id="tpl-ngo"
+                    value={targetNgoId}
+                    onChange={event => setTargetNgoId(event.target.value)}
+                    disabled={!canWrite}
+                  >
+                    {ngos.map(ngo => (
+                      <option key={ngo.id} value={ngo.id}>
+                        {ngo.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="form-group">
                 <label htmlFor="tpl-1">{t('common.name')}</label>
                 <input
@@ -648,7 +746,7 @@ export function Templates() {
                   className="btn-primary"
                   onClick={handleSave}
                   disabled={
-                    !canWrite || isSaving || !selectedNgoId || !form.name.trim() || !form.body.trim() || overLimit ||
+                    !canWrite || isSaving || !targetNgoId || !form.name.trim() || !form.body.trim() || overLimit ||
                     mediaUrlMissing || mediaUrlInvalid
                   }
                   type="button"
