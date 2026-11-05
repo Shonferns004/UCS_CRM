@@ -79,8 +79,16 @@ export default function LeadWhatsAppPickerHost() {
   if (!request) return null;
 
   const { options, donorName, mobile, allBlocked, requestId } = request;
-  const close = () => settleLeadWhatsAppChoice(requestId, null);
-  const choose = option => settleLeadWhatsAppChoice(requestId, option);
+  // Clear the local state first as well, so the modal is gone even if navigation happens before
+  // the store's listener runs.
+  const close = () => {
+    setRequest(null);
+    settleLeadWhatsAppChoice(requestId, null);
+  };
+  const choose = option => {
+    setRequest(null);
+    settleLeadWhatsAppChoice(requestId, option);
+  };
 
   return (
     <div

@@ -213,17 +213,30 @@ router.get('/meta', requireAdmin, async (req, res) => {
   }
 });
 
-// GET / — every session assignment, with the NGO name.
+// GET / — every session assignment, with the NGO name and the FRO/agent that station belongs to.
+// The Accounts session list shows the latter, so an operator can see who holds each number.
 router.get('/', requireAdmin, async (req, res) => {
   try {
-    const { data } = await db.from('whatsapp_session_assignments').select('*');
+    const [{ data }, { stations }] = await Promise.all([
+      db.from('whatsapp_session_assignments').select('*'),
+      loadStationDirectory(),
+    ]);
     const assignments = data || [];
     const ngos = await ngoNameMap(assignments.map((row) => row.ngo_id));
+    const stationOwner = new Map(
+      stations.map((row) => [stationKey(row.ngo_id, row.station), row]),
+    );
     return res.json({
-      assignments: assignments.map((row) => ({
-        ...row,
-        ngo_name: ngos.get(row.ngo_id)?.name || null,
-      })),
+      assignments: assignments.map((row) => {
+        const owner = row.station ? stationOwner.get(stationKey(row.ngo_id, row.station)) : null;
+        return {
+          ...row,
+          ngo_name: ngos.get(row.ngo_id)?.name || null,
+          fro_worker_id: owner?.worker_id || null,
+          fro_name: owner?.worker_name || null,
+          fro_login_id: owner?.login_id || null,
+        };
+      }),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not load assignments' });
@@ -518,8 +531,13 @@ router.get('/mine', authenticate, async (req, res) => {
       });
     }
 
+    // The number's own phone/push name, for the in-page number switcher. A gateway read failure
+    // only leaves these null; it never changes which numbers the FRO may open.
+    const gatewaySessions = await fetchGatewaySessions(gatewayConfig());
+
     const assignments = [...grouped.values()].map((entry) => {
       const [primary] = entry.stations;
+      const session = gatewaySessions.get(entry.sessionId);
       return {
         ...entry,
         // Back-compat for callers that read the single-station fields.
@@ -527,6 +545,9 @@ router.get('/mine', authenticate, async (req, res) => {
         ngoId: primary.ngoId,
         ngoName: primary.ngoName,
         stationLabel: [...new Set(entry.stations.map((row) => row.station))].join(' · '),
+        phone: session?.phone || null,
+        pushName: session?.pushName || null,
+        status: session?.status || null,
       };
     });
 

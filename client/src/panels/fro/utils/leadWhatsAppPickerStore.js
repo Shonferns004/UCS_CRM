@@ -40,5 +40,8 @@ export function settleLeadWhatsAppChoice(requestId, choice) {
   if (!pending || pending.requestId !== requestId) return;
   const { resolve } = pending;
   pending = null;
+  // Tell the mounted host to drop the modal. Without this the promise resolved and the page
+  // navigated, but the picker stayed on screen over the chat the user had just chosen.
+  if (listener) listener(null);
   resolve(choice || null);
 }

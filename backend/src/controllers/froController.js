@@ -3103,17 +3103,30 @@ export const getMyDonors = async (req, res) => {
       // (those are applied in memory just below).
       hasHighTier = assignments.some(a => a.batch_type === 'high_tier');
       // Robust new/old filter: handle legacy rows where batch_type is NULL.
-      // New = batch_type new_data OR (null + is_new != false); Old = batch_type old_data OR (null + is_new == false)
+      // The station prefix is the reliable fallback: AFD/BFD/MFD are New-data
+      // stations, AOD/BOD/MOD are Old-data stations. `is_new` alone classified a
+      // legacy AFD-8 row as Old, so a donor at a New station appeared in the Old
+      // tab. `is_new` is only used when the station prefix is unrecognised.
       // High Tier = batch_type high_tier (the dedicated third tab). High-tier rows
       // are deliberately excluded from New/Old: their batch_type matches neither
       // branch, so they only surface when the High Tier tab asks for them.
+      const isNewStation = (station) => /[A-Z]FD-\d+/i.test(String(station || ''));
+      const isOldStation = (station) => /[A-Z]OD-\d+/i.test(String(station || ''));
       if (isTempStationView) {
         // Temp access: show the whole station dataset regardless of the New/Old/
         // High-Tier tab filter — the covering FRO needs all data at once.
       } else if (req.query.new_only === 'true') {
-        assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+        assignments = assignments.filter(a =>
+          a.batch_type === 'new_data'
+          || (a.batch_type == null
+            && (isNewStation(a.station) || (!isOldStation(a.station) && a.is_new !== false))),
+        );
       } else if (req.query.old_only === 'true') {
-        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && (a.is_new === false || a.is_new == null)));
+        assignments = assignments.filter(a =>
+          a.batch_type === 'old_data'
+          || (a.batch_type == null
+            && (isOldStation(a.station) || (!isNewStation(a.station) && (a.is_new === false || a.is_new == null)))),
+        );
       } else if (req.query.high_tier_only === 'true') {
         assignments = assignments.filter(a => a.batch_type === 'high_tier');
         highTierRowCount = assignments.length;
@@ -7618,11 +7631,13 @@ export const getMyDisposedLeads = async (req, res) => {
       // Live (current month) logs first.
       try {
         const { rows } = await db._pool.query(
-          `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at
+          `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at,
+                  fa.station, fa.ngo_id, n.name AS ngo_name, fa.batch_type, fa.is_new
              FROM fro_donor_logs l
              JOIN fro_assignments fa ON fa.id = l.assignment_id
+             LEFT JOIN ngos n ON n.id = fa.ngo_id
             WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
-           ORDER BY created_at ASC
+           ORDER BY l.created_at ASC
            LIMIT 10000`,
           [workerId]
         );
@@ -7633,15 +7648,18 @@ export const getMyDisposedLeads = async (req, res) => {
       // Archived (previous months) logs are best-effort: the archive table may
       // not exist yet on a fresh deploy, so never fail the whole request.
       try {
-        const { rows } = await db._pool.query(
-          `SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at
+        const { rows, error: archiveError } = await db._pool.query(
+          `SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at,
+                  fa.station, fa.ngo_id, n.name AS ngo_name, fa.batch_type, fa.is_new
              FROM fro_donor_logs_archive a
              JOIN fro_assignments fa ON fa.id = a.assignment_id
+             LEFT JOIN ngos n ON n.id = fa.ngo_id
             WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
-           ORDER BY created_at ASC
+           ORDER BY a.created_at ASC
            LIMIT 10000`,
           [workerId]
         );
+        if (archiveError) throw archiveError;
         if (rows && rows.length) disposedLogs = (disposedLogs || []).concat(rows);
       } catch (e) {
         console.warn('[getMyDisposedLeads] archive read skipped:', e?.message || String(e));
@@ -7654,7 +7672,7 @@ export const getMyDisposedLeads = async (req, res) => {
     } else {
       let disposedQuery = db
         .from('fro_donor_logs')
-        .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id)')
+        .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at, fro_assignments!inner(fro_worker_id, station, ngo_id, batch_type, is_new, ngos(name))')
         .eq('fro_assignments.fro_worker_id', workerId);
       if (req.user.impersonation && req.user.imposter_id != null) {
         disposedQuery = disposedQuery.or(`operator_id.eq.${realOperatorId(req.user)},fro_worker_id.eq.${realOperatorId(req.user)}`);
@@ -7663,7 +7681,22 @@ export const getMyDisposedLeads = async (req, res) => {
         .gte('created_at', istMonthBounds(new Date()).month)
         .order('created_at', { ascending: false })
         .limit(10000);
-      disposedLogs = data || [];
+      disposedLogs = (data || []).map((row) => {
+        const fa = Array.isArray(row.fro_assignments) ? row.fro_assignments[0] : row.fro_assignments;
+        const ngo = Array.isArray(fa?.ngos) ? fa.ngos[0] : fa?.ngos;
+        return {
+          donor_id: row.donor_id,
+          assignment_id: row.assignment_id,
+          disposition_detail: row.disposition_detail,
+          disposition_category: row.disposition_category,
+          created_at: row.created_at,
+          station: fa?.station || null,
+          ngo_id: fa?.ngo_id || null,
+          ngo_name: ngo?.name || null,
+          batch_type: fa?.batch_type || null,
+          is_new: fa?.is_new ?? null,
+        };
+      });
       logErr = error;
     }
     if (logErr) throw logErr;
@@ -7671,24 +7704,6 @@ export const getMyDisposedLeads = async (req, res) => {
 
     const disposedDonorIds = [...new Set(disposedLogs.map(l => l.donor_id).filter(Boolean))];
     if (disposedDonorIds.length === 0) return res.json([]);
-
-    const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
-    const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
-
-    let effectiveStations = stationNames;
-    let effectiveScope = myScope;
-    if (stationFilter && stationFilter !== 'all') {
-      effectiveStations = [stationFilter];
-      effectiveScope = (myScope || []).filter(s => s.station === stationFilter);
-    }
-    if (ngoFilter) {
-      effectiveScope = effectiveScope.filter(s => String(s.ngo_id) === String(ngoFilter));
-      effectiveStations = [...new Set(effectiveScope.map(s => s.station))];
-    }
-    if (effectiveStations.length === 0 && disposedDonorIds.length > 0) {
-      // No stations — nothing in scope
-      return res.json([]);
-    }
 
     const { data: donors, error } = await db
       .from('donor_profiles')
@@ -7698,37 +7713,35 @@ export const getMyDisposedLeads = async (req, res) => {
     if (error) throw error;
     if (!donors || donors.length === 0) return res.json([]);
 
-    const matchedIds = donors.map(d => d.id);
+    // History is still limited to the stations/NGOs the FRO holds TODAY: Sadika's
+    // AFD-8/AOD-8 must not show AOD-15/AOD-13 history that now belongs to someone
+    // else. The bug that hid her real old history was different: a disposition was
+    // required to match a CURRENT, non-reassigned assignment id, so archived rows
+    // whose assignment was later reassigned were dropped. Scoping by the
+    // disposition's own station/NGO pair fixes that without widening the scope.
+    const { scope: myScope } = await getMyStationScope(workerId, froActPairs(req));
+    const scopePairs = new Set(
+      (myScope || [])
+        .filter((row) => row.ngo_id && row.station)
+        .map((row) => `${row.station}|${row.ngo_id}`),
+    );
+    if (scopePairs.size === 0) return res.json([]);
 
-    const donorMap = {};
-    for (const d of donors) donorMap[d.id] = d;
+    const inSelectedScope = (log) => {
+      if (!log.station || !log.ngo_id) return false;
+      if (!scopePairs.has(`${log.station}|${log.ngo_id}`)) return false;
+      if (stationFilter && stationFilter !== 'all' && log.station !== stationFilter) return false;
+      if (ngoFilter && String(log.ngo_id) !== String(ngoFilter)) return false;
+      return true;
+    };
 
-    let assignmentQuery = db
-      .from('fro_assignments')
-      .select('*, ngos!inner(name)')
-      .in('donor_id', matchedIds)
-      .in('station', effectiveStations.length > 0 ? effectiveStations : stationNames)
-      .or('status.is.null,status.neq.reassigned');
-    assignmentQuery = withStationNgoPairs(assignmentQuery, effectiveScope.length > 0 ? effectiveScope : myScope);
-    const { data: assignments } = await assignmentQuery;
-    const scopedAssignments = (assignments || []).filter(a => {
-      const pair = `${a.station}|${a.ngo_id}`;
-      return scopePairs.has(pair) || effectiveScope.some(s => s.station === a.station && String(s.ngo_id) === String(a.ngo_id));
-    });
-
-    const inScopeAssignIds = new Set(scopedAssignments.map(a => a.id));
-    const matchedIdSet = new Set(matchedIds);
-    // Pick each donor's most recent disposition THAT WAS LOGGED IN SCOPE, not
-    // simply their most recent disposition. Anchoring on the latest log globally
-    // meant a donor vanished from History whenever their newest call happened at
-    // another station — e.g. holding BOD-1 and BOD-5 and filtering History to
-    // BOD-1, a donor whose last touch was at BOD-5 dropped out entirely even
-    // though they had in-scope BOD-1 dispositions of their own. disposedLogs is
-    // already newest-first, so the first in-scope log per donor wins.
+    // disposedLogs is newest-first, so the first in-scope log per donor is their
+    // latest disposition.
+    const matchedIdSet = new Set(disposedDonorIds);
     const scopedDispMap = {};
     for (const dl of disposedLogs || []) {
       if (!matchedIdSet.has(dl.donor_id)) continue;
-      if (!inScopeAssignIds.has(dl.assignment_id)) continue;
+      if (!inSelectedScope(dl)) continue;
       if (scopedDispMap[dl.donor_id]) continue;
       scopedDispMap[dl.donor_id] = dl;
     }
@@ -7736,51 +7749,52 @@ export const getMyDisposedLeads = async (req, res) => {
     const result = [];
     const seen = new Set();
     for (const d of donors) {
-      const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
-      // History is scoped to the FRO's allotted (station, ngo) pairs, same as
-      // My Leads. Skip donors with no in-scope assignment, and donors whose call was
-      // logged against an out-of-scope assignment, instead of inventing a blank
-      // "Unknown" row for them: that fallback is what let 336 leads from stations
-      // this FRO does not hold appear in a book that only contains BOD-1/MOD-3.
-      // The search path above already behaves this way.
-      if (matchingAssignments.length === 0) continue;
-      if (!scopedDispMap[d.id]) continue;
-      for (const a of matchingAssignments) {
-        const key = `${d.id}-${a.ngo_id || 'na'}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const disp = scopedDispMap[d.id];
-        result.push({
-          donor_id: d.id,
-          ngo_id: a.ngo_id,
-          ngo_name: a.ngos?.name || 'Unknown',
-          assignment_id: a.id,
-          station: a.station || '',
-          batch_type: a.batch_type || '',
-          is_new: a.is_new,
-          donor_name: d.name || 'Unknown',
-          donor_mobile: d.mobile_number || '',
-          donor_city: d.city || '',
-          donor_amount: d.amount || 0,
-          donor_email: d.email || '',
-          donor_pan: d.pan_number || '',
-          donor_project: d.project_supported || '',
-          donor_dob: d.birth_date || '',
-          donor_type: d.donor_type || '',
-          donor_address: d.address_1 || '',
-          donation_count: d.donation_count || 0,
-          total_donated: d.total_amount || 0,
-          has_donated_current_month: false,
-          has_verified_donation_current_month: false,
-          status: 'disposed',
-          disposition_detail: disp?.disposition_detail || '',
-          disposition_category: disp?.disposition_category || '',
-          disposed_at: disp?.created_at || null,
-        });
-      }
+      const disp = scopedDispMap[d.id];
+      if (!disp) continue;
+      // One row per donor + NGO. The disposition's own assignment owns the station,
+      // NGO and batch type, so the New/Old history bucket matches where it was worked.
+      const key = `${d.id}-${disp.ngo_id || 'na'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        donor_id: d.id,
+        ngo_id: disp.ngo_id,
+        ngo_name: disp.ngo_name || 'Unknown',
+        assignment_id: disp.assignment_id,
+        station: disp.station || '',
+        batch_type: disp.batch_type || '',
+        disposition_batch_type: disp.batch_type || '',
+        is_new: disp.is_new,
+        donor_name: d.name || 'Unknown',
+        donor_mobile: d.mobile_number || '',
+        donor_city: d.city || '',
+        donor_amount: d.amount || 0,
+        donor_email: d.email || '',
+        donor_pan: d.pan_number || '',
+        donor_project: d.project_supported || '',
+        donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
+        donor_address: d.address_1 || '',
+        donation_count: d.donation_count || 0,
+        total_donated: d.total_amount || 0,
+        has_donated_current_month: false,
+        has_verified_donation_current_month: false,
+        status: 'disposed',
+        disposition_detail: disp?.disposition_detail || '',
+        disposition_category: disp?.disposition_category || '',
+        disposed_at: disp?.created_at || null,
+      });
     }
-    // Already ordered by disposedLogs desc via map insertion, but ensure sort
-    result.sort((a, b) => new Date(a.disposed_at || 0) - new Date(b.disposed_at || 0));
+    // Oldest disposition first, with every DND lead at the very end. DND is a
+    // terminal "do not contact" outcome; keeping those interleaved buried the
+    // leads the FRO can actually still work under a wall of DND rows.
+    const isDnd = (row) => String(row.disposition_detail || '').trim().toLowerCase() === 'dnd';
+    result.sort((a, b) => {
+      const dndA = isDnd(a) ? 1 : 0;
+      const dndB = isDnd(b) ? 1 : 0;
+      if (dndA !== dndB) return dndA - dndB;
+      return new Date(a.disposed_at || 0) - new Date(b.disposed_at || 0);
+    });
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });

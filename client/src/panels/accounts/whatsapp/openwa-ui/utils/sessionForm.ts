@@ -75,15 +75,22 @@ export function matchesStatusFilter(status: string, filter: string): boolean {
   return (STATUS_GROUPS[filter] ?? []).includes(status);
 }
 
+/**
+ * The list's search. `searchText` lets a caller contribute fields that live outside the session
+ * row (the CRM assignment: NGO, station, FRO/agent and login), so typing an agent or station name
+ * finds every number that person/station holds.
+ */
 export function filterSessions<T extends { id: string; name: string; status: string }>(
   sessions: T[],
   search: string,
   statusFilter: string,
+  searchText?: (session: T) => string,
 ): T[] {
-  const needle = search.toLowerCase();
-  return sessions.filter(
-    s =>
-      (s.name.toLowerCase().includes(needle) || s.id.toLowerCase().includes(needle)) &&
-      matchesStatusFilter(s.status, statusFilter),
-  );
+  const needle = search.trim().toLowerCase();
+  return sessions.filter(s => {
+    if (!matchesStatusFilter(s.status, statusFilter)) return false;
+    if (!needle) return true;
+    const haystack = `${s.name} ${s.id} ${searchText ? searchText(s) : ''}`.toLowerCase();
+    return haystack.includes(needle);
+  });
 }

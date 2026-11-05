@@ -435,7 +435,7 @@
     "subtitle": "Manage your WhatsApp sessions and QR code connections",
     "feedDisconnected": "Live updates disconnected",
     "newSession": "New Session",
-    "searchPlaceholder": "Search sessions...",
+    "searchPlaceholder": "Search session, agent, station, NGO or phone...",
     "filter": {
       "all": "All Status",
       "active": "Active (Connected)",
@@ -1368,7 +1368,10 @@
       "save": "Save Configuration",
       "addItem": "Add",
       "tabConfig": "Configuration",
-      "tabSessions": "Sessions"
+      "tabSessions": "Sessions",
+      "tabNgos": "NGOs",
+      "showSecret": "Show secret",
+      "hideSecret": "Hide secret"
     },
     "rail": {
       "enabled": "enabled",
@@ -1417,6 +1420,7 @@
       "saveActivation": "Save activation",
       "perSessionTitle": "Per-session config",
       "perSessionDesc": "Override the global config for a session; untouched fields inherit the global value.",
+      "perSessionNgoHint": "Each session is one WhatsApp number / NGO. Save an override here to give that NGO its own answers; without one it uses the global rules.",
       "selectSession": "Select a session…",
       "saveOverride": "Save override",
       "clearOverride": "Clear override"

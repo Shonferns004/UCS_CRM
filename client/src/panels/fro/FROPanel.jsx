@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessagesSquare, Coins, Trophy, Medal, Smartphone } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessagesSquare, Coins, Trophy, Medal } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -34,6 +34,7 @@ import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
 import LeadWhatsAppPickerHost from './components/LeadWhatsAppPickerHost'
+import WhatsAppIcon from './components/WhatsAppIcon'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
@@ -531,62 +532,14 @@ function WorkAnniversaryPopup() {
 
 function Sidebar({ open, onClose, si }) {
   const location = useLocation()
-  // One WhatsApp tab per number this FRO may open (station assignment -> NGO + station ->
-  // fro_station_assignments). The backend groups a number that serves several stations
-  // into one entry, so a session never produces two identical tabs.
-  const [stationAssignments, setStationAssignments] = useState([])
-  useEffect(() => {
-    let alive = true
-    const read = () =>
-      api('/openwa-assignments/mine')
-        .then(data => {
-          if (alive) setStationAssignments(data?.assignments || [])
-        })
-        .catch(() => {})
-    read()
-    // Re-read on navigation, on returning to the tab and every 15s, so a temporary
-    // grant appears shortly after the admin makes it.
-    const timer = setInterval(read, 15000)
-    const onFocus = () => read()
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') read()
-    }
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      alive = false
-      clearInterval(timer)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [location.pathname])
   const nav = [...NAV_BASE]
-  // One tab per WhatsApp NUMBER, not per station: a number assigned to BFD-1 and
-  // BOD-1 serves both, so it must appear once (the previous per-station rows showed
-  // the same WhatsApp twice). The operator's session label tells two numbers apart;
-  // without one, fall back to the station list the number covers.
-  const usedLabels = new Set()
-  stationAssignments.forEach(assignment => {
-    const stations = assignment.stations?.length
-      ? assignment.stations.map(row => row.station).filter(Boolean)
-      : [assignment.station].filter(Boolean)
-    const stationLabel = assignment.stationLabel || [...new Set(stations)].join(' · ')
-    const name = String(assignment.sessionName || '').trim()
-    const base = name || `${stationLabel} WhatsApp`
-    let label = /whatsapp/i.test(base) ? base : `${base} WhatsApp`
-    if (usedLabels.has(label)) {
-      // Two numbers with the same label (unnamed sessions on the same stations): a short id
-      // is the only thing guaranteed to tell them apart.
-      label = `${label} · ${String(assignment.sessionId).slice(0, 6)}`
-    }
-    usedLabels.add(label)
-    nav.push({
-      id: `station-whatsapp-${assignment.sessionId}`,
-      path: `/fro/station-whatsapp?session=${encodeURIComponent(assignment.sessionId)}`,
-      label,
-      title: stationLabel ? `${stationLabel} WhatsApp` : undefined,
-      Icon: Smartphone,
-    })
+  // One sidebar entry for WhatsApp. The assigned numbers are a small switcher inside the
+  // WhatsApp page, next to the chat, instead of a separate sidebar tab per number.
+  nav.push({
+    id: 'whatsapp',
+    path: '/fro/station-whatsapp',
+    label: 'WhatsApp',
+    Icon: WhatsAppIcon,
   })
   return (
     <>
@@ -985,7 +938,7 @@ useEffect(() => onFroAction((action) => {
   const meta =
     NAV_BASE.find(n => location.pathname === n.path) ||
     (location.pathname === '/fro/station-whatsapp'
-      ? { id: 'station-whatsapp', path: '/fro/station-whatsapp', label: 'Station WhatsApp' }
+      ? { id: 'station-whatsapp', path: '/fro/station-whatsapp', label: 'WhatsApp' }
       : undefined)
   const userName = user?.name || 'User'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()

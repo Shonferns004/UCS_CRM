@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { localizePlugin } from '../utils/localizePlugin';
 import { configUiSafeConfig, missingRequiredConfig, sparseSessionOverride } from '../utils/pluginConfigRules';
 import { coerceFieldInput, emptyForField, fillClearedFields } from '../utils/pluginConfigForm';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Puzzle,
   Power,
@@ -25,9 +25,13 @@ import {
   Plus,
   Search,
   ArrowUpCircle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { pluginsApi } from '../services/api';
 import type { Plugin, CatalogPlugin, PluginConfigField } from '../services/api';
+import { openwaAssignmentsApi } from '../services/crmAssignments';
 import { injectConfigUiCsp } from '../utils/pluginFrameSecurity';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useTheme } from '../hooks/useTheme';
@@ -49,6 +53,203 @@ const pluginTypeIcons: Record<PluginType, typeof Puzzle> = {
 };
 
 /**
+ * Friendly editor for the FAQ bot's `rules` field.
+ *
+ * The plugin schema stores the rules as a JSON string, which is exact but hard
+ * to maintain from a phone. This presents the same data as Q&A rows and writes
+ * the identical JSON back through `onChange`, so the gateway contract does not
+ * change and the per-session override works exactly as before.
+ */
+type FaqRuleMode = 'contains' | 'exact' | 'regex';
+type FaqRuleRow = { mode: FaqRuleMode; pattern: string; reply: string };
+
+const FAQ_MODES: { value: FaqRuleMode; label: string }[] = [
+  { value: 'contains', label: 'Message contains' },
+  { value: 'exact', label: 'Message is exactly' },
+  { value: 'regex', label: 'Regex pattern' },
+];
+
+function parseFaqRules(value: unknown): FaqRuleRow[] {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value;
+    const list = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+    return list.map((r: Record<string, unknown>) => ({
+      mode: FAQ_MODES.some(m => m.value === r?.mode) ? (r.mode as FaqRuleMode) : 'contains',
+      pattern: String(r?.pattern ?? ''),
+      reply: String(r?.reply ?? ''),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function FaqRulesField({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (next: unknown) => void;
+}) {
+  const [rows, setRows] = useState<FaqRuleRow[]>(() => parseFaqRules(value));
+  // The JSON we last emitted. The parent echoes it straight back as `value`;
+  // re-parsing that would reset local state and steal focus mid-typing.
+  const lastEmitted = useRef('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState('');
+
+  useEffect(() => {
+    if (value === lastEmitted.current) return;
+    setRows(parseFaqRules(value));
+  }, [value]);
+
+  const commit = (next: FaqRuleRow[]) => {
+    setRows(next);
+    const json = JSON.stringify(next, null, 2);
+    lastEmitted.current = json;
+    onChange(json);
+  };
+
+  const update = (index: number, patch: Partial<FaqRuleRow>) => {
+    commit(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+
+  // Excel/CSV import: column 1 = question/keyword, column 2 = answer, optional
+  // column 3 = contains | exact | regex. A header row is skipped automatically.
+  const importFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setImportError('');
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = /\.csv$/i.test(file.name)
+        ? XLSX.read(new TextDecoder().decode(buffer), { type: 'string' })
+        : XLSX.read(buffer, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      if (!sheet) throw new Error('The first sheet is empty.');
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+        header: 1,
+        blankrows: false,
+        defval: '',
+      });
+      if (matrix.length === 0) throw new Error('No rows found in the first sheet.');
+      const first = matrix[0].map(v => String(v ?? '').trim().toLowerCase());
+      const hasHeader = /question|pattern|keyword/.test(first[0] ?? '')
+        || /answer|reply/.test(first[1] ?? '');
+      const parsed: FaqRuleRow[] = (hasHeader ? matrix.slice(1) : matrix)
+        .map(row => {
+          const pattern = String(row[0] ?? '').trim();
+          const reply = String(row[1] ?? '').trim();
+          const rawMode = String(row[2] ?? '').trim().toLowerCase();
+          const mode = FAQ_MODES.some(m => m.value === rawMode) ? (rawMode as FaqRuleMode) : 'contains';
+          return { mode, pattern, reply };
+        })
+        .filter(row => row.pattern || row.reply);
+      if (parsed.length === 0) {
+        throw new Error('No Q&A rows found. Use column 1 = question/keyword, column 2 = answer, column 3 = optional match type.');
+      }
+      if (rows.length > 0 && !window.confirm('Replace the current Q&A rows with the uploaded sheet?')) return;
+      commit(parsed);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Could not read that file.');
+    }
+  };
+
+  const incomplete = rows.some(row => !row.pattern.trim() || !row.reply.trim());
+
+  return (
+    <div className="faq-rules">
+      <div className="faq-rules-head">
+        <div>
+          <div className="faq-rules-title">Questions &amp; answers</div>
+          <div className="faq-rules-hint">
+            One rule per question. Rules are checked top to bottom and the first matching answer is sent.
+          </div>
+        </div>
+        <div className="faq-toolbar">
+          <button type="button" className="faq-upload" onClick={() => fileInputRef.current?.click()}>
+            <Upload size={14} /> Upload Excel
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+            onChange={e => void importFile(e)}
+            style={{ display: 'none' }}
+            aria-label="Upload questions and answers from Excel or CSV"
+          />
+          <button
+            type="button"
+            className="faq-add"
+            onClick={() => commit([...rows, { mode: 'contains', pattern: '', reply: '' }])}
+          >
+            <Plus size={14} /> Add Q&amp;A
+          </button>
+        </div>
+      </div>
+
+      <div className="faq-upload-hint">
+        Excel/CSV: column 1 = question or keyword, column 2 = answer, column 3 = optional match type (contains / exact / regex).
+      </div>
+
+      {importError && <div className="faq-import-error">{importError}</div>}
+
+      {rows.length === 0 ? (
+        <div className="faq-empty">No Q&amp;A rules yet. Add the first question here.</div>
+      ) : (
+        <div className="faq-rows">
+          {rows.map((row, i) => (
+            <div className="faq-row" key={i}>
+              <div className="faq-row-line">
+                <span className="faq-num">{i + 1}</span>
+                <select
+                  value={row.mode}
+                  aria-label={`Match type for Q&A ${i + 1}`}
+                  onChange={e => update(i, { mode: e.target.value as FaqRuleMode })}
+                >
+                  {FAQ_MODES.map(mode => (
+                    <option key={mode.value} value={mode.value}>{mode.label}</option>
+                  ))}
+                </select>
+                <input
+                  value={row.pattern}
+                  aria-label={`Question or keyword for Q&A ${i + 1}`}
+                  placeholder="Question / keyword, e.g. ashray"
+                  onChange={e => update(i, { pattern: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className="faq-remove"
+                  aria-label={`Remove Q&A ${i + 1}`}
+                  title="Remove"
+                  onClick={() => commit(rows.filter((_, j) => j !== i))}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <textarea
+                value={row.reply}
+                rows={2}
+                aria-label={`Answer for Q&A ${i + 1}`}
+                placeholder="Answer the bot should send…"
+                onChange={e => update(i, { reply: e.target.value })}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {incomplete && (
+        <div className="faq-warn">Fill in both the question/keyword and the answer for every row before saving.</div>
+      )}
+      <div className="faq-rules-foot">
+        These answers are used for the selected NGO only. Saving applies them to every WhatsApp number assigned to that NGO.
+      </div>
+    </div>
+  );
+}
+
+/**
  * Renders one config field from a plugin's schema and reports edits via `onChange`. Recurses for
  * nested objects and array-of-rows. Module-scope (stable identity) so inputs keep focus across
  * keystrokes. The secret redact/restore round-trip lives server-side (PUT /plugins/:id/config).
@@ -58,17 +259,25 @@ function ConfigField({
   label,
   value,
   onChange,
+  pluginId,
+  fieldKey,
 }: {
   field: PluginConfigField;
   label: string;
   value: unknown;
   onChange: (next: unknown) => void;
+  /** Only used to give the FAQ bot's `rules` field a friendly Q&A editor. */
+  pluginId?: string;
+  fieldKey?: string;
 }) {
   const { t } = useTranslation();
   // Per-instance id: ConfigField renders once per schema property (and recurses), so a hardcoded
   // id would collide on any schema with two boolean fields - the second label would toggle the
   // first checkbox. useId is stable across re-renders and unique per instance.
   const fieldId = React.useId();
+  // Secret fields are still type=password by default; the reveal toggle only
+  // changes this input's local presentation and never writes the value anywhere.
+  const [showSecret, setShowSecret] = React.useState(false);
   const desc = field.description ? <small>{field.description}</small> : null;
   // Bound to the control it names. The boolean branch below builds its own pair because its caption
   // and its checkbox sit in different containers.
@@ -86,6 +295,14 @@ function ConfigField({
       {field.required && <span className="required-mark"> *</span>}
     </span>
   );
+
+  // The FAQ bot's configSchema describes `rules` as a JSON textarea. That is
+  // accurate but unusable for the people who actually maintain the answers, so
+  // the same field gets a row-based Q&A editor (still saving the exact same
+  // rules JSON, including inside a per-session override).
+  if (pluginId === 'faq-bot' && fieldKey === 'rules') {
+    return <FaqRulesField value={value} onChange={onChange} description={field.description} />;
+  }
 
   if (field.type === 'boolean') {
     return (
@@ -208,27 +425,43 @@ function ConfigField({
     );
   }
 
-  const inputType = field.type === 'number' ? 'number' : field.secret ? 'password' : 'text';
+  const inputType = field.type === 'number' ? 'number' : field.secret ? (showSecret ? 'text' : 'password') : 'text';
+  const inputEl = (
+    <input
+      id={fieldId}
+      type={inputType}
+      value={value === undefined || value === null ? '' : String(value)}
+      placeholder={field.default !== undefined ? String(field.default) : undefined}
+      autoComplete={field.secret ? 'new-password' : undefined}
+      required={field.required}
+      min={field.type === 'number' ? field.min : undefined}
+      max={field.type === 'number' ? field.max : undefined}
+      // min/max are value bounds only; without step="any" the default step of 1 rejects 0.7.
+      step={field.type === 'number' ? 'any' : undefined}
+      minLength={field.type !== 'number' ? field.min : undefined}
+      maxLength={field.type !== 'number' ? field.max : undefined}
+      // A stored secret reads back as the mask '***', which no pattern describes: it is only checked once typed over.
+      pattern={field.type !== 'number' && !(field.secret && value === '***') ? field.pattern : undefined}
+      onChange={e => onChange(coerceFieldInput(field, e.target.value))}
+    />
+  );
   return (
     <div className="form-group">
       {labelEl}
-      <input
-        id={fieldId}
-        type={inputType}
-        value={value === undefined || value === null ? '' : String(value)}
-        placeholder={field.default !== undefined ? String(field.default) : undefined}
-        autoComplete={field.secret ? 'new-password' : undefined}
-        required={field.required}
-        min={field.type === 'number' ? field.min : undefined}
-        max={field.type === 'number' ? field.max : undefined}
-        // min/max are value bounds only; without step="any" the default step of 1 rejects 0.7.
-        step={field.type === 'number' ? 'any' : undefined}
-        minLength={field.type !== 'number' ? field.min : undefined}
-        maxLength={field.type !== 'number' ? field.max : undefined}
-        // A stored secret reads back as the mask '***', which no pattern describes: it is only checked once typed over.
-        pattern={field.type !== 'number' && !(field.secret && value === '***') ? field.pattern : undefined}
-        onChange={e => onChange(coerceFieldInput(field, e.target.value))}
-      />
+      {field.secret ? (
+        <div className="config-secret">
+          {inputEl}
+          <button
+            type="button"
+            className="config-secret-toggle"
+            onClick={() => setShowSecret(v => !v)}
+            aria-label={showSecret ? t('plugins.config.hideSecret') : t('plugins.config.showSecret')}
+            title={showSecret ? t('plugins.config.hideSecret') : t('plugins.config.showSecret')}
+          >
+            {showSecret ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
+        </div>
+      ) : inputEl}
       {desc}
     </div>
   );
@@ -388,6 +621,466 @@ function PluginConfigUi({ plugin, sessionId }: { plugin: Plugin; sessionId?: str
  * (activation), and optionally a per-session config OVERRIDE on top of the Global (`'*'`) config.
  * Activation → PUT /plugins/:id/sessions; overrides → PUT /plugins/:id/config/:sessionId.
  */
+/**
+ * The FAQ bot's NGO tab: one tab per WhatsApp session (the sessions are named
+ * after the NGO: AFLF / BSCT / MANN), with that NGO's Q&A rules and an activation
+ * switch. Saving writes a per-session override and turns the plugin on/off for
+ * exactly that number. The global Configuration tab stays the common rule set.
+ */
+function FaqNgoTab({ plugin }: { plugin: Plugin }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const { data: sessions = [], isLoading } = useSessionsQuery();
+  // The gateway session list has no NGO column: the CRM assignment rows are the
+  // source (one row per station). A session can serve several stations, so the
+  // session ids are de-duplicated per NGO.
+  const { data: assignmentsData } = useQuery({
+    queryKey: ['openwa-assignments'],
+    queryFn: openwaAssignmentsApi.list,
+    staleTime: 30_000,
+  });
+  const { data: ngoMeta } = useQuery({
+    queryKey: ['openwa-ngos'],
+    queryFn: openwaAssignmentsApi.meta,
+    staleTime: 60_000,
+  });
+  const [selectedNgoId, setSelectedNgoId] = useState('');
+  const [rulesJson, setRulesJson] = useState('');
+  const [activeDraft, setActiveDraft] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const assignments = assignmentsData?.assignments ?? [];
+  const liveSessionIds = useMemo(() => new Set(sessions.map(s => s.id)), [sessions]);
+  const ngos = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ngo of ngoMeta?.ngos ?? []) map.set(ngo.id, ngo.name);
+    for (const row of assignments) {
+      if (row.ngo_id) map.set(row.ngo_id, row.ngo_name || row.ngo_id);
+    }
+    const preferred = ['BSCT', 'AFLF', 'MANN'];
+    return [...map.entries()]
+      .filter(([, name]) => String(name).trim().toLowerCase() !== 'other')
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => {
+        const ai = preferred.indexOf(a.name.toUpperCase());
+        const bi = preferred.indexOf(b.name.toUpperCase());
+        if (ai !== bi) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+        return a.name.localeCompare(b.name);
+      });
+  }, [ngoMeta, assignments]);
+
+  const ngoSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of assignments) {
+      if (row.ngo_id === selectedNgoId && row.session_id && liveSessionIds.has(row.session_id)) {
+        ids.add(row.session_id);
+      }
+    }
+    return [...ids];
+  }, [assignments, selectedNgoId, liveSessionIds]);
+
+  useEffect(() => {
+    if (ngos.length === 0) {
+      setSelectedNgoId('');
+      return;
+    }
+    if (!selectedNgoId || !ngos.some(n => n.id === selectedNgoId)) {
+      setSelectedNgoId(ngos[0].id);
+    }
+  }, [ngos, selectedNgoId]);
+
+  // Seed from the first session of the NGO (its override, else the global
+  // rules). The live plugin query refetches in the background; re-seeding on
+  // that would wipe in-progress typing, so only a different NGO/session set
+  // reseeds.
+  const seedKey = `${selectedNgoId}|${ngoSessionIds.join(',')}`;
+  useEffect(() => {
+    if (!selectedNgoId || ngoSessionIds.length === 0) {
+      setRulesJson('');
+      setActiveDraft(false);
+      return;
+    }
+    const first = plugin.sessionConfig?.[ngoSessionIds[0]] ?? {};
+    const value = first.rules ?? plugin.config?.rules ?? '';
+    setRulesJson(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+    const activeSessions = plugin.activeSessions ?? [];
+    setActiveDraft(
+      ngoSessionIds.every(id => activeSessions.includes('*') || activeSessions.includes(id)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey, plugin.id]);
+
+  const selectedNgo = ngos.find(n => n.id === selectedNgoId) || null;
+  const ngoName = selectedNgo?.name || '';
+
+  const save = async () => {
+    if (!selectedNgoId || ngoSessionIds.length === 0) return;
+    setSaving(true);
+    try {
+      // Save the same Q&A override for every WhatsApp number of this NGO. Keep
+      // any other per-session override fields the session already had.
+      await Promise.all(ngoSessionIds.map(async sessionId => {
+        const existing = plugin.sessionConfig?.[sessionId] ?? {};
+        const full = { ...plugin.config, ...existing, rules: rulesJson };
+        const res = await pluginsApi.updateSessionConfig(
+          plugin.id,
+          sessionId,
+          sparseSessionOverride(full, plugin),
+        );
+        if (!res.success) throw new Error(res.message);
+      }));
+
+      // Activate/deactivate every session of this NGO in one activation update.
+      const current = plugin.activeSessions ?? [];
+      let next: string[] | null = null;
+      if (activeDraft) {
+        if (!current.includes('*')) {
+          const set = new Set([...current, ...ngoSessionIds]);
+          next = [...set];
+        }
+      } else if (current.includes('*')) {
+        next = sessions.map(s => s.id).filter(id => !ngoSessionIds.includes(id));
+      } else {
+        next = current.filter(id => !ngoSessionIds.includes(id));
+      }
+      const changed = next
+        && (next.length !== current.length
+          || next.some(id => !current.includes(id))
+          || current.some(id => !next.includes(id)));
+      if (changed) await pluginsApi.setSessions(plugin.id, next!);
+
+      void queryClient.invalidateQueries({ queryKey: queryKeys.plugins });
+      toast.success(
+        t('plugins.toasts.savedTitle'),
+        activeDraft
+          ? `FAQ active on ${ngoSessionIds.length} ${ngoName} number${ngoSessionIds.length === 1 ? '' : 's'}.`
+          : `FAQ switched off for ${ngoName}.`,
+      );
+    } catch (err) {
+      toast.error(t('plugins.toasts.saveFailed'), err instanceof Error ? err.message : t('common.unknownError'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return <div className="config-ui-status"><Loader2 size={18} className="animate-spin" /></div>;
+  }
+
+  if (ngos.length === 0) {
+    return <div className="faq-ngo-empty">{t('plugins.sessions.noSessions')}</div>;
+  }
+
+  return (
+    <div className="faq-ngo">
+      <div className="faq-ngo-tabs" role="tablist" aria-label="NGOs">
+        {ngos.map(ngo => {
+          const ids = assignments
+            .filter(row => row.ngo_id === ngo.id && row.session_id && liveSessionIds.has(row.session_id))
+            .map(row => row.session_id);
+          const activeSessions = plugin.activeSessions ?? [];
+          const active = ids.length > 0
+            && ids.every(id => activeSessions.includes('*') || activeSessions.includes(id));
+          return (
+            <button
+              key={ngo.id}
+              type="button"
+              role="tab"
+              aria-selected={ngo.id === selectedNgoId}
+              className={`faq-ngo-tab${ngo.id === selectedNgoId ? ' active' : ''}`}
+              onClick={() => setSelectedNgoId(ngo.id)}
+            >
+              <span className={`faq-ngo-dot${active ? ' on' : ''}`} />
+              {ngo.name}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedNgo && (
+        <div className="faq-ngo-body">
+          <div className="faq-ngo-head">
+            <div>
+              <h3>{ngoName}</h3>
+              <small>
+                {ngoSessionIds.length > 0
+                  ? `All ${ngoSessionIds.length} ${ngoName} WhatsApp number${ngoSessionIds.length === 1 ? '' : 's'} will use these answers.`
+                  : `No WhatsApp session is assigned to ${ngoName} yet.`}
+              </small>
+            </div>
+            <label className="faq-ngo-switch">
+              <span>{activeDraft ? 'Active' : 'Inactive'}</span>
+              <span className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={activeDraft}
+                  onChange={e => setActiveDraft(e.target.checked)}
+                  disabled={ngoSessionIds.length === 0}
+                  aria-label={`Activate FAQ for ${ngoName}`}
+                />
+                <span className="toggle-slider" />
+              </span>
+            </label>
+          </div>
+
+          <FaqRulesField value={rulesJson} onChange={setRulesJson} />
+
+          <div className="faq-ngo-actions">
+            <span className="faq-ngo-hint">
+              {ngoSessionIds.length === 0
+                ? 'Assign this NGO to a WhatsApp session first (WhatsApp Center → Assignments).'
+                : activeDraft
+                  ? 'Saving applies these answers to every number of this NGO.'
+                  : 'Saving will switch FAQ off on every number of this NGO.'}
+            </span>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void save()}
+              disabled={saving || ngoSessionIds.length === 0}
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : `Save for ${ngoName}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * NGO tab for the AI Responder. Provider credentials (API URL/key/model and the
+ * rate limits) stay global on the Configuration tab; the prompt is the part
+ * that changes per NGO, so this writes a per-session `systemPrompt` override to
+ * every WhatsApp number of the selected NGO and activates/deactivates them all.
+ */
+function AiNgoTab({ plugin }: { plugin: Plugin }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const promptId = React.useId();
+  const { data: sessions = [], isLoading } = useSessionsQuery();
+  const { data: assignmentsData } = useQuery({
+    queryKey: ['openwa-assignments'],
+    queryFn: openwaAssignmentsApi.list,
+    staleTime: 30_000,
+  });
+  const { data: ngoMeta } = useQuery({
+    queryKey: ['openwa-ngos'],
+    queryFn: openwaAssignmentsApi.meta,
+    staleTime: 60_000,
+  });
+  const [selectedNgoId, setSelectedNgoId] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [activeDraft, setActiveDraft] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const assignments = assignmentsData?.assignments ?? [];
+  const liveSessionIds = useMemo(() => new Set(sessions.map(s => s.id)), [sessions]);
+  const ngos = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ngo of ngoMeta?.ngos ?? []) map.set(ngo.id, ngo.name);
+    for (const row of assignments) {
+      if (row.ngo_id) map.set(row.ngo_id, row.ngo_name || row.ngo_id);
+    }
+    const preferred = ['BSCT', 'AFLF', 'MANN'];
+    return [...map.entries()]
+      .filter(([, name]) => String(name).trim().toLowerCase() !== 'other')
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => {
+        const ai = preferred.indexOf(a.name.toUpperCase());
+        const bi = preferred.indexOf(b.name.toUpperCase());
+        if (ai !== bi) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+        return a.name.localeCompare(b.name);
+      });
+  }, [ngoMeta, assignments]);
+
+  const ngoSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of assignments) {
+      if (row.ngo_id === selectedNgoId && row.session_id && liveSessionIds.has(row.session_id)) {
+        ids.add(row.session_id);
+      }
+    }
+    return [...ids];
+  }, [assignments, selectedNgoId, liveSessionIds]);
+
+  useEffect(() => {
+    if (ngos.length === 0) {
+      setSelectedNgoId('');
+      return;
+    }
+    if (!selectedNgoId || !ngos.some(n => n.id === selectedNgoId)) {
+      setSelectedNgoId(ngos[0].id);
+    }
+  }, [ngos, selectedNgoId]);
+
+  const seedKey = `${selectedNgoId}|${ngoSessionIds.join(',')}`;
+  useEffect(() => {
+    if (!selectedNgoId || ngoSessionIds.length === 0) {
+      setPrompt('');
+      setActiveDraft(false);
+      return;
+    }
+    const first = plugin.sessionConfig?.[ngoSessionIds[0]] ?? {};
+    setPrompt(String(first.systemPrompt ?? plugin.config?.systemPrompt ?? ''));
+    const activeSessions = plugin.activeSessions ?? [];
+    setActiveDraft(
+      ngoSessionIds.every(id => activeSessions.includes('*') || activeSessions.includes(id)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey, plugin.id]);
+
+  const selectedNgo = ngos.find(n => n.id === selectedNgoId) || null;
+  const ngoName = selectedNgo?.name || '';
+
+  const save = async () => {
+    if (!selectedNgoId || ngoSessionIds.length === 0) return;
+    setSaving(true);
+    try {
+      await Promise.all(ngoSessionIds.map(async sessionId => {
+        const existing = plugin.sessionConfig?.[sessionId] ?? {};
+        const full = { ...plugin.config, ...existing, systemPrompt: prompt };
+        const res = await pluginsApi.updateSessionConfig(
+          plugin.id,
+          sessionId,
+          sparseSessionOverride(full, plugin),
+        );
+        if (!res.success) throw new Error(res.message);
+      }));
+
+      const current = plugin.activeSessions ?? [];
+      let next: string[] | null = null;
+      if (activeDraft) {
+        if (!current.includes('*')) {
+          next = [...new Set([...current, ...ngoSessionIds])];
+        }
+      } else if (current.includes('*')) {
+        next = sessions.map(s => s.id).filter(id => !ngoSessionIds.includes(id));
+      } else {
+        next = current.filter(id => !ngoSessionIds.includes(id));
+      }
+      const changed = next
+        && (next.length !== current.length
+          || next.some(id => !current.includes(id))
+          || current.some(id => !next.includes(id)));
+      if (changed) await pluginsApi.setSessions(plugin.id, next!);
+
+      void queryClient.invalidateQueries({ queryKey: queryKeys.plugins });
+      toast.success(
+        t('plugins.toasts.savedTitle'),
+        activeDraft
+          ? `AI prompt active on ${ngoSessionIds.length} ${ngoName} number${ngoSessionIds.length === 1 ? '' : 's'}.`
+          : `AI responder switched off for ${ngoName}.`,
+      );
+    } catch (err) {
+      toast.error(t('plugins.toasts.saveFailed'), err instanceof Error ? err.message : t('common.unknownError'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return <div className="config-ui-status"><Loader2 size={18} className="animate-spin" /></div>;
+  }
+
+  if (ngos.length === 0) {
+    return <div className="faq-ngo-empty">{t('plugins.sessions.noSessions')}</div>;
+  }
+
+  return (
+    <div className="faq-ngo">
+      <div className="faq-ngo-tabs" role="tablist" aria-label="NGOs">
+        {ngos.map(ngo => {
+          const ids = assignments
+            .filter(row => row.ngo_id === ngo.id && row.session_id && liveSessionIds.has(row.session_id))
+            .map(row => row.session_id);
+          const activeSessions = plugin.activeSessions ?? [];
+          const active = ids.length > 0
+            && ids.every(id => activeSessions.includes('*') || activeSessions.includes(id));
+          return (
+            <button
+              key={ngo.id}
+              type="button"
+              role="tab"
+              aria-selected={ngo.id === selectedNgoId}
+              className={`faq-ngo-tab${ngo.id === selectedNgoId ? ' active' : ''}`}
+              onClick={() => setSelectedNgoId(ngo.id)}
+            >
+              <span className={`faq-ngo-dot${active ? ' on' : ''}`} />
+              {ngo.name}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedNgo && (
+        <div className="faq-ngo-body">
+          <div className="faq-ngo-head">
+            <div>
+              <h3>{ngoName}</h3>
+              <small>
+                {ngoSessionIds.length > 0
+                  ? `This prompt is used on all ${ngoSessionIds.length} ${ngoName} WhatsApp number${ngoSessionIds.length === 1 ? '' : 's'}.`
+                  : `No WhatsApp session is assigned to ${ngoName} yet.`}
+              </small>
+            </div>
+            <label className="faq-ngo-switch">
+              <span>{activeDraft ? 'Active' : 'Inactive'}</span>
+              <span className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={activeDraft}
+                  onChange={e => setActiveDraft(e.target.checked)}
+                  disabled={ngoSessionIds.length === 0}
+                  aria-label={`Activate AI responder for ${ngoName}`}
+                />
+                <span className="toggle-slider" />
+              </span>
+            </label>
+          </div>
+
+          <div className="config-form">
+            <div className="form-group">
+              <label htmlFor={promptId}>System prompt for {ngoName}</label>
+              <textarea
+                id={promptId}
+                rows={6}
+                value={prompt}
+                placeholder={`e.g. You are the WhatsApp assistant for ${ngoName}. Answer questions about our work, donations and receipts in a warm, concise tone.`}
+                onChange={e => setPrompt(e.target.value)}
+              />
+              <small>
+                Provider API URL, key, model and rate limits come from the Configuration tab.
+                Leave this blank to inherit the global system prompt.
+              </small>
+            </div>
+          </div>
+
+          <div className="faq-ngo-actions">
+            <span className="faq-ngo-hint">
+              {ngoSessionIds.length === 0
+                ? 'Assign this NGO to a WhatsApp session first (WhatsApp Center → Assignments).'
+                : activeDraft
+                  ? 'Saving applies this prompt to every number of this NGO.'
+                  : 'Saving will switch the AI responder off on every number of this NGO.'}
+            </span>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void save()}
+              disabled={saving || ngoSessionIds.length === 0}
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : `Save for ${ngoName}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SessionsTab({ plugin }: { plugin: Plugin }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
@@ -541,6 +1234,7 @@ function SessionsTab({ plugin }: { plugin: Plugin }) {
         <section className="sessions-section">
           <h3>{t('plugins.sessions.perSessionTitle')}</h3>
           <small>{t('plugins.sessions.perSessionDesc')}</small>
+          <div className="sessions-ngo-hint">{t('plugins.sessions.perSessionNgoHint')}</div>
           {/* The heading above is a sibling, not a label, so the select had no accessible name of its
               own: a screen reader announced an unnamed combobox. */}
           <select
@@ -565,6 +1259,8 @@ function SessionsTab({ plugin }: { plugin: Plugin }) {
                   <ConfigField
                     key={key}
                     field={field}
+                    fieldKey={key}
+                    pluginId={plugin.id}
                     label={field.title || key}
                     value={overrideCfg[key]}
                     onChange={v => setOverrideCfg({ ...overrideCfg, [key]: v })}
@@ -650,7 +1346,7 @@ export default function Plugins() {
   // Derive the open plugin from the LIVE query so the modal (esp. the Sessions tab) reflects the
   // latest activeSessions/sessionConfig after a save + invalidate — not a stale open-time snapshot.
   const configPlugin = configPluginId ? (plugins.find(p => p.id === configPluginId) ?? null) : null;
-  const [configTab, setConfigTab] = useState<'config' | 'sessions' | 'instances'>('config');
+  const [configTab, setConfigTab] = useState<'config' | 'sessions' | 'instances' | 'ngos'>('config');
   const [savingConfig, setSavingConfig] = useState(false);
   // Values for a schema-driven (non-engine) plugin's config form, keyed by configSchema property.
   const [schemaConfig, setSchemaConfig] = useState<Record<string, unknown>>({});
@@ -726,7 +1422,12 @@ export default function Plugins() {
 
   const handleOpenConfig = (plugin: Plugin) => {
     setConfigPluginId(plugin.id);
-    setConfigTab('config');
+    // The FAQ and AI Responder are operated per NGO, so open straight on their NGO tab. The
+    // tab value stays 'sessions' (its label is what changes) because that is the branch the
+    // NGO editor renders under.
+    setConfigTab(
+      plugin.id === 'faq-bot' ? 'ngos' : plugin.id === 'ai-responder' ? 'sessions' : 'config',
+    );
     // Seed the schema form from the plugin's saved config, falling back to each field's default.
     if (plugin.configSchema?.properties) {
       const initial: Record<string, unknown> = {};
@@ -1308,35 +2009,52 @@ export default function Plugins() {
               closeLabel={t('common.close')}
               subheader={
                 showTabs ? (
-                  <div className="modal-tabs" role="tablist">
-                    <button
-                      role="tab"
-                      aria-selected={configTab === 'config'}
-                      className={`modal-tab ${configTab === 'config' ? 'active' : ''}`}
-                      onClick={() => setConfigTab('config')}
-                    >
-                      {t('plugins.config.tabConfig')}
-                    </button>
-                    {configPlugin.sessionScoped !== false && (
-                      <button
-                        role="tab"
-                        aria-selected={configTab === 'sessions'}
-                        className={`modal-tab ${configTab === 'sessions' ? 'active' : ''}`}
-                        onClick={() => setConfigTab('sessions')}
-                      >
-                        {t('plugins.config.tabSessions')}
-                      </button>
-                    )}
-                    {configPlugin.ingressCapable && (
-                      <button
-                        role="tab"
-                        aria-selected={configTab === 'instances'}
-                        className={`modal-tab ${configTab === 'instances' ? 'active' : ''}`}
-                        onClick={() => setConfigTab('instances')}
-                      >
-                        {t('plugins.instances.title')}
-                      </button>
-                    )}
+                  <div className="config-modal-tabbar">
+                    <div className="modal-tabs" role="tablist">
+                      {configPlugin.id === 'faq-bot' ? (
+                        <button
+                          role="tab"
+                          aria-selected={configTab === 'ngos'}
+                          className={`modal-tab ${configTab === 'ngos' ? 'active' : ''}`}
+                          onClick={() => setConfigTab('ngos')}
+                        >
+                          {t('plugins.config.tabConfig')}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            role="tab"
+                            aria-selected={configTab === 'config'}
+                            className={`modal-tab ${configTab === 'config' ? 'active' : ''}`}
+                            onClick={() => setConfigTab('config')}
+                          >
+                            {t('plugins.config.tabConfig')}
+                          </button>
+                          {configPlugin.sessionScoped !== false && (
+                            <button
+                              role="tab"
+                              aria-selected={configTab === 'sessions'}
+                              className={`modal-tab ${configTab === 'sessions' ? 'active' : ''}`}
+                              onClick={() => setConfigTab('sessions')}
+                            >
+                              {configPlugin.id === 'ai-responder'
+                                ? t('plugins.config.tabNgos')
+                                : t('plugins.config.tabSessions')}
+                            </button>
+                          )}
+                          {configPlugin.ingressCapable && (
+                            <button
+                              role="tab"
+                              aria-selected={configTab === 'instances'}
+                              className={`modal-tab ${configTab === 'instances' ? 'active' : ''}`}
+                              onClick={() => setConfigTab('instances')}
+                            >
+                              {t('plugins.instances.title')}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 ) : undefined
               }
@@ -1349,6 +2067,7 @@ export default function Plugins() {
                       only. A plugin with its own editor saves through that editor, so the footer Save is
                       omitted rather than left to save a form the operator cannot see. */}
                   {(showTabs && (configTab === 'sessions' || configTab === 'instances')) ||
+                  configPlugin.id === 'faq-bot' ||
                   configPlugin.configUi ? null : Object.keys(lz.configSchema?.properties ?? {}).length > 0 ? (
                     <button className="btn-primary" onClick={handleSaveSchemaConfig} disabled={savingConfig}>
                       {savingConfig ? <Loader2 size={16} className="animate-spin" /> : t('plugins.config.save')}
@@ -1357,10 +2076,14 @@ export default function Plugins() {
                 </>
               }
             >
-              {showTabs && configTab === 'instances' && configPlugin.ingressCapable ? (
+              {configPlugin.id === 'faq-bot' ? (
+                <FaqNgoTab plugin={configPlugin} />
+              ) : showTabs && configTab === 'instances' && configPlugin.ingressCapable ? (
                 <PluginInstances pluginId={configPlugin.id} />
               ) : showTabs && configTab === 'sessions' && configPlugin.sessionScoped !== false ? (
-                <SessionsTab plugin={configPlugin} />
+                configPlugin.id === 'ai-responder'
+                  ? <AiNgoTab plugin={configPlugin} />
+                  : <SessionsTab plugin={configPlugin} />
               ) : /* A plugin that ships its own editor owns the whole config: rendering the generic
                      form underneath it too produced a second copy of every field and a second Save
                      button with different semantics, which is what the Chat Flow modal looked like. */
@@ -1372,6 +2095,8 @@ export default function Plugins() {
                     <ConfigField
                       key={key}
                       field={field}
+                      fieldKey={key}
+                      pluginId={configPlugin.id}
                       label={field.title || key}
                       value={schemaConfig[key]}
                       onChange={v => setSchemaConfig({ ...schemaConfig, [key]: v })}
