@@ -1,6 +1,23 @@
+import dns from 'node:dns';
 import config from '../config/whatsappConfig.js';
 import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+
+// Windows machines with broken/partial IPv6 routes intermittently fail Node's
+// fetch() with a bare "fetch failed" when talking to graph.facebook.com.
+// Prefer IPv4 so media uploads (receipt PDFs) don't fail on the happy-eyeballs
+// attempt. Safe no-op on platforms that ignore the setting.
+try { dns.setDefaultResultOrder('ipv4first'); } catch { /* ignore */ }
+
+function sanitizeUploadFileName(name) {
+  const cleaned = String(name || 'document.pdf')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/[<>:"/\\|?*\r\n\t]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
+  return cleaned || 'document.pdf';
+}
 
 function getApiBase(account) {
   const id = account?.phoneNumberId || account?.phone_number_id || config.phoneNumberId;
@@ -68,31 +85,73 @@ export async function sendTextMessage(to, text, account) {
   return sendViaFacebook(to, 'text', { text: { body: text } }, resolved);
 }
 
-async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
+async function uploadBufferToMeta(account, buffer, contentType, fileName) {
   const token = getAccessToken(account);
-  const phoneNumberId = account.phone_number_id;
+  const phoneNumberId = account?.phone_number_id || account?.phoneNumberId || config.phoneNumberId;
   if (!token || !phoneNumberId) throw new Error('WhatsApp account not configured');
 
+  const uploadUrl = `https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/media`;
+  const safeFileName = sanitizeUploadFileName(fileName);
+  const MAX_ATTEMPTS = 4;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    // FormData/Body must be recreated per attempt — a consumed body cannot be
+    // replayed after a network failure.
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', contentType);
+    form.append('file', new Blob([buffer], { type: contentType }), safeFileName);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+        signal: controller.signal,
+      });
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (uploadRes.ok && uploadData?.id) return uploadData.id;
+
+      const message = uploadData?.error?.message || `Media upload to Meta failed (HTTP ${uploadRes.status})`;
+      const error = new Error(message);
+      error.retryable = uploadRes.status === 429 || uploadRes.status >= 500;
+      throw error;
+    } catch (e) {
+      lastError = e;
+      const cause = e?.cause?.code || e?.cause?.errno || e?.cause?.message || e?.name || '';
+      console.warn(`[whatsapp] media upload attempt ${attempt}/${MAX_ATTEMPTS} failed:`, e.message, cause || '');
+      if (e?.retryable === false || attempt === MAX_ATTEMPTS) break;
+      await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  const cause = lastError?.cause?.code || lastError?.cause?.errno || lastError?.cause?.message;
+  throw new Error(
+    `${lastError?.message || 'Media upload to Meta failed'}${cause ? ` (${cause})` : ''}`,
+  );
+}
+
+/**
+ * Upload a document straight to Meta and return its media id. The file is
+ * never persisted in our storage — Meta keeps it only long enough to deliver
+ * the message. Use this in template headers as `document: { id }` instead of
+ * `{ link }` when no public/stored URL exists.
+ */
+export async function uploadDocumentBufferToMeta(account, buffer, fileName = 'receipt.pdf') {
+  return uploadBufferToMeta(account, buffer, 'application/pdf', fileName);
+}
+
+async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
   const mediaRes = await fetch(mediaUrl);
   if (!mediaRes.ok) throw new Error('Failed to download media for upload');
   const buffer = Buffer.from(await mediaRes.arrayBuffer());
   const contentType = mediaRes.headers.get('content-type') || (mediaType === 'image' ? 'image/jpeg' : 'application/pdf');
-
-  const form = new FormData();
-  form.append('messaging_product', 'whatsapp');
-  form.append('type', contentType);
-  form.append('file', new Blob([buffer], { type: contentType }), mediaType === 'image' ? 'image.jpg' : 'document.pdf');
-
-  const uploadRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${phoneNumberId}/media`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
-  const uploadData = await uploadRes.json();
-  if (!uploadRes.ok || !uploadData?.id) {
-    throw new Error(uploadData?.error?.message || 'Media upload to Meta failed');
-  }
-  return uploadData.id;
+  return uploadBufferToMeta(account, buffer, contentType, mediaType === 'image' ? 'image.jpg' : 'document.pdf');
 }
 
 export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null, headerFormat = 'IMAGE') {
@@ -130,7 +189,7 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
   }, resolved);
 }
 
-export async function sendReceiptMessage(to, donorName, amount, receiptNo, date, headerMediaUrl, templateName, account) {
+export async function sendReceiptMessage(to, donorName, amount, receiptNo, date, headerMediaUrl, templateName, account, headerMediaId = null) {
   const formattedAmount = typeof amount === 'number' ? '\u20B9' + amount.toLocaleString('en-IN') : amount;
   const params = [donorName, formattedAmount, receiptNo, date];
 
@@ -145,7 +204,10 @@ export async function sendReceiptMessage(to, donorName, amount, receiptNo, date,
   const fileName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`
 
   const components = [];
-  if (headerMediaUrl) {
+  if (headerMediaId) {
+    // Uploaded straight to Meta — no stored URL involved.
+    components.push({ type: 'header', parameters: [{ type: 'document', document: { id: headerMediaId, filename: fileName } }] });
+  } else if (headerMediaUrl) {
     components.push({ type: 'header', parameters: [{ type: 'document', document: { link: headerMediaUrl, filename: fileName } }] });
   }
   components.push({
@@ -251,6 +313,16 @@ async function sendWithHeaderMedia(to, templateName, params, headerMediaUrl, acc
   }, resolved);
 }
 
+// Connection-level failures happen before Meta receives the request, so
+// retrying them cannot duplicate a message. A reset *after* sending is
+// deliberately not retried (the message may already have been accepted).
+const SAFE_CONNECT_RETRY_CODES = new Set([
+  'UND_ERR_CONNECT_TIMEOUT',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+]);
+
 async function sendViaFacebook(to, type, payload, account) {
   const body = {
     messaging_product: 'whatsapp',
@@ -262,7 +334,18 @@ async function sendViaFacebook(to, type, payload, account) {
   const apiBase = getApiBase(account);
   const token = getAccessToken(account);
 
-  return postWhatsAppMessage(apiBase, token, body);
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await postWhatsAppMessage(apiBase, token, body);
+    } catch (error) {
+      const code = error?.cause?.code;
+      if (!SAFE_CONNECT_RETRY_CODES.has(code) || attempt === MAX_ATTEMPTS) throw error;
+      console.warn(`[whatsapp] send attempt ${attempt}/${MAX_ATTEMPTS} failed (${code}); retrying`);
+      await new Promise(resolve => setTimeout(resolve, 600 * attempt));
+    }
+  }
+  throw new Error('WhatsApp send failed');
 }
 
 export async function testConnection(account) {
