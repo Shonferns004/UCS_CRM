@@ -15,8 +15,10 @@ for %%P in (5000 5173 9000 9999) do (
   )
 )
 
+if exist ".dashboard-stopped" del /q ".dashboard-stopped" >nul 2>&1
+
 echo   [1/5] Dashboard server (9999)...
-start "UCS Dashboard" /min cmd /c "node dashboard-server.mjs"
+start "UCS Dashboard" /min cmd /c "run-dashboard.bat"
 timeout /t 2 /nobreak >nul
 
 echo   [2/5] Webhook server (9000)...

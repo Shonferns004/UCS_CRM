@@ -73,6 +73,7 @@ scripts/.webhook-secret
 
 # Local dashboard artifacts
 dashboard-server.mjs
+.dashboard-stopped
 uploads/
 webhook.log
 metrics.js

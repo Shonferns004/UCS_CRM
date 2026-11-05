@@ -28,6 +28,10 @@ function log(msg) {
   try { fs.appendFileSync(LOG_FILE, line + '\n'); } catch {}
 }
 
+// ── Crash guards: keep the auto-pull watcher alive ──
+process.on('uncaughtException', (err) => log('uncaughtException (kept alive): ' + ((err && err.stack) || err)));
+process.on('unhandledRejection', (reason) => log('unhandledRejection (kept alive): ' + ((reason && reason.stack) || reason)));
+
 function verify(body, sig) {
   if (!SECRET) return true;
   if (!sig) return false;
@@ -75,10 +79,12 @@ function pollOnce() {
       log('auto-pull: new commit on origin/master (' + String(remote).slice(0, 7) + ') — pulling');
       lastRemoteSha = remote;
       const result = pullLatest();
-      if (result.ok) {
+      if (result.ok && result.changed) {
         lastLocalSha = localSha();
         log('auto-pull: updated to ' + String(lastLocalSha).slice(0, 7) + ' — restarting backend + frontend');
         restartServices();
+      } else if (result.ok) {
+        log('auto-pull: already up to date (nothing restarted)');
       }
     } else if (local !== lastLocalSha) {
       lastLocalSha = local;
@@ -92,14 +98,17 @@ function pollOnce() {
 }
 
 function pullLatest() {
+  const before = localSha();
   try {
     const out = execSync('git pull --ff-only origin master', { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 60000 });
+    const after = localSha();
+    const changed = before !== after;
     log('pull: ' + out.trim().replace(/\n/g, ' | ').slice(0, 300));
-    return { ok: true, message: 'Pulled latest code' };
+    return { ok: true, changed, message: changed ? 'Pulled latest code' : 'Already up to date' };
   } catch (e) {
     const msg = (e.stderr || e.message || '').toString().trim().split('\n').slice(-2).join(' | ').slice(0, 300);
     log('pull failed: ' + msg);
-    return { ok: false, error: msg };
+    return { ok: false, changed: false, error: msg };
   }
 }
 
@@ -109,28 +118,62 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+// PIDs currently LISTENING on a port (empty set = service is not running).
+function portPids(port) {
+  const pids = new Set();
+  try {
+    const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8', timeout: 10000 });
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.trim().match(/\s+(\d+)\s*$/);
+      if (m) pids.add(m[1]);
+    }
+  } catch {}
+  return pids;
+}
+
+function killPort(port) {
+  for (const pid of portPids(port)) {
+    try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore', timeout: 10000 }); } catch {}
+  }
+}
+
 function restartServices() {
   if (!AUTO_RESTART) { log('AUTO_RESTART=false -> not restarting services'); return; }
   if (restarting) { log('restart already in progress -> skipping duplicate restart'); return; }
   restarting = true;
   try {
-    log('restarting backend + frontend...');
-    // Kill only the backend (port 5000) and frontend (port 5173) - not this webhook server
-    for (const port of [5000, 5173]) {
-      try {
-        const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
-        const pids = new Set();
-        for (const line of out.split(/\r?\n/)) { const m = line.trim().match(/\s+(\d+)\s*$/); if (m) pids.add(m[1]); }
-        for (const pid of pids) {
-          try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' }); } catch {}
-        }
-      } catch {}
+    // Only restart services that were ALREADY running. The old code always
+    // spawned a backend, so every pull created a new backend even if none was
+    // running (and a duplicate when the old one did not die in time).
+    const services = [
+      {
+        name: 'backend', port: 5000,
+        start: () => spawn('C:\\Program Files\\nodejs\\node.exe', ['src/index.js'], { cwd: PROJECT_ROOT + '/backend', detached: true, stdio: 'ignore', windowsHide: true }),
+      },
+      {
+        name: 'frontend', port: 5173,
+        start: () => spawn('cmd.exe', ['/c', 'npm run dev -- --host'], { cwd: PROJECT_ROOT + '/client', detached: true, stdio: 'ignore', windowsHide: true, shell: true }),
+      },
+    ];
+
+    const running = [];
+    for (const s of services) {
+      if (portPids(s.port).size > 0) { log(s.name + ' is running on :' + s.port + ' -> will restart it'); running.push(s); }
+      else log(s.name + ' is not running on :' + s.port + ' -> leaving it stopped');
     }
-    // Give the OS a moment to release the ports before the new processes bind.
+    if (running.length === 0) { log('nothing was running -> no restart needed'); return; }
+
+    log('restarting ' + running.map(s => s.name).join(' + ') + '...');
+    for (const s of running) killPort(s.port);
     sleepSync(1500);
-    spawn('C:\\Program Files\\nodejs\\node.exe', ['src/index.js'], { cwd: PROJECT_ROOT + '/backend', detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    spawn('cmd.exe', ['/c', 'npm run dev -- --host'], { cwd: PROJECT_ROOT + '/client', detached: true, stdio: 'ignore', windowsHide: true, shell: true }).unref();
-    log('backend + frontend restarted');
+
+    for (const s of running) {
+      if (portPids(s.port).size > 0) { log(s.name + ' :' + s.port + ' is still busy -> not starting a duplicate'); continue; }
+      const p = s.start();
+      p.on('error', (e) => log('failed to start ' + s.name + ': ' + e.message));
+      p.unref();
+      log(s.name + ' restarted');
+    }
   } finally {
     restarting = false;
   }
@@ -194,7 +237,7 @@ const server = http.createServer((req, res) => {
       }
 
       const result = pullLatest();
-      if (result.ok) restartServices();
+      if (result.ok && result.changed) restartServices();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));

@@ -61,6 +61,59 @@
     .badge-dot { animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
     @keyframes pulse-subtle { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(0.95); } }
   </style>
+<style data-purpose="polish">
+    /* Page depth — soft aurora glows behind the content */
+    body {
+      background:
+        radial-gradient(1100px 520px at 12% -8%, rgba(56, 189, 248, .10), transparent 60%),
+        radial-gradient(900px 480px at 88% -6%, rgba(99, 102, 241, .10), transparent 55%),
+        radial-gradient(700px 420px at 50% 110%, rgba(16, 185, 129, .05), transparent 60%),
+        #080d19;
+      background-attachment: fixed;
+    }
+    header::before {
+      content: '';
+      position: absolute; inset: 0 0 auto 0; height: 2px;
+      background: linear-gradient(90deg, transparent, #22d3ee 25%, #6366f1 55%, transparent);
+      opacity: .7;
+    }
+    /* Panels */
+    .card {
+      backdrop-filter: blur(8px);
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, .28);
+      box-shadow: 0 22px 45px -24px rgba(0, 0, 0, .95), 0 0 0 1px rgba(56, 189, 248, .06);
+    }
+    /* Service cards */
+    #serviceGrid > div {
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+    }
+    #serviceGrid > div:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, .30);
+      box-shadow: 0 22px 45px -24px rgba(0, 0, 0, .95);
+    }
+    /* Auto-pull metric tiles (these classes had no styles before) */
+    .metric {
+      background: linear-gradient(180deg, rgba(15, 23, 42, .85), rgba(2, 6, 23, .55));
+      border: 1px solid rgba(51, 65, 85, .7);
+      border-radius: .75rem;
+      padding: .8rem 1rem;
+      transition: border-color .18s ease, transform .18s ease;
+    }
+    .metric:hover { border-color: rgba(56, 189, 248, .35); transform: translateY(-1px); }
+    .metric-label { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: #94a3b8; font-weight: 600; }
+    .metric-value { margin-top: .35rem; color: #f8fafc; font-weight: 700; letter-spacing: -.01em; }
+    .metric-sub { font-size: 11px; color: #64748b; margin-top: .15rem; }
+    .status-line { font-size: 12px; color: #94a3b8; line-height: 1.6; }
+    .status-line code { background: rgba(30, 41, 59, .72); padding: 1px 6px; border-radius: 5px; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+  </style>
 </head>
 <body class="bg-[#080d19] text-slate-200 font-sans antialiased min-h-screen selection:bg-cyan-500/30 selection:text-cyan-200">
 
@@ -131,7 +184,7 @@
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-semibold tracking-wider text-slate-400 uppercase flex items-center gap-2">
         Active Services &amp; Daemons
-        <span class="text-xs font-normal normal-case text-slate-500 font-mono">(4 managed endpoints)</span>
+        <span class="text-xs font-normal normal-case text-slate-500 font-mono">(5 managed endpoints)</span>
       </h2>
       <span class="text-xs text-slate-500 font-mono">Last scanned: <span id="lastScan2">—</span></span>
     </div>
@@ -150,7 +203,7 @@
   </section>
 
   <!-- Database Restore -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-800">
       <div>
         <h2 class="text-base font-semibold text-white flex items-center gap-2">
@@ -199,7 +252,7 @@
   </section>
 
   <!-- Compare local vs AWS -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
       <h2 class="text-base font-semibold text-white flex items-center gap-2">
         <svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 9a2 2 0 11-2 2m-2-2a2 2 0 112 2"/></svg>
@@ -223,7 +276,7 @@
   </section>
 
   <!-- Pull AWS -> Local -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
       <h2 class="text-base font-semibold text-white flex items-center gap-2">
         <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -243,7 +296,7 @@
   </section>
 
   <!-- Sync local -> AWS -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
       <h2 class="text-base font-semibold text-white flex items-center gap-2">
         <svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -265,7 +318,7 @@
   </section>
 
   <!-- SQL Console -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
       <h2 class="text-base font-semibold text-white flex items-center gap-2">
         <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
@@ -288,7 +341,7 @@
   </section>
 
   <!-- Auto-pull Status -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-black/20">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
       <h2 class="text-base font-semibold text-white flex items-center gap-2">
         <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
@@ -327,7 +380,7 @@
   </section>
 
   <!-- Webhook Terminal -->
-  <section class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
+  <section class="card rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
     <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
       <div>
         <h2 class="text-base font-semibold text-white flex items-center gap-2">
@@ -375,7 +428,7 @@
       <span>Double-click <code class="text-slate-400 font-mono bg-slate-800/60 px-1 py-0.5 rounded">start.bat</code> to launch everything.</span>
     </div>
     <div>
-      <span>Dashboard auto-checks every <strong>10s</strong>. Config: <code class="text-indigo-400 font-mono">src/config.js</code></span>
+      <span>Dashboard auto-checks every <strong>3s</strong>.</span>
     </div>
   </div>
 </footer>
@@ -393,6 +446,8 @@ const SERVICES = [
     links:[['Open app','http://192.168.1.32:5173'],['localhost','http://localhost:5173']] },
   { key:'webhook',  label:'Webhook Server', sub:'', port:9000, cmd:'node webhook-server.js', tag:'auto-pull',
     links:[['Endpoint','http://localhost:9000/health'],['Sync status','http://localhost:9000/poll-status']] },
+  { key:'openwa',   label:'OpenWA Backend', sub:'(WhatsApp API)', port:3001, cmd:'cd openwa; npm run start:dev', tag:'nest / whatsapp',
+    links:[['Health','http://localhost:3001/api/health'],['API docs','http://localhost:3001/api/docs']] },
   { key:'tunnel',   label:'Backend Tunnel', sub:'(ngrok)', port:'—', cmd:'ngrok http --domain=audio-diagnoses-ream.ngrok-free.dev 5000', tag:'tunnel',
     links:[['Tunnel dashboard','http://127.0.0.1:4040'],['Public URL','https://audio-diagnoses-ream.ngrok-free.dev']] },
 ];
@@ -400,7 +455,7 @@ const SERVICES = [
 const ICON_ON  = '<svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
 const ICON_OFF = '<svg class="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
 
-let state = { backend:false, frontend:false, webhook:false, tunnel:false, backendInfo:null, tunnelUrl:null };
+let state = { backend:false, frontend:false, webhook:false, openwa:false, tunnel:false, backendInfo:null, openwaInfo:null, tunnelUrl:null };
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -417,6 +472,10 @@ function renderServices() {
       if (s.key === 'backend') statusText = 'Online — db: ' + (state.backendInfo?.db || 'ok') + (state.backendInfo?.commit ? ', commit: ' + state.backendInfo.commit : '');
       else if (s.key === 'frontend') statusText = 'Online';
       else if (s.key === 'webhook') statusText = 'Online — auto-pull polling every 30s';
+      else if (s.key === 'openwa') {
+        const os = state.openwaInfo && state.openwaInfo.sessions;
+        statusText = os ? 'Online — ' + os.ready + '/' + os.total + ' sessions active (Chromium)' : 'Online — WhatsApp API gateway';
+      }
       else statusText = 'Online — ' + (state.tunnelUrl || 'tunnel active');
     }
     const flagCls = up
@@ -426,14 +485,14 @@ function renderServices() {
     const statusHtml = s.key === 'tunnel' && up && state.tunnelUrl
       ? '<span class="truncate" title="'+esc(state.tunnelUrl)+'">'+esc(state.tunnelUrl)+'</span>'
       : '<span class="truncate" title="'+esc(statusText)+'">'+esc(statusText)+'</span>';
-    return '<div class="rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-900/90 p-5 shadow-lg shadow-black/20 transition-all flex flex-col justify-between min-w-0 overflow-hidden">' +
+    return '<div class="card rounded-2xl border border-slate-800 bg-slate-900/60 hover:bg-slate-900/80 p-5 shadow-lg shadow-black/20 flex flex-col justify-between min-w-0 overflow-hidden">' +
       '<div class="min-w-0">' +
         '<div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800/60">' +
           '<div class="flex items-center gap-2.5 min-w-0">' +
             '<span class="relative flex h-3 w-3 shrink-0"><span class="'+dot+'"></span><span class="relative inline-flex rounded-full h-3 w-3 '+core+'"></span></span>' +
             '<span class="font-semibold text-slate-200 text-sm truncate">'+s.label+' <span class="text-slate-400 font-normal">'+s.sub+'</span></span>' +
           '</div>' +
-          '<span class="font-mono text-xs text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/50 shrink-0">port '+s.port+'</span>' +
+          '<span class="font-mono text-[11px] text-cyan-300/90 bg-slate-950/70 px-2 py-0.5 rounded-md border border-cyan-900/40 shrink-0">:'+s.port+'</span>' +
         '</div>' +
         '<div class="my-3 flex flex-wrap items-center justify-between gap-2">' +
           '<div class="'+flagCls+'">'+(up?ICON_ON:ICON_OFF)+statusHtml+'</div>' +
@@ -455,7 +514,7 @@ function renderServices() {
 }
 
 function metricCard(opts) {
-  return '<div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-black/20 flex flex-col justify-between min-w-0 overflow-hidden">' +
+  return '<div class="card rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-black/20 flex flex-col justify-between min-w-0 overflow-hidden">' +
     '<div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800/60">' +
       '<span class="font-semibold text-slate-200 text-sm flex items-center gap-2 min-w-0 truncate">'+opts.icon+'<span class="truncate">'+opts.label+'</span></span>' +
       '<span class="text-[11px] font-mono uppercase tracking-wider text-slate-400 shrink-0 text-right">'+opts.total+'</span>' +
@@ -722,17 +781,20 @@ async function checkAll() {
     state.backendInfo = d.backend;
     state.frontend = !!d.frontend;
     state.webhook = !!d.webhook;
+    state.openwa = !!(d.openwa && d.openwa.status === 'ok');
+    state.openwaInfo = d.openwa || null;
     state.tunnel = !!(d.tunnel && d.tunnel.public_url);
     state.tunnelUrl = d.tunnel ? d.tunnel.public_url : null;
     renderServices();
 
-    const up = [state.backend, state.frontend, state.webhook, state.tunnel].filter(Boolean).length;
+    const up = [state.backend, state.frontend, state.webhook, state.openwa, state.tunnel].filter(Boolean).length;
     const badge = document.getElementById('statusBadge');
-    if (up === 4) { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-dot"></span> 4/4 Services Online'; }
-    else if (up === 0) { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 badge-dot"></span> 0/4 Services Down'; }
-    else { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 badge-dot"></span> '+up+'/4 Services Degraded'; }
+    if (up === 5) { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 badge-dot"></span> 5/5 Services Online'; }
+    else if (up === 0) { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 badge-dot"></span> 0/5 Services Down'; }
+    else { badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20'; badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 badge-dot"></span> '+up+'/5 Services Degraded'; }
   } catch {
-    state.backend = state.frontend = state.webhook = state.tunnel = false;
+    state.backend = state.frontend = state.webhook = state.openwa = state.tunnel = false;
+    state.openwaInfo = null;
     renderServices();
     const badge = document.getElementById('statusBadge');
     badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';

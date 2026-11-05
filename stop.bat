@@ -4,6 +4,9 @@ cd /d C:\Users\Administrator\Desktop\UCS_CRM
 
 echo   Stopping all UCS services...
 
+:: Tell the dashboard watchdog not to restart the dashboard.
+echo 1> ".dashboard-stopped"
+
 for %%P in (5000 5173 9000 9999) do (
   for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%%P ^| findstr LISTENING') do (
     echo     stopping port %%P
