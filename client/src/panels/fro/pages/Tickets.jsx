@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Inbox, Loader, CheckCircle2, Archive, AlertTriangle } from 'lucide-react';
+import { Inbox, CheckCircle2, AlertTriangle, Search } from 'lucide-react';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -23,11 +23,19 @@ const PRIORITIES = [
   { value: 'high', label: 'High' },
 ];
 
-const STATUS_COLORS = {
-  open: { bg: '#fefce8', color: '#a16207' },
-  in_progress: { bg: '#eff6ff', color: '#1d4ed8' },
-  resolved: { bg: '#f0fdf4', color: '#16a34a' },
-  closed: { bg: '#f3f4f6', color: '#6b7280' },
+// FRO-facing status is deliberately only Open or Resolved.
+//   • open / in_progress  -> Open
+//   • resolved / closed   -> Resolved
+// The internal four-state workflow is unchanged for the teams that work the
+// ticket; this page simply presents the two states an FRO can act on.
+const normalizeStatus = (status) => {
+  const s = String(status || '').toLowerCase();
+  return s === 'resolved' || s === 'closed' ? 'resolved' : 'open';
+};
+
+const STATUS_META = {
+  open: { label: 'Open', bg: '#fffbeb', color: '#b45309', dot: '#f59e0b' },
+  resolved: { label: 'Resolved', bg: '#f0fdf4', color: '#15803d', dot: '#22c55e' },
 };
 
 const PANEL_LABELS = {
@@ -80,6 +88,9 @@ export default function FroTickets() {
   const [sendingReply, setSendingReply] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // FRO works from two tabs only: Open (default) and Resolved.
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [query, setQuery] = useState('');
   const [formErrors, setFormErrors] = useState({});
   const raiseBtnRef = useRef(null);
   const raiseDrawerRef = useRef(null);
@@ -157,16 +168,25 @@ export default function FroTickets() {
 
   useEffect(() => { fetchMyAsset(); }, []);
 
-  useEffect(() => { setPage(1); }, [tickets.length]);
+  // FRO sees exactly two states. Count everything not resolved/closed as Open,
+  // including tickets the team is actively working on (in_progress).
+  const openCount = tickets.filter(t => normalizeStatus(t.status) === 'open').length;
+  const resolvedCount = tickets.length - openCount;
+  const q = query.trim().toLowerCase();
+  const filteredTickets = tickets
+    .filter(t => normalizeStatus(t.status) === statusFilter)
+    .filter(t => !q
+      || (t.subject || '').toLowerCase().includes(q)
+      || (t.reference_id || '').toLowerCase().includes(q)
+      || String(categoryLabel(t.category) || '').toLowerCase().includes(q)
+      || String(deptLabel(t.department) || '').toLowerCase().includes(q));
 
-  const totalPages = Math.ceil(tickets.length / pageSize);
-  const paginatedTickets = tickets.slice((page - 1) * pageSize, page * pageSize);
-  const counts = {
-    open: tickets.filter(t => t.status === 'open').length,
-    in_progress: tickets.filter(t => t.status === 'in_progress').length,
-    resolved: tickets.filter(t => t.status === 'resolved').length,
-    closed: tickets.filter(t => t.status === 'closed').length,
-  };
+  useEffect(() => { setPage(1); }, [tickets.length, statusFilter, pageSize, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTickets.length / pageSize));
+  useEffect(() => { setPage(p => Math.min(p, totalPages)); }, [totalPages]);
+
+  const paginatedTickets = filteredTickets.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     load();
@@ -271,51 +291,98 @@ export default function FroTickets() {
     finally { setSendingReply(false); }
   };
 
-  const statCards = [
-    { label: 'Open', helper: 'Tickets awaiting a reply', count: counts.open, Icon: Inbox, color: '#a16207', bg: '#fefce8' },
-    { label: 'In Progress', helper: 'Being worked on by the team', count: counts.in_progress, Icon: Loader, color: '#1d4ed8', bg: '#eff6ff' },
-    { label: 'Resolved', helper: 'Fixed and marked resolved', count: counts.resolved, Icon: CheckCircle2, color: '#16a34a', bg: '#f0fdf4' },
-    { label: 'Closed', helper: 'Closed tickets', count: counts.closed, Icon: Archive, color: '#6b7280', bg: '#f3f4f6' },
+  const tabs = [
+    { key: 'open', label: 'Open', count: openCount, color: '#b45309', dot: '#f59e0b', bg: '#fffbeb' },
+    { key: 'resolved', label: 'Resolved', count: resolvedCount, color: '#15803d', dot: '#22c55e', bg: '#f0fdf4' },
   ];
 
   const drawerOpen = raiseMounted && !raiseClosing;
 
   return (
-    <div>
-      <div className="card-head" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
-          My Tickets
-          <span style={{ fontWeight: 400, fontSize: 11, color: refreshing ? '#2563eb' : '#16a34a', marginLeft: 10 }}>
-            ● {refreshing ? 'Syncing…' : 'Live'} {lastUpdated ? '· ' + lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
-          </span>
-        </h3>
-        <button ref={raiseBtnRef} className="btn btn-sm btn-primary" onClick={openRaise}>
-          + Raise Ticket
-        </button>
-      </div>
-
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div style={{ padding: '14px 18px' }}>
-          <div className="fro-ticket-stats">
-            {statCards.map(s => (
-              <div key={s.label} className="fro-ticket-stat">
-                <div className="fro-ticket-stat-ico" style={{ background: s.bg, color: s.color }}>
-                  <s.Icon size={19} strokeWidth={2} />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div className="fro-ticket-stat-num" style={{ color: s.color }}>{s.count}</div>
-                  <div className="fro-ticket-stat-lbl" style={{ color: s.color }}>{s.label}</div>
-                  <div className="fro-ticket-stat-helper">{s.helper}</div>
+    <div style={{ padding: '2px 0 24px' }}>
+      <div className="card" style={{ overflow: 'hidden' }}>
+        {/* Page header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', padding: '20px 22px 18px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 11, background: '#eff6ff', color: '#2563eb', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: 'inset 0 0 0 1px #dbeafe' }}>
+                <Inbox size={19} strokeWidth={2.2} />
+              </span>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 19, lineHeight: 1.2, fontWeight: 800, letterSpacing: '-.25px', color: 'var(--ink)' }}>My Tickets</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3, fontSize: 11, color: 'var(--ink-soft)', flexWrap: 'wrap' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: refreshing ? '#2563eb' : '#16a34a', boxShadow: refreshing ? '0 0 0 3px #2563eb22' : '0 0 0 3px #16a34a22' }} />
+                    <span style={{ color: refreshing ? '#2563eb' : '#15803d', fontWeight: 700 }}>{refreshing ? 'Syncing…' : 'Live'}</span>
+                  </span>
+                  {lastUpdated && <span>Updated {lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>}
+                  <span style={{ color: 'var(--line)' }}>·</span>
+                  <span>Track issues raised to the teams</span>
                 </div>
               </div>
-            ))}
+            </div>
+          </div>
+          <button ref={raiseBtnRef} className="btn btn-primary" onClick={openRaise} style={{ padding: '9px 18px', borderRadius: 9, fontSize: 12.5, fontWeight: 700, boxShadow: '0 6px 16px rgba(37,99,235,.22)', whiteSpace: 'nowrap' }}>
+            + Raise Ticket
+          </button>
+        </div>
+
+        {/* Open / Resolved tabs */}
+        <div role="tablist" aria-label="Ticket status" style={{ display: 'flex', alignItems: 'stretch', padding: '0 12px', borderBottom: '1px solid var(--line)', background: '#fff', flexWrap: 'wrap' }}>
+          {tabs.map(t => {
+            const active = statusFilter === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setStatusFilter(t.key)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '14px 16px 13px', border: 'none',
+                  borderBottom: active ? `2.5px solid ${t.dot}` : '2.5px solid transparent',
+                  background: 'transparent', color: active ? 'var(--ink)' : 'var(--ink-soft)',
+                  fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  transition: 'color .15s, border-color .15s',
+                }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: t.dot, opacity: active ? 1 : .45 }} />
+                {t.label}
+                <span style={{ minWidth: 20, padding: '1px 7px', borderRadius: 999, fontSize: 10, fontWeight: 800, background: active ? t.bg : 'var(--bg)', color: active ? t.color : 'var(--ink-soft)', border: active ? `1px solid ${t.dot}44` : '1px solid var(--line)' }}>
+                  {t.count}
+                </span>
+              </button>
+            );
+          })}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px 6px 0', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+              {filteredTickets.length} {statusFilter} ticket{filteredTickets.length === 1 ? '' : 's'}
+            </span>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search size={13} style={{ position: 'absolute', left: 9, color: 'var(--ink-soft)', pointerEvents: 'none' }} />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search tickets…"
+                aria-label="Search tickets"
+                style={{ width: 230, padding: '7px 10px 7px 28px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', color: 'var(--ink)', fontSize: 11.5, fontFamily: 'inherit', outline: 'none' }}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="card">
         <div className="table-wrap">
-          <table className="fro-ticket-table">
+          <table className="fro-ticket-table" style={{ tableLayout: 'fixed', width: '100%', minWidth: 860 }}>
+            <colgroup>
+              <col style={{ width: '34%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '9%' }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>Subject</th>
@@ -356,6 +423,29 @@ export default function FroTickets() {
                     </div>
                   </td>
                 </tr>
+              ) : filteredTickets.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="fro-ticket-empty">
+                      <div className="fro-ticket-empty-ico">{q ? <Search size={30} strokeWidth={1.6} /> : <Inbox size={30} strokeWidth={1.6} />}</div>
+                      <div className="fro-ticket-empty-title">{q ? `No tickets match “${query.trim()}”` : `No ${statusFilter} tickets`}</div>
+                      <div className="fro-ticket-empty-sub">
+                        {q
+                          ? 'Try another subject, reference, category or department.'
+                          : statusFilter === 'open'
+                            ? 'You are all caught up — check Resolved for closed tickets.'
+                            : 'Nothing resolved yet — tickets appear here once the team closes them.'}
+                      </div>
+                      {q ? (
+                        <button className="btn btn-sm" onClick={() => setQuery('')}>Clear search</button>
+                      ) : (
+                        <button className="btn btn-sm" onClick={() => setStatusFilter(statusFilter === 'open' ? 'resolved' : 'open')}>
+                          View {statusFilter === 'open' ? 'Resolved' : 'Open'} tickets
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
               ) : paginatedTickets.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No tickets on this page</td></tr>
               ) : (
@@ -363,6 +453,7 @@ export default function FroTickets() {
                     const replyCount = t.reply_count || 0;
                     const readMap = getReadMap(t.raised_by);
                     const unread = replyCount > 0 && (readMap[t.id] || 0) < replyCount;
+                    const statusMeta = STATUS_META[normalizeStatus(t.status)];
                     return (
                   <tr key={t.id}>
                     <td>
@@ -396,8 +487,9 @@ export default function FroTickets() {
                       </span>
                     </td>
                     <td>
-                      <span className="pill" style={{ background: STATUS_COLORS[t.status]?.bg || '#f3f4f6', color: STATUS_COLORS[t.status]?.color || '#6b7280', textTransform: 'capitalize', fontSize: 11 }}>
-                        {t.status?.replace('_', ' ')}
+                      <span className="pill" style={{ background: statusMeta.bg, color: statusMeta.color, fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 999, background: statusMeta.dot }} />
+                        {statusMeta.label}
                       </span>
                     </td>
                     <td style={{ fontSize: 11, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{new Date(t.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
@@ -412,7 +504,7 @@ export default function FroTickets() {
             </tbody>
           </table>
         </div>
-        {tickets.length > 0 && (
+        {filteredTickets.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)', fontSize: 11, color: 'var(--ink-soft)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>Rows:</span>
@@ -420,7 +512,7 @@ export default function FroTickets() {
                 style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer' }}>
                 {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
-              <span style={{ marginLeft: 4 }}>Showing {Math.min((page - 1) * pageSize + 1, tickets.length)}&ndash;{Math.min(page * pageSize, tickets.length)} of {tickets.length}</span>
+              <span style={{ marginLeft: 4 }}>Showing {Math.min((page - 1) * pageSize + 1, filteredTickets.length)}&ndash;{Math.min(page * pageSize, filteredTickets.length)} of {filteredTickets.length}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button className="btn btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}
@@ -443,9 +535,10 @@ export default function FroTickets() {
             <div className="modal-head" style={{ flexShrink: 0 }}>
               <div style={{ flex: 1 }}>
                 <h3 style={{ margin: 0, fontSize: 15 }}>{showDetail.subject}</h3>
-                <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                  <span className="pill" style={{ background: STATUS_COLORS[showDetail.status]?.bg || '#f3f4f6', color: STATUS_COLORS[showDetail.status]?.color || '#6b7280', textTransform: 'capitalize', fontSize: 10 }}>
-                    {showDetail.status?.replace('_', ' ')}
+                <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                  <span className="pill" style={{ background: STATUS_META[normalizeStatus(showDetail.status)].bg, color: STATUS_META[normalizeStatus(showDetail.status)].color, fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: 999, background: STATUS_META[normalizeStatus(showDetail.status)].dot }} />
+                    {STATUS_META[normalizeStatus(showDetail.status)].label}
                   </span>
                   <span className="pill" style={{ textTransform: 'capitalize', fontSize: 10 }}>{deptLabel(showDetail.department)}</span>
                   <span className="pill" style={{ textTransform: 'capitalize', fontSize: 10 }}>{categoryLabel(showDetail.category)}</span>
@@ -504,7 +597,7 @@ export default function FroTickets() {
                 )}
               </div>
 
-              {(showDetail.status === 'open' || showDetail.status === 'in_progress') && (
+              {normalizeStatus(showDetail.status) === 'open' && (
                 <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <textarea

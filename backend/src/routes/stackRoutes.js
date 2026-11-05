@@ -3,6 +3,7 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
   listStacks, createStack, updateStack, deleteStack,
   addMembers, removeMembers, assignFroToStack, getStackMembers, getMyStacks,
+  getStackFroHistory,
 } from '../controllers/stackController.js';
 
 const router = Router();
@@ -16,6 +17,7 @@ router.post('/ngo-admin/stacks/:id/members', authenticateRole('admin', 'super_ad
 router.delete('/ngo-admin/stacks/:id/members', authenticateRole('admin', 'super_admin'), removeMembers);
 router.post('/ngo-admin/stacks/:id/assign-fro', authenticateRole('admin', 'super_admin'), assignFroToStack);
 router.get('/ngo-admin/stacks/:id/members', authenticateRole('admin', 'super_admin'), getStackMembers);
+router.get('/ngo-admin/stacks/:id/fro-history', authenticateRole('admin', 'super_admin'), getStackFroHistory);
 
 // FRO
 router.get('/fro/my-stacks', authenticateRole('fro', 'worker', 'super_admin'), getMyStacks);

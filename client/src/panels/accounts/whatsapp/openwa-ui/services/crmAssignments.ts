@@ -9,6 +9,10 @@ export interface OpenwaAssignment {
   ngo_id: string;
   ngo_name?: string | null;
   station?: string | null;
+  /** The FRO/agent the station belongs to, so the session list can say who holds it. */
+  fro_worker_id?: string | null;
+  fro_name?: string | null;
+  fro_login_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -49,6 +53,12 @@ export interface MyAssignment {
   stationLabel?: string;
   /** True when every station on this number is a temporary grant. */
   viaTemporaryAccess?: boolean;
+  /** The number WhatsApp reports after pairing, when the gateway could be read. */
+  phone?: string | null;
+  /** The account's own WhatsApp display name. */
+  pushName?: string | null;
+  /** Gateway session status, for the number switcher. */
+  status?: string | null;
 }
 
 export const openwaAssignmentsApi = {

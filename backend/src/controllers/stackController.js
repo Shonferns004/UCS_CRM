@@ -34,7 +34,11 @@ export const listStacks = async (req, res) => {
          FROM donor_stacks s
          LEFT JOIN workers w ON w.id = s.fro_worker_id
         ${where}
-        ORDER BY s.station ASC, s.created_at ASC`,
+        ORDER BY s.station ASC,
+                 COALESCE(substring(s.name from '([0-9]+)\\s*$')::int, 2147483647) ASC,
+                 s.name ASC,
+                 s.created_at ASC,
+                 s.id ASC`,
       params,
     );
     return res.json({ stacks: rows || [] });
@@ -188,6 +192,8 @@ export const assignFroToStack = async (req, res) => {
     const stack = st[0];
 
     const oldFro = stack.fro_worker_id;
+    const nextFro = fro_worker_id || null;
+    const adminId = await resolveAdminId(req.user);
     // Revoke existing grant for old FRO on this station.
     if (oldFro) {
       await db._pool.query(
@@ -198,7 +204,9 @@ export const assignFroToStack = async (req, res) => {
       invalidateGrantCache(oldFro);
     }
 
-    await db._pool.query('UPDATE donor_stacks SET fro_worker_id = $1, updated_at = now() WHERE id = $2', [fro_worker_id || null, id]);
+    await db._pool.query('UPDATE donor_stacks SET fro_worker_id = $1, updated_at = now() WHERE id = $2', [nextFro, id]);
+    // Keep a durable audit trail of who held this stack before.
+    await recordFroHistory({ stack, nextFro, adminId });
 
     // Invalidate new FRO's grant cache so they see the grant immediately.
     if (fro_worker_id) invalidateGrantCache(fro_worker_id);
@@ -225,7 +233,6 @@ export const assignFroToStack = async (req, res) => {
       // Create temp grant with explicit allowed_assignment_ids.
       const start = new Date();
       const expiry = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
-      const adminId = await resolveAdminId(req.user);
       // One FRO can only have ONE active grant per station (unique constraint).
       // If a grant already exists for this FRO on this station, MERGE the new
       // slice ids into it instead of inserting a duplicate.
@@ -290,6 +297,24 @@ export const getStackMembers = async (req, res) => {
   }
 };
 
+export const getStackFroHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await db._pool.query(
+      `SELECT h.id, h.stack_id, h.fro_worker_id, h.fro_name,
+              h.assigned_by_admin_id, h.assigned_at, h.unassigned_at,
+              h.unassigned_reason
+         FROM donor_stack_fro_history h
+        WHERE h.stack_id = $1
+        ORDER BY h.assigned_at DESC, h.id DESC`,
+      [id],
+    );
+    return res.json({ history: rows || [] });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
 export const getMyStacks = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -300,13 +325,65 @@ export const getMyStacks = async (req, res) => {
                 WHERE s.fro_worker_id = $1`;
     const params = [workerId];
     if (station) { sql += ' AND s.station = $2'; params.push(station); }
-    sql += ' ORDER BY s.created_at ASC';
+    sql += ` ORDER BY COALESCE(substring(s.name from '([0-9]+)\\s*$')::int, 2147483647) ASC,
+                      s.name ASC, s.created_at ASC, s.id ASC`;
     const { rows } = await db._pool.query(sql, params);
     return res.json({ stacks: rows || [] });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
 };
+
+// Helper: append an FRO assignment window to donor_stack_fro_history. Closes
+// the previously open row (if any) and opens a new one for the incoming FRO.
+// Audit-only: failures are logged and never block the assignment itself.
+async function recordFroHistory({ stack, nextFro, adminId }) {
+  try {
+    const stackId = stack.id;
+    const prevFro = stack.fro_worker_id || null;
+    if (String(prevFro || '') === String(nextFro || '')) return;
+
+    const { rows: openRows } = await db._pool.query(
+      `SELECT id, fro_worker_id FROM donor_stack_fro_history
+        WHERE stack_id = $1 AND unassigned_at IS NULL
+        ORDER BY assigned_at DESC LIMIT 1`,
+      [stackId],
+    );
+
+    if (openRows.length > 0) {
+      await db._pool.query(
+        `UPDATE donor_stack_fro_history
+            SET unassigned_at = now(), unassigned_reason = $2
+          WHERE id = $1`,
+        [openRows[0].id, nextFro ? 'reassigned' : 'unassigned'],
+      );
+    } else if (prevFro) {
+      // The stack already had an FRO before this feature existed — backfill
+      // the previous holder so the change is visible. updated_at is the best
+      // available estimate for when that assignment started.
+      const { rows: prevWorker } = await db._pool.query('SELECT name FROM workers WHERE id = $1', [prevFro]);
+      await db._pool.query(
+        `INSERT INTO donor_stack_fro_history
+           (stack_id, fro_worker_id, fro_name, assigned_by_admin_id,
+            assigned_at, unassigned_at, unassigned_reason)
+         VALUES ($1,$2,$3,$4, COALESCE($5, now()), now(), $6)`,
+        [stackId, prevFro, prevWorker[0]?.name || null, adminId, stack.updated_at || null, nextFro ? 'reassigned' : 'unassigned'],
+      );
+    }
+
+    if (nextFro) {
+      const { rows: worker } = await db._pool.query('SELECT name FROM workers WHERE id = $1', [nextFro]);
+      await db._pool.query(
+        `INSERT INTO donor_stack_fro_history
+           (stack_id, fro_worker_id, fro_name, assigned_by_admin_id)
+         VALUES ($1,$2,$3,$4)`,
+        [stackId, nextFro, worker[0]?.name || null, adminId],
+      );
+    }
+  } catch (e) {
+    console.warn('[stack] fro history record failed:', e?.message || String(e));
+  }
+}
 
 // Helper: re-sync temp grant allowed_assignment_ids when stack members change.
 async function syncStackGrant(stackId) {

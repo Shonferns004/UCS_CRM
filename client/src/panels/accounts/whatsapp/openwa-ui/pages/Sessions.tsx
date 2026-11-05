@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Trans, useTranslation } from 'react-i18next';
 import {
@@ -17,6 +18,9 @@ import {
   MapPin,
   X,
   AlertCircle,
+  Building2,
+  MoreVertical,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   sessionApi,
@@ -53,7 +57,7 @@ import { PageHeader } from '../components/PageHeader';
 import { CustomSelect } from '../components/CustomSelect';
 import { Modal } from '../components/Modal';
 import './Sessions.css';
-import { formatLastActive, formatSessionStatus } from '../utils/sessionDisplay';
+import { formatSessionStatus } from '../utils/sessionDisplay';
 import {
   openwaAssignmentsApi,
   type OpenwaAssignment,
@@ -113,10 +117,14 @@ export function Sessions() {
   const [listFailed, setListFailed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [ngoFilter, setNgoFilter] = useState('all');
   // Only the id: the detail modal renders the row as it is in `sessions` now, so a status push or a
   // list read shows there too, and a row that is gone closes it.
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const selectedSession = selectedSessionId ? (sessions.find(s => s.id === selectedSessionId) ?? null) : null;
+  // The per-row overflow menu. Only one is open at a time, and it is portaled to the body so the
+  // list's scroll container cannot clip it.
+  const [sessionMenu, setSessionMenu] = useState<{ sessionId: string; rect: DOMRect } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   // Rename modal: the row it edits plus the draft. The draft is validated against the other rows'
   // names, so the current name is never reported as a duplicate of itself.
@@ -327,6 +335,24 @@ export function Sessions() {
     void loadAssignMeta();
     void reloadAssignments();
   }, [loadAssignMeta, reloadAssignments]);
+
+  // The overflow menu is anchored to a button's viewport rect, so a resize or scroll would leave
+  // it pointing at the wrong place. Escape and the backdrop close it too.
+  useEffect(() => {
+    if (!sessionMenu) return undefined;
+    const close = () => setSessionMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [sessionMenu]);
 
   const {
     showCreateModal,
@@ -902,6 +928,124 @@ export function Sessions() {
     ];
   };
 
+  // Who holds each number. `fro_name` is the worker the station is assigned to (the
+  // authoritative owner); the login is showed in the cell's title for the exact account.
+  const assignmentAgents = (sessionId: string): { name: string; login: string | null }[] => {
+    const list = assignments[sessionId] || [];
+    const seen = new Set<string>();
+    const out: { name: string; login: string | null }[] = [];
+    for (const row of list) {
+      const name = row.fro_name || row.fro_login_id;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push({ name, login: row.fro_login_id || null });
+    }
+    return out;
+  };
+
+  // Everything the old icon row offered, as menu entries. The order is the order an operator
+  // reaches for them: pair/rename/assign first, lifecycle next, destructive last.
+  const sessionMenuActions = (session: Session) => {
+    const actions: {
+      key: string;
+      label: string;
+      icon: LucideIcon;
+      disabled?: boolean;
+      danger?: boolean;
+      run: () => void;
+    }[] = [];
+
+    if (awaitsPairing(session) && canWrite) {
+      actions.push({
+        key: 'qr',
+        label: session.status === 'qr_ready' ? t('sessions.qr.showQr') : t('sessions.qr.loading'),
+        icon: QrCode,
+        disabled: session.status !== 'qr_ready',
+        run: () => handleShowQR(session.id),
+      });
+    }
+    if (canWrite) {
+      actions.push({
+        key: 'rename',
+        label: t('sessions.actions.rename'),
+        icon: Pencil,
+        run: () => openRename(session),
+      });
+    }
+    if (canCreate) {
+      actions.push({
+        key: 'assign',
+        label: assignments[session.id]?.length ? 'Reassign' : 'Assign',
+        icon: MapPin,
+        run: () => openAssign(session),
+      });
+    }
+    if (canWrite && isSessionStarted(session)) {
+      actions.push({
+        key: 'stop',
+        label: t('sessions.actions.stop'),
+        icon: Square,
+        run: () => handleStop(session.id),
+      });
+    } else if (canWrite && (session.status === 'created' || session.status === 'disconnected')) {
+      actions.push({
+        key: 'start',
+        label: t('sessions.actions.start'),
+        icon: Play,
+        disabled: startingIds.has(session.id),
+        run: () => handleStart(session.id),
+      });
+    } else if (canWrite) {
+      actions.push({
+        key: 'reconnect',
+        label: t('sessions.actions.reconnect'),
+        icon: RefreshCw,
+        disabled: startingIds.has(session.id),
+        run: () => handleStart(session.id),
+      });
+    }
+    if (canUnlinkSession(session, canWrite)) {
+      actions.push({
+        key: 'unlink',
+        label: t('sessions.actions.unlink'),
+        icon: Unlink,
+        danger: true,
+        run: () => setUnlinkConfirmId(session.id),
+      });
+    }
+    if (canWrite) {
+      actions.push({
+        key: 'delete',
+        label: t('sessions.actions.delete'),
+        icon: Trash2,
+        danger: true,
+        run: () => setDeleteConfirmId(session.id),
+      });
+    }
+    if (canForceKillSession(session, canWrite)) {
+      actions.push({
+        key: 'kill',
+        label: t('sessions.actions.killStuck'),
+        icon: Skull,
+        danger: true,
+        run: () => setKillConfirmId(session.id),
+      });
+    }
+    return actions;
+  };
+
+  const menuSession = sessionMenu ? (sessions.find(s => s.id === sessionMenu.sessionId) ?? null) : null;
+  const menuActions = menuSession ? sessionMenuActions(menuSession) : [];
+  const menuHeight = menuActions.length * 34 + 8;
+  const menuTop = sessionMenu
+    ? sessionMenu.rect.bottom + 4 + menuHeight > window.innerHeight
+      ? Math.max(8, sessionMenu.rect.top - menuHeight - 4)
+      : sessionMenu.rect.bottom + 4
+    : 0;
+  const menuLeft = sessionMenu
+    ? Math.max(8, Math.min(window.innerWidth - 218, sessionMenu.rect.right - 210))
+    : 0;
+
   const assignStationOptions = assignMeta.stations
     .filter((station) => station.ngo_id === assignNgo)
     .filter((station) => {
@@ -924,7 +1068,44 @@ export function Sessions() {
   }, [assignTarget, assignNgo, assignMeta.stations.length]);
 
   const pairingPhoneInvalid = pairingPhoneRefused(phoneNumber);
-  const filteredSessions = filterSessions(sessions, searchQuery, statusFilter);
+
+  // NGOs the filter offers: the active list plus any NGO an existing assignment names (an
+  // inactive NGO can still own a number), and "No NGO" for a session with no assignment at all.
+  const ngoFilterOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const ngo of assignMeta.ngos) byId.set(ngo.id, ngo.name || ngo.code || ngo.id);
+    for (const rows of Object.values(assignments)) {
+      for (const row of rows) {
+        if (row.ngo_id && !byId.has(row.ngo_id)) byId.set(row.ngo_id, row.ngo_name || row.ngo_id);
+      }
+    }
+    return [
+      { value: 'all', label: 'All NGOs' },
+      ...[...byId.entries()]
+        .map(([id, label]) => ({ value: id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+      { value: 'none', label: 'No NGO' },
+    ];
+  }, [assignMeta.ngos, assignments]);
+
+  // Search covers the assignment too: typing an FRO/agent, station, NGO or phone number finds
+  // every number that matches, not only the gateway session name.
+  const filteredSessions = filterSessions(sessions, searchQuery, statusFilter, session => {
+    const rows = assignments[session.id] || [];
+    return [
+      session.androidName,
+      session.phone,
+      String(session.phone || '').replace(/\D/g, ''),
+      ...rows.flatMap(row => [row.ngo_name, row.station, row.fro_name, row.fro_login_id]),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }).filter(session => {
+    if (ngoFilter === 'all') return true;
+    const rows = assignments[session.id] || [];
+    if (ngoFilter === 'none') return rows.length === 0;
+    return rows.some(row => row.ngo_id === ngoFilter);
+  });
   // A failed read says nothing about how many sessions there are: with none held, the banner is the only message.
   const listUnknown = listFailed && sessions.length === 0;
   const existingSessionNames = sessions.map(s => s.name);
@@ -1007,6 +1188,16 @@ export function Sessions() {
               { value: 'connecting', label: t('sessions.filter.connecting') },
             ]}
             ariaLabel={t('sessions.details.status')}
+          />
+        </div>
+
+        <div className="filter-group">
+          <Building2 size={16} />
+          <CustomSelect
+            value={ngoFilter}
+            onChange={setNgoFilter}
+            options={ngoFilterOptions}
+            ariaLabel="NGO"
           />
         </div>
       </div>
@@ -1780,206 +1971,170 @@ export function Sessions() {
         </Modal>
       )}
 
-      <div className="sessions-grid">
-        {filteredSessions.length === 0 && !listUnknown ? (
-          <div className="empty-state">
-            <QrCode size={48} />
-            <h3>{t('sessions.empty.title')}</h3>
-            <p>{t('sessions.empty.description')}</p>
-          </div>
-        ) : (
-          filteredSessions.map(session => {
-            const assignedNgos = assignmentNgos(session.id);
-            const assignedStations = assignmentStations(session.id);
-            return (
-            <div
-              key={session.id}
-              className="session-card"
-              role="button"
-              tabIndex={0}
-              aria-label={`${session.name} — ${formatSessionStatus(t, session.status)}`}
-              onClick={() => setSelectedSessionId(session.id)}
-              onKeyDown={event => {
-                if (event.target !== event.currentTarget) return;
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  setSelectedSessionId(session.id);
-                }
-              }}
-            >
-              <div className="card-header">
-                <div className="card-title-text">
-                  {session.androidName && (
-                    <span className="card-subtitle" title={session.androidName}>
-                      {session.androidName}
-                    </span>
-                  )}
-                  <h3 title={session.name}>{session.name}</h3>
-                </div>
-                <div className="card-badges">
-                  <span className={`status-pill ${session.status}`}>{formatSessionStatus(t, session.status)}</span>
-                  {assignedNgos.length > 0 && (
-                    <span className="ngo-pill" title={assignedNgos.join(', ')}>
-                      {assignedNgos[0]}
-                      {assignedNgos.length > 1 ? ` +${assignedNgos.length - 1}` : ''}
-                    </span>
-                  )}
-                </div>
-              </div>
+      {filteredSessions.length === 0 && !listUnknown ? (
+        <div className="empty-state">
+          <QrCode size={48} />
+          <h3>{t('sessions.empty.title')}</h3>
+          <p>{t('sessions.empty.description')}</p>
+        </div>
+      ) : (
+        <div className="sessions-list-wrap">
+          <div className="sessions-list" role="table" aria-label="WhatsApp sessions">
+            <div className="sessions-list-head" role="row">
+              <span role="columnheader">Session</span>
+              <span role="columnheader">Status</span>
+              <span role="columnheader">NGO</span>
+              <span role="columnheader">Station</span>
+              <span role="columnheader">Agent / FRO</span>
+              <span role="columnheader">{t('sessions.card.phone')}</span>
+              <span role="columnheader" className="col-actions">Actions</span>
+            </div>
 
-              {awaitsPairing(session) ? (
-                <div className="qr-placeholder">
-                  <QrCode size={80} className="qr-icon" />
-                  <p>{session.status === 'qr_ready' ? t('sessions.qr.scanToConnect') : t('sessions.qr.preparing')}</p>
-                  {/* The QR is operator-only over REST and the socket, so a read-only key would open a
-                      modal that never gets a code. */}
-                  {canWrite && (
-                    <button
-                      className="btn-sm"
-                      onClick={() => handleShowQR(session.id)}
-                      disabled={session.status !== 'qr_ready'}
-                    >
-                      {session.status === 'qr_ready' ? t('sessions.qr.showQr') : t('sessions.qr.loading')}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="session-info">
-                  <div className="info-row">
-                    <span className="info-label">{t('sessions.card.phone')}</span>
-                    <span className="info-value">{session.phone || '—'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">{t('sessions.card.lastActive')}</span>
-                    <span className="info-value">{formatLastActive(t, session.lastActive)}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Assigned</span>
-                    <span className="info-value">
-                      {assignedStations.length
-                        ? assignedStations.join(', ')
-                        : assignments[session.id]?.length
-                          ? 'No station'
-                          : '—'}
-                    </span>
-                  </div>
-                  {(session.status === 'failed' || session.status === 'action_required') && session.lastError ? (
-                    <div className="info-row session-error">
-                      <span className="info-label">{t('sessions.card.error')}</span>
-                      <span className="info-value error-text" title={session.lastError}>
-                        {session.lastError}
+            {filteredSessions.map(session => {
+              const assignedNgos = assignmentNgos(session.id);
+              const assignedStations = assignmentStations(session.id);
+              const assignedAgents = assignmentAgents(session.id);
+              return (
+                <div
+                  key={session.id}
+                  className="session-row"
+                  role="row"
+                  tabIndex={0}
+                  aria-label={`${session.name} — ${formatSessionStatus(t, session.status)}`}
+                  onClick={() => setSelectedSessionId(session.id)}
+                  onKeyDown={event => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedSessionId(session.id);
+                    }
+                  }}
+                >
+                  <div className="row-session" role="cell">
+                    {/* The list's first column is the Android phone/account name; the gateway's
+                        internal session name stays available as the hover title. */}
+                    <strong className="row-session-name" title={session.name}>
+                      {session.androidName || '—'}
+                    </strong>
+                    {awaitsPairing(session) && (
+                      <span className="row-note">
+                        {session.status === 'qr_ready' ? 'QR ready' : 'Preparing QR'}
                       </span>
-                    </div>
-                  ) : null}
-                  {/* Not gated on status, unlike the error above: a reachout timelock applies to a
-                      session that is perfectly `ready`, and hiding it behind a status would make it
-                      invisible exactly when the operator needs it. */}
-                  {session.restriction ? (
-                    <div className="info-row session-restriction">
-                      <span className="info-label">{t('sessions.card.restriction')}</span>
-                      <span className="info-value restriction-text" title={restrictionTitle(session.restriction, t)}>
+                    )}
+                    {(session.status === 'failed' || session.status === 'action_required') && session.lastError ? (
+                      <span className="row-note error" title={session.lastError}>{session.lastError}</span>
+                    ) : null}
+                    {session.restriction ? (
+                      <span className="row-note warn" title={restrictionTitle(session.restriction, t)}>
                         {t(`sessions.restriction.${session.restriction.kind}`)}
                       </span>
-                    </div>
-                  ) : null}
-                </div>
-              )}
+                    ) : null}
+                  </div>
 
-              <div className="card-actions" onClick={event => event.stopPropagation()}>
-                {canWrite && (
-                  <button
-                    type="button"
-                    className="icon-action"
-                    title={t('sessions.actions.rename')}
-                    aria-label={t('sessions.actions.rename')}
-                    onClick={() => openRename(session)}
-                  >
-                    <Pencil size={15} />
-                  </button>
-                )}
-                {canCreate && (
-                  <button
-                    type="button"
-                    className="icon-action"
-                    title={assignments[session.id]?.length ? 'Reassign' : 'Assign'}
-                    aria-label={assignments[session.id]?.length ? 'Reassign' : 'Assign'}
-                    onClick={() => openAssign(session)}
-                  >
-                    <MapPin size={15} />
-                  </button>
-                )}
-                {canWrite && isSessionStarted(session) ? (
-                  <button
-                    type="button"
-                    className="icon-action"
-                    title={t('sessions.actions.stop')}
-                    aria-label={t('sessions.actions.stop')}
-                    onClick={() => handleStop(session.id)}
-                  >
-                    <Square size={15} />
-                  </button>
-                ) : canWrite && (session.status === 'created' || session.status === 'disconnected') ? (
-                  <button
-                    type="button"
-                    className="icon-action"
-                    title={t('sessions.actions.start')}
-                    aria-label={t('sessions.actions.start')}
-                    onClick={() => handleStart(session.id)}
-                    disabled={startingIds.has(session.id)}
-                  >
-                    <Play size={15} />
-                  </button>
-                ) : canWrite ? (
-                  <button
-                    type="button"
-                    className="icon-action"
-                    title={t('sessions.actions.reconnect')}
-                    aria-label={t('sessions.actions.reconnect')}
-                    onClick={() => handleStart(session.id)}
-                    disabled={startingIds.has(session.id)}
-                  >
-                    <RefreshCw size={15} />
-                  </button>
-                ) : null}
-                {canUnlinkSession(session, canWrite) && (
-                  <button
-                    type="button"
-                    className="icon-action danger"
-                    title={t('sessions.actions.unlink')}
-                    aria-label={t('sessions.actions.unlink')}
-                    onClick={() => setUnlinkConfirmId(session.id)}
-                  >
-                    <Unlink size={15} />
-                  </button>
-                )}
-                {canWrite && (
-                  <button
-                    type="button"
-                    className="icon-action danger"
-                    title={t('sessions.actions.delete')}
-                    aria-label={t('sessions.actions.delete')}
-                    onClick={() => setDeleteConfirmId(session.id)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-                {canForceKillSession(session, canWrite) && (
-                  <button
-                    type="button"
-                    className="icon-action danger"
-                    title={t('sessions.actions.killStuck')}
-                    aria-label={t('sessions.actions.killStuck')}
-                    onClick={() => setKillConfirmId(session.id)}
-                  >
-                    <Skull size={15} />
-                  </button>
-                )}
-              </div>
-            </div>
-            );
-          })
-        )}
-      </div>
+                  <div role="cell">
+                    <span className={`status-pill ${session.status}`}>{formatSessionStatus(t, session.status)}</span>
+                  </div>
+
+                  <div className="row-pill-stack" role="cell">
+                    {assignedNgos.length ? (
+                      assignedNgos.map(name => (
+                        <span key={name} className="ngo-pill" title={name}>{name}</span>
+                      ))
+                    ) : (
+                      <span className="row-muted">—</span>
+                    )}
+                  </div>
+
+                  <div className="row-pill-stack" role="cell">
+                    {assignedStations.length ? (
+                      assignedStations.map(station => (
+                        <span key={station} className="row-station-chip">{station}</span>
+                      ))
+                    ) : (
+                      <span className="row-muted">
+                        {assignments[session.id]?.length ? 'No station' : '—'}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="row-agent" role="cell">
+                    {assignedAgents.length ? (
+                      assignedAgents.map(agent => (
+                        <span
+                          key={agent.name}
+                          className="row-agent-name"
+                          title={agent.login ? `${agent.name} (${agent.login})` : agent.name}
+                        >
+                          {agent.name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="row-muted">—</span>
+                    )}
+                  </div>
+
+                  <div className="row-phone" role="cell">{session.phone || '—'}</div>
+
+                  <div className="row-actions" role="cell" onClick={event => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="icon-action"
+                      title="Actions"
+                      aria-label="Actions"
+                      aria-haspopup="menu"
+                      aria-expanded={sessionMenu?.sessionId === session.id}
+                      onClick={event => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setSessionMenu(current =>
+                          current?.sessionId === session.id ? null : { sessionId: session.id, rect },
+                        );
+                      }}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {sessionMenu && menuSession && createPortal(
+        <>
+          <div
+            className="session-actions-backdrop"
+            onMouseDown={() => setSessionMenu(null)}
+          />
+          <div
+            className="session-actions-menu"
+            role="menu"
+            style={{ top: menuTop, left: menuLeft }}
+            onMouseDown={event => event.stopPropagation()}
+          >
+            {menuActions.map(action => {
+              const Icon = action.icon;
+              return (
+                <button
+                  key={action.key}
+                  type="button"
+                  role="menuitem"
+                  disabled={action.disabled}
+                  className={`session-actions-item${action.danger ? ' danger' : ''}`}
+                  onClick={() => {
+                    setSessionMenu(null);
+                    action.run();
+                  }}
+                >
+                  <Icon size={14} />
+                  <span>{action.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>,
+        document.body,
+      )}
     </div>
   );
 }

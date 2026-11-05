@@ -118,20 +118,30 @@ function inActiveBucket(row, dataTab) {
   return dataTab !== 'high_tier' || row?.batch_type === 'high_tier';
 }
 
-// New/Old bucket of a History row. Legacy rows have batch_type NULL, so mirror
-// the backend's rule: NULL + is_new !== false is New; NULL + is_new == null/false
-// also counts as Old (the old read path treats a NULL is_new as Old).
+// A station's prefix tells which allotment it belongs to: AFD/BFD/MFD are the
+// New-data stations, AOD/BOD/MOD the Old-data ones. This is the fallback for rows
+// whose legacy `batch_type` is NULL. `is_new` alone put a legacy AFD-8 donor in
+// the Old tab, because `is_new` describes the DONOR, not the batch.
+const isNewDataStation = station => /[A-Z]FD-\d+/i.test(String(station || ''));
+const isOldDataStation = station => /[A-Z]OD-\d+/i.test(String(station || ''));
+
+// New/Old bucket of a History row. `batch_type` wins when present; a legacy NULL
+// follows the station prefix, then is_new as the last resort.
 function inDataBucket(row, dataTab) {
   if (dataTab === 'old') {
     // Old stations carry high-tier batches (AOD-*/BOD-*); the Old tab is their
     // natural fallback home since the High Tier tab is no longer shown.
     return row?.batch_type === 'old_data'
       || row?.batch_type === 'high_tier'
-      || (row?.batch_type == null && (row?.is_new === false || row?.is_new == null));
+      || (row?.batch_type == null
+        && (isOldDataStation(row?.station)
+          || (!isNewDataStation(row?.station) && (row?.is_new === false || row?.is_new == null))));
   }
   if (dataTab === 'new') {
     return row?.batch_type === 'new_data'
-      || (row?.batch_type == null && row?.is_new !== false);
+      || (row?.batch_type == null
+        && (isNewDataStation(row?.station)
+          || (!isOldDataStation(row?.station) && row?.is_new !== false)));
   }
   return true;
 }
@@ -815,7 +825,15 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     getMyDisposedLeads(opts).then(r => {
       if (cancelled) return;
       const arr = Array.isArray(r) ? r : r?.data || [];
-      arr.sort((a, b) => new Date(a.disposed_at || a.created_at || 0) - new Date(b.disposed_at || b.created_at || 0));
+      // DND leads are terminal "do not contact" rows: keep them after every lead
+      // that can still be worked, then oldest disposition first.
+      const isDnd = row => String(row.disposition_detail || '').trim().toLowerCase() === 'dnd';
+      arr.sort((a, b) => {
+        const dndA = isDnd(a) ? 1 : 0;
+        const dndB = isDnd(b) ? 1 : 0;
+        if (dndA !== dndB) return dndA - dndB;
+        return new Date(a.disposed_at || a.created_at || 0) - new Date(b.disposed_at || b.created_at || 0);
+      });
       setHistoryLeads(arr);
     }).catch(() => { if (!cancelled) setHistoryLeads([]); })
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
@@ -830,9 +848,21 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // disposed stays at the bottom.
   useEffect(() => {
     if (listView !== 'leads' || activeDonor) return;
-    if (loading || donors.length > 0 || searchQuery.trim().length >= 2) {
+    if (loading || searchQuery.trim().length >= 2) {
       setHistoryFallbackLeads([]);
       setSiblingTabInfo(null);
+      return;
+    }
+    // Even when the current tab still has workable leads, the Old tab shows the
+    // old History BELOW them. Fetch it here; the rendering picks whether it is an
+    // empty-queue fallback or an inline history section.
+    const queueEmpty = donors.length === 0;
+    // History is only shown inline on the Old tab; New/High Tier only need it when
+    // their queue is exhausted (the empty-state fallback).
+    if (dataTab === 'high_tier' || (!queueEmpty && dataTab !== 'old')) {
+      setHistoryFallbackLeads([]);
+      setSiblingTabInfo(null);
+      setHistoryFallbackLoading(false);
       return;
     }
     let cancelled = false;
@@ -850,31 +880,37 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       old: old?.counts?.workable || 0,
     }));
     (async () => {
-      const otherTab = dataTab === 'new' ? 'old' : 'new';
-      const filtered = await countsFor(filteredOpts);
-      const otherWorkable = otherTab === 'new' ? filtered.fresh : filtered.old;
-      let sibling = null;
-      // The other bucket still has leads under the current filter: point there.
-      if (otherWorkable > 0) {
-        sibling = { tab: otherTab, workable: otherWorkable, clearFilter: false };
-      } else if (hasFilter) {
-        // A station/NGO filter can hide the whole scope (the "my old data is
-        // over" case: Old at AOD-8 is empty while New at AFD-8 has thousands).
-        const scope = await countsFor(base);
-        const scopeOther = otherTab === 'new' ? scope.fresh : scope.old;
-        const scopeCurrent = dataTab === 'new' ? scope.fresh : scope.old;
-        if (scopeOther > 0 || scopeCurrent > 0) {
-          const tab = scopeOther > 0 ? otherTab : dataTab;
-          const workable = tab === 'new' ? scope.fresh : scope.old;
-          sibling = { tab, workable, clearFilter: true };
+      // The "switch to the other tab" prompt belongs to an EXHAUSTED queue. While
+      // workable leads remain, the other-tab counts are irrelevant.
+      if (queueEmpty) {
+        const otherTab = dataTab === 'new' ? 'old' : 'new';
+        const filtered = await countsFor(filteredOpts);
+        const otherWorkable = otherTab === 'new' ? filtered.fresh : filtered.old;
+        let sibling = null;
+        // The other bucket still has leads under the current filter: point there.
+        if (otherWorkable > 0) {
+          sibling = { tab: otherTab, workable: otherWorkable, clearFilter: false };
+        } else if (hasFilter) {
+          // A station/NGO filter can hide the whole scope (the "my old data is
+          // over" case: Old at AOD-8 is empty while New at AFD-8 has thousands).
+          const scope = await countsFor(base);
+          const scopeOther = otherTab === 'new' ? scope.fresh : scope.old;
+          const scopeCurrent = dataTab === 'new' ? scope.fresh : scope.old;
+          if (scopeOther > 0 || scopeCurrent > 0) {
+            const tab = scopeOther > 0 ? otherTab : dataTab;
+            const workable = tab === 'new' ? scope.fresh : scope.old;
+            sibling = { tab, workable, clearFilter: true };
+          }
         }
+        if (!cancelled) setSiblingTabInfo(sibling);
+      } else if (!cancelled) {
+        setSiblingTabInfo(null);
       }
-      if (!cancelled) setSiblingTabInfo(sibling);
 
-      // Per-bucket History fallback. The current tab is empty (donors.length is
-      // 0), so its own History donors come back — Old history in the Old tab,
-      // New history in the New tab. Nothing is reset: the rows keep their
-      // disposition and the newest disposed stays at the bottom.
+      // Per-bucket History rows. When the bucket is exhausted they are the list;
+      // when it still has workable leads the Old tab appends them below the queue.
+      // Nothing is reset: the rows keep their disposition and the newest disposed
+      // stays at the bottom.
       const historyOpts = { allMonths: true };
       if (filteredOpts.station) historyOpts.station = filteredOpts.station;
       if (filteredOpts.ngoId) historyOpts.ngoId = filteredOpts.ngoId;
@@ -1814,16 +1850,28 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         || (d.donor_mobile || '').includes(q)
         || (d.station || '').toLowerCase().includes(q);
     }) : visible;
-    // Leads-tab History fallback. Enabled only when the queue is empty for BOTH
-    // New and Old (checked in the effect above), never on a filtered-empty tab
-    // that still has work elsewhere.
+    // Leads-tab History fallback. When the queue is fully exhausted it becomes the
+    // list; on the Old tab it is also appended BELOW the remaining workable leads,
+    // so "Old" is not just the one or two leads still ringing when the FRO's real
+    // old history is thousands of already-worked donors.
     const fallbackEligible = listView === 'leads' && !loading && donors.length === 0
       && !searching && dataTab !== 'high_tier';
     const showHistoryFallback = fallbackEligible && historyFallbackLeads.length > 0;
     const historyFallbackItems = fallbackEligible
       ? historyFallbackLeads.map(r => ({ ...r, id: r.donor_id, is_disposed: true, _historyFallback: true }))
       : [];
-    const leadsBadgeCount = total || (showHistoryFallback ? historyFallbackLeads.length : 0);
+
+    const liveLeadKeys = new Set(visibleForLeads.map(d => `${d.id}|${d.ngo_id || ''}`));
+    const historyInlineEnabled = listView === 'leads' && dataTab === 'old'
+      && !loading && !searching && !historyFallbackLoading && !showHistoryFallback;
+    const historyInlineItems = historyInlineEnabled
+      ? historyFallbackLeads
+          // Never show a donor twice: the live queue row wins over its history row.
+          .filter(r => !liveLeadKeys.has(`${r.donor_id}|${r.ngo_id || ''}`))
+          .map(r => ({ ...r, id: r.donor_id, is_disposed: true, _historyFallback: true }))
+      : [];
+    const leadsBadgeCount = (total || donors.length)
+      + (showHistoryFallback ? historyFallbackLeads.length : historyInlineItems.length);
     const historyScoped = historyLeads.filter(d => inActiveBucket(d, dataTab));
     const historyFiltered = isHistory ? historyScoped.filter(d => {
       // Do NOT hide a lead that produced a donation this month: it is used, and
@@ -1869,7 +1917,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         is_disposed: !!r.disposed_at || r.status === 'disposed',
         disposition_detail: r.disposition_detail,
         disposed_at: r.disposed_at,
-      })) : (showHistoryFallback ? historyFallbackItems : visibleForLeads));
+      })) : (showHistoryFallback ? historyFallbackItems : [...visibleForLeads, ...historyInlineItems]));
 
     // Only the first `visibleCount` rows are mounted. `hasMoreRef` is read by the
     // scroll handler above to decide whether the window can still grow.
@@ -2053,13 +2101,18 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               <b>{dataTab === 'old' ? 'Old' : 'New'} data is finished.</b> Showing {dataTab === 'old' ? 'old' : 'new'} History donors below — oldest first, so the latest disposed is last. Their disposition was not reset.
             </div>
           )}
+          {historyInlineItems.length > 0 && (
+            <div style={{ fontSize: 10.5, color: '#475569', lineHeight: 1.5, padding: '8px 10px', marginBottom: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              Pending old leads ke neeche aapki <b>old history</b> dikh rahi hai — {historyInlineItems.length} disposed lead(s), newest disposed last.
+            </div>
+          )}
           {loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="sk" style={{ height: 56, borderRadius: 'var(--radius-sm)' }} />
               ))}
             </div>
-          ) : listView === 'leads' && historyFallbackLoading ? (
+          ) : listView === 'leads' && historyFallbackLoading && donors.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
               Looking for History leads…
             </div>
@@ -2251,7 +2304,10 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                   ? `Showing ${renderedItems.length} of ${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
-                  : `Showing ${renderedItems.length} of ${total || donors.length} pending leads (of ${allottedTotal || total || donors.length} allotted in this tab)`
+                  : historyInlineItems.length
+                    ? `Showing ${renderedItems.length} of ${listItems.length} (${visibleForLeads.length} pending + ${historyInlineItems.length} history)`
+                      + (hasMoreRef.current ? ' · scroll for more' : ' · all shown')
+                    : `Showing ${renderedItems.length} of ${total || donors.length} pending leads (of ${allottedTotal || total || donors.length} allotted in this tab)`
                     + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
                     + (closedCount ? ` · ${closedCount} already worked${dataTab === 'high_tier' ? '' : ' — filter by status'}` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'}) \u2014 use "Hidden: ${suppressedCount}" to view` : '')
