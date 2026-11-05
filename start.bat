@@ -42,8 +42,9 @@ echo.
 echo   ================================================
 echo    All started.
 echo    Dashboard:  http://localhost:9999
-echo    Frontend:   http://192.168.1.32:5173
-echo    Backend:    http://192.168.1.32:5000/api
+echo    Frontend:   http://192.168.1.100:5173
+echo    Backend:    http://192.168.1.100:5000/api
+echo    Media:      http://192.168.1.100:5000/api/media
 echo   ================================================
 echo.
 echo   Services keep running in the background.

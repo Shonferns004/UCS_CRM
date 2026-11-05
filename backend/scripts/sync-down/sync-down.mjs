@@ -18,11 +18,14 @@ const LOCAL_DB_URL = process.env.SYNC_DOWN_LOCAL_DATABASE_URL
   || process.env.LOCAL_BACKUP_DATABASE_URL
   || process.env.ADMIN_DATABASE_URL
   || 'postgres://postgres:Sevak1432P@localhost:5432/postgres';
-const MEDIA_DIR = process.env.LOCAL_MEDIA_DIR || 'D:\\UcsCrmMedia';
+const MEDIA_DIR = process.env.LOCAL_MEDIA_DIR || 'C:\\UcsCrmMedia';
 const S3_BUCKET = process.env.S3_BUCKET || 'ucs-crm-uploads-mumbai';
 const REGION = process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1';
 
-const HAS_MEDIA = process.env.SYNC_DOWN_MEDIA !== 'false';
+// Media now lives in C:\UcsCrmMedia and is no longer pulled from S3, so the
+// media step is opt-in. AWS is suspended for this deployment; the script is kept
+// only for a future reconnection (set SYNC_DOWN_MEDIA=true to use it).
+const HAS_MEDIA = process.env.SYNC_DOWN_MEDIA === 'true';
 const HAS_DB = process.env.SYNC_DOWN_DB !== 'false';
 
 const PG_DUMP_CANDIDATES = [
@@ -159,7 +162,7 @@ function startBackend() {
   for (let i = 0; i < 10; i++) {
     execSync('powershell -NoProfile -Command "Start-Sleep -Seconds 2"', { stdio: 'ignore' });
     try {
-      const h = execSync('powershell -NoProfile -Command "(Invoke-RestMethod http://192.168.1.60:5000/api/health -TimeoutSec 5).status"', { encoding: 'utf8' }).trim().toLowerCase();
+      const h = execSync(`powershell -NoProfile -Command "(Invoke-RestMethod ${process.env.APP_BASE_URL || 'http://192.168.1.100:5000'}/api/health -TimeoutSec 5).status"`, { encoding: 'utf8' }).trim().toLowerCase();
       if (h === 'ok') { up = true; break; }
     } catch { /* not up yet */ }
   }

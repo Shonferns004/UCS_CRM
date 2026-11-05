@@ -32,7 +32,9 @@ export const MAX_TTL_MS = 6 * 60 * 60 * 1000;
 // is unauthenticated, and the blast radius of a validation mistake here is the
 // whole bucket.
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,240}$/;
-const ALLOWED_ACCOUNTS = new Set(['head', 'upstream', 'legacy']);
+// 'local' is the account name db.storage reports in local media mode, so a
+// receipt link can still be minted and served without AWS.
+const ALLOWED_ACCOUNTS = new Set(['head', 'upstream', 'legacy', 'local']);
 
 // The character class above cannot exclude `..` on its own: a key like
 // `receipts/../../root` is made entirely of allowed characters. S3 resolves

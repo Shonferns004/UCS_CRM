@@ -71,8 +71,12 @@ function isTransient(status, data) {
 function metaError(data, status) {
   const code = data?.error?.code;
   const message = data?.error?.message || `WhatsApp API error (HTTP ${status})`;
-  const err = new Error(code ? `(${code}) ${message}` : message);
+  const details = data?.error?.error_data?.details || null;
+  const err = new Error(code
+    ? `(${code}) ${message}${details ? ` — ${details}` : ''}`
+    : message);
   err.metaCode = code || null;
+  err.metaDetails = details;
   err.status = status;
   return err;
 }

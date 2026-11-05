@@ -136,7 +136,7 @@ Start-Sleep -Seconds 6
 
 # Verify backend up
 try {
-    $h = Invoke-RestMethod "http://192.168.1.60:5000/api/health" -TimeoutSec 10
+    $h = Invoke-RestMethod "http://192.168.1.100:5000/api/health" -TimeoutSec 10
     Log "backend healthy: commit=$($h.commit) db=$($h.db)"
 } catch {
     Log "backend health check FAILED: $($_.Exception.Message)"

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAdminKey } from '../middleware/requireAdminKey.js';
+import { isLocalStorage } from '../services/localMedia.js';
 import {
   listBuckets,
   listObjects,
@@ -16,6 +17,16 @@ import {
 // documents — selfies, Aadhaar scans, receipts — so it is worth a secret.
 // ---------------------------------------------------------------------------
 const router = Router();
+
+// The bucket browser only makes sense against S3. In local mode every endpoint
+// reports itself disabled instead of exposing a raw filesystem delete API.
+router.use((req, res, next) => {
+  if (isLocalStorage()) {
+    return res.status(404).json({ message: 'S3 browser is disabled: media is stored locally' });
+  }
+  return next();
+});
+
 router.use(requireAdminKey);
 
 // Route handlers are thin: pass the request through, and let the service's own

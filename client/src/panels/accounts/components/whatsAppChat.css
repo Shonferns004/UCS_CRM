@@ -1,6 +1,16 @@
-/* ── Accounts › WhatsApp Center › Chats ─────────────────────────────────────
+/* ── Accounts › WhatsApp Bulk › Chats ──────────────────────────────────────
    WhatsApp-Web-flavoured surfaces for the admin inbox. Everything is scoped
    under .wac-* so the rest of the Accounts panel is untouched. */
+
+/* The page shell fills the Accounts content area instead of the fixed
+   viewport-minus-header estimate, so the inbox uses the full screen height
+   on every display size. */
+.wam-page > .wac-root {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
 
 .wac-root {
   --wac-teal: #00a884;
@@ -102,34 +112,61 @@
 .wac-search:focus { background: #fff; border-color: var(--wac-teal); box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.12); }
 .wac-search::placeholder { color: #8696a0; }
 
-.wac-chips {
+.wac-filter-row {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 9px;
   align-items: center;
+  gap: 8px;
+  margin-top: 9px;
 }
 
-.wac-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 999px;
+.wac-account-select { flex: 1; min-width: 0; }
+
+.wac-account-select .dropdown-trigger {
+  height: 36px;
+  padding: 0 11px;
   border: 1px solid #d8e0e5;
+  border-radius: 8px;
   background: #fff;
-  color: var(--wac-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  color: var(--wac-ink);
+  gap: 7px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.wac-account-select .dropdown-trigger:hover { background: var(--wac-hover); }
+.wac-account-select .dropdown-trigger svg { color: var(--wac-muted); flex-shrink: 0; }
+
+.wac-account-select .dropdown-menu {
+  top: calc(100% + 5px);
+  padding: 4px;
+  max-height: 280px;
+  border-color: #d8e0e5;
+  border-radius: 8px;
+}
+
+.wac-account-select .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wac-account-select .dropdown-item:hover { background: var(--wac-hover); }
+.wac-account-select .dropdown-item.active { background: #e7f8f3; color: var(--wac-teal-dark); }
+
+.wac-account-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.wac-account-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.wac-chip:hover { background: var(--wac-hover); }
-.wac-chip.is-active { color: #fff; border-color: transparent; }
-.wac-chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
 .wac-refresh-link {
   margin-left: auto;
@@ -717,11 +754,17 @@
 .wac-notice button { margin-left: auto; border: none; background: transparent; color: inherit; font-weight: 700; cursor: pointer; }
 
 /* ── Template picker ── */
-.wac-tpl-pop { width: min(460px, calc(100vw - 40px)); max-height: 60vh; display: flex; flex-direction: column; }
-.wac-tpl-head { padding: 12px 14px; border-bottom: 1px solid var(--wac-line); display: flex; align-items: center; justify-content: space-between; }
+.wac-tpl-pop {
+  width: min(460px, calc(100% - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(72dvh, 620px);
+  display: flex;
+  flex-direction: column;
+}
+.wac-tpl-head { padding: 12px 14px; border-bottom: 1px solid var(--wac-line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
 .wac-tpl-head h4 { margin: 0; font-size: 13.5px; }
 .wac-tpl-head button { border: none; background: transparent; font-size: 18px; line-height: 1; color: var(--wac-muted); cursor: pointer; }
-.wac-tpl-body { padding: 10px 12px; overflow-y: auto; }
+.wac-tpl-body { flex: 1 1 auto; min-height: 0; padding: 10px 12px; overflow-y: auto; overscroll-behavior: contain; }
 .wac-tpl-item {
   width: 100%;
   text-align: left;
@@ -746,7 +789,7 @@
   max-height: 76px;
   overflow: hidden;
 }
-.wac-tpl-form { padding: 10px 12px 13px; border-top: 1px solid var(--wac-line); }
+.wac-tpl-form { flex: 0 1 auto; max-height: 55%; overflow-y: auto; padding: 10px 12px 13px; border-top: 1px solid var(--wac-line); }
 .wac-tpl-field { margin-bottom: 7px; }
 .wac-tpl-field label { display: block; font-size: 10.5px; font-weight: 700; color: var(--wac-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
 .wac-tpl-field input[type="text"] {
@@ -760,8 +803,6 @@
   outline: none;
 }
 .wac-tpl-field input[type="text"]:focus { border-color: var(--wac-teal); box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.12); }
-.wac-tpl-upload { font-size: 11px; color: var(--wac-muted); }
-.wac-tpl-upload input { max-width: 100%; font-size: 11px; }
 .wac-tpl-form .wac-send { width: 100%; height: 36px; border-radius: 8px; font-size: 12.5px; font-weight: 700; display: inline-flex; gap: 6px; }
 .wac-tpl-empty { padding: 22px 12px; text-align: center; color: var(--wac-muted); font-size: 12px; }
 
@@ -862,7 +903,10 @@
   .wac-textarea { min-height: 38px; font-size: 13.2px; padding: 9px 11px; }
   .wac-send { width: 38px; height: 38px; }
   .wac-emoji-pop { width: min(296px, calc(100vw - 40px)); }
-  .wac-tpl-pop { max-height: 66vh; }
+  .wac-tpl-pop { left: 8px; width: calc(100% - 16px); max-width: calc(100vw - 16px); max-height: 74dvh; }
+  .wac-tpl-head { padding: 10px 12px; }
+  .wac-tpl-body, .wac-tpl-form { padding-left: 10px; padding-right: 10px; }
+  .wac-tpl-preview { max-height: 58px; }
   .wac-row { padding: 10px 11px; }
 }
 

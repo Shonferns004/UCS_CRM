@@ -19,10 +19,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { storage, s3Key } from './db.js';
+import { isLocalStorage } from '../services/localMedia.js';
 
+const localMode = isLocalStorage();
 const store = storage.from('legacy', 'receipts');
 const configured = Boolean(store.accountName);
-const opts = { skip: configured ? false : 'no S3 account configured' };
+const opts = { skip: localMode ? 'local storage mode (no S3 URL to sign)' : (configured ? false : 'no S3 account configured') };
 
 test('s3Key puts the handle prefix in front of the caller key exactly once', () => {
   assert.equal(s3Key('b', 'receipt-1.pdf'), 'b/receipt-1.pdf');

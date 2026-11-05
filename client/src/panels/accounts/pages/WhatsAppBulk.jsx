@@ -47,8 +47,8 @@ export default function WhatsAppBulk() {
   const [confirmBulk, setConfirmBulk] = useState({ visible: false, donorCount: 0 });
   const [bulkState, setBulkState] = useState({ active: false, total: 0, sent: 0, failed: 0, currentBatch: 0, totalBatches: 0, results: [], previousBatches: [] });
   const [deliveryStatuses, setDeliveryStatuses] = useState([]);
+  const [statusSummary, setStatusSummary] = useState({});
   const [statusFilter, setStatusFilter] = useState('all');
-  const [accountFilter, setAccountFilter] = useState('all');
   const [healthModal, setHealthModal] = useState(false);
   const [healthData, setHealthData] = useState(null);
   const [detailRow, setDetailRow] = useState(null);
@@ -56,10 +56,20 @@ export default function WhatsAppBulk() {
   const cancelBulkRef = useRef(null);
   const fileRef = useRef(null);
 
-  const loadDeliveryStatuses = async () => {
+  const loadDeliveryStatuses = async (accountId = selectedAccountId) => {
+    if (!accountId) {
+      setDeliveryStatuses([]);
+      setStatusSummary({});
+      return;
+    }
+    const qs = `?accountId=${encodeURIComponent(accountId)}`;
     try {
-      const data = await apiGet('/whatsapp/bulk/statuses?limit=50');
-      setDeliveryStatuses(Array.isArray(data) ? data : []);
+      const [summary, list] = await Promise.all([
+        apiGet(`/whatsapp/bulk/statuses${qs}&summary=1`),
+        apiGet(`/whatsapp/bulk/statuses${qs}&limit=50`),
+      ]);
+      setStatusSummary(summary?.counts || {});
+      setDeliveryStatuses(Array.isArray(list) ? list : []);
     } catch {}
   };
 
@@ -75,8 +85,11 @@ export default function WhatsAppBulk() {
       }
     }).catch(() => {});
     apiGet('/whatsapp/bulk/ngos').then(data => setNgos(Array.isArray(data) ? data : [])).catch(() => {});
-    loadDeliveryStatuses();
   }, []);
+
+  useEffect(() => {
+    if (selectedAccountId) loadDeliveryStatuses(selectedAccountId);
+  }, [selectedAccountId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -191,13 +204,10 @@ export default function WhatsAppBulk() {
     }
   };
 
-  const accountFilteredStatuses = accountFilter === 'all' ? deliveryStatuses : deliveryStatuses.filter(r => String(r.account_id) === String(accountFilter));
-  const filteredStatuses = accountFilteredStatuses.filter(r => statusFilter === 'all' || String(r.status || '').toLowerCase() === statusFilter);
-  const statusCounts = accountFilteredStatuses.reduce((acc, r) => {
-    const key = String(r.status || 'unknown').toLowerCase();
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
+  const filteredStatuses = deliveryStatuses.filter(r => statusFilter === 'all' || String(r.status || '').toLowerCase() === statusFilter);
+  const statusCounts = statusSummary;
+  const statusTotal = Object.values(statusCounts).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const selectedAccountName = accounts.find(a => String(a.id) === String(selectedAccountId))?.name || '';
   const validRecipients = recipients.filter(r => r.valid);
   const filteredStations = stations.filter(s => {
     const name = s.station || s.name || String(s);
@@ -292,7 +302,7 @@ export default function WhatsAppBulk() {
       setRecipients([]);
       setSelectedRecipients([]);
     }
-    loadDeliveryStatuses();
+    loadDeliveryStatuses(selectedAccountId);
     toast(cancelBulkRef.current ? 'info' : 'success', cancelBulkRef.current ? `Cancelled. ${totalSent} sent, ${totalFailed} failed` : `Bulk send complete! ${totalSent} sent, ${totalFailed} failed`);
   };
 
@@ -310,12 +320,12 @@ export default function WhatsAppBulk() {
   };
 
   return (
-    <div className="wa-page" style={{minHeight: '100vh', padding: 0, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+    <div className="wa-page" style={{  minHeight: '100vh', padding: 0, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
 
-      {showFailureBanner && deliveryStatuses.filter(r => String(r.status).toLowerCase() === 'failed').length > 0 && (
+      {showFailureBanner && Number(statusCounts.failed || 0) > 0 && (
         <div style={{ background: '#fde2e5', border: '1px solid #fca5a5', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <span style={{ color: '#a8182b', fontWeight: 600 }}>
-            {deliveryStatuses.filter(r => String(r.status).toLowerCase() === 'failed').length} failed messages need review
+            {Number(statusCounts.failed || 0)} failed messages need review
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="wa-btn wa-btn-outline" onClick={() => setStatusFilter('failed')}>Review failures</button>
@@ -335,14 +345,22 @@ export default function WhatsAppBulk() {
 
 
       <div style={{ background: '#fff', borderRadius: 16, padding: 12, boxShadow: '0 1px 3px rgba(20,30,60,.10)', marginBottom: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: '#1C1E21' }}>Delivery Insights</div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {['sent', 'delivered', 'read', 'failed'].map(key => (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1C1E21' }}>Delivery Insights</div>
+          <div style={{ fontSize: 11, color: '#5B6070' }}>
+            {selectedAccountName ? `Account: ${selectedAccountName}` : 'Select an account'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          {['accepted', 'sent', 'delivered', 'read', 'failed'].map(key => (
             <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <StatusBadge status={key} />
               <span style={{ fontWeight: 700 }}>{statusCounts[key] || 0}</span>
             </div>
           ))}
+          <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: '#5B6070' }}>
+            {statusTotal} total
+          </span>
         </div>
       </div>
 

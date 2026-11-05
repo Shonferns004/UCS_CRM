@@ -1,6 +1,15 @@
+import fs from 'node:fs';
 import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import db from '../config/db.js';
+import {
+  isLocalStorage,
+  urlToMediaKey,
+  localPathForKey,
+  localUrlForKey,
+  contentTypeForKey,
+  statObject,
+} from './localMedia.js';
 
 // ---------------------------------------------------------------------------
 // Stored-file proxy.
@@ -81,6 +90,24 @@ function candidateAccounts(bucket) {
 // returns the first that can read it; null when none can (an S3 URL for a bucket
 // this deployment has no keys for, or not an S3 URL at all).
 export async function openStoredObject(url) {
+  // Local mode: a stored S3 URL and a local URL both name the same key, and the
+  // key is the path below C:\UcsCrmMedia. No AWS round trip is involved.
+  if (isLocalStorage()) {
+    const key = urlToMediaKey(url);
+    if (!key) return null;
+    const st = await statObject(key);
+    if (!st) return null;
+    return {
+      account: 'local',
+      bucket: 'local',
+      key,
+      body: fs.createReadStream(localPathForKey(key)),
+      contentType: contentTypeForKey(key),
+      contentLength: st.size,
+      lastModified: st.mtime,
+    };
+  }
+
   const ref = parseS3Url(url);
   if (!ref) return null;
 
@@ -116,6 +143,15 @@ export async function openStoredObject(url) {
 export async function resolveStoredKey(fullKey, { expiresIn } = {}) {
   const key = String(fullKey || '');
   if (!key) return null;
+
+  if (isLocalStorage()) {
+    const localKey = urlToMediaKey(key);
+    if (!localKey) return null;
+    const st = await statObject(localKey);
+    if (!st) return null;
+    const url = localUrlForKey(localKey);
+    return { account: 'local', bucket: 'local', key: localKey, storedUrl: url, url };
+  }
 
   const accounts = db.storage.accounts().filter((a) => a.configured);
   for (const account of accounts) {
@@ -157,6 +193,17 @@ export async function resolveStoredKey(fullKey, { expiresIn } = {}) {
 // any object in a bucket they share with other data (a donor receipt, say).
 export async function presignStoredUrl(url, { expiresIn, prefix } = {}) {
   const original = String(url ?? '');
+
+  // Local mode: "presign" is just a stable local URL. Old S3 URLs, new local
+  // URLs and bare keys all resolve to the same key. A missing file still gets a
+  // URL so the browser shows one broken image instead of failing the response.
+  if (isLocalStorage()) {
+    const key = urlToMediaKey(original);
+    if (!key) return original;
+    if (prefix && !key.startsWith(prefix)) return original;
+    return localUrlForKey(key);
+  }
+
   const ref = parseS3Url(original);
   if (!ref) return original;
   if (prefix && !ref.key.startsWith(prefix)) return original;

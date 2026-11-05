@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import db from './config/db.js';
+import mediaRoutes from './routes/mediaRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import workerRoutes from './routes/workerRoutes.js';
 import workerBankImportRoutes from './routes/workerBankImportRoutes.js';
@@ -381,6 +382,7 @@ app.use('/api/profile-update-requests', profileUpdateRequestRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/envadmin', envAdminRoutes);
+app.use('/api/media', mediaRoutes);
 app.use('/api/s3', s3BrowserRoutes);
 app.use('/api/temp-cleanup', tempCleanupRoutes);
 app.use('/api/ngo-allocations', ngoAllocationRoutes);
@@ -1075,6 +1077,10 @@ app.get('/api/db/media', requireAdminKey, async (req, res) => {
 // Customer provisioning: dedicated Postgres database + S3 bucket + IAM user.
 app.post('/api/customer/provision', async (req, res) => {
   try {
+    const { isLocalStorage } = await import('./services/localMedia.js');
+    if (isLocalStorage()) {
+      return res.status(400).json({ message: 'Customer provisioning needs AWS and is disabled in local media mode' });
+    }
     const { provisionCustomer } = await import('./services/customerProvision.js');
     const name = String((req.body && req.body.name) || '').trim();
     if (!name) return res.status(400).json({ message: 'Customer name is required' });

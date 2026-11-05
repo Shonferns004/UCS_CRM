@@ -29,6 +29,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import db from '../config/db.js';
 import { describeStoredObjectUrl, isSafeKey } from './receiptFileLink.js';
+import { isLocalStorage, localUrlForKey, urlToMediaKey } from './localMedia.js';
 
 // Objects live at <prefix>/worker_signatures/<file>. The prefix is the s3Key()
 // bucket argument, so the full key repeats it -- see config/db.js s3Key(). This
@@ -104,6 +105,14 @@ function locateWithPrefix(stored, prefix) {
   if (!value) return null;
   if (isPresigned(value)) return null;
 
+  // Local mode: old S3 URLs, new /api/media URLs and bare keys all name the
+  // same file below C:\UcsCrmMedia. No account is involved.
+  if (isLocalStorage()) {
+    const localKey = urlToMediaKey(value);
+    if (!localKey || !isSafeKey(localKey) || !localKey.startsWith(prefix)) return null;
+    return { account: 'local', key: localKey };
+  }
+
   let account = null;
   let key = null;
 
@@ -148,6 +157,7 @@ export async function presignNoticeMediaUrl(stored) {
   const original = String(stored ?? '');
   const located = locateNoticeMedia(original);
   if (!located) return original;
+  if (isLocalStorage()) return localUrlForKey(located.key);
 
   const handle = db.storage.raw(located.account);
   if (!handle) return original;
@@ -180,6 +190,7 @@ export async function presignSignatureUrl(stored) {
   const original = String(stored ?? '');
   const located = locateSignature(original);
   if (!located) return original;
+  if (isLocalStorage()) return localUrlForKey(located.key);
 
   const handle = db.storage.raw(located.account);
   if (!handle) return original;
@@ -200,6 +211,7 @@ export async function presignPhotoUrl(stored) {
   const original = String(stored ?? '');
   const located = locatePhoto(original);
   if (!located) return original;
+  if (isLocalStorage()) return localUrlForKey(located.key);
 
   const handle = db.storage.raw(located.account);
   if (!handle) return original;
@@ -226,6 +238,7 @@ export async function presignSelfieUrl(stored) {
   const original = String(stored ?? '');
   const located = locateSelfie(original);
   if (!located) return original;
+  if (isLocalStorage()) return localUrlForKey(located.key);
 
   const handle = db.storage.raw(located.account);
   if (!handle) return original;

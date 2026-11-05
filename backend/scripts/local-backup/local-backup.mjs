@@ -21,7 +21,7 @@ const PREFIX = process.env.LOCAL_BACKUP_S3_PREFIX || 'local-server';
 const REGION = process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1';
 const RETENTION_DAYS = parseInt(process.env.LOCAL_BACKUP_RETENTION_DAYS || '14', 10);
 const LOCAL_DB_URL = process.env.LOCAL_BACKUP_DATABASE_URL || process.env.LOCAL_DATABASE_URL || process.env.DATABASE_URL;
-const MEDIA_DIR = process.env.LOCAL_MEDIA_DIR || 'D:\\UcsCrmMedia';
+const MEDIA_DIR = process.env.LOCAL_MEDIA_DIR || 'C:\\UcsCrmMedia';
 const SYNC_MEDIA = process.env.LOCAL_BACKUP_MEDIA === 'true';
 
 const PG_DUMP_CANDIDATES = [

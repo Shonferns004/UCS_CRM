@@ -148,13 +148,19 @@ export async function uploadDocumentBufferToMeta(account, buffer, fileName = 're
 
 async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
   const mediaRes = await fetch(mediaUrl);
-  if (!mediaRes.ok) throw new Error('Failed to download media for upload');
+  if (!mediaRes.ok) throw new Error(`Media fetch failed (HTTP ${mediaRes.status}) — the header link may have expired`);
   const buffer = Buffer.from(await mediaRes.arrayBuffer());
-  const contentType = mediaRes.headers.get('content-type') || (mediaType === 'image' ? 'image/jpeg' : 'application/pdf');
-  return uploadBufferToMeta(account, buffer, contentType, mediaType === 'image' ? 'image.jpg' : 'document.pdf');
+  const fallbackType = mediaType === 'video' ? 'video/mp4'
+    : mediaType === 'document' ? 'application/pdf'
+      : 'image/jpeg';
+  const contentType = mediaRes.headers.get('content-type') || fallbackType;
+  const fileName = mediaType === 'video' ? 'video.mp4'
+    : mediaType === 'document' ? 'document.pdf'
+      : 'image.jpg';
+  return uploadBufferToMeta(account, buffer, contentType, fileName);
 }
 
-export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null, headerFormat = 'IMAGE') {
+export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null, headerFormat = 'IMAGE', parameterNames = null) {
   if (!config.enabled && !account) throw new Error('WhatsApp not configured');
 
   const resolved = account || await resolveAccount();
@@ -164,7 +170,11 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
 
   const components = [];
   if (headerImageUrl) {
-    const mediaType = String(headerFormat || 'IMAGE').toUpperCase() === 'DOCUMENT' ? 'document' : 'image';
+    // Upload the bytes to Meta and reference them by media id. Handing Meta a
+    // link directly fails with 131053 "Media upload error" when the link is a
+    // private S3 object or a Meta CDN sample it will not fetch on our behalf.
+    const format = String(headerFormat || 'IMAGE').toUpperCase();
+    const mediaType = format === 'DOCUMENT' ? 'document' : format === 'VIDEO' ? 'video' : 'image';
     const mediaId = await uploadMediaToMeta(resolved, headerImageUrl, mediaType);
     components.push({
       type: 'header',
@@ -174,7 +184,13 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
   if (Array.isArray(parameters) && parameters.length > 0) {
     components.push({
       type: 'body',
-      parameters: parameters.map(p => ({ type: 'text', text: String(p) })),
+      parameters: parameters.map((p, index) => {
+        const parameterName = parameterNames?.[index];
+        const entry = { type: 'text', text: String(p) };
+        // Named-parameter templates reject positional entries with 132012.
+        if (parameterName) entry.parameter_name = String(parameterName);
+        return entry;
+      }),
     });
   }
 
@@ -340,7 +356,10 @@ async function sendViaFacebook(to, type, payload, account) {
       return await postWhatsAppMessage(apiBase, token, body);
     } catch (error) {
       const code = error?.cause?.code;
-      if (!SAFE_CONNECT_RETRY_CODES.has(code) || attempt === MAX_ATTEMPTS) throw error;
+      if (!SAFE_CONNECT_RETRY_CODES.has(code) || attempt === MAX_ATTEMPTS) {
+        console.error('[whatsapp] send failed:', error?.message || error);
+        throw error;
+      }
       console.warn(`[whatsapp] send attempt ${attempt}/${MAX_ATTEMPTS} failed (${code}); retrying`);
       await new Promise(resolve => setTimeout(resolve, 600 * attempt));
     }
