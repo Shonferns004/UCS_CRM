@@ -1,9 +1,8 @@
-import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, sendMediaMessage, testConnection, resolveAccount, listTemplatesForAccount } from '../services/whatsappService.js';
+import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, sendMediaMessage, testConnection, resolveAccount, listTemplatesForAccount, uploadDocumentBufferToMeta } from '../services/whatsappService.js';
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
-import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
 import { logOutboundMessage } from '../services/whatsappOutboundLog.js';
-import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } from '../services/receiptFileLink.js';
+import { verifyReceiptFile } from '../services/receiptFileLink.js';
 import { resolveTemplateHeaderAsset } from '../services/templateHeaderMedia.js';
 import { presignStoredUrl } from '../services/mediaProxy.js';
 import db from '../config/db.js';
@@ -100,18 +99,6 @@ async function recordReceiptDelivery({ receiptId, receiptNo, project, wamid, sta
     console.error('Failed to record receipt delivery status:', e.message);
     return null;
   }
-}
-
-// Refuses to send a template whose HEADER document Meta could not download.
-//
-// Without this the send returns 200, the panel reports success, and the
-// receipt is silently lost to error 131053 minutes later. Returns an error
-// message string when the attachment is unusable, or null when it is safe.
-async function preflightAttachment(documentUrl) {
-  const probe = await checkAttachmentReachable(documentUrl);
-  if (probe.ok) return null;
-  console.error('WhatsApp attachment preflight failed:', documentUrl, probe.status, probe.reason || '');
-  return describeUnreachableAttachment(documentUrl, probe);
 }
 
 // Serves a receipt PDF to Meta, out of the private receipts bucket.
@@ -255,7 +242,7 @@ export async function sendReceipt(req, res) {
     let donorName = clientDonorName || 'Donor';
     let amount = clientAmount || 0;
     let receiptNo = clientReceiptNo || 'N/A';
-    let documentUrl = null;
+    let documentId = null;
     let uploadErrorMsg = null;
     let donorProject = project;
     let receiptId = null;
@@ -263,14 +250,13 @@ export async function sendReceipt(req, res) {
     if (logId && logId !== '0') {
       const { data: receiptRow } = await db
         .from('receipts')
-        .select('id, receipt_no, pdf_url')
+        .select('id, receipt_no')
         .eq('log_id', logId)
         .maybeSingle();
 
       if (receiptRow) {
         receiptId = receiptRow.id;
         if (!clientReceiptNo) receiptNo = receiptRow.receipt_no || 'N/A';
-        documentUrl = receiptRow.pdf_url || null;
       }
 
       if (!clientDonorName || !clientAmount || !donorProject || !receiptRow) {
@@ -296,94 +282,44 @@ export async function sendReceipt(req, res) {
         }
       }
 
-      if (!documentUrl && pdfBase64) {
-        try {
-          const buffer = Buffer.from(pdfBase64, 'base64');
-          const fileName = `receipts/${logId}_${Date.now()}.pdf`;
-          const uploadController = new AbortController();
-          const uploadTimeout = setTimeout(() => uploadController.abort(), 20000);
-
-          let { data: uploadData, error: uploadError } = await db.storage
-            .from('receipts')
-            .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true, signal: uploadController.signal });
-
-          clearTimeout(uploadTimeout);
-
-          if (uploadError) {
-            if (uploadError.message?.includes('bucket')) {
-              const { error: bucketError } = await db.storage.createBucket('receipts', { public: true });
-              if (bucketError) throw new Error('Bucket create failed: ' + bucketError.message);
-              const retry = await db.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
-              if (retry.error) throw new Error('Upload failed after bucket create: ' + retry.error.message);
-              uploadData = retry.data;
-            } else {
-              throw new Error('Upload failed: ' + uploadError.message);
-            }
-          }
-
-          const { data: publicUrlData } = db.storage.from('receipts').getPublicUrl(fileName);
-          documentUrl = publicUrlData?.publicUrl;
-
-          if (documentUrl) {
-            await db.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId).maybeSingle();
-          }
-        } catch (e) {
-          uploadErrorMsg = e.message;
-          console.error('Receipt PDF upload failed:', e.message);
-        }
-      }
     }
 
     const account = await resolveAccount(donorProject);
     if (!account) return res.status(400).json({ message: `No WhatsApp account configured for project "${donorProject}"` });
 
-    // Same guard as sendDirect: this path can be reached with a pdf_url written
-    // by an older run against a bucket that no longer serves anonymous reads, and
-    // a dead URL here is an invisible lost receipt rather than a visible error.
-    //
-    // The stored URL is a bucket URL, and the bucket denies anonymous reads, so
-    // it cannot be handed to Meta as-is. Re-issue it as a time-limited S3
-    // presigned URL: same bucket and object, credential moved into the URL so
-    // nothing about the donor becomes world-readable.
-    //
-    // If the URL cannot be mapped back to a configured bucket and a signable key
-    // there is no link to issue, and the send must stop. Falling through to probe
-    // the raw bucket URL used to turn that into a 403 that read exactly like "the
-    // bucket is not public" -- a wrong diagnosis that sent the operator off to
-    // grant s3:GetObject to Principal "*" and would have published every donor
-    // PAN and address in the bucket. So it is refused here, with the real reason.
-    let attachmentUrl = documentUrl;
-    if (documentUrl) {
-      const located = describeStoredObjectUrl(documentUrl);
-      if (!located) {
-        return res.status(422).json({
-          message: explainStoredObjectUrl(documentUrl),
-          code: 'receipt_url_unlocatable',
-          attachmentUrl: documentUrl,
-        });
+    const safeDonorName = String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
+    const displayName = `Receipt_${safeDonorName}_${receiptNo || 'receipt'}.pdf`;
+
+    // Upload the PDF generated in this request straight to Meta as temporary
+    // media and reference it by id. Nothing is written to our own storage, so
+    // a suspended AWS account can no longer block receipts.
+    if (pdfBase64) {
+      try {
+        const buffer = Buffer.from(pdfBase64, 'base64');
+        documentId = await uploadDocumentBufferToMeta(account, buffer, displayName);
+      } catch (e) {
+        uploadErrorMsg = e.message;
+        console.error('Receipt PDF upload to WhatsApp failed:', e.message);
       }
-      const presigned = await db.storage.from(located.account, 'receipts').presignDownload(located.key);
-      if (presigned.error) {
-        return res.status(500).json({ message: `Could not sign the receipt PDF: ${presigned.error.message}` });
-      }
-      attachmentUrl = presigned.data.url;
-      const attachmentError = await preflightAttachment(attachmentUrl);
-      if (attachmentError) {
-        return res.status(422).json({ message: attachmentError, code: 'attachment_unreachable', attachmentUrl });
-      }
-    } else if (!uploadErrorMsg) {
-      uploadErrorMsg = 'no receipt PDF was found for this donation';
+    } else {
+      uploadErrorMsg = 'no receipt PDF was supplied';
+    }
+
+    if (!documentId) {
+      return res.status(400).json({
+        message: `Receipt PDF is required but could not be uploaded to WhatsApp: ${uploadErrorMsg}`,
+      });
     }
 
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, attachmentUrl, templateName, account);
+    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, null, templateName, account, documentId);
     await recordReceiptDelivery({
       receiptId, receiptNo, project: donorProject,
       wamid: whatsappMessageId(result), status: 'accepted',
     });
-    const displayName = `Receipt_${String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()}_${receiptNo || 'receipt'}.pdf`;
     const message = await recordReceiptInConversation({
-      phone, project: donorProject, receiptNo, documentUrl: attachmentUrl, displayName, sentBy: req.user?.id, result,
+      // Meta media ids are temporary by design — do not persist a URL.
+      phone, project: donorProject, receiptNo, documentUrl: null, displayName, sentBy: req.user?.id, result,
     });
 
     return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, chatMessage: message, uploadError: uploadErrorMsg });
@@ -491,12 +427,17 @@ export async function sendDirect(req, res) {
 
     const ngoPrefix = ngoMap[tpl] || 'Receipt';
 
-    let documentUrl = null;
+    let documentId = null;
     let displayName = null;
     let uploadError = null;
 
     // ---------------------------------------------------------
-    // 1. CREATE / UPLOAD RECEIPT PDF
+    // 1. SEND RECEIPT PDF STRAIGHT TO WHATSAPP
+    //
+    // The PDF is uploaded to Meta's /media endpoint and referenced by media
+    // id. Nothing is written to our own storage — AWS access is suspended and
+    // a temporary file on Meta is enough for delivery (Meta expires it on its
+    // own). This also removes the old presigned-URL preflight step.
     // ---------------------------------------------------------
 
     if (pdfBase64) {
@@ -508,63 +449,14 @@ export async function sendDirect(req, res) {
           .trim();
 
         displayName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`;
-
-        const storagePath = `receipts/${receiptNo || Date.now()}.pdf`;
-
-        const store = db.storage.from('receipts');
-
-        let { error: upErr } = await store.upload(
-          storagePath,
-          buffer,
-          {
-            contentType: 'application/pdf',
-            upsert: true,
-          }
-        );
-
-        if (upErr) {
-          await db.storage.createBucket('receipts', {
-            public: true,
-          });
-
-          const retry = await db.storage
-            .from('receipts')
-            .upload(
-              storagePath,
-              buffer,
-              {
-                contentType: 'application/pdf',
-                upsert: true,
-              }
-            );
-
-          upErr = retry.error;
-        }
-
-        if (upErr) {
-          uploadError =
-            upErr.message || 'PDF upload failed';
-        } else if (!store.accountName) {
-          uploadError =
-            'PDF uploaded but no storage account is configured to serve it back';
-        } else {
-          const presigned =
-            await store.presignDownload(storagePath);
-
-          if (presigned.error) {
-            uploadError =
-              `could not create a download link: ${presigned.error.message}`;
-          } else {
-            documentUrl = presigned.data.url;
-          }
-        }
+        documentId = await uploadDocumentBufferToMeta(account, buffer, displayName);
       } catch (e) {
         uploadError = e.message;
       }
 
       if (uploadError) {
         console.error(
-          'Failed to store PDF:',
+          'Failed to upload receipt PDF to WhatsApp:',
           uploadError
         );
       }
@@ -576,30 +468,15 @@ export async function sendDirect(req, res) {
     // 2. PDF IS REQUIRED
     // ---------------------------------------------------------
 
-    if (!documentUrl) {
+    if (!documentId) {
       return res.status(400).json({
         message:
-          `Receipt PDF is required by template "${tpl}" but is unavailable: ${uploadError}`,
+          `Receipt PDF is required by template "${tpl}" but could not be uploaded to WhatsApp: ${uploadError}`,
       });
     }
 
     // ---------------------------------------------------------
-    // 3. CHECK PDF URL BEFORE SENDING TO META
-    // ---------------------------------------------------------
-
-    const attachmentError =
-      await preflightAttachment(documentUrl);
-
-    if (attachmentError) {
-      return res.status(422).json({
-        message: attachmentError,
-        code: 'attachment_unreachable',
-        attachmentUrl: documentUrl,
-      });
-    }
-
-    // ---------------------------------------------------------
-    // 4. WHATSAPP TEMPLATE COMPONENTS
+    // 3. WHATSAPP TEMPLATE COMPONENTS
     // ---------------------------------------------------------
 
     const components = [
@@ -609,7 +486,7 @@ export async function sendDirect(req, res) {
           {
             type: 'document',
             document: {
-              link: documentUrl,
+              id: documentId,
               filename:
                 displayName || 'receipt.pdf',
             },
@@ -723,7 +600,9 @@ export async function sendDirect(req, res) {
 
         receiptNo,
 
-        documentUrl,
+        // Deliberately null: the PDF lives only on Meta as a temporary media
+        // object, so there is no stored URL to persist or re-sign later.
+        documentUrl: null,
 
         displayName,
 
