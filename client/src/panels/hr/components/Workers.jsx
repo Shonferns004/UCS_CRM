@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useHR } from '../store';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { useTeams } from '../../../components/useTeams';
-import { Who, Avatar, Dropdown } from './ui';
+import { Who, Avatar, Dropdown, DatePicker } from './ui';
 import NgoSalary from './NgoSalary';
 import { Plus, Trash, Check, Flask } from '../icons';
 import { api } from '../../../api/auth';
@@ -122,7 +122,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [targetDrafts, setTargetDrafts] = useState({});
   const [targetSaving, setTargetSaving] = useState({});
   const [workers, setWorkers] = useState([]);
-  const [empIdMap, setEmpIdMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
@@ -135,6 +134,13 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [statusFilter, setStatusFilter] = useState(['active','absconded','offboarded','all'].includes(load().statusFilter) ? load().statusFilter : 'active');
   const [showTest, setShowTest] = useState(load().showTest || false);
   const [entityFilter, setEntityFilter] = useState('All');
+  // Exact joining day (YYYY-MM-DD). Empty means "no day filter". The joined
+  // column is derived from created_at, so this compares against the same value.
+  const [joinedDate, setJoinedDate] = useState('');
+  // Header controls collapse so the table title stays readable: filters live in
+  // a popover behind the funnel icon, row actions behind the kebab menu.
+  const [showFilters, setShowFilters] = useState(false);
+  const [showActions, setShowActions] = useState(false);
   // The table renders incrementally: PAGE_SIZE rows now, +PAGE_SIZE per
   // "Load more" click — no page-number jumping, so the first paint stays fast.
   const PAGE_SIZE = 20;
@@ -176,6 +182,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [compensationName, setCompensationName] = useState('');
   const [compensationSaving, setCompensationSaving] = useState(false);
   const tableRef = useRef(null);
+  const filterRef = useRef(null);
+  const menuRef = useRef(null);
 
   // Freeze the page behind open modals: this layout scrolls on the body, so
   // hiding body overflow blocks wheel/touch/keyboard scrolling while a modal
@@ -193,18 +201,25 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     return () => { body.style.overflow = prevOverflow; body.style.paddingRight = prevPad; };
   }, [anyModalOpen]);
 
+  // The header popovers are mutually exclusive and close on an outside click or
+  // Escape, like the Dropdown menus they contain.
+  useEffect(() => {
+    if (!showFilters && !showActions) return;
+    const onDown = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilters(false);
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowActions(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { setShowFilters(false); setShowActions(false); } };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [showFilters, showActions]);
+
   const reload = useCallback(() => {
     setLoading(true);
     return fetchWorkers('all').then(list => {
       setWorkers(list || []);
       setLoading(false);
-      api('/db/query', { method: 'POST', body: JSON.stringify({ sql: 'SELECT id, employee_id FROM workers' }), _prefix: 'ucs' })
-        .then(res => {
-          const map = {};
-          (res.rows || []).forEach(r => { if (r.employee_id) map[r.id] = r.employee_id; });
-          setEmpIdMap(map);
-        })
-        .catch(() => {});
       return list || [];
     }).catch((err) => { console.error('API error:', err.message); setLoading(false); return []; });
   }, [fetchWorkers]);
@@ -289,6 +304,19 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     const name = (ngo.name || '').trim().toUpperCase();
     return name === 'OTHER' ? 'Other' : (name || 'Other');
   };
+  // Joining date = date_of_joining when present, else created_at (the value the
+  // table has always shown). Bare YYYY-MM-DD gets a local midnight so the label
+  // can't slip to the previous day in a negative-offset timezone.
+  const joiningDateOf = (w) => w.date_of_joining || w.created_at || '';
+  const joinedDateLabel = (w, long) => {
+    const raw = joiningDateOf(w);
+    if (!raw) return '—';
+    const d = new Date(String(raw).length === 10 ? `${raw}T00:00:00` : raw);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', long
+      ? { day:'2-digit', month:'short', year:'numeric' }
+      : { month:'short', year:'numeric' });
+  };
   const filtered = workers.filter(w => {
     if (w.is_test && (salaryMode || !showTest)) return false;
     const role = w.department || 'Team Member';
@@ -296,6 +324,10 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     const empStatus = w.employment_status || 'active';
     if (statusFilter && statusFilter !== 'all' && empStatus !== statusFilter) return false;
     if (entityFilter && entityFilter !== 'All' && clientOf(w) !== entityFilter) return false;
+    if (joinedDate) {
+      const jd = istDayKey(w.date_of_joining || w.created_at);
+      if (jd !== joinedDate) return false;
+    }
     if (salaryMode && teamFilter) {
       const isFro = (w.department || '').trim().toLowerCase() === 'fro';
       if (!isFro) return false;
@@ -310,6 +342,22 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   });
 
   const visibleRows = filtered.slice(0, visibleCount);
+
+  // Badge on the funnel icon: count only filters that actually narrow the list
+  // (the default "Active" status is not counted as an active filter).
+  const activeFilterCount =
+    (entityFilter !== 'All' ? 1 : 0) +
+    (roleFilter ? 1 : 0) +
+    (statusFilter !== 'active' ? 1 : 0) +
+    (joinedDate ? 1 : 0);
+  const resetFilters = () => {
+    setEntityFilter('All');
+    setRoleFilter('');
+    setStatusFilter('active');
+    setJoinedDate('');
+    if (!salaryMode) { setShowTest(false); save({ showTest: false }); }
+  };
+  const hasCardActions = showNgoSalary || (showPagarExport && !salaryMode) || showPayExports || !salaryMode;
 
   const CLIENTS = [...new Set([
     ...(ngos || []).filter(n => (n.name || '').trim().toUpperCase() !== 'TESTING')
@@ -463,7 +511,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   useEffect(() => { if (!mountedRole.current) { mountedRole.current = true; return; } save({ roleFilter }); }, [roleFilter]);
   const mountedStatus = useRef(false);
   useEffect(() => { if (!mountedStatus.current) { mountedStatus.current = true; return; } save({ statusFilter }); }, [statusFilter]);
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [search, roleFilter, statusFilter, entityFilter, teamFilter]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [search, roleFilter, statusFilter, entityFilter, teamFilter, joinedDate]);
 
   const submit = async () => {
     if (!name.trim()) return;
@@ -1038,14 +1086,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             .target-input { -moz-appearance: textfield; }
             .target-input::-webkit-outer-spin-button, .target-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
             .target-input:focus { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-soft); outline: none; }
-            .status-filter { width: 150px; }
-            .org-filter { width: 160px; }
-            .role-filter { width: 175px; }
-            .status-filter .dropdown-trigger { padding: 8px 12px; font-size: 13.5px; }
-            .org-filter .dropdown-trigger, .role-filter .dropdown-trigger { padding: 8px 12px; font-size: 13.5px; }
-            .status-filter .dropdown-menu { max-height: none; overflow: visible; }
-            .org-filter .dropdown-menu, .role-filter .dropdown-menu { min-width: 240px; }
-            .status-filter .dropdown-item { padding: 11px 14px; font-size: 14px; }
             .wf-table thead th { background: var(--sand); }
           `}</style>
 
@@ -1125,72 +1165,133 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       <div className="card" ref={tableRef}>
         <div className="card-head"><h3>{title}</h3>
           <div className="search-input-wrap">
-            {/* Download Targets + Export Excel moved to the top strip (see
-                onActionsReady above); Salary File and Compensations go there
-                too in salary mode and stay here for HR. */}
-            {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => setShowNgoModal(true)} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
-            {showPagarExport && !salaryMode && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
-            {showPagarExport && !salaryMode && <button className="btn btn-outline btn-sm" onClick={() => {
-              const currentMonth = new Date().toISOString().slice(0, 7);
-              setCompensationMonth(pagarMonth || currentMonth);
-              setShowCompensationModal(true);
-            }} title="Manage compensatory Sundays and holidays">Compensations</button>}
-            {showPayExports && <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>}
             {!salaryMode && <span className="sub">{filtered.length} total</span>}
-            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} renderValue={clipValue('All')} />
-            <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
-              options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:deptLabel(r)}))]} renderValue={clipValue('All members')} />
-            <Dropdown className="status-filter" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
-              renderValue={clipValue('Active')}
-              options={[
-                {value:'active', label:'Active'},
-                {value:'absconded', label:'Absconded'},
-                {value:'offboarded', label:'Offboarded'},
-                {value:'all', label:'All'},
-              ]} />
-            {!salaryMode && (
-            <button className={`btn btn-sm ${showTest ? 'btn-primary' : 'btn-outline'}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
-              onClick={()=>{ const v = !showTest; setShowTest(v); save({ showTest: v }); }}
-              title={showTest ? 'Hide test member accounts' : 'Show test member accounts (they stay excluded from stats)'}>
-              <Flask width={14}/> {showTest ? 'Hide test' : 'Show test'}
-            </button>
-            )}
             <input className="search-input" value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Search by name, email, or team…"
               style={{ marginTop:0, maxWidth:200 }} />
+
+            {/* Filters collapse behind the funnel: the header stays short while
+                every control (NGO, role, status, joining day, test members) is
+                one click away. The badge shows how many are narrowing the list. */}
+            <div className="hr-filter-anchor" ref={filterRef}>
+              <button type="button"
+                className={`btn btn-sm btn-outline hr-filter-btn${showFilters || activeFilterCount ? ' is-on' : ''}`}
+                onClick={() => { setShowFilters(v => !v); setShowActions(false); }}
+                aria-label="Filters" aria-expanded={showFilters} title="Filters">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+                </svg>
+                {activeFilterCount > 0 && <span className="hr-filter-badge">{activeFilterCount}</span>}
+              </button>
+              {showFilters && (
+                <div className="hr-filter-popover" role="dialog" aria-label="Volunteer filters">
+                  <div className="hr-filter-popover-head">
+                    <strong>Filters</strong>
+                    {activeFilterCount > 0 && (
+                      <button type="button" className="hr-filter-reset" onClick={resetFilters}>Reset</button>
+                    )}
+                  </div>
+
+                  <div className="hr-filter-field">
+                    <span className="hr-filter-lbl">NGO</span>
+                    <Dropdown className="filter-dd" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} renderValue={clipValue('All')} />
+                  </div>
+
+                  <div className="hr-filter-field">
+                    <span className="hr-filter-lbl">Role</span>
+                    <Dropdown className="filter-dd" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
+                      options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:deptLabel(r)}))]} renderValue={clipValue('All members')} />
+                  </div>
+
+                  <div className="hr-filter-field">
+                    <span className="hr-filter-lbl">Status</span>
+                    <Dropdown className="filter-dd" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
+                      renderValue={clipValue('Active')}
+                      options={[
+                        {value:'active', label:'Active'},
+                        {value:'absconded', label:'Absconded'},
+                        {value:'offboarded', label:'Offboarded'},
+                        {value:'all', label:'All'},
+                      ]} />
+                  </div>
+
+                  {!salaryMode && (
+                    <div className="hr-filter-field">
+                      <span className="hr-filter-lbl">Joined on</span>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder="Any date" max={istDayKey()} />
+                        {joinedDate && (
+                          <button type="button" className="btn btn-sm btn-outline" onClick={() => setJoinedDate('')}
+                            title="Clear the joining date filter" style={{ padding:'6px 8px', fontSize:11.5 }}>Clear</button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+            </div>
+
+            {/* Filter-like options (Show test) and the row actions (NGO &
+                Salary, Salary File, Compensations, Export All) live in this
+                menu so the toolbar is just two compact icon buttons. */}
+            {hasCardActions && (
+              <div className="hr-actions-anchor" ref={menuRef}>
+                <button type="button" className="btn btn-icon hr-actions-btn"
+                  onClick={() => { setShowActions(v => !v); setShowFilters(false); }}
+                  aria-label="More actions" aria-expanded={showActions} title="More actions">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+                  </svg>
+                </button>
+                {showActions && (
+                  <div className="hr-actions-menu" role="menu">
+                    {showNgoSalary && (
+                      <button type="button" role="menuitem" onClick={() => { setShowActions(false); setShowNgoModal(true); }}>
+                        NGO &amp; Salary
+                      </button>
+                    )}
+                    {showPagarExport && !salaryMode && (
+                      <button type="button" role="menuitem" onClick={() => { setShowActions(false); handlePagarExport(); }}>
+                        Salary File
+                      </button>
+                    )}
+                    {showPagarExport && !salaryMode && (
+                      <button type="button" role="menuitem" onClick={() => { setShowActions(false); setCompensationMonth(pagarMonth || new Date().toISOString().slice(0, 7)); setShowCompensationModal(true); }}>
+                        Compensations
+                      </button>
+                    )}
+                    {showPayExports && (
+                      <button type="button" role="menuitem" onClick={() => { setShowActions(false); handleExportAll(); }}>
+                        Export All
+                      </button>
+                    )}
+                    {!salaryMode && (showNgoSalary || (showPagarExport && !salaryMode) || showPayExports) && (
+                      <div className="hr-actions-sep" />
+                    )}
+                    {!salaryMode && (
+                      <button type="button" role="menuitemcheckbox" aria-checked={showTest}
+                        onClick={() => { const v = !showTest; setShowTest(v); save({ showTest: v }); setShowActions(false); }}
+                        title="Test member accounts stay excluded from dashboard stats">
+                        {showTest ? 'Hide test members' : 'Show test members'}
+                      </button>
+                    )}
+                    {!salaryMode && (
+                      <button type="button" role="menuitem"
+                        onClick={() => { setShowActions(false); if (isSalaryUnlocked) lockSalary(); else promptUnlock(); }}
+                        title={isSalaryUnlocked ? 'Hide salary figures again' : 'Enter the access code to view salary figures'}>
+                        {isSalaryUnlocked ? 'Hide Salary' : 'Unlock Salary'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
-        {/* The hidden/visible salary status bar is HR-only; in salary mode the
-            Unlock/Hide control lives on the page's top strip instead. */}
-        {!salaryMode && (
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
-          marginBottom: 12, padding: '8px 14px', borderRadius: 8,
-          background: isSalaryUnlocked ? '#f0fdf4' : '#fffbeb',
-          border: `1px solid ${isSalaryUnlocked ? '#bbf7d0' : '#fef08a'}`
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <span style={{ fontWeight: 600, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
-              {isSalaryUnlocked ? 'Salary visible' : 'Salaries hidden (XXX)'}
-            </span>
-            <span style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
-              {isSalaryUnlocked ? 'Entering the access code anywhere unlocks salary for this session.' : 'Enter your access code to view salary figures.'}
-            </span>
-          </div>
-          {isSalaryUnlocked ? (
-            <button className="btn btn-sm btn-outline" onClick={lockSalary} style={{ fontSize: 11, padding: '4px 12px', background: '#fff' }}>
-              🔒 Hide Salary
-            </button>
-          ) : (
-            <button className="btn btn-sm btn-primary" onClick={() => promptUnlock()} style={{ fontSize: 11, padding: '5px 14px', background: 'var(--sage)', color: '#fff', border: 'none', fontWeight: 600 }}>
-              🔓 Unlock Salary
-            </button>
-          )}
-        </div>
-        )}
         <table className="wf-table">
           <thead><tr><th>Name</th>{salaryMode && <th style={{ width:92 }}>Status</th>}<th>NGO</th>
-            {!salaryMode && <><th>Emp ID</th><th>Joined</th></>}
+            {!salaryMode && <th>Joined</th>}
             {salaryMode && <><th>Team</th><th>Target</th><th>Source</th></>}
             <th>Salary</th><th>Documents</th>{!salaryMode && <th>Status</th>}<th></th></tr></thead>
           <tbody>
@@ -1209,10 +1310,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                     {salaryMode && <td><div className="sk" style={{ width:56, height:18, borderRadius:4 }} /></td>}
                     <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
                   {!salaryMode && (
-                    <>
-                      <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
-                      <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
-                    </>
+                    <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
                   )}
                   {salaryMode && (
                     <>
@@ -1234,7 +1332,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                   const currentMonth = new Date().toISOString().slice(0, 7);
                   const salaryFromMonth = sw?.current_salary_from?.slice(0, 7);
                   const isCurrent = salaryFromMonth && salaryFromMonth <= currentMonth;
-                  const empId = w.employee_id || empIdMap[w.id];
                   const statusLabel = w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active';
                   return (
                     <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
@@ -1260,8 +1357,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                       </td>
                       {!salaryMode && (
                         <>
-                          <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
-                          <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
+                          <td style={{ color:'var(--ink-soft)' }} title={joinedDateLabel(w, true)}>{joinedDateLabel(w, !!joinedDate)}</td>
                         </>
                       )}
                       {salaryMode && (
@@ -1374,7 +1470,11 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                     </tr>
                   );
                 })}
-                {!filtered.length && <tr><td colSpan={salaryMode ? 9 : 7}><div className="empty">No volunteers found.</div></td></tr>}
+                {!filtered.length && <tr><td colSpan={salaryMode ? 9 : 7}><div className="empty">
+                  {joinedDate
+                    ? `No volunteers joined on ${new Date(joinedDate + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}.`
+                    : 'No volunteers found.'}
+                </div></td></tr>}
               </>
             )}
           </tbody>

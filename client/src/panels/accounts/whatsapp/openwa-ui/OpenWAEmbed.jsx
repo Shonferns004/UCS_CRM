@@ -50,7 +50,10 @@ export default function OpenWAEmbed({ page = 'chats', onNavigate, fro = false, l
   useMemo(() => {
     try {
       sessionStorage.setItem('openwa_user_role', admin ? 'admin' : fro ? 'operator' : 'viewer')
-      sessionStorage.setItem('openwa_engine_type', 'whatsapp-web.js')
+      // Must match the gateway's ENGINE_TYPE (openwa/.env). It gates engine-specific UI: live history
+      // reads and channel listing are whatsapp-web.js-only, group creation and status fonts are
+      // Baileys-only. There is no validate call in this embed to refresh it from the server.
+      sessionStorage.setItem('openwa_engine_type', 'baileys')
       sessionStorage.setItem('openwa_key_scoped', 'false')
     } catch {
       /* storage unavailable */
