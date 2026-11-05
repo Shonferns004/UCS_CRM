@@ -1,35 +1,17 @@
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-
 import db from '../config/db.js';
-import { describeStoredObjectUrl } from '../services/receiptFileLink.js';
+import { presignStoredUrl } from '../services/mediaProxy.js';
 
 // The beneficiary-documents bucket is private (public access blocked since the
 // 2026-09-30 containment), so a stored object URL answers 403 in an <img>. The
 // column keeps holding the plain URL -- a signed one is a capability that would
 // freeze at its expiry if persisted -- and only responses carry a signature.
-const DOC_URL_TTL_SECONDS = 60 * 60;
-
+// Presigning is delegated to mediaProxy, which returns a signed S3 URL in S3
+// mode and a stable local URL in local mode. That keeps this model free of any
+// AWS dependency while preserving the old behaviour exactly when S3 is enabled.
 const presignDocumentUrl = async (stored) => {
   const value = String(stored ?? '').trim();
   if (!value || value.includes('X-Amz-Signature=')) return value;
-
-  const located = describeStoredObjectUrl(value);
-  if (!located) return value;
-
-  const handle = db.storage.raw(located.account);
-  if (!handle) return value;
-
-  try {
-    return await getSignedUrl(
-      handle.client,
-      new GetObjectCommand({ Bucket: handle.bucket, Key: located.key }),
-      { expiresIn: DOC_URL_TTL_SECONDS },
-    );
-  } catch (e) {
-    console.warn(`[beneficiary documents] could not presign ${located.key}: ${e?.message || e}`);
-    return value;
-  }
+  return presignStoredUrl(value);
 };
 
 // Presigning is local SigV4 maths with no S3 round trip, so signing a list of

@@ -6,8 +6,6 @@ import { verifyReceiptFile } from '../services/receiptFileLink.js';
 import { resolveTemplateHeaderAsset } from '../services/templateHeaderMedia.js';
 import { presignStoredUrl } from '../services/mediaProxy.js';
 import db from '../config/db.js';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const TEMPLATE_PROJECT_MAP = {
   bsct_receipt_2: 'bsct',
@@ -896,17 +894,12 @@ export async function getConversationByPhone(req, res) {
         });
       }
     }
-    // Presign S3 media URLs so the browser can load private objects
-    const s3 = new S3Client({ region: process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1', credentials: process.env.AWS_ACCESS_KEY_ID ? { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY } : undefined });
-    const BUCKET = process.env.S3_BUCKET || 'ucs-crm-uploads-mumbai';
-    const HOST = `${BUCKET}.s3.${process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com`;
+    // Resolve stored media for the browser: a signed S3 URL in S3 mode, a local
+    // /api/media URL in local mode. Anything that is not our storage (Supabase,
+    // an external link) is passed through untouched.
     await Promise.all(messages.map(async (m) => {
-      if (m.media_url && m.media_url.includes(HOST)) {
-        try {
-          const key = new URL(m.media_url).pathname.replace(/^\//, '');
-          const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn: 3600 });
-          m.media_url = url;
-        } catch (e) { /* keep original */ }
+      if (m.media_url) {
+        m.media_url = await presignStoredUrl(m.media_url);
       }
       // Template header lives in the private whatsapp-media bucket; sign it so
       // the browser can render the image. Cached asset URLs take this path too.

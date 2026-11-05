@@ -7,6 +7,18 @@ import jwt from 'jsonwebtoken';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { emitDbChange } from '../socket.js';
+import {
+  isLocalStorage,
+  mediaRoot,
+  isSafeMediaKey,
+  localUrlForKey,
+  readObject,
+  writeObject,
+  removeObject,
+  ensureMediaDir,
+  listMediaDirs,
+  openObject,
+} from '../services/localMedia.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -1363,13 +1375,101 @@ const auth = {
 };
 
 // ---------------------------------------------------------------------------
-// storage() — AWS S3-backed file storage.
-// Files are stored in <S3_BUCKET>/<bucket>/<fileName> and exposed as public S3
-// object URLs. S3_BUCKET (plus AWS credentials) is required; there is no
-// local-filesystem fallback, so uploads fail loudly with a clear message when
-// S3 is not configured.
+// storage() — media storage.
+//
+// Default backend is the local filesystem: files live at
+// <LOCAL_MEDIA_DIR>/<bucket>/<fileName> and are served by GET /api/media/*.
+// The existing S3 bucket dump at C:\UcsCrmMedia is the live store, so keys keep
+// the S3 layout and old database URLs continue to resolve.
+//
+// Set MEDIA_STORAGE=s3 to use the old S3 implementation (kept for rollback).
 // ---------------------------------------------------------------------------
 const safeBucket = (name) => String(name).replace(/[^a-zA-Z0-9._-]/g, '_');
+
+// Handle returned by db.storage.from(...) in local mode. The shape matches the
+// S3 handle exactly, so no controller had to change when the backend moved.
+function localStorageHandle(accountOrBucket, maybeBucket) {
+  const bucket = safeBucket(maybeBucket != null ? maybeBucket : accountOrBucket);
+
+  const keyFor = (fileName) => {
+    const name = String(fileName ?? '').replace(/^\/+/, '');
+    if (!isSafeMediaKey(name)) {
+      const err = new Error('Unsafe media file name');
+      err.code = 'UNSAFE_FILE_NAME';
+      throw err;
+    }
+    return `${bucket}/${name}`;
+  };
+
+  const fail = (e, code) => ({
+    data: null,
+    error: { message: e && e.message ? e.message : String(e), code: (e && e.code) || code },
+  });
+
+  return {
+    // Same field the S3 handle exposes so callers can build a read URL that
+    // matches what they wrote.
+    accountName: 'local',
+
+    async upload(fileName, buffer) {
+      try {
+        await writeObject(keyFor(fileName), buffer);
+        return { data: { path: String(fileName) }, error: null };
+      } catch (e) {
+        return fail(e, 'STORAGE_UPLOAD_FAILED');
+      }
+    },
+
+    getPublicUrl(fileName) {
+      try {
+        return { data: { publicUrl: localUrlForKey(keyFor(fileName)) } };
+      } catch {
+        return { data: { publicUrl: '' } };
+      }
+    },
+
+    async download(fileName) {
+      try {
+        return { data: await readObject(keyFor(fileName)), error: null };
+      } catch (e) {
+        return fail(e, 'STORAGE_DOWNLOAD_FAILED');
+      }
+    },
+
+    async readStream(fileName) {
+      try {
+        const obj = await openObject(keyFor(fileName));
+        if (!obj) {
+          return { data: null, error: { message: 'Media not found', code: 'ENOENT' } };
+        }
+        return { data: obj, error: null };
+      } catch (e) {
+        return fail(e, 'S3_READ_FAILED');
+      }
+    },
+
+    // There is no signature to mint for a local file. The URL is stable and
+    // unguessable enough for internal use; expiresAt stays null so callers that
+    // read it do not get a fake expiry.
+    async presignDownload(fileName) {
+      try {
+        return { data: { url: localUrlForKey(keyFor(fileName)), expiresAt: null }, error: null };
+      } catch (e) {
+        return fail(e, 'STORAGE_PRESIGN_FAILED');
+      }
+    },
+
+    async remove(paths) {
+      try {
+        const list = Array.isArray(paths) ? paths : [paths];
+        await Promise.all(list.map((p) => removeObject(keyFor(p))));
+        return { data: null, error: null };
+      } catch (e) {
+        return fail(e, 'STORAGE_REMOVE_FAILED');
+      }
+    },
+  };
+}
 
 // Multi-account S3 registry: 'head' (dev) and 'upstream' (production).
 // Code selects an account via db.storage.from(account, bucket) or
@@ -1488,6 +1588,7 @@ function resolveS3(accountOrBucket, maybeBucket) {
 
 const storage = {
   from(accountOrBucket, maybeBucket) {
+    if (isLocalStorage()) return localStorageHandle(accountOrBucket, maybeBucket);
     const { s3, bucket, accountName } = resolveS3(accountOrBucket, maybeBucket);
     const b = safeBucket(bucket);
     return {
@@ -1591,6 +1692,14 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
     return this.from(account, bucket);
   },
   async createBucket(name, opts = {}) {
+    if (isLocalStorage()) {
+      try {
+        await ensureMediaDir(safeBucket(name));
+        return { data: { name: String(name) }, error: null };
+      } catch (e) {
+        return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
+      }
+    }
     const target = opts.account ? getS3Client(opts.account) : (getS3Client('head') || getS3Client('upstream') || getS3());
     if (!target) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
     try {
@@ -1608,6 +1717,14 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
     return { data: { name: String(name) }, error: null };
   },
   async listBuckets(account) {
+    if (isLocalStorage()) {
+      try {
+        const names = await listMediaDirs();
+        return { data: names.map((name) => ({ name })), error: null };
+      } catch {
+        return { data: [], error: null };
+      }
+    }
     const s3 = account ? getS3Client(account) : (getS3Client('head') || getS3Client('upstream') || getS3());
     if (!s3) return { data: [], error: null };
     try {
@@ -1621,6 +1738,9 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
   // Account registry for the bucket browser: names, regions and the bucket
   // each account points at. Never exposes access keys.
   accounts() {
+    if (isLocalStorage()) {
+      return [{ name: 'local', region: 'local', bucket: mediaRoot(), configured: true }];
+    }
     return Object.entries(S3_ACCOUNTS).map(([name, cfg]) => ({
       name,
       region: cfg.region,
@@ -1634,6 +1754,9 @@ const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 
   // the legacy AWS_*/S3_* pair), so the bucket browser reads through the same
   // keys the app writes with.
   raw(account) {
+    // Local storage has no S3 client to expose. Callers that need raw S3 (the
+    // bucket browser, presign helpers) are disabled or branched in local mode.
+    if (isLocalStorage()) return null;
     let s3 = null;
     let name = null;
     if (account) {

@@ -15,6 +15,10 @@
 # Calendarific disk cache (one API call per country+year). Never ship or commit.
 /.cache/
 
+# Local media audit output. Lists stored document URLs and expected file paths,
+# so it can contain PII. Keep it on the machine that produced it.
+/missing-media-report.csv
+
 # Node
 node_modules/
 
