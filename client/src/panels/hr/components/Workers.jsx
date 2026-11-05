@@ -1192,6 +1192,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                     )}
                   </div>
 
+                  <div className="hr-filter-row">
                   <div className="hr-filter-field">
                     <span className="hr-filter-lbl">NGO</span>
                     <Dropdown className="filter-dd" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} renderValue={clipValue('All')} />
@@ -1216,7 +1217,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                   </div>
 
                   {!salaryMode && (
-                    <div className="hr-filter-field">
+                    <div className="hr-filter-field hr-filter-field-date">
                       <span className="hr-filter-lbl">Joined on</span>
                       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                         <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder="Any date" max={istDayKey()} />
@@ -1227,6 +1228,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                       </div>
                     </div>
                   )}
+                  </div>
 
                 </div>
               )}

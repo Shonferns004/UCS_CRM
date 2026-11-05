@@ -1178,11 +1178,14 @@
 .panel-hr .hr-filter-btn { position:relative; display:inline-flex; align-items:center; justify-content:center; padding:8px 10px; }
 .panel-hr .hr-filter-btn.is-on { border-color:var(--sage); color:var(--sage); background:var(--sage-soft); }
 .panel-hr .hr-filter-badge { position:absolute; top:-5px; right:-5px; min-width:16px; height:16px; padding:0 4px; border-radius:9px; background:var(--sage); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; }
-.panel-hr .hr-filter-popover { position:absolute; top:calc(100% + 6px); right:0; z-index:400; width:236px; max-width:calc(100vw - 32px); background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(16,24,40,.14); padding:10px; display:flex; flex-direction:column; gap:8px; box-sizing:border-box; }
+.panel-hr .hr-filter-popover { position:absolute; top:calc(100% + 6px); right:0; z-index:400; width:690px; max-width:calc(100vw - 24px); background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(16,24,40,.14); padding:10px 12px; display:flex; flex-direction:column; gap:8px; box-sizing:border-box; }
 .panel-hr .hr-filter-popover-head { display:flex; align-items:center; justify-content:space-between; padding:0 1px; }
 .panel-hr .hr-filter-popover-head strong { font-size:12px; }
 .panel-hr .hr-filter-reset { background:none; border:none; padding:0; color:var(--sage); font:inherit; font-size:11.5px; font-weight:600; cursor:pointer; }
 .panel-hr .hr-filter-reset:hover { text-decoration:underline; }
+.panel-hr .hr-filter-row { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.panel-hr .hr-filter-row .hr-filter-field { flex:0 0 140px; }
+.panel-hr .hr-filter-row .hr-filter-field-date { flex:0 0 214px; }
 .panel-hr .hr-filter-field { display:flex; flex-direction:column; gap:3px; }
 .panel-hr .hr-filter-lbl { font-size:10px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; }
 .panel-hr .hr-filter-field .dropdown, .panel-hr .hr-filter-field .dropdown-trigger { width:100%; }
