@@ -310,7 +310,7 @@ export default function WhatsAppBulk() {
   };
 
   return (
-    <div className="wa-page" style={{ background: '#eef1f8', minHeight: '100vh', padding: 0, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+    <div className="wa-page" style={{minHeight: '100vh', padding: 0, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
 
       {showFailureBanner && deliveryStatuses.filter(r => String(r.status).toLowerCase() === 'failed').length > 0 && (
         <div style={{ background: '#fde2e5', border: '1px solid #fca5a5', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>

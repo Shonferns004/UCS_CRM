@@ -8,6 +8,10 @@ export async function login(email, password) {
 }
 
 export function apiGet(path) { return api(path, { _prefix: 'ucs' }) }
+export async function apiGetBlob(path) {
+  const res = await api(path, { _prefix: 'ucs', raw: true })
+  return res.blob()
+}
 const serialize = (body) => (body instanceof FormData ? body : JSON.stringify(body))
 export function apiPost(path, body, timeout) { return api(path, { method: 'POST', body: serialize(body), _prefix: 'ucs', timeout }) }
 export function apiPut(path, body) { return api(path, { method: 'PUT', body: serialize(body), _prefix: 'ucs' }) }
