@@ -80,7 +80,7 @@ export async function resolveTemplateHeaderAsset({ project, templateName, header
   const key = templateHeaderStorageKey(project, templateName);
 
   const memoised = memo.get(key);
-  if (memoised && (Date.now() - memoised.at) < MEMO_TTL_MS) return memoised.asset;
+  if (memoised && (Date.now() - memoised.at) < MEMO_TTL_MS && (memoised.asset || !headerUrl)) return memoised.asset;
 
   let asset = await storedAsset(key);
 
@@ -109,7 +109,9 @@ export async function resolveTemplateHeaderAsset({ project, templateName, header
     }
   }
 
-  if (asset) memo.set(key, { at: Date.now(), asset });
+  // Cache misses briefly too: a broken storage credential would otherwise make
+  // every single send retry the same download/upload dance.
+  memo.set(key, { at: Date.now(), asset: asset || null });
   return asset;
 }
 
