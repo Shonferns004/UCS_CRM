@@ -1,6 +1,7 @@
 import React from 'react';
 
 const colors = {
+  accepted: { bg: '#e0f2fe', color: '#0369a1' },
   sent: { bg: '#e5e7eb', color: '#374151' },
   delivered: { bg: '#dbeafe', color: '#1d4ed8' },
   read: { bg: '#dcfce7', color: '#166534' },

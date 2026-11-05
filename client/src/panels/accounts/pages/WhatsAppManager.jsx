@@ -82,13 +82,8 @@ export default function WhatsAppManager() {
   const logTemplates = logTemplatesList.length ? logTemplatesList.map(t => t.name) : [...new Set(statuses.filter(r => logAccount === 'all' || String(r.account_id) === String(logAccount)).map(r => r.template_name).filter(Boolean))];
 
   return (
-    <div style={{ background: '#eef1f8', minHeight: '100vh', padding: 16, fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-      <div style={{ background: 'linear-gradient(120deg, #0866FF 0%, #6A4DF4 60%, #B13CE0 100%)', color: '#fff', borderRadius: 16, padding: '18px 20px', marginBottom: 16 }}>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>WhatsApp Center</div>
-        <div style={{ fontSize: 13, opacity: .9 }}>Meta Business Platform Â· Accounts, templates, bulk sending and delivery</div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+    <div className="wam-page" style={{  height: '100%', minHeight: 0, padding: 0, display: 'flex', flexDirection: 'column', fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid #cbd0dc', background: tab === t ? '#0866FF' : '#fff', color: tab === t ? '#fff' : '#1C1E21', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
             {t}

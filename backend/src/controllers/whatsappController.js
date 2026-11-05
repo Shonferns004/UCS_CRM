@@ -959,14 +959,36 @@ export async function validateWhatsAppContacts(req, res) {
   }
 }
 
+const BULK_STATUS_KEYS = ['accepted', 'sent', 'delivered', 'read', 'failed'];
+
 export async function listBulkRecipientStatuses(req, res) {
   try {
+    const accountId = req.query.accountId ? String(req.query.accountId) : null;
     const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
-    const { data, error } = await db
+
+    // Summary mode powers "Delivery Insights": one exact count per status for
+    // the selected WhatsApp account, independent of the 100-row list window.
+    if (String(req.query.summary || '') === '1') {
+      const entries = await Promise.all(BULK_STATUS_KEYS.map(async (status) => {
+        let query = db
+          .from('whatsapp_bulk_recipients')
+          .select('*', { count: 'exact', head: true })
+          .ilike('status', status);
+        if (accountId) query = query.eq('account_id', accountId);
+        const { count, error } = await query;
+        if (error) throw error;
+        return [status, count || 0];
+      }));
+      return res.json({ accountId: accountId || 'all', counts: Object.fromEntries(entries) });
+    }
+
+    let query = db
       .from('whatsapp_bulk_recipients')
       .select('wa_message_id, account_id, phone, recipient_name, template_name, status, failure_reason, status_updated_at, created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
+    if (accountId) query = query.eq('account_id', accountId);
+    const { data, error } = await query;
     if (error) throw error;
     return res.json(data || []);
   } catch (error) {
@@ -1049,22 +1071,43 @@ function templateComponentOf(components, type) {
 const templateComponentsCache = new Map();
 const TEMPLATE_COMPONENTS_TTL_MS = 5 * 60 * 1000;
 
+/** Names for a named-parameter template, in placeholder order. */
+function templateParameterNames(components) {
+  const text = templateComponentOf(components, 'BODY')?.text || '';
+  const names = [...new Set(
+    [...text.matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)]
+      .map((match) => match[1])
+      .filter((key) => !/^\d+$/.test(key)),
+  )];
+  return names.length ? names : null;
+}
+
 /** Fill a template's BODY text with the parameters actually sent. */
 function renderTemplateBody(components, parameters) {
   const text = templateComponentOf(components, 'BODY')?.text || '';
   if (!text) return null;
   const params = Array.isArray(parameters) ? parameters : [];
-  return text.replace(/\{\{\s*(\d+)\s*\}\}/g, (token, index) => {
-    const value = params[Number(index) - 1];
+  const named = [...new Set(
+    [...text.matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)]
+      .map((match) => match[1])
+      .filter((key) => !/^\d+$/.test(key)),
+  )];
+  return text.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (token, key) => {
+    const index = /^\d+$/.test(key) ? Number(key) - 1 : named.indexOf(key);
+    const value = params[index];
     if (value === undefined || value === null || String(value).trim() === '') return token;
     return String(value);
   });
 }
 
 /**
- * Resolve a template's components for the send log: local cache first, Meta as
- * a fallback for templates that were created in Meta Business Manager and never
- * synced into whatsapp_templates.
+ * Resolve a template's components for the send payload.
+ *
+ * Cache first, then Meta, then the local mirror. Meta has to win over the
+ * mirror: `whatsapp_templates.components` stores only each component's
+ * type/format/text, so it loses `example.header_handle`. Sending from that
+ * stale copy made media-header templates go out with no header component at
+ * all (Meta: 132012 "Format mismatch, expected IMAGE, received UNKNOWN").
  */
 async function resolveTemplateComponentsForSend(account, templateName, templateLang, { forceMeta = false } = {}) {
   const lang = String(templateLang || '').trim();
@@ -1072,43 +1115,47 @@ async function resolveTemplateComponentsForSend(account, templateName, templateL
   if (!forceMeta) {
     const cached = templateComponentsCache.get(cacheKey);
     if (cached && (Date.now() - cached.at) < TEMPLATE_COMPONENTS_TTL_MS) return cached.components;
+  }
 
+  if (account?.waba_id && account?.access_token) {
     try {
-      let query = db
-        .from('whatsapp_templates')
-        .select('name,language,components,project,updated_at')
-        .eq('name', templateName);
-      if (account?.project) query = query.eq('project', account.project);
-      const { data } = await query.order('updated_at', { ascending: false }).limit(10);
-      const rows = Array.isArray(data) ? data : [];
-      const exact = rows.find((r) => !lang || String(r.language || '') === lang) || rows[0];
-      if (Array.isArray(exact?.components) && exact.components.length) {
-        templateComponentsCache.set(cacheKey, { at: Date.now(), components: exact.components });
-        return exact.components;
+      const url = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${account.waba_id}/message_templates`
+        + `?name=${encodeURIComponent(templateName)}&fields=name,language,components`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${account.access_token}` } });
+      const json = await response.json();
+      if (response.ok) {
+        const rows = Array.isArray(json?.data) ? json.data : [];
+        const exact = rows.find((r) => !lang || r.language === lang) || rows[0];
+        const components = Array.isArray(exact?.components) ? exact.components : [];
+        if (components.length) {
+          templateComponentsCache.set(cacheKey, { at: Date.now(), components });
+          return components;
+        }
       }
-    } catch { /* fall through to Meta */ }
+    } catch { /* fall through to the local mirror */ }
   }
 
-  if (!account?.waba_id || !account?.access_token) return [];
   try {
-    const url = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${account.waba_id}/message_templates`
-      + `?name=${encodeURIComponent(templateName)}&fields=name,language,components`;
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${account.access_token}` } });
-    const json = await response.json();
-    if (!response.ok) return [];
-    const rows = Array.isArray(json?.data) ? json.data : [];
-    const exact = rows.find((r) => !lang || r.language === lang) || rows[0];
-    const components = Array.isArray(exact?.components) ? exact.components : [];
-    if (components.length) templateComponentsCache.set(cacheKey, { at: Date.now(), components });
-    return components;
-  } catch {
-    return [];
-  }
+    let query = db
+      .from('whatsapp_templates')
+      .select('name,language,components,project,updated_at')
+      .eq('name', templateName);
+    if (account?.project) query = query.eq('project', account.project);
+    const { data } = await query.order('updated_at', { ascending: false }).limit(10);
+    const rows = Array.isArray(data) ? data : [];
+    const exact = rows.find((r) => !lang || String(r.language || '') === lang) || rows[0];
+    if (Array.isArray(exact?.components) && exact.components.length) {
+      templateComponentsCache.set(cacheKey, { at: Date.now(), components: exact.components });
+      return exact.components;
+    }
+  } catch { /* no mirror either */ }
+
+  return [];
 }
 
 export async function sendBulkTemplate(req, res) {
   try {
-    const { accountId, to, templateName, templateLang, parameters, headerImageUrl, headerFormat, recipientName, campaignId } = req.body;
+    const { accountId, to, templateName, templateLang, parameters, parameterNames, headerImageUrl, headerFormat, recipientName, campaignId } = req.body;
     const phone = normalizePhone(to || '');
     if (!phone) return res.status(400).json({ success: false, message: 'Phone number is required' });
 
@@ -1139,9 +1186,22 @@ export async function sendBulkTemplate(req, res) {
         headerUrl: headerImageUrl,
       })
       : null;
-    const sendHeaderUrl = headerAsset?.signedUrl || headerImageUrl || null;
+    // If the durable copy could not be made (for example an expired sample or a
+    // storage hiccup) still hand Meta the template's own https sample. Media
+    // headers are mandatory: omitting them makes Meta reject the send with
+    // 132012 "Format mismatch, expected IMAGE/DOCUMENT, received UNKNOWN".
+    const headerSample = headerComponent?.example?.header_handle?.[0]
+      || headerComponent?.example?.header_handle
+      || null;
+    const headerSampleUrl = typeof headerSample === 'string' && /^https?:\/\//i.test(headerSample)
+      ? headerSample
+      : null;
+    const sendHeaderUrl = headerAsset?.signedUrl || headerImageUrl || headerSampleUrl || null;
+    const resolvedParameterNames = Array.isArray(parameterNames) && parameterNames.length
+      ? parameterNames
+      : templateParameterNames(components);
 
-    const result = await sendTemplateMessage(phone, tpl, params, resolvedLang, account, sendHeaderUrl, resolvedHeaderFormat || headerFormat);
+    const result = await sendTemplateMessage(phone, tpl, params, resolvedLang, account, sendHeaderUrl, resolvedHeaderFormat || headerFormat, resolvedParameterNames);
     const messageId = result?.messages?.[0]?.id || result?.id || null;
 
     if (!messageId) {
@@ -1156,7 +1216,7 @@ export async function sendBulkTemplate(req, res) {
     // Snapshot the content that went out. The Chats thread reads this instead
     // of depending on whatsapp_templates still containing the template, which
     // is why old bulk bubbles used to render with no text or image.
-    const resolvedHeaderUrl = headerAsset?.storedUrl || null;
+    const resolvedHeaderUrl = headerAsset?.storedUrl || headerSampleUrl || null;
     const templateButtons = Array.isArray(buttonsComponent?.buttons) ? buttonsComponent.buttons : null;
 
     const { error: insertErr } = await db.from('whatsapp_bulk_recipients').insert({
@@ -1184,6 +1244,11 @@ export async function sendBulkTemplate(req, res) {
       result,
     });
   } catch (error) {
+    console.error('[whatsapp] send-bulk-template failed:', {
+      templateName: req.body?.templateName,
+      accountId: req.body?.accountId,
+      error: error?.message || error,
+    });
     return res.status(500).json({ success: false, message: error.message });
   }
 }

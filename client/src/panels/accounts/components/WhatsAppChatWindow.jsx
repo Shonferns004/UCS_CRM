@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost } from '../api/auth';
 import { onDbChange, onSocketConnect } from '../../../lib/socket';
+import { Dropdown } from '../../../components/ui';
 import WhatsAppThread, { WhatsAppThreadEmpty } from './WhatsAppThread';
 import './whatsAppChat.css';
 
@@ -346,6 +347,25 @@ export default function WhatsAppChatWindow() {
 
   const activeThread = threadKeyOf(selected);
 
+  const accountOptions = [
+    { value: 'all', label: 'All accounts', color: '#00a884' },
+    ...accounts.map((account) => ({
+      value: String(account.id),
+      label: account.name,
+      color: accountColor(account.name),
+    })),
+  ];
+
+  const renderAccount = (option) => {
+    if (!option) return null;
+    return (
+      <>
+        <span className="wac-account-dot" style={{ background: option.color }} />
+        <span className="wac-account-name">{option.label}</span>
+      </>
+    );
+  };
+
   return (
     <div className={`wac-root ${mobileShowChat ? 'is-chatting' : ''}`}>
       <aside className="wac-sidebar">
@@ -387,31 +407,17 @@ export default function WhatsAppChatWindow() {
             />
           </div>
 
-          <div className="wac-chips">
-            <button
-              type="button"
-              className={`wac-chip ${accountFilter === 'all' ? 'is-active' : ''}`}
-              style={accountFilter === 'all' ? { background: '#00a884' } : undefined}
-              onClick={() => setAccountFilter('all')}
-            >
-              All
-            </button>
-            {accounts.map((account) => {
-              const active = accountFilter === String(account.id);
-              const color = accountColor(account.name);
-              return (
-                <button
-                  key={account.id}
-                  type="button"
-                  className={`wac-chip ${active ? 'is-active' : ''}`}
-                  style={active ? { background: color } : undefined}
-                  onClick={() => setAccountFilter(String(account.id))}
-                >
-                  <span className="wac-chip-dot" style={{ background: active ? '#fff' : color }} />
-                  {account.name}
-                </button>
-              );
-            })}
+          <div className="wac-filter-row">
+            <Dropdown
+              className="wac-account-select"
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              options={accountOptions}
+              placeholder="All accounts"
+              searchable
+              renderValue={renderAccount}
+              renderOption={renderAccount}
+            />
             <button type="button" className="wac-refresh-link" onClick={exportToday} title="Download replied chats as CSV">
               Export replies
             </button>

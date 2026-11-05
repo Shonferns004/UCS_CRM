@@ -52,9 +52,21 @@ function templateBodyText(template) {
 
 function templateVariables(template) {
   const text = templateBodyText(template);
-  const numbers = [...text.matchAll(/{{\s*(\d+)\s*}}/g)].map((m) => Number(m[1]));
+  const tokens = [...text.matchAll(/{{\s*([A-Za-z0-9_]+)\s*}}/g)].map((m) => m[1]);
+  // Meta templates use one style: positional {{1}}, {{2}} or named {{name}}.
+  // Named values must go back with a parameter_name, otherwise Meta rejects the
+  // send with 132012 "Parameter format does not match".
+  const named = [...new Set(tokens.filter((token) => !/^\d+$/.test(token)))];
+  if (named.length) {
+    return named.map((name) => ({ key: `name:${name}`, label: `{{${name}}}`, name }));
+  }
+  const numbers = tokens.filter((token) => /^\d+$/.test(token)).map(Number);
   if (!numbers.length) return [];
-  return Array.from({ length: Math.max(...numbers) }, (_, i) => i + 1);
+  return Array.from({ length: Math.max(...numbers) }, (_, i) => ({
+    key: `pos:${i + 1}`,
+    label: `{{${i + 1}}}`,
+    name: null,
+  }));
 }
 
 function IconSearch() {
@@ -191,7 +203,6 @@ export default function WhatsAppThread({
   const [templatesError, setTemplatesError] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateParams, setTemplateParams] = useState([]);
-  const [templateHeaderFile, setTemplateHeaderFile] = useState(null);
   const [templateSending, setTemplateSending] = useState(false);
 
   const [toast, setToast] = useState(null);
@@ -199,7 +210,6 @@ export default function WhatsAppThread({
   const bodyRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
-  const templateFileRef = useRef(null);
   const atBottomRef = useRef(true);
 
   useEffect(() => {
@@ -441,9 +451,7 @@ export default function WhatsAppThread({
 
   const selectTemplate = (template) => {
     setSelectedTemplate(template);
-    setTemplateHeaderFile(null);
     setTemplateParams(templateVariables(template).map(() => ''));
-    if (templateFileRef.current) templateFileRef.current.value = '';
   };
 
   const sendTemplate = async () => {
@@ -460,33 +468,22 @@ export default function WhatsAppThread({
     setTemplateSending(true);
     setToast(null);
     try {
-      let headerImageUrl = null;
-      if (templateHeaderFile) {
-        const form = new FormData();
-        form.append('file', templateHeaderFile);
-        const uploaded = await api('/upload', { method: 'POST', body: form, _prefix: 'ucs' });
-        headerImageUrl = uploaded?.url || null;
-        if (!headerImageUrl) throw new Error('Header upload failed');
-      }
-      if (['IMAGE', 'DOCUMENT', 'VIDEO'].includes(headerFormat) && !headerImageUrl) {
-        throw new Error('This template needs a header file. Attach one below and try again.');
-      }
-
+      // Media-header templates reuse the header sample already synced from Meta,
+      // so the operator only fills the body variables here.
       await apiPost('/whatsapp/send-bulk-template', {
         accountId: sendAccountId,
         to: phone,
         templateName: selectedTemplate.name,
         templateLang: selectedTemplate.language || 'en',
         parameters: templateParams.map((value) => String(value).trim()),
-        headerImageUrl,
-        headerFormat: headerFormat || 'IMAGE',
+        parameterNames: variables.map((variable) => variable.name || null),
+        headerFormat: headerFormat || undefined,
         recipientName: contactName || null,
       });
 
       setTemplateOpen(false);
       setSelectedTemplate(null);
       setTemplateParams([]);
-      setTemplateHeaderFile(null);
       setToast({ type: 'ok', msg: 'Template sent' });
       atBottomRef.current = true;
       await loadMessages({ silent: true });
@@ -678,8 +675,8 @@ export default function WhatsAppThread({
                 )}
 
                 {templateVariablesList.map((variable, index) => (
-                  <div className="wac-tpl-field" key={variable}>
-                    <label>{`Variable {{${variable}}}`}</label>
+                  <div className="wac-tpl-field" key={variable.key}>
+                    <label>{`Variable ${variable.label}`}</label>
                     <input
                       type="text"
                       value={templateParams[index] || ''}
@@ -688,25 +685,10 @@ export default function WhatsAppThread({
                         next[index] = e.target.value;
                         setTemplateParams(next);
                       }}
-                      placeholder={`Value for {{${variable}}}`}
+                      placeholder={`Value for ${variable.label}`}
                     />
                   </div>
                 ))}
-
-                {['IMAGE', 'DOCUMENT', 'VIDEO'].includes(String(templatePart(selectedTemplate, 'HEADER')?.format || '').toUpperCase()) && (
-                  <div className="wac-tpl-field">
-                    <label>Header {String(templatePart(selectedTemplate, 'HEADER')?.format || '').toLowerCase()}</label>
-                    <div className="wac-tpl-upload">
-                      <input
-                        type="file"
-                        ref={templateFileRef}
-                        accept={String(templatePart(selectedTemplate, 'HEADER')?.format || '').toUpperCase() === 'IMAGE' ? 'image/*' : '*/*'}
-                        onChange={(e) => setTemplateHeaderFile(e.target.files?.[0] || null)}
-                      />
-                      {templateHeaderFile && <div style={{ marginTop: 4 }}>{templateHeaderFile.name}</div>}
-                    </div>
-                  </div>
-                )}
 
                 <button type="button" className="wac-send" onClick={sendTemplate} disabled={templateSending}>
                   {templateSending ? <span className="wac-spinner" /> : <IconSend />}

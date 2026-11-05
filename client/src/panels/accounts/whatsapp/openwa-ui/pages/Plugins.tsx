@@ -829,7 +829,7 @@ function FaqNgoTab({ plugin }: { plugin: Plugin }) {
           <div className="faq-ngo-actions">
             <span className="faq-ngo-hint">
               {ngoSessionIds.length === 0
-                ? 'Assign this NGO to a WhatsApp session first (WhatsApp Center → Assignments).'
+                ? 'Assign this NGO to a WhatsApp session first (WhatsApp Bulk → Assignments).'
                 : activeDraft
                   ? 'Saving applies these answers to every number of this NGO.'
                   : 'Saving will switch FAQ off on every number of this NGO.'}
@@ -1061,7 +1061,7 @@ function AiNgoTab({ plugin }: { plugin: Plugin }) {
           <div className="faq-ngo-actions">
             <span className="faq-ngo-hint">
               {ngoSessionIds.length === 0
-                ? 'Assign this NGO to a WhatsApp session first (WhatsApp Center → Assignments).'
+                ? 'Assign this NGO to a WhatsApp session first (WhatsApp Bulk → Assignments).'
                 : activeDraft
                   ? 'Saving applies this prompt to every number of this NGO.'
                   : 'Saving will switch the AI responder off on every number of this NGO.'}
