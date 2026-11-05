@@ -3729,7 +3729,7 @@ idle: {
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-flex', flexShrink: 0 }} />
                   FRO Status
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                    {(tlData?.performance || []).filter(p => ['online', 'on_call', 'meeting'].includes(p.status)).length} present
+                    {(tlData?.performance || []).filter(p => ['online', 'on_call', 'meeting', 'idle'].includes(p.status)).length} present
                   </span>
                 </h3>
                 <input
@@ -3747,6 +3747,7 @@ idle: {
                   if (p.is_paused) return { label: 'Paused', color: '#6D28D9', bg: '#F5F3FF' };
                   if (p.status === 'on_call') return { label: 'On Call', color: '#15803d', bg: '#ecfdf5' };
                   if (p.status === 'meeting') return { label: 'Meeting', color: '#7c3aed', bg: '#f5f3ff' };
+                  if (p.status === 'idle') return { label: 'Idle', color: '#b45309', bg: '#fffbeb' };
                   return { label: 'Online', color: '#16a34a', bg: '#f0fdf4' };
                 };
                 // Live paused-minutes counter: how long this FRO has been paused.
@@ -3755,7 +3756,7 @@ idle: {
                   const m = Math.floor((nowTs - new Date(p.paused_at).getTime()) / 60000);
                   return m < 0 ? null : m;
                 };
-                const dotOf = (p) => p.is_paused ? '#6D28D9' : p.status === 'meeting' ? '#7c3aed' : '#16a34a';
+                const dotOf = (p) => p.is_paused ? '#6D28D9' : p.status === 'meeting' ? '#7c3aed' : p.status === 'idle' ? '#f59e0b' : '#16a34a';
                 if (!tlData) {
                   return (
                     <div style={{ padding: '8px 24px 20px' }} aria-label="Loading FRO status">
@@ -3783,7 +3784,7 @@ idle: {
                 }
                 const q = presentSearch.toLowerCase().trim();
                 const present = (tlData.performance || [])
-                  .filter(p => ['online', 'on_call', 'meeting'].includes(p.status) && (!q || (p.fro_name || '').toLowerCase().includes(q)))
+                  .filter(p => ['online', 'on_call', 'meeting', 'idle'].includes(p.status) && (!q || (p.fro_name || '').toLowerCase().includes(q)))
                   .sort((a, b) => ((a.fro_name || '').localeCompare(b.fro_name || '')));
                 if (present.length === 0) {
                   return (
@@ -3808,8 +3809,14 @@ idle: {
                               <span title={p.is_paused && p.paused_by ? `Paused by ${p.paused_by}` : pill.label} style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: pill.bg, color: pill.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{pill.label}</span>
                             </div>
                             <div style={{ fontSize: 11, color: '#64748B', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {p.is_paused && <>Paused {pausedMins(p) == null ? '' : `${pausedMins(p)}m `}· by {p.paused_by || 'Admin'}</>}
-                              {p.work_as_operator_name ? ` · ⚡ ${p.work_as_operator_name}` : ''}
+                              {[
+                                p.is_paused
+                                  ? `Paused ${pausedMins(p) == null ? '' : `${pausedMins(p)}m `}· by ${p.paused_by || 'Admin'}`
+                                  : p.status === 'idle'
+                                    ? `Idle ${p.idleMinutes > 0 ? `${p.idleMinutes}m` : 'now'}`
+                                    : null,
+                                p.work_as_operator_name ? `⚡ ${p.work_as_operator_name}` : null,
+                              ].filter(Boolean).join(' · ')}
                             </div>
                           </div>
                           <button
