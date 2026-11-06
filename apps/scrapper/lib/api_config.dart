@@ -10,12 +10,12 @@ const List<Map<String, String>> kBackendOptions = [
   {
     'id': 'tunnel',
     'label': 'Tunnel (ngrok - main, works on any network)',
-    'url': 'https://audio-diagnoses-ream.ngrok-free.dev',
+    'url': 'https://win-13itdvn82hk.tail703dea.ts.net',
   },
   {
     'id': 'local',
     'label': 'Local (this machine - same WiFi only)',
-    'url': 'http://192.168.1.155:5000',
+    'url': 'http://192.168.1.100:5000',
   },
 ];
 
