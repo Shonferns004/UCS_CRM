@@ -3,13 +3,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 const String kScraperKey = 'f045bdfa3a2583ba2386190e49fbb908b77c398887f04d95';
 
 /// Preset backends the scraper can talk to.
-/// The ngrok tunnel is the MAIN backend (works from any network); the local
-/// machine address is the same-WiFi fallback. The scraper no longer talks to
-/// production (api.beingsevak.org) — see ScraperConfig.DEFAULT_BACKEND_URL.
+/// The Tailscale HTTPS host is the MAIN backend (works from any network); the
+/// local machine address is the same-WiFi fallback. The scraper no longer talks
+/// to production (api.beingsevak.org) — see ScraperConfig.DEFAULT_BACKEND_URL.
 const List<Map<String, String>> kBackendOptions = [
   {
     'id': 'tunnel',
-    'label': 'Tunnel (ngrok - main, works on any network)',
+    'label': 'Tunnel (Tailscale - main, works on any network)',
     'url': 'https://win-13itdvn82hk.tail703dea.ts.net',
   },
   {

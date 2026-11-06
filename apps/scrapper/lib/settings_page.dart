@@ -41,7 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     final uri = Uri.tryParse(v);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-      return 'Enter a full URL, e.g. https://example.ngrok-free.dev';
+      return 'Enter a full URL, e.g. https://your-host.ts.net';
     }
     if (uri.scheme != 'http' && uri.scheme != 'https') {
       return 'Only http:// or https:// are supported';
@@ -249,7 +249,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                hintText: 'https://your-tunnel.ngrok-free.dev',
+                hintText: 'https://your-host.ts.net',
                 helperText: error ?? 'Applied when you tap Save.',
                 helperStyle: TextStyle(
                   color: error == null ? Colors.grey : const Color(0xFFD93025),

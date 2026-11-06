@@ -46,7 +46,7 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'https://audio-diagnoses-ream.ngrok-free.dev',
+        target: 'https://win-13itdvn82hk.tail703dea.ts.net',
         changeOrigin: true,
         secure: true,
         headers: { 'ngrok-skip-browser-warning': '1' },
