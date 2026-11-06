@@ -55,6 +55,8 @@ import loanRoutes from './routes/loanRoutes.js';
 import attendanceCorrectionRoutes from './routes/attendanceCorrectionRoutes.js';
 import bankAuditRoutes from './routes/bankAuditRoutes.js';
 import emailImportRoutes from './routes/emailImportRoutes.js';
+import bulkEmailRoutes from './routes/bulkEmailRoutes.js';
+import unsubscribeRoutes from './routes/unsubscribeRoutes.js';
 import scraperRoutes from './routes/scraperRoutes.js';
 import googlePlacesRoutes from './routes/googlePlacesRoutes.js';
 import businessFinderRoutes from './routes/businessFinderRoutes.js';
@@ -166,6 +168,7 @@ import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSc
 import { ensureWhatsAppConversationSchema } from './bootstrap/ensureWhatsAppConversationSchema.js';
 import { ensureWhatsAppBulkSchema } from './bootstrap/ensureWhatsAppBulkSchema.js';
 import { ensureCampaignSchema } from './bootstrap/ensureCampaignSchema.js';
+import { ensureBulkEmailSchema } from './bootstrap/ensureBulkEmailSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config({ override: true });
@@ -337,6 +340,8 @@ app.use('/api/accounts/scraper', scraperRoutes);
 app.use('/api/accounts/google-places', googlePlacesRoutes);
 app.use('/api/accounts/business-finder', businessFinderRoutes);
 app.use('/api/accounts/osm-places', osmPlacesRoutes);
+app.use('/api/accounts/bulk-email', bulkEmailRoutes);
+app.use('/api/unsubscribe', unsubscribeRoutes);
 app.use('/api/accounts', accountsRoutes);
 app.use('/api/loans', loanRoutes);
 app.use('/api/advances', loanRoutes);
@@ -1403,6 +1408,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureWhatsAppConversationSchema().catch(e => console.error('ensureWhatsAppConversationSchema failed:', e?.message || e));
     await ensureWhatsAppBulkSchema().catch(e => console.error('ensureWhatsAppBulkSchema failed:', e?.message || e));
     await ensureCampaignSchema().catch(e => console.error('ensureCampaignSchema failed:', e?.message || e));
+    await ensureBulkEmailSchema().catch(e => console.error('ensureBulkEmailSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

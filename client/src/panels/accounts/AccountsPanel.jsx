@@ -34,6 +34,7 @@ import WhatsAppAutomation from './pages/WhatsAppAutomation'
 import WhatsAppAccountsManager from './components/WhatsAppAccountsManager'
 import WhatsAppBulk from './pages/WhatsAppBulk'
 import WhatsAppManager from './pages/WhatsAppManager'
+import BulkEmail from './pages/BulkEmail'
 import OpenWAEnginePanel from '../whatsapp/OpenWAEnginePanel'
 import WhatsAppOpenWADashboard from './pages/WhatsAppOpenWADashboard'
 import SyncSettingsView from './components/SyncSettingsView'
@@ -194,6 +195,8 @@ const MODULES_NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg> },
   { id: 'library', path: '/accounts/library', label: 'Library',
     icon: <BookOpen size={18} /> },
+  { id: 'bulk-email', path: '/accounts/bulk-email', label: 'Bulk Email',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,6 12,13 2,6"/></svg> },
   { id: 'whatsapp-accounts', path: '/accounts/whatsapp', label: 'WhatsApp Bulk',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> },
   { id: 'whatsapp-dashboard', path: '/accounts/whatsapp-dashboard', label: 'WhatsApp',
@@ -208,15 +211,6 @@ const API_NAV = [
   { id: 'business-finder', path: '/accounts/business-finder', label: 'Business Finder',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
     match: (p) => p.startsWith('/accounts/business-finder') },
-  { id: 'google-map-api', path: '/accounts/google-map-api', label: 'Google Map API',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
-    match: (p) => p.startsWith('/accounts/google-map-api') },
-  { id: 'google-places-search', path: '/accounts/google-places-search', label: 'Google Places Search',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
-    match: (p) => p.startsWith('/accounts/google-places-search') },
-  { id: 'osm-places-search', path: '/accounts/osm-places-search', label: 'OSM Places (Free)',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>,
-    match: (p) => p.startsWith('/accounts/osm-places-search') },
 ]
 
 const ALL_NAV = [
@@ -566,7 +560,7 @@ export default function AccountsPanel() {
             <Route path="tickets" element={<AccountsTickets />} />
             <Route path="to-super-admin" element={<SuperAdminTicketSection panel="accounts" />} />
             <Route path="chat" element={<ChatWorkspace />} />
-<Route path="loans" element={<Navigate to="/accounts/volunteers/loans" replace />} />
+            <Route path="loans" element={<Navigate to="/accounts/volunteers/loans" replace />} />
             <Route path="awards" element={<AwardsPage theme={themes[themeName]} />} />
             <Route path="audience-voting" element={<AudienceVoting />} />
             <Route path="certificates" element={<Certificates />} />
@@ -607,8 +601,9 @@ export default function AccountsPanel() {
             <Route path="google-places-search" element={<GooglePlacesSearch />} />
             <Route path="osm-places-search" element={<OsmPlacesSearch />} />
 
+            <Route path="bulk-email" element={<BulkEmail />} />
             <Route path="whatsapp" element={<WhatsAppManager />} />
-<Route path="whatsapp/bulk" element={<WhatsAppBulk />} />
+            <Route path="whatsapp/bulk" element={<WhatsAppBulk />} />
             <Route path="whatsapp-dashboard" element={<WhatsAppOpenWADashboard />} />
             <Route path="openwa-engine" element={<OpenWAEnginePanel />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
