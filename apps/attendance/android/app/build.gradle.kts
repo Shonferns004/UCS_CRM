@@ -5,7 +5,14 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    id("com.google.gms.google-services")
+}
+
+// The Google Services plugin activates automatically once the Firebase
+// google-services.json file is present (standard Flutter location: android/app/).
+// Without it the app still builds; Firebase init is skipped at runtime.
+val gmsCandidates = listOf(rootProject.file("google-services.json"), file("google-services.json"))
+if (gmsCandidates.any { it.exists() }) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 val keystorePropertiesFile = rootProject.file("key.properties")

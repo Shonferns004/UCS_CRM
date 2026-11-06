@@ -14,12 +14,12 @@ class BackendSwitcher {
     {
       'id': 'tunnel',
       'label': 'Tunnel (ngrok - works on any network)',
-      'url': 'https://audio-diagnoses-ream.ngrok-free.dev',
+      'url': 'https://win-13itdvn82hk.tail703dea.ts.net',
     },
     {
       'id': 'local',
       'label': 'Local (this machine - same WiFi only)',
-      'url': 'http://192.168.1.152:5000',
+      'url': 'http://192.168.1.100:5000',
     },
   ];
 
