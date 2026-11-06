@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || 'https://audio-diagnoses-ream.ngrok-free.dev/api'
+const BASE = import.meta.env.VITE_API_URL || 'https://win-13itdvn82hk.tail703dea.ts.net/api'
 
 async function request(path, options = {}) {
   const headers = { ...options.headers }

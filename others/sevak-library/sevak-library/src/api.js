@@ -19,7 +19,7 @@ const BASE = import.meta.env.DEV
   ? (ENV_BASE || '/api/sevak-library')
   : (/^https?:\/\//i.test(ENV_BASE)
       ? ENV_BASE.replace(/\/$/, '')
-      : 'https://audio-diagnoses-ream.ngrok-free.dev/api/sevak-library')
+      : 'https://win-13itdvn82hk.tail703dea.ts.net/api/sevak-library')
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, { ...options, headers: { ...(options.headers || {}), 'ngrok-skip-browser-warning': '1' } })

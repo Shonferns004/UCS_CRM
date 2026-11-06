@@ -448,8 +448,8 @@ const SERVICES = [
     links:[['Endpoint','http://localhost:9000/health'],['Sync status','http://localhost:9000/poll-status']] },
   { key:'openwa',   label:'OpenWA Backend', sub:'(WhatsApp API)', port:3001, cmd:'cd openwa; npm run start:dev', tag:'nest / whatsapp',
     links:[['Health','http://localhost:3001/api/health'],['API docs','http://localhost:3001/api/docs']] },
-  { key:'tunnel',   label:'Backend Tunnel', sub:'(ngrok)', port:'—', cmd:'ngrok http --domain=audio-diagnoses-ream.ngrok-free.dev 5000', tag:'tunnel',
-    links:[['Tunnel dashboard','http://127.0.0.1:4040'],['Public URL','https://audio-diagnoses-ream.ngrok-free.dev']] },
+  { key:'tunnel',   label:'Backend Tunnel', sub:'(tailscale)', port:'—', cmd:'tailscale serve status', tag:'tunnel',
+    links:[['Tailscale admin','https://login.tailscale.com/admin/machines'],['Public URL','https://win-13itdvn82hk.tail703dea.ts.net']] },
 ];
 
 const ICON_ON  = '<svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';

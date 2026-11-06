@@ -33,9 +33,11 @@ echo   [4/5] Frontend (5173)...
 start "UCS Frontend" /min cmd /c "cd client && npm run dev -- --host"
 timeout /t 8 /nobreak >nul
 
-echo   [5/5] Tunnels + opening dashboard...
-start "UCS Tunnel Backend" /min cmd /c "ngrok http --domain=audio-diagnoses-ream.ngrok-free.dev 5000"
-timeout /t 6 /nobreak >nul
+echo   [5/5] Opening dashboard...
+:: The public HTTPS host (https://win-13itdvn82hk.tail703dea.ts.net) is published
+:: by Tailscale itself (serve/funnel config persists across reboots), so there
+:: is no tunnel process to start here any more.
+timeout /t 2 /nobreak >nul
 start "" http://localhost:9999
 
 echo.

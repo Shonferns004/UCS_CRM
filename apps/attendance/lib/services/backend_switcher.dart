@@ -8,12 +8,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// production without rebuilding.
 class BackendSwitcher {
   /// Preset backends the app can talk to.
-  /// Only two: the permanent ngrok dev domain (works from any network) and
-  /// the local machine address (same WiFi only).
+  /// Only two: the permanent Tailscale HTTPS host (works from any network)
+  /// and the local machine address (same WiFi only).
   static const List<Map<String, String>> options = [
     {
       'id': 'tunnel',
-      'label': 'Tunnel (ngrok - works on any network)',
+      'label': 'Tunnel (Tailscale - works on any network)',
       'url': 'https://win-13itdvn82hk.tail703dea.ts.net',
     },
     {

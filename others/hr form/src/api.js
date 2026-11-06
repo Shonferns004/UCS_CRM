@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.DEV
   ? (ENV_BASE || '/api')
   : (/^https?:\/\//i.test(ENV_BASE)
       ? ENV_BASE.replace(/\/$/, '')
-      : 'https://audio-diagnoses-ream.ngrok-free.dev/api')
+      : 'https://win-13itdvn82hk.tail703dea.ts.net/api')
 
 const getToken = () => localStorage.getItem('ucs_token')
 

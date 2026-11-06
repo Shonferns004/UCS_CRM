@@ -1,4 +1,4 @@
-export const API_BASE = 'https://audio-diagnoses-ream.ngrok-free.dev/api'
+export const API_BASE = 'https://win-13itdvn82hk.tail703dea.ts.net/api'
 
 // Realtime socket URL (optional; defaults to API_BASE with /api stripped).
 // Can be overridden at build time via VITE_SOCKET_URL.
