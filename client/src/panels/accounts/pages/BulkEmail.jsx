@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { apiDelete, apiGet, apiGetBlob, apiPost, apiPut } from '../api/auth';
 import EmailBuilder from '../components/email-builder/EmailBuilder';
 import './bulkEmail.css';
@@ -66,7 +67,42 @@ export default function BulkEmail() {
   const [builderTemplateId, setBuilderTemplateId] = useState(null);
   const [htmlBody, setHtmlBody] = useState('');
 
+  const handleExcelUpload = async (file) => {
+    if (!file) return;
+    setError(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+      if (!rows.length) throw new Error('No data rows found in the Excel file.');
+      const emails = [];
+      for (const row of rows) {
+        let email = '';
+        for (const [key, value] of Object.entries(row || {})) {
+          const k = String(key || '').toLowerCase();
+          const v = String(value || '').trim();
+          if (!email && (k.includes('email') || /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(v))) {
+            email = v;
+          }
+        }
+        if (email) emails.push(email);
+      }
+      if (!emails.length) throw new Error('No email addresses found in the Excel file.');
+      const unique = [...new Set(emails.map((e) => e.toLowerCase()))];
+      setSource('manual');
+      setManualText((prev) => {
+        const existing = prev ? prev.trim() : '';
+        const next = unique.join('\n');
+        return existing ? `${existing}\n${next}` : next;
+      });
+    } catch (e) {
+      setError(e?.message || 'Could not read the Excel file.');
+    }
+  };
+
   const manualRecipients = useMemo(() => parseManualEmails(manualText), [manualText]);
+
   const htmlPreview = useMemo(() => {
     if (!htmlBody) return '';
     return htmlBody
@@ -121,7 +157,7 @@ export default function BulkEmail() {
     setError(null);
     const timer = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ source, limit: '1000' });
+        const params = new URLSearchParams({ source, limit: '500' });
         if (search.trim()) params.set('search', search.trim());
         const data = await apiGet(`/accounts/bulk-email/recipients?${params.toString()}`);
         if (cancelled) return;
@@ -158,8 +194,11 @@ export default function BulkEmail() {
 
   const pickMedia = (file) => {
     if (!file) return;
-    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-      setMediaError('Only image or video files are allowed.');
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    if (!isImage && !isVideo && !isPdf) {
+      setMediaError('Only image, video, or PDF files are allowed.');
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -453,6 +492,20 @@ export default function BulkEmail() {
                 onChange={(e) => setManualText(e.target.value)}
                 placeholder={'one@example.com\ntwo@example.com'}
               />
+              <div style={{ marginTop: 8 }}>
+                <label className="be-link-btn" style={{ cursor: 'pointer', display: 'inline-block' }}>
+                  Upload Excel
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    hidden
+                    onChange={(e) => { handleExcelUpload(e.target.files?.[0]); e.target.value = ''; }}
+                  />
+                </label>
+                <span className="be-hint" style={{ marginLeft: 8, display: 'inline' }}>
+                  Excel/CSV with an "Email" column.
+                </span>
+              </div>
             </label>
           )}
 
@@ -566,13 +619,13 @@ export default function BulkEmail() {
             <label className="be-upload">
               <input
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*,video/*,application/pdf,.pdf"
                 hidden
                 onChange={(e) => { pickMedia(e.target.files?.[0]); e.target.value = ''; }}
               />
               <span className="be-upload-plus">+</span>
               <span className="be-upload-text">
-                {mediaFile ? 'Replace image or video' : 'Add image or video'}
+                {mediaFile ? 'Replace image or video' : 'Add image,video or PDF'}
                 <small>Max 20 MB</small>
               </span>
             </label>
@@ -580,19 +633,21 @@ export default function BulkEmail() {
 
           {mediaError && <div className="be-alert">{mediaError}</div>}
 
-          {mediaPreview && (
-            <div className="be-media-preview">
-              {mediaFile?.type.startsWith('video/') ? (
-                <video src={mediaPreview} controls />
-              ) : (
-                <img src={mediaPreview} alt="Attachment preview" />
-              )}
-              <div className="be-media-meta">
-                <span>{mediaFile?.name}</span>
-                <button type="button" className="be-link-btn" onClick={removeMedia}>Remove</button>
-              </div>
-            </div>
-          )}
+           {mediaPreview && (
+             <div className="be-media-preview">
+               {mediaFile?.type.startsWith('video/') ? (
+                 <video src={mediaPreview} controls />
+               ) : mediaFile?.type === 'application/pdf' || /\.pdf$/i.test(mediaFile?.name || '') ? (
+                 <iframe src={mediaPreview} title="PDF preview" style={{ width: '100%', height: 240, border: '1px solid var(--line)' }} />
+               ) : (
+                 <img src={mediaPreview} alt="Attachment preview" />
+               )}
+               <div className="be-media-meta">
+                 <span>{mediaFile?.name}</span>
+                 <button type="button" className="be-link-btn" onClick={removeMedia}>Remove</button>
+               </div>
+             </div>
+           )}
 
           <div className="be-hint">
             Use <code>{'{{Name}}'}</code>, <code>{'{{Email}}'}</code> in the subject or body to personalize each email.

@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 import db from '../config/db.js';
 import { applyPersonalization } from './emailTemplateRenderer.js';
 import {
@@ -11,25 +12,37 @@ import { buildInlineImageAttachments } from './emailImageAssets.js';
 
 // Bulk-email campaigns use a Gmail SMTP account configured through the
 // environment. The app password is never stored in source.
-const GMAIL_USER = process.env.GMAIL_USER || 'library.sevak@gmail.com';
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
-const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+function gmailUser() {
+  return process.env.GMAIL_USER || 'library.sevak@gmail.com';
+}
+
+function gmailAppPassword() {
+  return process.env.GMAIL_APP_PASSWORD || '';
+}
+
+function smtpHost() {
+  return process.env.SMTP_HOST || 'smtp.gmail.com';
+}
+
+function smtpPort() {
+  return Number(process.env.SMTP_PORT || 465);
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let transport;
 
 function getTransport() {
-  if (!GMAIL_APP_PASSWORD) {
+  const password = gmailAppPassword();
+  if (!password) {
     throw new Error('Gmail app password is not configured - email not sent');
   }
   if (!transport) {
     transport = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+      host: smtpHost(),
+      port: smtpPort(),
+      secure: smtpPort() === 465,
+      auth: { user: gmailUser(), pass: password },
     });
   }
   return transport;
@@ -62,33 +75,21 @@ export function normalizeRecipients(list) {
 
 async function fetchSource(source, search, limit) {
   const q = cleanSearch(search);
-  if (source === 'donors') {
-    let query = db
-      .from('donor_profiles')
-      .select('id, name, email, mobile_number')
-      .not('email', 'is', null)
-      .neq('email', '')
-      .limit(limit);
-    if (q) query = query.or(`name.ilike.%${q}%,email.ilike.%${q}%,mobile_number.ilike.%${q}%`);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []).map((r) => ({ email: r.email, name: r.name }));
+  const table = source === 'donors' ? 'donor_profiles' : 'beneficiaries';
+  const nameCol = source === 'donors' ? 'name' : 'full_name';
+  const mobileCol = source === 'donors' ? 'mobile_number' : 'mobile';
+  const params = [];
+  let where = `email IS NOT NULL AND email <> '' AND email ~* '^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$'`;
+  if (q) {
+    params.push(`%${q}%`);
+    where += ` AND (${nameCol} ILIKE $${params.length} OR email ILIKE $${params.length} OR ${mobileCol} ILIKE $${params.length})`;
   }
-
-  if (source === 'beneficiaries') {
-    let query = db
-      .from('beneficiaries')
-      .select('id, full_name, email, mobile')
-      .not('email', 'is', null)
-      .neq('email', '')
-      .limit(limit);
-    if (q) query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,mobile.ilike.%${q}%`);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []).map((r) => ({ email: r.email, name: r.full_name }));
-  }
-
-  throw new Error('Unsupported recipient source');
+  params.push(limit);
+  const { rows } = await db._pool.query(
+    `SELECT ${nameCol} AS name, email FROM ${table} WHERE ${where} LIMIT $${params.length}`,
+    params,
+  );
+  return rows.map((r) => ({ email: r.email, name: r.name }));
 }
 
 export async function listBulkEmailRecipients({ source, search = '', limit = 1000 } = {}) {
@@ -141,13 +142,33 @@ export async function sendBulkEmail({ subject, text, html, recipients, attachmen
   const inline = html
     ? await buildInlineImageAttachments(html)
     : { html, attachments: [] };
-  const htmlTemplate = inline.html;
-  const attachments = [
-    ...(attachment
-      ? [{ filename: attachment.filename, content: attachment.content, contentType: attachment.contentType }]
-      : []),
-    ...(inline.attachments || []),
-  ];
+  let htmlTemplate = inline.html;
+  const inlineAttachments = [...(inline.attachments || [])];
+
+  // When an image is uploaded as the campaign attachment alongside an HTML
+  // template, embed it at the top of the email body instead of leaving it as a
+  // separate file attachment at the bottom.
+  const attachments = [];
+  if (attachment) {
+    if (htmlTemplate && String(attachment.contentType || '').startsWith('image/')) {
+      const cid = `campaignattachment.${crypto.randomBytes(6).toString('hex')}@ucs-crm`;
+      htmlTemplate = `<div style="text-align:center;margin:0 0 16px;"><img src="cid:${cid}" alt="${String(attachment.filename || 'attachment').replace(/"/g, '')}" style="max-width:100%;height:auto;border:0;" /></div>${htmlTemplate}`;
+      attachments.push({
+        filename: attachment.filename,
+        content: attachment.content,
+        contentType: attachment.contentType,
+        cid,
+        contentDisposition: 'inline',
+      });
+    } else {
+      attachments.push({
+        filename: attachment.filename,
+        content: attachment.content,
+        contentType: attachment.contentType,
+      });
+    }
+  }
+  attachments.push(...inlineAttachments);
   const results = [];
   const batchSize = 5;
 
@@ -161,7 +182,7 @@ export async function sendBulkEmail({ subject, text, html, recipients, attachmen
         : textToHtml(personalizedText);
 
       await transporter.sendMail({
-        from: `UCS CRM <${GMAIL_USER}>`,
+        from: `Being Sevak Charitable Trust <${gmailUser()}>`,
         to: recipient.email,
         subject: personalize(subject, recipient),
         text: appendUnsubscribeText(personalizedText, unsubscribeUrl),
