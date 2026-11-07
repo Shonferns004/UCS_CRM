@@ -11,6 +11,7 @@ const MEDIA_BUCKET = 'whatsapp-media';
 const MEDIA_KEY_PREFIX = 'whatsapp-media/';
 const HEADER_DIR = 'template-headers';
 const MEMO_TTL_MS = 50 * 60 * 1000;
+const MISS_MEMO_TTL_MS = 2 * 60 * 1000;
 
 const memo = new Map();
 
@@ -80,7 +81,8 @@ export async function resolveTemplateHeaderAsset({ project, templateName, header
   const key = templateHeaderStorageKey(project, templateName);
 
   const memoised = memo.get(key);
-  if (memoised && (Date.now() - memoised.at) < MEMO_TTL_MS && (memoised.asset || !headerUrl)) return memoised.asset;
+  const memoTtl = memoised?.asset ? MEMO_TTL_MS : MISS_MEMO_TTL_MS;
+  if (memoised && (Date.now() - memoised.at) < memoTtl && (memoised.asset || !headerUrl)) return memoised.asset;
 
   let asset = await storedAsset(key);
 

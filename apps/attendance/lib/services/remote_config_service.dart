@@ -88,9 +88,11 @@ class RemoteConfigService {
     if (_initialized) return;
     _initialized = true;
     await _loadFromPrefs();
-    // Refresh in the background — cached config (or bootstrap defaults) is
-    // already applied, so the first frame is not blocked by the network.
-    _fetch().timeout(_fetchTimeout).then((_) => null).catchError((_) => null);
+    // Refresh synchronously (bounded by timeout) so a stale cached base URL
+    // (e.g. an old ngrok tunnel) cannot outlive a backend switch.
+    try {
+      await _fetch().timeout(_fetchTimeout);
+    } catch (_) {}
   }
 
   Future<void> _loadFromPrefs() async {

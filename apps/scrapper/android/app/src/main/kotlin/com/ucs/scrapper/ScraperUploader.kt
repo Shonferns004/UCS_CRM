@@ -34,6 +34,7 @@ object ScraperUploader {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("X-Scraper-Key", apiKey)
+            conn.setRequestProperty("ngrok-skip-browser-warning", "true")
             conn.connectTimeout = 15000
             conn.readTimeout = 60000
             conn.doOutput = true
@@ -59,6 +60,7 @@ object ScraperUploader {
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("X-Scraper-Key", apiKey)
+            conn.setRequestProperty("ngrok-skip-browser-warning", "true")
             conn.connectTimeout = 10000
             conn.readTimeout = 20000
             val code = conn.responseCode
@@ -84,6 +86,7 @@ object ScraperUploader {
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("X-Scraper-Key", apiKey)
+            conn.setRequestProperty("ngrok-skip-browser-warning", "true")
             conn.connectTimeout = 10000
             conn.readTimeout = 20000
             val code = conn.responseCode

@@ -3,6 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useBnfBase } from '../bnfUi'
 import { apiGet, apiPatch, apiPost, apiPut, apiDelete } from '../store'
 import { StateSelect, DistrictSelect } from '../../../components/LocationSelect'
+import { API_BASE } from '../../../lib/apiBase'
+
+const resolveMediaUrl = (value) => {
+  const v = (value || '').trim()
+  if (!v) return v
+  if (/^https?:\/\//i.test(v)) return v
+  const base = API_BASE.replace(/\/api\/?$/, '')
+  return base + (v.startsWith('/') ? v : '/' + v)
+}
 import { stateForDistrict, districtsOfState as districtsOf } from '../../../utils/indiaLocations'
 
 const styles = {
@@ -428,7 +437,7 @@ export default function BeneficiaryProfile() {
             <Field label="Gender">{data.gender}</Field>
             <Field label="Beneficiary Type">{data.beneficiary_type}</Field>
             {/* <Field label="Email">{data.email}</Field> */}
-            <Field label="Photo">{data.photo ? <img src={data.photo} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover' }} /> : '-'}</Field>
+            <Field label="Photo">{data.photo ? <img src={resolveMediaUrl(data.photo)} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover' }} /> : '-'}</Field>
           </div>
         )
       case 'Family':
@@ -788,7 +797,7 @@ export default function BeneficiaryProfile() {
           }}
         >
           {data.documents.map((d, i) => {
-            const url = d.file_url
+            const url = resolveMediaUrl(d.file_url)
             const fileName = d.file_name || 'Document'
 
             const isImage =

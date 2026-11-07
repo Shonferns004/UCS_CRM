@@ -8,6 +8,8 @@ import {
   getLeadsDashboard,
   ownsLead,
 } from '../models/leadModel.js';
+import { sendPushNotification } from '../services/fcmService.js';
+import db from '../config/db.js';
 
 // ── Who is allowed to see which lead ─────────────────────────────────────────
 // A recruiter only ever sees their own work. Ownership itself lives in the model
@@ -177,6 +179,67 @@ export const dashboard = async (req, res) => {
     // recruiter's totals can never include a colleague's leads.
     const stats = await getLeadsDashboard(recruiterOwner(req));
     return res.json(stats);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const assignLeadToFro = async (req, res) => {
+  try {
+    const existing = await getLeadById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Lead not found' });
+    const froId = req.body?.fro_id || req.body?.recruiter_id;
+    if (!froId) return res.status(400).json({ message: 'fro_id is required' });
+
+    // Turn the assigned reply-lead into a real donor + FRO assignment so it lands
+    // in the FRO's My Leads queue and opens the donor detail panel on click.
+    let donorId = null;
+    let ngoId = null;
+    try {
+      const acct = String((existing.notes || '').match(/\[Account:\s*([^\]]+)\]/)?.[1] || '').toLowerCase();
+      const ngoName = acct.startsWith('bsct') ? 'BSCT' : acct.startsWith('aflf') ? 'AFLF' : acct.startsWith('mann') ? 'MANN' : null;
+      if (ngoName) {
+        const { rows: ngoRows } = await db._pool.query('SELECT id FROM ngos WHERE upper(name) = $1 LIMIT 1', [ngoName]);
+        ngoId = ngoRows[0]?.id || null;
+      }
+      const mobile = String(existing.phone || '').replace(/[^0-9]/g, '');
+      const mobile10 = mobile.length >= 10 ? mobile.slice(-10) : mobile;
+
+      const { rows: donorRows } = await db._pool.query('SELECT id FROM donor_profiles WHERE mobile_number = $1 LIMIT 1', [mobile10]);
+      if (donorRows[0]) {
+        donorId = donorRows[0].id;
+      } else {
+        const { rows: newDonor } = await db._pool.query(
+          `INSERT INTO donor_profiles (name, mobile_number, ngo, station) VALUES ($1, $2, $3, $4) RETURNING id`,
+          [existing.name || 'WhatsApp Reply', mobile10, ngoName, 'WhatsApp Replies'],
+        );
+        donorId = newDonor[0].id;
+      }
+
+      if (donorId && ngoId) {
+        const { rows: dup } = await db._pool.query(
+          'SELECT id FROM fro_assignments WHERE donor_id = $1 AND fro_worker_id = $2 AND ngo_id = $3 LIMIT 1',
+          [donorId, froId, ngoId],
+        );
+        if (!dup[0]) {
+          await db._pool.query(
+            `INSERT INTO fro_assignments (donor_id, fro_worker_id, ngo_id, status, is_new, station, notes)
+             VALUES ($1, $2, $3, 'pending', true, 'WhatsApp Replies', $4)`,
+            [donorId, froId, ngoId, existing.notes || null],
+          );
+        }
+      }
+    } catch (e) {
+      console.error('Reply-lead donor assignment creation failed:', e?.message || e);
+    }
+
+    const lead = await updateLead(req.params.id, { recruiter_id: froId, status: 'assigned' });
+    try {
+      await sendPushNotification(froId, 'New WhatsApp Lead Assigned', `${existing.name || ''} ${existing.phone || ''}`.trim(), 'whatsapp_lead', existing.id);
+    } catch (e) {
+      console.error('FRO notification failed:', e?.message || e);
+    }
+    return res.json({ message: 'Assigned successfully', lead, donor_id: donorId });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

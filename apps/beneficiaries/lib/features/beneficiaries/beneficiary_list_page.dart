@@ -545,9 +545,9 @@ class _BeneficiaryListPageState extends State<BeneficiaryListPage> {
 
     final ImageProvider? avatar = isInlinePhoto(photo)
         ? MemoryImage(dataUrlBytes(photo!))
-        : isRemotePhoto(photo)
-        ? NetworkImage(photo!)
-        : null;
+        : (photo != null && photo.trim().isNotEmpty)
+            ? NetworkImage(resolveMediaUrl(photo))
+            : null;
 
     return Container(
       decoration: BoxDecoration(

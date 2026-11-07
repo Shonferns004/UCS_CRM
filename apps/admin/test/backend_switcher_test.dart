@@ -12,8 +12,8 @@ void main() {
 
     test('keeps a URL without a trailing slash unchanged', () {
       expect(
-        BackendSwitcher.normalize('http://192.168.1.152:5000'),
-        'http://192.168.1.152:5000',
+        BackendSwitcher.normalize('http://192.168.1.100:5000'),
+        'http://192.168.1.100:5000',
       );
     });
   });
@@ -21,7 +21,7 @@ void main() {
   group('BackendSwitcher.isHttpUrl', () {
     test('accepts http and https URLs', () {
       expect(BackendSwitcher.isHttpUrl('https://example.com'), isTrue);
-      expect(BackendSwitcher.isHttpUrl('http://192.168.1.152:5000'), isTrue);
+      expect(BackendSwitcher.isHttpUrl('http://192.168.1.100:5000'), isTrue);
     });
 
     test('rejects empty, scheme-less and non-http values', () {

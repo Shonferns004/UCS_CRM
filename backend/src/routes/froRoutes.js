@@ -38,6 +38,7 @@ import {
   getDonorReceipts,
   searchDonors,
   getMyDisposedLeads,
+  getWhatsAppLeads,
   updateLiveStatus,
   getLiveStatuses,
   getPresentToday,
@@ -130,6 +131,7 @@ router.get('/queue/current', (req, res, next) => {
   return getMyDonors(req, res).catch(next);
 });
 router.get('/transferred-leads', getTransferredLeads);
+router.get('/whatsapp-leads', getWhatsAppLeads);
 router.put('/donors/:id/status', updateDonorStatus);
 router.put('/donors/:id/donor-type', updateDonorType);
 router.put('/donors/:id/mark-seen', async (req, res) => {

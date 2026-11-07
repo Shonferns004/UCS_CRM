@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
 import '../theme/app_colors.dart';
+import '../config/api_config.dart';
 
 /// Downscales a camera frame to a small JPEG data URL. Kept small on purpose:
 /// the result is stored inline in the beneficiary's `photo` column and is sent
@@ -53,6 +54,18 @@ bool isInlinePhoto(String? photo) =>
 /// True when a `photo` value is a remote URL.
 bool isRemotePhoto(String? photo) =>
     photo != null && (photo.startsWith('http://') || photo.startsWith('https://'));
+
+/// Resolve a possibly relative media URL against the configured backend base.
+/// Local mode stores relative `/api/media/...` paths; turn them into absolute
+/// URLs so Flutter's NetworkImage/Image.network can fetch them.
+String resolveMediaUrl(String? value) {
+  final v = (value ?? '').trim();
+  if (v.isEmpty) return '';
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
+  final base = Config.apiBaseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+  if (v.startsWith('/')) return '$base$v';
+  return '$base/$v';
+}
 
 /// Small avatar tile used before a photo is attached, and as the fallback when
 /// an inline image fails to decode.

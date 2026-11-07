@@ -149,6 +149,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     'Hawkors',
     'Local Small Stall',
     'Service /Job',
+    'Retired',
   ];
 
   static const Set<String> _occupationNeedsDetail = {

@@ -2,6 +2,7 @@ import dns from 'node:dns';
 import config from '../config/whatsappConfig.js';
 import { postWhatsAppMessage } from '../lib/whatsappGraphSend.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
+import { isLocalStorage, urlToMediaKey, readObject, contentTypeForKey } from './localMedia.js';
 
 // Windows machines with broken/partial IPv6 routes intermittently fail Node's
 // fetch() with a bare "fetch failed" when talking to graph.facebook.com.
@@ -146,18 +147,59 @@ export async function uploadDocumentBufferToMeta(account, buffer, fileName = 're
   return uploadBufferToMeta(account, buffer, 'application/pdf', fileName);
 }
 
-async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
+function mediaFallbackType(mediaType) {
+  return mediaType === 'video' ? 'video/mp4'
+    : mediaType === 'document' ? 'application/pdf'
+      : 'image/jpeg';
+}
+
+function mediaFileName(mediaType) {
+  return mediaType === 'video' ? 'video.mp4'
+    : mediaType === 'document' ? 'document.pdf'
+      : 'image.jpg';
+}
+
+function sniffContentType(buffer) {
+  if (!buffer || buffer.length < 4) return null;
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8) return 'image/jpeg';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'image/png';
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) return 'image/gif';
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) return 'image/webp';
+  if (buffer.slice(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
+  return null;
+}
+
+export async function loadMediaBytesForUpload(mediaUrl, mediaType = 'image') {
+  const fallbackType = mediaFallbackType(mediaType);
+  const fileName = mediaFileName(mediaType);
+
+  if (isLocalStorage()) {
+    const key = urlToMediaKey(mediaUrl);
+    if (key) {
+      try {
+        const buffer = await readObject(key);
+        if (buffer && buffer.length) {
+          const known = contentTypeForKey(key);
+          const contentType = (known && known !== 'application/octet-stream')
+            ? known
+            : (sniffContentType(buffer) || fallbackType);
+          return { buffer, contentType, fileName, fromStorage: true };
+        }
+      } catch { /* fall through to HTTP */ }
+    }
+  }
+
   const mediaRes = await fetch(mediaUrl);
   if (!mediaRes.ok) throw new Error(`Media fetch failed (HTTP ${mediaRes.status}) — the header link may have expired`);
   const buffer = Buffer.from(await mediaRes.arrayBuffer());
-  const fallbackType = mediaType === 'video' ? 'video/mp4'
-    : mediaType === 'document' ? 'application/pdf'
-      : 'image/jpeg';
-  const contentType = mediaRes.headers.get('content-type') || fallbackType;
-  const fileName = mediaType === 'video' ? 'video.mp4'
-    : mediaType === 'document' ? 'document.pdf'
-      : 'image.jpg';
-  return uploadBufferToMeta(account, buffer, contentType, fileName);
+  const contentType = mediaRes.headers.get('content-type') || sniffContentType(buffer) || fallbackType;
+  return { buffer, contentType, fileName, fromStorage: false };
+}
+
+async function uploadMediaToMeta(account, mediaUrl, mediaType = 'image') {
+  const loaded = await loadMediaBytesForUpload(mediaUrl, mediaType);
+  return uploadBufferToMeta(account, loaded.buffer, loaded.contentType, loaded.fileName);
 }
 
 export async function sendTemplateMessage(to, templateName, parameters, lang = 'en', account, headerImageUrl = null, headerFormat = 'IMAGE', parameterNames = null) {

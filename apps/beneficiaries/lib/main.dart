@@ -5,12 +5,14 @@ import 'core/theme/app_theme.dart';
 import 'core/widgets/app_skeleton.dart';
 import 'core/widgets/jod_splash_screen.dart';
 import 'services/api_service.dart';
+import 'services/backend_switcher.dart';
 import 'features/auth/login_page.dart';
 import 'features/home/home_page.dart';
 import 'features/beneficiaries/aadhaar_ocr_page.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackendSwitcher.load();
   if (!kReleaseMode) {
     _installSemanticsAssertFilter();
   }

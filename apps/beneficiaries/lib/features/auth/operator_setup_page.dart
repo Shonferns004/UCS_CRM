@@ -1,4 +1,4 @@
-﻿import '../../core/lucide_icons.dart';
+import '../../core/lucide_icons.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
@@ -9,6 +9,7 @@ import '../../core/widgets/searchable_dropdown.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
+import '../../core/utils/photo_utils.dart';
 import 'package:image_picker/image_picker.dart';
 
 class OperatorSetupPage extends StatefulWidget {
@@ -437,7 +438,7 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(16),
                                 child: Image.network(
-                                  _selfieUrl!,
+                                  resolveMediaUrl(_selfieUrl),
                                   width: 56,
                                   height: 56,
                                   fit: BoxFit.cover,

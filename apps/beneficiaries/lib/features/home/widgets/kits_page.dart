@@ -8,6 +8,7 @@ import '../../../core/widgets/app_skeleton.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../services/api_service.dart';
+import '../../../core/utils/photo_utils.dart';
 import '../../beneficiaries/beneficiary_detail_page.dart';
 
 // import '../../beneficiaries/beneficiary_list_page.dart';
@@ -427,7 +428,7 @@ class KitsPageState extends State<KitsPage> {
   Widget _avatar(dynamic photo, String name) {
     final url = photo?.toString() ?? '';
     ImageProvider? provider;
-    if (url.startsWith('http')) provider = NetworkImage(url);
+    if (url.trim().isNotEmpty) provider = NetworkImage(resolveMediaUrl(url));
     return CircleAvatar(
       radius: 22,
       backgroundColor: AppColors.primaryBlueSoft,

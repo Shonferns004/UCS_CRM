@@ -164,11 +164,11 @@ class _PhotoVerificationPageState extends State<PhotoVerificationPage> {
 
   Widget _beneficiaryCard() {
     final photo = _profilePhoto;
-    final ImageProvider? image = isInlinePhoto(photo)
-        ? MemoryImage(dataUrlBytes(photo!))
-        : isRemotePhoto(photo)
-            ? NetworkImage(photo!)
-            : null;
+  final ImageProvider? image = isInlinePhoto(photo)
+      ? MemoryImage(dataUrlBytes(photo!))
+      : (photo != null && photo.trim().isNotEmpty)
+          ? NetworkImage(resolveMediaUrl(photo))
+          : null;
 
     return Container(
       padding: const EdgeInsets.all(16),

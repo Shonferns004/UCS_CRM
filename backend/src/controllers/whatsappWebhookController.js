@@ -4,6 +4,7 @@ import { handleInboundForAi } from '../services/aiReplyService.js';
 import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 import { normalizeDonorPhone, phoneVariantsFor } from '../services/whatsappScope.js';
+import { createLead } from '../models/leadModel.js';
 
 // Read at request time, not module load: this module is imported before
 // dotenv.config() runs in index.js, so a module-level read would capture
@@ -265,6 +266,40 @@ export async function whatsappWebhookEntry(req, res) {
             unread_count: (activeConversation.unread_count || 0) + 1,
           })
           .eq('id', activeConversation.id);
+
+        // If this inbound reply is from a number we sent a bulk template to, turn
+        // it into a lead so the admin panel can follow up. Best-effort: never
+        // break the webhook flow on a lead-insert failure.
+        try {
+          const { data: bulkRecipient } = await db
+            .from('whatsapp_bulk_recipients')
+            .select('recipient_name, template_name, account_id')
+            .eq('phone', fromPhone)
+            .limit(1)
+            .maybeSingle();
+          if (bulkRecipient) {
+            const { data: existingLead } = await db
+              .from('leads')
+              .select('id')
+              .eq('phone', fromPhone)
+              .eq('source', 'WhatsApp Bulk Reply')
+              .limit(1)
+              .maybeSingle();
+            if (!existingLead) {
+              await createLead({
+                name: bulkRecipient.recipient_name || contact?.wa_profile_name || fromPhone,
+                phone: fromPhone,
+                source: 'WhatsApp Bulk Reply',
+                status: 'new',
+                notes: `${bodyText || ''}\n[Template: ${bulkRecipient.template_name || '-'}]\n[Account: ${accountProject !== 'unknown' ? accountProject : (bulkRecipient.account_id || '-')}]`,
+                created_by: null,
+                created_by_name: 'WhatsApp Bulk Reply',
+              });
+            }
+          }
+        } catch (leadErr) {
+          console.error('Bulk reply lead creation failed:', leadErr?.message || leadErr);
+        }
 
         const routingProject = accountProject !== 'unknown' ? accountProject : (contact.project || 'bsct');
         if (!activeConversation.assigned_agent_id) {

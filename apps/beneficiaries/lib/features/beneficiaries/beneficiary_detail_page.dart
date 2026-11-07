@@ -602,11 +602,11 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     final photo = _b['photo']?.toString();
     // Same two shapes as the list: an inline data URL captured in the app, or
     // a remote URL from an imported record. Anything else keeps the monogram.
-    final ImageProvider? image = isInlinePhoto(photo)
-        ? MemoryImage(dataUrlBytes(photo!))
-        : isRemotePhoto(photo)
-            ? NetworkImage(photo!)
-            : null;
+  final ImageProvider? image = isInlinePhoto(photo)
+      ? MemoryImage(dataUrlBytes(photo!))
+      : (photo != null && photo.trim().isNotEmpty)
+          ? NetworkImage(resolveMediaUrl(photo))
+          : null;
 
     return SizedBox(
       width: 64,

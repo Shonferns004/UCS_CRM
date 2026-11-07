@@ -17,9 +17,9 @@ object ScraperConfig {
     private lateinit var prefs: SharedPreferences
 
     // Native fallback used only when Flutter passes a blank backendUrl.
-    // Production (api.beingsevak.org) is NOT used by the scrapper — the
-    // Tailscale HTTPS host is the main backend. Keep in sync with
-    // kBackendOptions in lib/api_config.dart.
+    // Production (api.beingsevak.org) is NOT used by the scrapper — the ngrok
+    // tunnel is the main backend. Keep in sync with kBackendOptions in
+    // lib/api_config.dart.
     const val DEFAULT_BACKEND_URL = "https://win-13itdvn82hk.tail703dea.ts.net"
     const val DEFAULT_API_KEY = "f045bdfa3a2583ba2386190e49fbb908b77c398887f04d95"
 

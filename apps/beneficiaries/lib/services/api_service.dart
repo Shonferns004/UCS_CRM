@@ -4,13 +4,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/config/api_config.dart';
 
 class ApiService {
-  static String baseUrl = Config.apiBaseUrl;
+  static String get baseUrl => Config.apiBaseUrl;
 
   static Future<Map<String, String>> _headers() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('volunteer_token');
     return {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }

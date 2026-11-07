@@ -7619,6 +7619,42 @@ export const searchDonors = async (req, res) => {
   }
 };
 
+export const getWhatsAppLeads = async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('leads')
+      .select('*')
+      .eq('recruiter_id', req.user.id)
+      .eq('source', 'WhatsApp Bulk Reply')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const leads = data || [];
+    const result = [];
+    for (const l of leads) {
+      const mobile = String(l.phone || '').replace(/[^0-9]/g, '');
+      const mobile10 = mobile.length >= 10 ? mobile.slice(-10) : mobile;
+      let donorId = null;
+      let ngoId = null;
+      let station = 'WhatsApp Replies';
+      try {
+        const { rows: d } = await db._pool.query('SELECT id FROM donor_profiles WHERE mobile_number = $1 LIMIT 1', [mobile10]);
+        if (d[0]) {
+          donorId = d[0].id;
+          const { rows: a } = await db._pool.query(
+            'SELECT ngo_id, station FROM fro_assignments WHERE donor_id = $1 AND fro_worker_id = $2 LIMIT 1',
+            [donorId, req.user.id],
+          );
+          if (a[0]) { ngoId = a[0].ngo_id; station = a[0].station || station; }
+        }
+      } catch (e) { /* ignore */ }
+      result.push({ ...l, donor_id: donorId, ngo_id: ngoId, station });
+    }
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getMyDisposedLeads = async (req, res) => {
   try {
     const workerId = req.user.id;

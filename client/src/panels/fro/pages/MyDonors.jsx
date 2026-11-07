@@ -25,6 +25,11 @@ function callFmt(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+function formatWaPhone(p) {
+  const s = String(p || '')
+  return s.length === 12 && s.startsWith('91') ? `+${s}` : s
+}
+
 const PROJECTS = [
   'Mission Annapurna', 'Mission Vidhya', 'Mission Aurat', 'Mission Bezubaan',
   'Mission Atmanirbhar', 'Mission Arogya', 'Sevak Seva Kendra', 'Mission Eco-Warriors',
@@ -420,6 +425,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // one click and always counted — nothing is silently missing.
   const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
+  const [waLeads, setWaLeads] = useState([]);
+  const [showWaLeads, setShowWaLeads] = useState(false);
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   // Leads-tab fallback: when (and only when) the whole pending queue is empty,
@@ -1973,19 +1980,24 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'history' ? 'var(--sage)' : 'transparent', color: listView === 'history' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'history' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                 History
                 {historyScoped.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'history' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'history' ? '#fff' : 'var(--ink-soft)' }}>{historyScoped.length}</span> : null}
-              </button>
-            </div>
+               </button>
+             </div>
             {/* Bucket tabs stay available in EVERY view. The active bucket now
                 also scopes Follow Ups / Overdue / History, so the High Tier tab
                 must not vanish the moment the FRO leaves Leads. */}
             <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
-                <button onClick={() => switchTab('new')}
-                  style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'new' ? 'var(--sage)' : 'transparent', color: dataTab === 'new' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'new' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
+                <button onClick={() => { setShowWaLeads(false); switchTab('new'); }}
+                  style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'new' && !showWaLeads ? 'var(--sage)' : 'transparent', color: dataTab === 'new' && !showWaLeads ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'new' && !showWaLeads ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                   New
                 </button>
-                <button onClick={() => switchTab('old')}
-                  style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'old' ? 'var(--sage)' : 'transparent', color: dataTab === 'old' ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'old' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
+                <button onClick={() => { setShowWaLeads(false); switchTab('old'); }}
+                  style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: dataTab === 'old' && !showWaLeads ? 'var(--sage)' : 'transparent', color: dataTab === 'old' && !showWaLeads ? '#fff' : 'var(--ink-soft)', boxShadow: dataTab === 'old' && !showWaLeads ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                   Old
+                </button>
+                <button onClick={() => { setShowWaLeads(true); api('/fro/whatsapp-leads', { _prefix: 'ucs' }).then((d) => setWaLeads(Array.isArray(d) ? d : (d?.data || []))).catch(() => {}); }}
+                  style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: showWaLeads ? 'var(--sage)' : 'transparent', color: showWaLeads ? '#fff' : 'var(--ink-soft)', boxShadow: showWaLeads ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
+                  SS Leads
+                  {waLeads.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: showWaLeads ? 'rgba(255,255,255,.22)' : 'var(--line)', color: showWaLeads ? '#fff' : 'var(--ink-soft)' }}>{waLeads.length}</span> : null}
                 </button>
                 {/* High Tier tab removed — high-tier data now accessed via station selection (temp access / stacks). */}
               </div>
@@ -2019,7 +2031,68 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             )}
           </div>
 
-          {/* The admin hid the old stations' donors. Say so, otherwise an FRO
+           {showWaLeads && (
+             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+               {waLeads.length === 0 ? (
+                 <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
+                   <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
+                   <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No SS leads yet</div>
+                   <div style={{ fontSize: 12 }}>Assign reply leads from the admin panel and they will appear here.</div>
+                 </div>
+               ) : waLeads.map((l) => {
+                 const raw = String(l.notes || '');
+                 const msg = raw.split('\n').filter((x) => !x.startsWith('[Template:') && !x.startsWith('[Account:')).join('\n').trim();
+                 const acct = (raw.match(/\[Account:\s*([^\]]+)\]/) || [])[1] || '';
+                 const acctName = String(acct || '').toLowerCase().startsWith('bsct') ? 'BSCT' : String(acct || '').toLowerCase().startsWith('aflf') ? 'AFLF' : String(acct || '').toLowerCase().startsWith('mann') ? 'MANN' : (acct || '');
+                 const phone = String(l.phone || '').replace(/[^0-9]/g, '');
+                  return (
+                    <div key={l.id} onClick={() => {
+                      setActiveDonor({
+                        id: l.donor_id,
+                        ngo_id: l.ngo_id,
+                        donor_name: l.name || '—',
+                        donor_mobile: l.phone,
+                        station: l.station || 'WhatsApp Replies',
+                        status: 'pending',
+                        is_new: true,
+                        ngo_name: acctName,
+                        donor_city: '',
+                        donor_type: '',
+                        donor_email: '',
+                        donor_address: '',
+                        donor_pan: '',
+                        donor_dob: '',
+                      });
+                      setSelected(null); setNotes(''); setLeadAmount('');
+                    }} style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card-bg)', cursor: 'pointer' }}>
+                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                         <div style={{ width: 38, height: 38, borderRadius: 999, display: 'grid', placeItems: 'center', background: 'var(--sage)', color: '#fff', fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
+                           {String(l.name || '?').charAt(0).toUpperCase()}
+                         </div>
+                         <div style={{ minWidth: 0 }}>
+                           <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }}>{l.name || '—'}</div>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft)' }}>
+                             <a href={`tel:${phone}`} style={{ color: 'var(--ink-soft)', textDecoration: 'none' }}>{formatWaPhone(l.phone)}</a>
+                             {acctName && (
+                               <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, background: 'var(--line)', color: 'var(--ink-soft)' }}>{acctName}</span>
+                             )}
+                           </div>
+                         </div>
+                       </div>
+                       <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: l.status === 'assigned' ? '#16a34a' : '#b45309', background: l.status === 'assigned' ? '#16a34a1a' : '#b453091a' }}>
+                         {l.status === 'assigned' ? 'Assigned' : 'New'}
+                       </span>
+                     </div>
+                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg)', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid var(--line)' }}>
+                        {msg || '—'}
+                      </div>
+                    </div>
+                 );
+               })}
+             </div>
+           )}
+           {/* The admin hid the old stations' donors. Say so, otherwise an FRO
               whose queue just emptied has no idea whether the app lost their
               leads or someone removed them on purpose. */}
           {oldDonorsHidden && (

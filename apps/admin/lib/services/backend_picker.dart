@@ -79,7 +79,10 @@ class _BackendPickerState extends State<BackendPicker> {
               ...BackendSwitcher.options.map(
                 (o) => ListTile(
                   title: Text(o['label']!),
-                  subtitle: Text(o['url']!, style: const TextStyle(fontSize: 12)),
+                  subtitle: Text(
+                    o['url']!,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                   trailing: current == o['id']
                       ? const Icon(Icons.check_circle, size: 20)
                       : null,
@@ -112,7 +115,7 @@ class _BackendPickerState extends State<BackendPicker> {
             controller: ctrl,
             autofocus: true,
             decoration: const InputDecoration(
-              hintText: 'http://192.168.1.152:5000',
+              hintText: 'http://192.168.1.100:5000',
             ),
           ),
           actions: [
@@ -138,7 +141,9 @@ class _BackendPickerState extends State<BackendPicker> {
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Enter a valid http(s) URL, e.g. http://192.168.1.152:5000'),
+          content: Text(
+            'Enter a valid http(s) URL, e.g. http://192.168.1.100:5000',
+          ),
           duration: Duration(seconds: 3),
         ),
       );

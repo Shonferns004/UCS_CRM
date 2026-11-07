@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { addLead, listLeads, getLead, editLead, removeLead, transferLeadOwner, dashboard } from '../controllers/leadController.js';
+import { addLead, listLeads, getLead, editLead, removeLead, transferLeadOwner, dashboard, assignLeadToFro } from '../controllers/leadController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -14,6 +14,7 @@ router.get('/', leadReadWrite, listLeads);
 router.get('/:id', leadReadWrite, getLead);
 router.put('/:id', leadReadWrite, editLead);
 router.put('/:id/transfer', hrOrAbove, transferLeadOwner);
+router.put('/:id/assign-fro', hrOrAbove, assignLeadToFro);
 router.delete('/:id', authenticateRole('super_admin', 'admin', 'recruiter'), removeLead);
 
 export default router;

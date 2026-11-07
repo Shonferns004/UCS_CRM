@@ -19,7 +19,7 @@ class BackendSwitcher {
     {
       'id': 'local',
       'label': 'Local (this machine - same WiFi only)',
-      'url': 'http://192.168.1.152:5000',
+      'url': 'http://192.168.1.100:5000',
     },
   ];
 

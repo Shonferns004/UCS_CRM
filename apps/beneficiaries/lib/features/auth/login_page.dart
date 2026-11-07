@@ -3,6 +3,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
+import '../../services/backend_picker.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback onLogin;
@@ -124,7 +125,9 @@ class _LoginPageState extends State<LoginPage> {
                   obscureText: _obscurePassword,
                   onSubmitted: (_) => _login(),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 12),
+                const BackendPicker(),
+                const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: _loading ? null : _login,
                   child: _loading

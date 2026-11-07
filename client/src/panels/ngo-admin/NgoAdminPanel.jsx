@@ -18,6 +18,7 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const StationManagement = lazy(() => import('./pages/StationManagement'))
+const WhatsAppReplyLeads = lazy(() => import('./pages/WhatsAppReplyLeads'))
 const NgoAttendance = lazy(() => import('./pages/Attendance'))
 const SearchResults = lazy(() => import('./pages/SearchResults'))
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
@@ -25,6 +26,7 @@ const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
+  { id: 'wa-reply-leads', path: '/ngo-admin/wa-reply-leads', label: 'WA Reply Leads', icon: 'leads' },
   // { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
   { id: 'chat', path: '/ngo-admin/chat', label: 'UCS Chat', icon: 'chat' },
@@ -524,6 +526,7 @@ return (
             <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="station-mgmt" element={<StationManagement />} />
+<Route path="wa-reply-leads" element={<WhatsAppReplyLeads />} />
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="search" element={<SearchResults />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="ngo_admin" />} />

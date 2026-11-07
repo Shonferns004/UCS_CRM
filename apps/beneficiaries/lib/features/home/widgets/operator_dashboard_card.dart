@@ -1,4 +1,4 @@
-﻿import '../../../core/lucide_icons.dart';
+import '../../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../../../core/widgets/searchable_dropdown.dart';
 import '../../../services/api_service.dart';
+import '../../../core/utils/photo_utils.dart';
 
 class OperatorDashboardCard extends StatefulWidget {
   const OperatorDashboardCard({super.key});
@@ -384,7 +385,7 @@ TextFormField(
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: Image.network(
-                      _selfieUrl!,
+                      resolveMediaUrl(_selfieUrl),
                       width: 56,
                       height: 56,
                       fit: BoxFit.cover,
