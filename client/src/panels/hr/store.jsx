@@ -30,7 +30,7 @@ export function useHR() {
     fetchPayments, createPayment, updatePaymentStatus,
     fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport, fetchNgoSalaryReportFallback,
     fetchSalaryHold, setSalaryHold, releaseSalaryHold,
-    fetchWorkerAbsenceGrace,
+    fetchWorkerAbsenceGrace, fetchLateRollback,
     fetchVotingDepartments, fetchVotingDepartment, saveVotingDepartment, saveVotingMembers, searchVotingWorkers,
     fetchVotingSessions, createVotingSession, fetchVotingBoard, startVotingSession, closeVotingTurn, completeVotingSession,
   }
@@ -197,6 +197,9 @@ export const releaseSalaryHold = (workerId, month) => apiDelete('/salary/hold/' 
 // Unauthorized-absence grace state for a worker's month — the HR salary
 // mirror charges the grace (Option A) exactly like the payroll engine.
 export const fetchWorkerAbsenceGrace = (workerId, month) => apiGet('/absence-proofs/worker/' + workerId + '?month=' + month);
+// Admin grace rollback for one worker+month. The HR salary mirror subtracts
+// waivedMinutes from the late pool exactly like the payroll engine does.
+export const fetchLateRollback = (workerId, month) => apiGet('/salary/late-rollback/' + workerId + '?month=' + month);
 export const fetchLoans = () => apiGet('/loans');
 export const createLoanApi = (data) => apiPost('/loans/create', data);
 export const fetchPendingLoans = () => apiGet('/loans/pending');
