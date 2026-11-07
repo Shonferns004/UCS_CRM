@@ -120,8 +120,19 @@ class FroApi {
     return [];
   }
 
-  static Future<Map<String, dynamic>> myDashboard() =>
-      ApiService.get('/fro/dashboard', timeout: const Duration(seconds: 20)).then(_map);
+  static Future<Map<String, dynamic>> myDashboard({String? activeWindow}) {
+    final q = activeWindow != null && activeWindow.isNotEmpty
+        ? '?activeWindow=${Uri.encodeComponent(activeWindow)}'
+        : '';
+    return ApiService.get('/fro/dashboard$q',
+        timeout: const Duration(seconds: 20)).then(_map);
+  }
+
+  /// Roster behind a dashboard count. `status` = 'active' | 'inactive' | 'total'
+  /// (FY lifetime donors); `window` is the last-N-months split (ignored for total).
+  static Future<Map<String, dynamic>> froDonorList(String status, String windowN) =>
+      ApiService.get('/fro/dashboard/donors?status=$status&window=$windowN',
+          timeout: const Duration(seconds: 20)).then(_map);
 
   static Future<Map<String, dynamic>> myTarget() =>
       ApiService.get('/fro/target').then(_map);

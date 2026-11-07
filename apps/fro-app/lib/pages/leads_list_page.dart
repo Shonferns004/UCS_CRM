@@ -6,6 +6,8 @@ import '../models/models.dart';
 import '../services/call_service.dart';
 import '../services/fro_api.dart';
 import '../theme.dart';
+import '../widgets/donor_card.dart';
+import 'donor_detail_page.dart';
 
 class LeadsListPage extends StatefulWidget {
   const LeadsListPage({super.key});
@@ -94,6 +96,19 @@ class _LeadsListPageState extends State<LeadsListPage> {
     }
   }
 
+  void _openDetail(Donor donor) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DonorDetailPage(
+          donorId: donor.id,
+          ngoId: donor.ngoId,
+          donor: donor,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -165,6 +180,8 @@ class _LeadsListPageState extends State<LeadsListPage> {
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (context, i) {
           final d = _donors[i];
+          final name = d.donorName ?? '—';
+          final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
           return Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -173,29 +190,101 @@ class _LeadsListPageState extends State<LeadsListPage> {
               border: Border.all(color: AppColors.line),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppColors.sage,
+                  child: Text(
+                    initial,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(d.donorName ?? '—', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                      const SizedBox(height: 2),
-                      Text(d.donorMobile ?? '—', style: const TextStyle(fontSize: 12.5, color: AppColors.inkSoft)),
-                      const SizedBox(height: 2),
-                      Wrap(
-                        spacing: 6,
+                      Row(
                         children: [
-                          if (d.station != null) _chip(d.station!, AppColors.inkSoft),
-                          if (d.ngoId != null) _chip('NGO: ${d.ngoId}', const Color(0xFF6d28d9)),
-                          if (d.status != null && d.status!.isNotEmpty) _chip(d.status!, AppColors.sage),
+                          Flexible(
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 14),
+                            ),
+                          ),
+                          if (d.status != null && d.status!.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            StatusPillLabel(status: d.status!),
+                          ],
                         ],
                       ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          const Icon(Icons.phone,
+                              size: 14, color: AppColors.inkSoft),
+                          const SizedBox(width: 5),
+                          Text(d.donorMobile ?? '—',
+                              style: const TextStyle(
+                                  fontSize: 12.5, color: AppColors.inkSoft)),
+                        ],
+                      ),
+                      if (d.donorCity != null && d.donorCity!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(Icons.location_on,
+                                size: 14, color: AppColors.inkSoft),
+                            const SizedBox(width: 5),
+                            Text(d.donorCity!,
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.inkSoft)),
+                          ],
+                        ),
+                      ],
+                      if (d.station != null ||
+                          d.ngoId != null ||
+                          d.donorType != null) ...[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            if (d.station != null)
+                              _chip(d.station!, AppColors.inkSoft),
+                            if (d.ngoId != null)
+                              _chip('NGO ${d.ngoId}', const Color(0xFF6D28D9)),
+                            if (d.donorType != null)
+                              _chip(d.donorType!, const Color(0xFF2563EB)),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.phone, color: AppColors.sage),
-                  onPressed: () => _call(d),
+                const SizedBox(width: 4),
+                Column(
+                  children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.phone, color: AppColors.sage),
+                      onPressed: () => _call(d),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.info_outline,
+                          size: 20, color: AppColors.inkSoft),
+                      onPressed: () => _openDetail(d),
+                    ),
+                  ],
                 ),
               ],
             ),

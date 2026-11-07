@@ -2176,7 +2176,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
           )}
           {historyInlineItems.length > 0 && (
             <div style={{ fontSize: 10.5, color: '#475569', lineHeight: 1.5, padding: '8px 10px', marginBottom: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-              Pending old leads ke neeche aapki <b>old history</b> dikh rahi hai — {historyInlineItems.length} disposed lead(s), newest disposed last.
+              Your <b>old history</b> is shown below the pending old leads — {historyInlineItems.length} disposed lead(s), newest disposed last.
             </div>
           )}
           {loading ? (
