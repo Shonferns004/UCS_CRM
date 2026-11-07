@@ -27,9 +27,9 @@ class _MyLeadsPageState extends State<MyLeadsPage> {
           ),
           child: Row(
             children: [
-              _tabBtn('My Leads', 0, 50),
-              _tabBtn('All Leads', 1, 25),
-              _tabBtn('Suspense', 2, 25),
+              _tabBtn('My Leads', 0),
+              _tabBtn('All Leads', 1),
+              _tabBtn('Suspense', 2),
             ],
           ),
         ),
@@ -47,26 +47,26 @@ class _MyLeadsPageState extends State<MyLeadsPage> {
     );
   }
 
-  Widget _tabBtn(String label, int idx, int pct) {
+  Widget _tabBtn(String label, int idx) {
     final selected = _tab == idx;
     return Expanded(
       child: InkWell(
         onTap: () => setState(() => _tab = idx),
         child: Container(
-          height: 40,
+          height: 44,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
                 color: selected ? AppColors.sage : Colors.transparent,
-                width: 2,
+                width: 2.5,
               ),
             ),
           ),
           child: Text(
-            '$label  $pct%',
+            label,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
               color: selected ? AppColors.ink : AppColors.inkSoft,
             ),

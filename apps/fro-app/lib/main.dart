@@ -9,6 +9,7 @@ import 'services/auth_service.dart';
 import 'services/call_service.dart';
 import 'services/meeting_service.dart';
 import 'services/socket_service.dart';
+import 'widgets/dashboard_cards.dart' show ThemeServiceSpec;
 import 'theme.dart';
 
 void main() async {
@@ -18,12 +19,19 @@ void main() async {
   final call = CallService();
   final meeting = MeetingService(call);
   final socket = SocketService();
+  final theme = ThemeService();
   if (auth.isLoggedIn && auth.user != null) {
     call.init(auth.user!.workerId ?? auth.user!.id ?? '');
     meeting.start();
     socket.connect();
   }
-  runApp(FroApp(auth: auth, call: call, meeting: meeting, socket: socket));
+  runApp(FroApp(
+    auth: auth,
+    call: call,
+    meeting: meeting,
+    socket: socket,
+    theme: theme,
+  ));
 }
 
 class FroApp extends StatefulWidget {
@@ -31,6 +39,7 @@ class FroApp extends StatefulWidget {
   final CallService call;
   final MeetingService meeting;
   final SocketService socket;
+  final ThemeService theme;
 
   const FroApp({
     super.key,
@@ -38,6 +47,7 @@ class FroApp extends StatefulWidget {
     required this.call,
     required this.meeting,
     required this.socket,
+    required this.theme,
   });
 
   @override
@@ -86,18 +96,23 @@ class _FroAppState extends State<FroApp> with WidgetsBindingObserver {
         ChangeNotifierProvider.value(value: widget.call),
         ChangeNotifierProvider.value(value: widget.meeting),
         ChangeNotifierProvider.value(value: widget.socket),
+        ChangeNotifierProvider.value(value: widget.theme),
       ],
-      child: MaterialApp(
-        title: 'UCS FRO',
-        debugShowCheckedModeBanner: false,
-        theme: buildAppTheme(),
-        home: Consumer<AuthService>(
-          builder: (context, auth, _) {
-            if (auth.isLoggedIn && auth.hasAccess) {
-              return const HomeShell();
-            }
-            return const LoginPage();
-          },
+      child: Consumer<ThemeService>(
+        builder: (context, theme, _) => MaterialApp(
+          title: 'UCS FRO',
+          debugShowCheckedModeBanner: false,
+          theme: buildAppTheme(theme.spec),
+          builder: (context, child) =>
+              ThemeServiceSpec(spec: theme.spec, child: child ?? const SizedBox.shrink()),
+          home: Consumer<AuthService>(
+            builder: (context, auth, _) {
+              if (auth.isLoggedIn && auth.hasAccess) {
+                return const HomeShell();
+              }
+              return const LoginPage();
+            },
+          ),
         ),
       ),
     );
