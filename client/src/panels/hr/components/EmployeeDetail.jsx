@@ -52,7 +52,7 @@ function Badge({ status }) {
 export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMode = false }) {
   const { teams: teamOptions } = useTeams();
   const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary, maskSalary } = useSalaryPrivacy();
-  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, fetchSalaryHold, setSalaryHold, releaseSalaryHold, fetchWorkerAbsenceGrace } = useHR();
+  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, fetchSalaryHold, setSalaryHold, releaseSalaryHold, fetchWorkerAbsenceGrace, fetchLateRollback } = useHR();
   const { user: currentUser } = useContext(UcsContext);
   const isAccounts = currentUser?.role === 'accounts' || currentUser?.role === 'super_admin';
   const [attendance, setAttendance] = useState([]);
@@ -85,6 +85,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   const [viewingMonthKey, setViewingMonthKey] = useState(null);
   const [salaryHold, setSalaryHoldData] = useState(null);
   const [absenceGrace, setAbsenceGrace] = useState({}); // monthKey -> graceForfeited
+  const [lateRollback, setLateRollback] = useState({}); // monthKey -> waivedMinutes
   const [holdBusy, setHoldBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
   const [docModal, setDocModal] = useState(false);
@@ -315,10 +316,18 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
       fetchWorkerAbsenceGrace(worker.id, monthKey)
         .then(g => setAbsenceGrace(prev => ({ ...prev, [monthKey]: !!g?.graceForfeited })))
         .catch(() => setAbsenceGrace(prev => ({ ...prev, [monthKey]: false })));
+      // Admin grace rollback (salary_late_rollbacks). Fetch the stored waiver so
+      // the mirror below matches what payroll will actually deduct.
+      fetchLateRollback(worker.id, monthKey)
+        .then(r => setLateRollback(prev => ({ ...prev, [monthKey]: Number(r?.waivedMinutes) || 0 })))
+        .catch(() => setLateRollback(prev => ({ ...prev, [monthKey]: 0 })));
       if (prevMonthKey && prevMonthKey !== monthKey) {
         fetchWorkerAbsenceGrace(worker.id, prevMonthKey)
           .then(g => setAbsenceGrace(prev => ({ ...prev, [prevMonthKey]: !!g?.graceForfeited })))
           .catch(() => setAbsenceGrace(prev => ({ ...prev, [prevMonthKey]: false })));
+        fetchLateRollback(worker.id, prevMonthKey)
+          .then(r => setLateRollback(prev => ({ ...prev, [prevMonthKey]: Number(r?.waivedMinutes) || 0 })))
+          .catch(() => setLateRollback(prev => ({ ...prev, [prevMonthKey]: 0 })));
       }
     }
   }, [viewingMonthKey, worker.id, data?.department]);
@@ -728,7 +737,17 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
   // An unauthorized absence forfeits the month's free grace (single budget with
   // the clawback — whichever arrives first spends it, never both).
   const graceForfeitedNow = !!absenceGrace[effectiveMonthKey];
-  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace, graceForfeitedNow);
+  // Admin grace rollback: mirror the payroll engine exactly — the stored waiver
+  // (capped at the late pool plus the charged grace) comes off before the ladder.
+  const lateRollbackMinutes = Math.min(
+    Math.max(0, Number(lateRollback[effectiveMonthKey]) || 0),
+    totalLateMinutes + (graceForfeitedNow ? lateGrace : 0),
+  );
+  let lateDeductionDays = calcLateDeductionDays(
+    Math.max(0, totalLateMinutes - lateRollbackMinutes),
+    lateGrace,
+    graceForfeitedNow,
+  );
   let totalDue;
   totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
 
@@ -823,7 +842,16 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     const pLateMins = pAtt
       .filter(a => (!pJoined || a.date >= pJoinCutoff) && !isVoluntarySunday(a.date) && a.status !== 'half-day')
       .reduce((s, a) => s + (a.late_minutes || 0), 0);
-    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace, !!absenceGrace[prevMonthKey]);
+    const pGraceForfeited = !!absenceGrace[prevMonthKey];
+    const pRollbackMinutes = Math.min(
+      Math.max(0, Number(lateRollback[prevMonthKey]) || 0),
+      pLateMins + (pGraceForfeited ? lateGrace : 0),
+    );
+    let pLateDays = calcLateDeductionDays(
+      Math.max(0, pLateMins - pRollbackMinutes),
+      lateGrace,
+      pGraceForfeited,
+    );
     const pPaid = Math.max(0, pAvailable - pDeducted.size);
     const pJoining = (pJoined && monthsEmployed <= 3) ? 1.5 : 0;
     prevTotalDue = pPerDay * Math.max(0, pPaid - pLateDays - pJoining);
@@ -1583,11 +1611,19 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
                       {/* Late minutes badge */}
                       <div style={{ marginBottom:14 }}>
-                        {graceForfeitedNow && (
+                        {graceForfeitedNow && lateDeductionDays > 0 && (
                           <div style={{ padding:'8px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
                             <strong style={{ color:'#d9534f' }}>Grace forfeited (unauthorized absence)</strong>
                             <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
                               The {lateT.grace} min grace is charged up-front this month — {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} late deduction applies. Use the admin app to roll it back if this was applied wrongly.
+                            </div>
+                          </div>
+                        )}
+                        {graceForfeitedNow && lateDeductionDays === 0 && lateRollbackMinutes > 0 && (
+                          <div style={{ padding:'8px 14px', border:'1px solid #bbf7d0', borderRadius:8, background:'#f0fdf4', fontSize:12, marginBottom: totalLateMinutes > 0 ? 8 : 0 }}>
+                            <strong style={{ color:'#15803d' }}>Grace rollback applied</strong>
+                            <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
+                              {lateRollbackMinutes} min of the {lateT.grace} min grace was waived, so the {totalLateMinutes} late min no longer cost a day. The absence day is still deducted.
                             </div>
                           </div>
                         )}
