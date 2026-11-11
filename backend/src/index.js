@@ -162,6 +162,7 @@ import { ensureEventHeadReportCardOrderSchema } from './bootstrap/ensureEventHea
 import { ensureDashboardIndexes } from './bootstrap/ensureDashboardIndexes.js';
 import { ensureScraperIndexes } from './bootstrap/ensureScraperIndexes.js';
 import { ensureTemporaryDataAccessSchema } from './bootstrap/ensureTemporaryDataAccessSchema.js';
+import { ensureFollowUpLoanSchema } from './bootstrap/ensureFollowUpLoanSchema.js';
 import { ensureStackFroHistorySchema } from './bootstrap/ensureStackFroHistorySchema.js';
 import { ensureSettingsSchema } from './bootstrap/ensureSettingsSchema.js';
 import { ensureWhatsAppAccountSchema } from './bootstrap/ensureWhatsAppAccountSchema.js';
@@ -1402,6 +1403,7 @@ await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?
     await ensureDashboardIndexes().catch(e => console.error('ensureDashboardIndexes failed:', e?.message || e));
     await ensureScraperIndexes().catch(e => console.error('ensureScraperIndexes failed:', e?.message || e));
     await ensureTemporaryDataAccessSchema().catch(e => console.error('ensureTemporaryDataAccessSchema failed:', e?.message || e));
+    await ensureFollowUpLoanSchema().catch(e => console.error('ensureFollowUpLoanSchema failed:', e?.message || e));
     await ensureStackFroHistorySchema().catch(e => console.error('ensureStackFroHistorySchema failed:', e?.message || e));
     await ensureSettingsSchema().catch(e => console.error('ensureSettingsSchema failed:', e?.message || e));
     await ensureWhatsAppAccountSchema().catch(e => console.error('ensureWhatsAppAccountSchema failed:', e?.message || e));

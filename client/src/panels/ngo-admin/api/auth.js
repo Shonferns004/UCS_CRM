@@ -86,6 +86,44 @@ export function revokeTemporaryAccess(id, body) {
   return apiPost(`/ngo-admin/temporary-access/${id}/revoke`, body)
 }
 
+// ─── Follow-up / Callback Loans (station → station, time-boxed) ───────────────
+// Wraps /ngo-admin/followup-loans*. Admin-guarded server-side; no ownership is
+// ever changed by these calls.
+
+export function listFollowUpLoans(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/followup-loans${qs ? '?' + qs : ''}`)
+}
+
+export function previewFollowUpLoan(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/followup-loans/preview${qs ? '?' + qs : ''}`)
+}
+
+export function listFollowUpLoanFroCandidates(ngoId) {
+  return apiGet(`/ngo-admin/followup-loans/fro-candidates?ngo_id=${encodeURIComponent(ngoId || '')}`)
+}
+
+export function getFollowUpLoan(id) {
+  return apiGet(`/ngo-admin/followup-loans/${id}`)
+}
+
+export function createFollowUpLoan(body) {
+  return apiPost('/ngo-admin/followup-loans', body)
+}
+
+export function extendFollowUpLoan(id, body) {
+  return apiPost(`/ngo-admin/followup-loans/${id}/extend`, body)
+}
+
+export function returnFollowUpLoan(id, body) {
+  return apiPost(`/ngo-admin/followup-loans/${id}/return`, body)
+}
+
+export function revokeFollowUpLoan(id, body) {
+  return apiPost(`/ngo-admin/followup-loans/${id}/revoke`, body)
+}
+
 // ─── Hide Old Donors (admin switch) ──────────────────────────────────────────
 // Wraps /ngo-admin/hide-old-donors. When the switch is ON the field teams see
 // only the new (FD-*) stations — the old station's donors, follow-ups and

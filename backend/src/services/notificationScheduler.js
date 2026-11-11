@@ -12,6 +12,7 @@ import { getPendingScheduledNotifications, markNotificationSent } from '../model
 import { getSetting } from '../models/settingsModel.js';
 import { sendPushToMultiple } from './fcmService.js';
 import { reverseTransfer } from '../models/froAssignmentModel.js';
+import { closeExpiredLoans } from './followUpLoanService.js';
 import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
@@ -34,6 +35,7 @@ const runResetNoOverlap = makeNonOverlap('donor cycle reset', resetCycledDonors)
 const runReportNoOverlap = makeNonOverlap('missed-schedule report', autoReportMissedSchedules);
 const runReturnNoOverlap = makeNonOverlap('auto-return transfers', autoReturnTransfers);
 const runIncentiveNoOverlap = makeNonOverlap('special incentive refresh', runSpecialIncentiveRefresh);
+const runLoanExpiryNoOverlap = makeNonOverlap('follow-up loan expiry', closeExpiredLoans);
 
 function getDateString(date) {
   const y = date.getFullYear();
@@ -443,6 +445,11 @@ function start() {
   // froDonorLogModel, so the poll is only a safety net. Each refresh runs a
   // window aggregation + per-worker upserts that broadcast realtime events.
   cronJobs.push(cron.schedule('50 */5 * * * *', () => runIncentiveNoOverlap()));
+
+  // Follow-up / callback loans: activate scheduled windows and release expired
+  // ones. Read paths already honour the window; this keeps stored state and the
+  // live-assignment unique index in step.
+  cronJobs.push(cron.schedule('55 */5 * * * *', () => runLoanExpiryNoOverlap()));
 
 
   // Email imports and Razorpay synchronization are manual-only. Do not schedule
