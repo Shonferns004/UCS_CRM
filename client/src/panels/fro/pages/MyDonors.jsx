@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getDataVisibility } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoans, getDataVisibility } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { openLeadWhatsApp } from '../utils/leadWhatsApp';
@@ -445,6 +445,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [followUps, setFollowUps] = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
+  const [myLoans, setMyLoans] = useState([]);
   // Preserves the list's vertical scroll position while the FRO opens a lead
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
@@ -951,28 +952,34 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         const items = [];
         const seen = new Set();
         const k = (d) => `${d.id}`;
+        const loan = (d) => (d.is_loaned_in ? {
+          is_loaned_in: true,
+          loan_id: d.loan_id,
+          loan_source_station: d.loan_source_station,
+          loan_expires_at: d.loan_expires_at,
+        } : {});
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'scheduled' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'scheduled', ...loan(d) });
           }
         });
         (callbacks || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at || null, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at || null, type: 'callback', ...loan(d) });
           }
         });
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.scheduled_at, type: 'callback', ...loan(d) });
           }
         });
         (promises || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, station: d.station || null, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise', ...loan(d) });
           }
         });
         setFollowUps(items);
@@ -995,6 +1002,16 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       .finally(() => { if (!cancelled) setFollowUpsLoading(false); });
     return () => { cancelled = true; };
   }, [listView, activeDonor]);
+
+  // Live loan strip: explains leads that vanish from the source list and shows
+  // the borrowed window on the recipient side. Cheap endpoint, no donor data.
+  useEffect(() => {
+    let cancelled = false;
+    getMyLeadLoans()
+      .then((list) => { if (!cancelled) setMyLoans(Array.isArray(list) ? list : []); })
+      .catch(() => { if (!cancelled) setMyLoans([]); });
+    return () => { cancelled = true; };
+  }, [listView]);
 
   const donorsRef = useRef(donors);
   const indexRef = useRef(index);
@@ -2128,6 +2145,29 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
           </div>
         )}
 
+        {myLoans.length > 0 && (
+          <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {myLoans.filter(l => l.direction === 'out').map(l => (
+              <div key={`out-${l.id}`} style={{ padding: '7px 10px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 11, display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>swap_horiz</span>
+                <span>
+                  <b>{l.item_count} {l.scope === 'FOLLOW_UP' ? 'follow-up' : l.scope === 'CALLBACK' ? 'callback' : 'follow-up/callback'} lead{l.item_count === 1 ? '' : 's'}</b> are temporarily with <b>{l.target_station}</b>
+                  {l.counterpart_name ? ` (${l.counterpart_name})` : ''} until {new Date(l.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}. They return automatically.
+                </span>
+              </div>
+            ))}
+            {myLoans.filter(l => l.direction === 'in').map(l => (
+              <div key={`in-${l.id}`} style={{ padding: '7px 10px', borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', fontSize: 11, display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>swap_horiz</span>
+                <span>
+                  <b>{l.item_count} lead{l.item_count === 1 ? '' : 's'}</b> lent from <b>{l.source_station}</b>
+                  {l.counterpart_name ? ` (${l.counterpart_name})` : ''} until {new Date(l.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}. Your calls are credited to you.
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* List */}
         <div ref={listScrollRef} onScroll={handleListScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
           {isFollowUps && !followUpsLoading && (
@@ -2310,6 +2350,14 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                                 OVERDUE
                               </span>
                             )}
+                            {d.is_loaned_in && (
+                              <span
+                                title={`Temporarily lent from ${d.loan_source_station}${d.loan_expires_at ? ` until ${new Date(d.loan_expires_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`}
+                                style={{ padding: '2px 7px', borderRadius: 999, fontSize: 8.5, fontWeight: 800, whiteSpace: 'nowrap', background: '#e0f2fe', color: '#0369a1' }}
+                              >
+                                ⇄ FROM {d.loan_source_station}
+                              </span>
+                            )}
                           </>
                         ) : d.is_disposed ? (
                           <>
@@ -2435,6 +2483,17 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 )}
               </div>
             </div>
+
+            {donor.is_loaned_in && (
+              <div style={{ margin: '8px 12px 0', padding: '8px 10px', borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', fontSize: 11.5, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>swap_horiz</span>
+                <span>
+                  <b>Temporarily lent from {donor.loan_source_station}</b>
+                  {donor.loan_expires_at ? ` · until ${new Date(donor.loan_expires_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}.
+                  {' '}Your calls and dispositions are credited to you; the lead returns to the source station when the loan ends.
+                </span>
+              </div>
+            )}
 
             {/* Unified Call + WhatsApp action bar (merged, responsive) */}
             <div style={{ margin: '10px 12px', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>

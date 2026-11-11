@@ -66,6 +66,11 @@ import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '..
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { cached, cacheGet, cacheSet, cacheDelPrefix } from '../utils/ttlCache.js';
 import { getActiveGrantPairs, canWorkAssignment, getActiveGrants } from '../services/temporaryAccessService.js';
+import {
+  getLoanSets,
+  isLoanedOut,
+  isFollowUpLoansEnabled,
+} from '../services/followUpLoanService.js';
 import { isOldDonorsHidden } from '../services/oldDonorVisibility.js';
 import { isFreshStation } from '../utils/stations.js';
 import redis from '../config/redis.cjs';
@@ -207,6 +212,44 @@ import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpe
 import { reconcileDispositionIdle } from '../services/froTimeReconcile.js';
 import { TIME_STATES, TIME_EVENTS, isHeldState } from '../utils/froTimeState.js';
 
+// Follow-up / callback loans: resolve an assignment that was lent to this
+// worker even though its fro_worker_id still points at the source station's
+// owner. The row is returned AS-IS — logging a call never changes ownership.
+async function findLoanedInAssignment(donorId, workerId, ngoId) {
+  if (!isFollowUpLoansEnabled()) return null;
+  const sets = await getLoanSets(workerId);
+  if (sets.inIds.size === 0) return null;
+  let q = db
+    .from('fro_assignments')
+    .select('id, station, ngo_id, fro_worker_id, donor_id, batch_type, status')
+    .eq('donor_id', donorId)
+    .or('status.is.null,status.neq.reassigned')
+    .limit(50);
+  if (ngoId) q = q.eq('ngo_id', ngoId);
+  const { data } = await q;
+  return (data || []).find(r => sets.inIds.has(Number(r.id))) || null;
+}
+
+// Blocks the SOURCE station's owner while a lead is lent away. Returns true
+// when it answered the request, so callers can `if (await ...) return;`.
+async function blockedByLoan(res, workerId, assignmentId) {
+  if (!(await isLoanedOut(workerId, assignmentId))) return false;
+  const sets = await getLoanSets(workerId);
+  const info = sets.outMap.get(Number(assignmentId));
+  const expiry = info?.expiresAt
+    ? new Date(info.expiresAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : null;
+  res.status(409).json({
+    message: info
+      ? `This lead is temporarily lent to ${info.targetStation}${expiry ? ` until ${expiry}` : ''}.`
+      : 'This lead is temporarily lent to another station.',
+    code: 'LEAD_LOANED_OUT',
+    target_station: info?.targetStation || null,
+    expires_at: info?.expiresAt || null,
+  });
+  return true;
+}
+
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // Hide Old Donors: a donor that lives ONLY on old stations is out of reach
   // for writes as well as reads while the switch is on. Checked first and
@@ -251,6 +294,12 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     ngoId = ngo?.id || null;
   }
   if (!ngoId) return null;
+
+  // 2.4) FOLLOW-UP / CALLBACK LOAN — the lead was lent to this worker's station.
+  //      Sit before temp access and before every claim/create step so a loan
+  //      behaves exactly like a permission window, never an ownership move.
+  const loaned = await findLoanedInAssignment(donorId, workerId, ngoId);
+  if (loaned) return loaned;
 
   // 2.5) TEMPORARY DATA ACCESS — work on someone else's assignment WITHOUT
   //      taking it over. When a live admin grant covers the donor's current
@@ -451,6 +500,15 @@ async function getFroAssignment(donorId, workerId, ngoId) {
   if (owned) {
     if (await isOldDonorsHidden() && !isFreshStation(owned.station)) return null;
     return owned;
+  }
+
+  // Follow-up / callback loan: a lent lead stays readable even though its
+  // fro_worker_id is the source station's owner. The disposition/write paths
+  // allow exactly this worker for the duration of the loan.
+  const loaned = await findLoanedInAssignment(donorId, workerId, ngoId);
+  if (loaned) {
+    if (await isOldDonorsHidden() && !isFreshStation(loaned.station)) return null;
+    return loaned;
   }
 
   // Temporary fallback: no owned row, so check whether a LIVE admin grant
@@ -734,9 +792,16 @@ async function buildFollowUpOwnerFilter(assignments, user) {
   const tagged = isImpersonating
     ? await taggedAssignmentIds((assignments || []).map(a => a.id), realId)
     : new Set();
+  // Follow-up / callback loans: a lead lent to this worker is workable even
+  // though fro_worker_id still points at the source station's owner. Loaned-out
+  // leads are removed by the callers before this filter runs.
+  const loanSets = isFollowUpLoansEnabled()
+    ? await getLoanSets(user?.id)
+    : { inIds: new Set() };
   return (a) => a && (
     (!isImpersonating && String(a.fro_worker_id) === String(user?.id))
     || (isImpersonating && tagged.has(a.id))
+    || loanSets.inIds.has(Number(a.id))
   );
 }
 
@@ -749,6 +814,21 @@ async function resolveWorkerNames(workerIds) {
   for (const w of data || []) map[w.id] = w.name;
   return map;
 }
+
+// Display-only loan metadata for a borrowed row. Empty for normal rows, so the
+// client can simply spread it into the list item.
+function loanMetaFor(loanSets, assignmentId) {
+  const info = loanSets?.inMap?.get(Number(assignmentId));
+  if (!info) return {};
+  return {
+    is_loaned_in: true,
+    loan_id: info.loanId,
+    loan_source_station: info.sourceStation,
+    loan_target_station: info.targetStation,
+    loan_expires_at: info.expiresAt,
+  };
+}
+
 
 async function chunkedInQuery(ids, queryFn, chunkSize = 1000) {
   const allData = [];
@@ -872,7 +952,7 @@ async function fetchScopedDonationEvidence({ assignments, donorIds, projectSet, 
 //   05:30 IST        local month start lands 5.5h INTO the month -> donations made
 //                    in the first 5.5h did not count, so those donors reappeared in
 //                    the queue as if unpaid.
-const periodStartForType = (type, now = new Date()) => {
+export const periodStartForType = (type, now = new Date()) => {
   const t = (type || '').toLowerCase();
   const p = istParts(now);
   const istMonthStart = (year, month0) => new Date(Date.UTC(year, month0, 1) - 330 * 60 * 1000);
@@ -3988,6 +4068,7 @@ export const updateDonorStatus = async (req, res) => {
 
     let assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
     if (!assignment) return denyWithTempAccessCode(res, workerId, donorId, 404, 'Assignment not found');
+    if (await blockedByLoan(res, workerId, assignment.id)) return;
 
     // Fill in station if missing (old rows created before station tracking)
     if (!assignment.station && ngo_id) {
@@ -4289,6 +4370,7 @@ export const createDonorLogHandler = async (req, res) => {
 
     const assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
     if (!assignment) return denyWithTempAccessCode(res, workerId, donorId, 404, 'Donor not found or no NGO assigned');
+    if (await blockedByLoan(res, workerId, assignment.id)) return;
 
     const logData = {
       assignment_id: assignment.id,
@@ -4684,6 +4766,7 @@ export const scheduleContact = async (req, res) => {
 
     const assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
     if (!assignment) return denyWithTempAccessCode(res, workerId, donorId, 404, 'Donor not found');
+    if (await blockedByLoan(res, workerId, assignment.id)) return;
 
     // Clear any existing pending schedules
     await completeAllScheduledByAssignment(assignment.id);
@@ -5075,7 +5158,28 @@ export const getFroScheduled = async (req, res) => {
 
     if (error) throw error;
 
-    const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
+    // Loans: borrowed scheduled contacts live on the source station, so they
+    // need an explicit fetch; lent-away rows are removed from the owner's list.
+    const loanSets = await getLoanSets(workerId);
+    const loanedInIds = [...loanSets.inIds];
+    let loanedContacts = [];
+    if (loanedInIds.length > 0) {
+      const { data: lc, error: lcErr } = await db
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, batch_type, ngos(name))')
+        .eq('is_completed', false)
+        .in('assignment_id', loanedInIds)
+        .order('scheduled_at', { ascending: true });
+      if (lcErr) throw lcErr;
+      loanedContacts = lc || [];
+    }
+
+    const ownerContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`)
+      .filter(c => !loanSets.outIds.has(Number(c.fro_assignments?.id)));
+    const contactById = new Map();
+    for (const c of ownerContacts) contactById.set(c.id, c);
+    for (const c of loanedContacts) contactById.set(c.id, c);
+    const scopedContacts = [...contactById.values()];
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
     // Follow-ups are promises, not month-scoped work: an October follow-up must
@@ -5107,7 +5211,10 @@ export const getFroScheduled = async (req, res) => {
       },
       recovered: true,
     }));
-    const allContacts = [...(personalContacts || []), ...recoveredContacts];
+    const allContacts = [
+      ...(personalContacts || []).filter(c => !loanSets.outIds.has(Number(c.fro_assignments?.id))),
+      ...recoveredContacts.filter(c => !loanSets.outIds.has(Number(c.fro_assignments?.id))),
+    ];
 
     const donorIds = [...new Set(allContacts.map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set(allContacts.map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
@@ -5147,6 +5254,7 @@ export const getFroScheduled = async (req, res) => {
         schedule_notes: c.notes,
         assignment_id: a.id,
         recovered: !!c.recovered,
+        ...loanMetaFor(loanSets, a.id),
       });
     }
     return res.json(result);
@@ -5172,8 +5280,30 @@ export const getFroCallbacks = async (req, res) => {
 
     if (error) throw error;
 
-    const keep = await buildFollowUpOwnerFilter(assignments || [], req.user);
-    const personalAssignments = (assignments || []).filter(a => keep(a));
+    // Follow-up / callback loans: add leads lent TO this worker (they still sit
+    // on the source station, so the station-scoped query above cannot see them)
+    // and remove leads lent AWAY from this worker.
+    const loanSets = await getLoanSets(workerId);
+    const loanedInIds = [...loanSets.inIds];
+    let loanedAssignments = [];
+    if (loanedInIds.length > 0) {
+      const { data: lent, error: lentErr } = await db
+        .from('fro_assignments')
+        .select('*, ngos!left(name)')
+        .in('id', loanedInIds)
+        .in('status', ['follow_up', 'callback']);
+      if (lentErr) throw lentErr;
+      loanedAssignments = lent || [];
+    }
+    const mergedById = new Map();
+    for (const a of assignments || []) {
+      if (!loanSets.outIds.has(Number(a.id))) mergedById.set(a.id, a);
+    }
+    for (const a of loanedAssignments) mergedById.set(a.id, a);
+    const allAssignments = [...mergedById.values()];
+
+    const keep = await buildFollowUpOwnerFilter(allAssignments, req.user);
+    const personalAssignments = allAssignments.filter(a => keep(a));
     const assignmentIds = personalAssignments.map(a => a.id);
     const donorIds = [...new Set(personalAssignments.map(a => a.donor_id).filter(Boolean))];
     const ngoIds = [...new Set(personalAssignments.map(a => a.ngo_id).filter(Boolean))];
@@ -5218,6 +5348,7 @@ export const getFroCallbacks = async (req, res) => {
         status: a.status,
         next_follow_up: a.next_follow_up,
         assignment_id: a.id,
+        ...loanMetaFor(loanSets, a.id),
       });
     }
     return res.json(result);
@@ -5248,8 +5379,29 @@ export const getFroPromises = async (req, res) => {
 
     if (error) throw error;
 
-    const keep = await buildFollowUpOwnerFilter(assignments || [], req.user);
-    const personalAssignments = (assignments || []).filter(a => keep(a));
+    // Loans: borrowed leads that this worker has since moved into a promise
+    // status must stay visible until the loan window ends.
+    const loanSets = await getLoanSets(workerId);
+    const loanedInIds = [...loanSets.inIds];
+    let loanedPromises = [];
+    if (loanedInIds.length > 0) {
+      const { data: lent, error: lentErr } = await db
+        .from('fro_assignments')
+        .select('*, ngos!left(name)')
+        .in('id', loanedInIds)
+        .in('status', ['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent']);
+      if (lentErr) throw lentErr;
+      loanedPromises = lent || [];
+    }
+    const mergedById = new Map();
+    for (const a of assignments || []) {
+      if (!loanSets.outIds.has(Number(a.id))) mergedById.set(a.id, a);
+    }
+    for (const a of loanedPromises) mergedById.set(a.id, a);
+    const allAssignments = [...mergedById.values()];
+
+    const keep = await buildFollowUpOwnerFilter(allAssignments, req.user);
+    const personalAssignments = allAssignments.filter(a => keep(a));
 
     const assignmentIds = personalAssignments.map(a => a.id);
     const donorIds = [...new Set(personalAssignments.map(a => a.donor_id).filter(Boolean))];
@@ -5301,6 +5453,7 @@ export const getFroPromises = async (req, res) => {
         status: a.status,
         next_follow_up: a.next_follow_up,
         assignment_id: a.id,
+        ...loanMetaFor(loanSets, a.id),
       });
     }
     result.sort((x, y) => {
@@ -5364,9 +5517,43 @@ export const getFroOverdue = async (req, res) => {
 
     if (sErr) throw sErr;
 
+    // Loans: borrowed leads are outside this worker's station scope, so fetch
+    // them explicitly; leads lent away are removed from the source's lists.
+    const loanSets = await getLoanSets(workerId);
+    const loanedInIds = [...loanSets.inIds];
+    let loanedDateOverdue = [];
+    let loanedSchedules = [];
+    if (loanedInIds.length > 0) {
+      const { data: ld, error: ldErr } = await db
+        .from('fro_assignments')
+        .select('*, ngos!left(name)')
+        .in('id', loanedInIds)
+        .lt('next_follow_up', today)
+        .in('status', FRO_OVERDUE_OPEN_STATUSES);
+      if (ldErr) throw ldErr;
+      loanedDateOverdue = ld || [];
+
+      const { data: ls, error: lsErr } = await db
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, fro_worker_id, next_follow_up, last_contacted_at, ngos(name))')
+        .eq('is_completed', false)
+        .in('assignment_id', loanedInIds);
+      if (lsErr) throw lsErr;
+      loanedSchedules = ls || [];
+    }
+
+    const allDateOverdue = [
+      ...(dateOverdue || []).filter(a => !loanSets.outIds.has(Number(a.id))),
+      ...loanedDateOverdue,
+    ];
+    const allSchedules = [
+      ...(schedules || []).filter(s => !loanSets.outIds.has(Number(s.fro_assignments?.id))),
+      ...loanedSchedules,
+    ];
+
     const freshScheduleAt = new Map();
     const passedScheduleAt = new Map();
-    for (const s of schedules || []) {
+    for (const s of allSchedules) {
       const a = s.fro_assignments;
       if (!a) continue;
       const when = new Date(s.scheduled_at).getTime();
@@ -5378,8 +5565,8 @@ export const getFroOverdue = async (req, res) => {
     }
 
     const assignmentById = {};
-    for (const a of dateOverdue || []) assignmentById[a.id] = a;
-    for (const s of schedules || []) {
+    for (const a of allDateOverdue) assignmentById[a.id] = a;
+    for (const s of allSchedules) {
       const a = s.fro_assignments;
       if (a && passedScheduleAt.has(a.id) && FRO_OVERDUE_OPEN_STATUSES.indexOf(a.status) !== -1) {
         assignmentById[a.id] = a;
@@ -5427,7 +5614,9 @@ export const getFroOverdue = async (req, res) => {
       const t = new Date(a.last_contacted_at).getTime();
       return Number.isFinite(t) && t >= istDayStart;
     };
-    const openAssignments = assignments.filter(a => !workedToday(a));
+    const openAssignments = assignments
+      .filter(a => !workedToday(a))
+      .filter(a => !loanSets.outIds.has(Number(a.id)));
 
     const keep = await buildFollowUpOwnerFilter(openAssignments, req.user);
     const personalAssignments = openAssignments.filter(a => keep(a));
@@ -5507,10 +5696,47 @@ export const getFroOverdue = async (req, res) => {
         is_overdue: true,
         assignment_id: a.id,
         recovered: !!a.recovered,
+        ...loanMetaFor(loanSets, a.id),
       });
     }
     return res.json(result);
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Active follow-up / callback loans involving this worker, in both directions.
+// The FRO panel uses it for the "temporarily lent" strip so a lead that
+// disappears from the source list is explained rather than looking lost.
+export const getMyLeadLoans = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { rows, error } = await db._pool.query(
+      `SELECT l.id,
+              l.scope,
+              l.item_count,
+              l.starts_at,
+              l.expires_at,
+              l.status,
+              l.source_station,
+              l.target_station,
+              CASE WHEN l.target_fro_worker_id = $1 THEN 'in' ELSE 'out' END AS direction,
+              w.name AS counterpart_name
+         FROM followup_loans l
+         LEFT JOIN workers w
+           ON w.id = CASE WHEN l.target_fro_worker_id = $1
+                          THEN l.source_fro_worker_id
+                          ELSE l.target_fro_worker_id END
+        WHERE l.status IN ('SCHEDULED', 'ACTIVE')
+          AND l.expires_at > now()
+          AND (l.target_fro_worker_id = $1 OR l.source_fro_worker_id = $1)
+        ORDER BY l.starts_at ASC`,
+      [workerId],
+    );
+    if (error) throw new Error(error.message);
+    return res.json(rows || []);
+  } catch (error) {
+    console.error('getMyLeadLoans error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -5537,12 +5763,42 @@ export const getMyHistory = async (req, res) => {
 
     if (error) throw error;
 
+    // Loan work is credited to the RECIPIENT's log row while the assignment
+    // stays with the source owner, so the owner-based query above cannot see it.
+    // Only workers who have ever received a loan pay for this extra read.
+    let allLogs = logs || [];
+    if (!(req.user.impersonation && req.user.imposter_id != null)) {
+      try {
+        const { data: loanRows } = await db
+          .from('followup_loans')
+          .select('id')
+          .eq('target_fro_worker_id', workerId)
+          .limit(1);
+        if ((loanRows || []).length > 0) {
+          const { data: ownLogs } = await db
+            .from('fro_donor_logs')
+            .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
+            .eq('fro_worker_id', workerId)
+            .order('created_at', { ascending: false })
+            .limit(200);
+          const byId = new Map();
+          for (const l of allLogs) byId.set(l.id, l);
+          for (const l of ownLogs || []) byId.set(l.id, l);
+          allLogs = [...byId.values()]
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+            .slice(0, 200);
+        }
+      } catch (e) {
+        console.warn('[follow-up loans] history merge skipped:', e?.message || String(e));
+      }
+    }
+
     // Hide Old Donors: this timeline is keyed on the WORKER, not on the
     // station scope, so it does not go through getMyStationScope. Each log
     // carries its assignment's station, so the old station's history is
     // dropped here - otherwise the FRO would still read about the very
     // donors the switch is supposed to hide.
-    let visibleLogs = logs || [];
+    let visibleLogs = allLogs;
     if (await isOldDonorsHidden()) {
       visibleLogs = visibleLogs.filter(l => isFreshStation(l.fro_assignments?.station));
     }
@@ -5641,7 +5897,31 @@ export const getFollowUps = async (req, res) => {
 
     if (error) throw error;
 
-    const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
+    // Loans: borrowed follow-ups sit outside this worker's station scope, so
+    // fetch them by assignment id; the source's lent-away rows are removed.
+    const loanSets = await getLoanSets(workerId);
+    const loanedInIds = [...loanSets.inIds];
+    let loanedContacts = [];
+    if (loanedInIds.length > 0) {
+      const { data: lc, error: lcErr } = await db
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, ngos(name))')
+        .eq('is_completed', false)
+        .in('assignment_id', loanedInIds)
+        .gte('scheduled_at', todayStart.toISOString())
+        .lte('scheduled_at', todayEnd.toISOString())
+        .order('scheduled_at', { ascending: true });
+      if (lcErr) throw lcErr;
+      loanedContacts = lc || [];
+    }
+
+    const ownerContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`)
+      .filter(c => !loanSets.outIds.has(Number(c.fro_assignments?.id)));
+
+    const contactById = new Map();
+    for (const c of ownerContacts) contactById.set(c.id, c);
+    for (const c of loanedContacts) contactById.set(c.id, c);
+    const scopedContacts = [...contactById.values()];
 
     const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
     // A follow-up survives the month boundary (see froMonthlyRollover) — never
@@ -5674,6 +5954,7 @@ export const getFollowUps = async (req, res) => {
         notes: c.notes,
         assignment_id: a?.id,
         is_overdue: new Date(c.scheduled_at) < now,
+        ...loanMetaFor(loanSets, a?.id),
       };
     }).filter(Boolean);
 

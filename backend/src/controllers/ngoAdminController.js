@@ -2142,6 +2142,29 @@ export const removeStationByName = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
+    // A station that is part of a live follow-up / callback loan cannot be
+    // deleted: the loan window would still be pointing at a station that no
+    // longer exists. Return or revoke first.
+    try {
+      const scopeNgos = delNgoId ? [String(delNgoId)] : ngoIds.map(String);
+      const { rows } = await db._pool.query(
+        `SELECT count(*)::int AS n
+           FROM followup_loans
+          WHERE status IN ('SCHEDULED', 'ACTIVE')
+            AND (source_station = $1 OR target_station = $1)
+            AND ngo_id::text = ANY($2::text[])`,
+        [station.trim(), scopeNgos],
+      );
+      if ((rows?.[0]?.n || 0) > 0) {
+        return res.status(409).json({
+          message: `This station is part of ${rows[0].n} active follow-up loan(s). Return or revoke them before deleting the station.`,
+          code: 'STATION_HAS_ACTIVE_LOANS',
+        });
+      }
+    } catch (e) {
+      console.warn('follow-up loan station-delete check skipped:', e?.message || String(e));
+    }
+
     let delQuery = db
       .from('fro_station_assignments')
       .delete()
@@ -9218,7 +9241,7 @@ async function countRenameImpact(okRows) {
   // they predate the tracked migrations), so compare as text everywhere.
   const unnest = 'unnest($1::int[], $2::text[], $3::text[]) AS t(ord, ngo_id, station)';
 
-  const [reg, assign, transfer, queue, sessions] = await Promise.all([
+  const [reg, assign, transfer, queue, sessions, loans] = await Promise.all([
     sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
          LEFT JOIN fro_station_assignments x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
          GROUP BY t.ord`, params),
@@ -9235,6 +9258,11 @@ async function countRenameImpact(okRows) {
          LEFT JOIN work_as_sessions x
            ON x.stations @> jsonb_build_array(jsonb_build_object('ngo_id', t.ngo_id, 'station', t.station))
          GROUP BY t.ord`, params),
+    sql(`SELECT t.ord, COUNT(DISTINCT x.id)::int AS cnt FROM ${unnest}
+         LEFT JOIN followup_loans x
+           ON x.ngo_id::text = t.ngo_id
+          AND (x.source_station = t.station OR x.target_station = t.station)
+         GROUP BY t.ord`, params).catch(() => []),
   ]);
 
   const byOrd = (list) => {
@@ -9243,7 +9271,7 @@ async function countRenameImpact(okRows) {
     return m;
   };
   const regM = byOrd(reg), assignM = byOrd(assign), transferM = byOrd(transfer);
-  const queueM = byOrd(queue), sessM = byOrd(sessions);
+  const queueM = byOrd(queue), sessM = byOrd(sessions), loansM = byOrd(loans);
 
   const counts = new Map();
   okRows.forEach((r, i) => {
@@ -9253,6 +9281,7 @@ async function countRenameImpact(okRows) {
       fro_transfers: transferM.get(i) || 0,
       work_queue: queueM.get(i) || 0,
       work_as_sessions: sessM.get(i) || 0,
+      followup_loans: loansM.get(i) || 0,
     });
   });
   return counts;
@@ -9465,6 +9494,30 @@ export const bulkRenameStations = async (req, res) => {
           WHERE x.ngo_id::text = t.ngo_id AND x.target_station = t.old_station
           RETURNING x.id`, upd);
       const transferIds = new Set([...tFrom.map(x => x.id), ...tTo.map(x => x.id)]);
+      // (c2) Follow-up loans — source/target station text plus the snapshotted
+      // item rows. Without this a rename would orphan live and historical loans.
+      // Missing-table is tolerated (first boot before the ensure ran); any other
+      // error aborts the rename as usual.
+      try {
+        await sql(
+          `UPDATE followup_loans x
+              SET source_station = t.new_station
+             FROM ${unnestUpd}
+            WHERE x.ngo_id::text = t.ngo_id AND x.source_station = t.old_station`, upd);
+        await sql(
+          `UPDATE followup_loans x
+              SET target_station = t.new_station
+             FROM ${unnestUpd}
+            WHERE x.ngo_id::text = t.ngo_id AND x.target_station = t.old_station`, upd);
+        await sql(
+          `UPDATE followup_loan_items x
+              SET source_station = t.new_station
+             FROM ${unnestUpd}
+            WHERE x.ngo_id::text = t.ngo_id AND x.source_station = t.old_station`, upd);
+      } catch (loanRenameErr) {
+        if (loanRenameErr?.code !== '42P01') throw loanRenameErr;
+        console.warn('follow-up loan station rename skipped: table not created yet');
+      }
       // (d) Work queue — station + the cycle_key station segment
       //     (cycle_key format: `${ngo|all}:${station|all}:${tab}:${month}`)
        const queueIds = await sql(

@@ -25,6 +25,7 @@ import {
   getFroCallbacks,
   getFroPromises,
   getFroOverdue,
+  getMyLeadLoans,
   getMyHistory,
   requestData,
   getMyDataRequests,
@@ -165,6 +166,7 @@ router.put('/status', updateLiveStatus);
 router.get('/progress', getMyProgress);
 router.put('/progress', saveMyProgress);
 router.get('/history', getMyHistory);
+router.get('/lead-loans', getMyLeadLoans);
 router.get('/target', getMyTarget);
 router.post('/request-data', requestData);
 router.get('/database-requests', getMyDataRequests);

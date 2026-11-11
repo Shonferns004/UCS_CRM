@@ -106,6 +106,16 @@ import {
   revokeTemporaryAccess,
   validateTemporaryAccess,
 } from '../controllers/temporaryAccessController.js';
+import {
+  listFollowUpLoans,
+  listFollowUpLoanFroCandidates,
+  previewFollowUpLoan,
+  getFollowUpLoan,
+  createFollowUpLoan,
+  extendFollowUpLoan,
+  returnFollowUpLoan,
+  revokeFollowUpLoan,
+} from '../controllers/followUpLoanController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -296,5 +306,18 @@ router.get('/temporary-access/:id', getTemporaryAccess);
 router.post('/temporary-access', createTemporaryAccess);
 router.post('/temporary-access/:id/extend', extendTemporaryAccess);
 router.post('/temporary-access/:id/revoke', revokeTemporaryAccess);
+
+// ─── Follow-up / Callback Loans (admin-only visibility window) ──────────────
+// A station's open follow-up/callback leads are lent to another station's FRO
+// for a bounded window. No ownership row is ever rewritten.
+router.get('/followup-loans', listFollowUpLoans);
+// Preview + FRO picker must precede /:id or they would be captured as an id.
+router.get('/followup-loans/preview', previewFollowUpLoan);
+router.get('/followup-loans/fro-candidates', listFollowUpLoanFroCandidates);
+router.get('/followup-loans/:id', getFollowUpLoan);
+router.post('/followup-loans', createFollowUpLoan);
+router.post('/followup-loans/:id/extend', extendFollowUpLoan);
+router.post('/followup-loans/:id/return', returnFollowUpLoan);
+router.post('/followup-loans/:id/revoke', revokeFollowUpLoan);
 
 export default router;
