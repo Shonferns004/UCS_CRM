@@ -679,6 +679,7 @@ export default function FROPanel() {
   const rungAlertIds = useRef(new Set(_initRungAlerts));
   const notifRef = useRef(null);
   const poppedIds = useRef(new Set());
+  const waLeadAlertIds = useRef(new Set());
   const snoozedUntil = useRef({});
 
   const markRead = async (notifId) => {
@@ -778,6 +779,36 @@ export default function FROPanel() {
     return () => clearInterval(poll);
   }, [user?.id]);
 
+  // Poll for newly assigned WhatsApp leads so the FRO gets a toast even if the
+  // live socket event was missed (e.g. tab was backgrounded or reconnecting).
+  const waLeadCountRef = useRef(0);
+  const waLeadInitRef = useRef(false);
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const data = await api('/fro/whatsapp-leads', { _prefix: 'ucs' });
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        const count = list.length;
+        if (!waLeadInitRef.current) {
+          waLeadInitRef.current = true;
+          waLeadCountRef.current = count;
+          return;
+        }
+        if (count > waLeadCountRef.current) {
+          const diff = count - waLeadCountRef.current;
+          toast(`${diff} new lead${diff > 1 ? 's' : ''} assigned to you`, 'info');
+          showDesktopNotification('New WhatsApp Lead Assigned', `${diff} new lead${diff > 1 ? 's' : ''} assigned to you`, '/fro/my-leads');
+        }
+        waLeadCountRef.current = count;
+      } catch (e) { /* ignore */ }
+    };
+    check();
+    const poll = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(poll); };
+  }, [user?.id]);
+
 // An idle warning reaches this panel on the `fro:action` socket: either an admin
 // pressed Warn on the Telecaller Performance board, or the server's idle sweep
 // detected that this FRO entered a band on their own. Both are delivered with
@@ -833,6 +864,15 @@ useEffect(() => onFroAction((action) => {
       if (action.targetWorkerId && me && String(action.targetWorkerId) !== String(me)) return;
       if (autoWarnAlreadyShown(action)) return;
       showIdleWarning(action);
+    } else if (action?.type === 'whatsapp_lead') {
+      // Only react if this alert is for us (or untargeted).
+      const me = (user && (user.id || user.worker_id)) || null;
+      if (action.targetWorkerId && me && String(action.targetWorkerId) !== String(me)) return;
+      const eid = action.referenceId || action.eventId || action.sent_at || Date.now();
+      if (waLeadAlertIds.current.has(eid)) return;
+      waLeadAlertIds.current.add(eid);
+      showDesktopNotification(action.title || 'New WhatsApp Lead Assigned', action.body || '', '/fro/my-leads');
+      toast(`${action.title || 'New WhatsApp Lead Assigned'}: ${action.body || ''}`, 'info');
     }
   }), [showIdleWarning, user]);
 

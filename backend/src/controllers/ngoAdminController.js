@@ -25,6 +25,7 @@ import {
 import { upsertTarget, getTargetsByNgo, getTargetsForWorkersMonth, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import { istMonthBounds } from '../utils/ist.js';
+import { notifyWorker } from '../services/fcmService.js';
 import { buildTeamCollection, resolveRange } from '../services/teamCollectionService.js';
 import { getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker, getWorkerCollectionReceipts, HIGH_TIER_LOG_PREDICATE } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard, workingDaysBetween } from '../services/froRankService.js';
@@ -5954,6 +5955,25 @@ export const assignLeads = async (req, res) => {
     if (aErr) throw aErr;
 
     await db.from('leads').update({ status: 'assigned', assigned_to: parseInt(fro_worker_id) }).in('id', lead_ids);
+
+    const notifTitle = 'New Leads Assigned';
+    const notifBody = `${leads.length} leads assigned to you`;
+    try {
+      await notifyWorker(fro_worker_id, notifTitle, notifBody, 'whatsapp_lead');
+    } catch (e) {
+      console.error('FRO assign notification failed:', e?.message || e);
+    }
+    try {
+      emitRealtime('fro:action', {
+        type: 'whatsapp_lead',
+        targetWorkerId: fro_worker_id,
+        title: notifTitle,
+        body: notifBody,
+        sent_at: new Date().toISOString(),
+      }, 'role:fro');
+    } catch (e) {
+      console.error('FRO realtime notification failed:', e?.message || e);
+    }
 
     return res.json({ message: `${leads.length} leads assigned`, count: leads.length });
   } catch (error) {

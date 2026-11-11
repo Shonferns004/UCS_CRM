@@ -398,10 +398,13 @@ function FestivalBeneficiarySelect({ value, disabled, title, onChange }) {
    festival can be pointed at a different NGO than the page-wide pick. The value
    is the row's NGO id ('' = not chosen yet). */
 function FestivalNgoSelect({ ngos, value, disabled, title, onChange }) {
+  // Coerce to a valid option so the controlled select never gets stuck on a
+  // value that is not in the list (which would silently drop onChange).
+  const safeValue = (ngos || []).some((n) => String(n.id ?? n.ngo_id) === String(value)) ? String(value) : ''
   return (
     <select
       className="eh-select"
-      value={value}
+      value={safeValue}
       disabled={disabled}
       title={title}
       onChange={(e) => onChange(e.target.value)}
@@ -1264,7 +1267,7 @@ export function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const ngo = useMemo(() => ngos.find((n) => String(n.id) === String(ngoId)) || null, [ngos, ngoId])
+  const ngo = useMemo(() => ngos.find((n) => String(n.id ?? n.ngo_id) === String(ngoId)) || null, [ngos, ngoId])
 
   // The suggestion's activity (when there is one) owns the sector, so the event
   // is created against the exact NGO ➜ Sector ➜ Activity the programme belongs
@@ -1937,9 +1940,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           map[k] = l
           const fest = String(l?.festival ?? '')
           const dt = String(l?.observance_date || '').slice(0, 10)
-          if (fest && dt && l?.ngo_id != null && String(l.ngo_id) !== '') {
-            setFestNgo((cur) => ({ ...cur, [`${dt}::${fest}`]: String(l.ngo_id) }))
-          }
+           // Deliberately NOT setting festNgo here: a durable link's NGO is the
+           // event's NGO, not an explicit per-row pick. The row should inherit
+           // the current tab's NGO unless the user explicitly chose otherwise.
         }
         setPlannerLinkMap(map)
       })
@@ -2063,13 +2066,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     const [y, m] = month.split('-').map(Number)
     let cancelled = false
-    manualLoadedRef.current = false
-    console.log('[manual] load start', { month: m, year: y, ngoId })
-    getPlannerManualRows({ month: m, year: y, ngo_id: 'all' })
+     manualLoadedRef.current = false
+     getPlannerManualRows({ month: m, year: y, ngo_id: 'all' })
       .then((rows) => {
-        if (cancelled) return
-        console.log('[manual] load rows', rows)
-        manualLoadedRef.current = true
+         if (cancelled) return
+         manualLoadedRef.current = true
         setFestManual((cur) => {
           const next = { ...cur }
            for (const r of rows) {
@@ -2090,17 +2091,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         })
         setFestExtra((cur) => {
           const next = { ...cur }
-          for (const r of rows) {
-            const festival = String(r?.festival ?? '')
-            if (!festival.startsWith('+')) continue
-            const date = String(r?.observance_date || '').slice(0, 10)
-            const list = next[date] || []
-            if (!list.includes(festival)) next[date] = [...list, festival]
-          }
+           for (const r of rows) {
+             const festival = String(r?.festival ?? '')
+             if (!festival.startsWith('+')) continue
+             // Only the current tab's (scope) extra rows belong here: rows from
+             // other scopes must not leak into this tab's grid.
+             if (String(r?.ngo_id || '') !== String(ngoId || '')) continue
+             const date = String(r?.observance_date || '').slice(0, 10)
+             const list = next[date] || []
+             if (!list.includes(festival)) next[date] = [...list, festival]
+           }
           return next
         })
-        setFestNgo((cur) => {
-          const next = { ...cur }
+        setFestNgo(() => {
+          // Reset first so stale in-memory NGO picks (from a previous tab) don't
+          // survive: only rows with an explicit (non-empty) row_ngo_id override
+          // the current tab's NGO.
+          const next = {}
           for (const r of rows) {
             const rowNgo = String(r?.row_ngo_id || '')
             if (!rowNgo) continue
@@ -2216,8 +2223,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         return ''
       }
     }
-    const rowNgo = getRowNgo()
-    const isExtra = festival.startsWith('+')
+     // Option 2: no per-row NGO override — the row inherits the tab's NGO.
+     const rowNgo = ''
+     const isExtra = festival.startsWith('+')
     const name = String(override.name !== undefined ? override.name : (entry.name || ''))
     const body = String(override.text !== undefined ? override.text : (entry.text || ''))
     const selected = override.selected !== undefined ? Boolean(override.selected) : Boolean(entry.selected)
@@ -2228,16 +2236,19 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const location = override.location !== undefined
       ? override.location
       : (entry.location !== undefined ? entry.location : (key in festLoc ? festLoc[key] : null))
-    // A normal festival row with nothing typed and no tick needs no stored row.
-    // An extra row is kept even while empty: its existence IS the row.
-     if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location) {
-       console.log('[manual] delete', { date, festival, scopeNgo })
-       return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }, opts)
+     // A normal festival row with nothing typed and no tick needs no stored row.
+     // An extra row is kept even while empty: its existence IS the row.
+     // A row that carries a custom NGO assignment (row_ngo_id different from the
+     // page scope) is also kept: deleting it would lose the NGO pick on refresh.
+     // A non-empty row_ngo_id now always means a custom (different-from-scope)
+     // assignment, so keep the row even when everything else is empty.
+     const rowHasCustomNgo = Boolean(rowNgo) && rowNgo !== ''
+      if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location && !rowHasCustomNgo) {
+          return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }, opts)
          .then((res) => { dirtyLocRef.current.delete(key); setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n }); return res })
          .catch((e) => { console.error('deleteManualRow failed', e); return null })
      }
-     console.log('[manual] save', { month: m, year: y, date, festival, scopeNgo, rowNgo, name, body })
-     return savePlannerManualRow({
+      return savePlannerManualRow({
        month: m,
        year: y,
        observance_date: date,
@@ -2429,12 +2440,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      explicit pick for that row, else the page-wide NGO, else the NGO the row's
      stored suggestions already belong to. Rows read only their own NGO's stored
      ideas, so BSCT, MANN and AFLF never mix in one block. */
-  const rowNgoId = useCallback((key) => {
-    if (festNgo[key]) return String(festNgo[key])
-    if (ngoId) return String(ngoId)
-    const stored = (festivalSuggestionsByKey[key] || []).find((s) => s.ngo_id)
-    return stored ? String(stored.ngo_id) : ''
-  }, [festNgo, ngoId, festivalSuggestionsByKey])
+  // With Option 2, every row inherits the current tab's NGO for display.
+   const rowNgoId = useCallback(() => String(ngoId || ''), [ngoId]) /* SYNTAX_ERROR_TEST */
 
   const rowNgo = useCallback(
     (key) => ngos.find((n) => String(n.id) === rowNgoId(key)) || null,
@@ -2452,31 +2459,6 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      and on the server) — otherwise it would sit hidden in the grid yet still
      reach the download under the old NGO. Stored ideas are never deleted, only
      the selection is dropped. */
-  const changeRowNgo = (key, value) => {
-    markDirty(key)
-    const prevId = rowNgoId(key)
-    const hasData = Boolean(scopedManual[key]) || (key in festLoc) || (key in festBenef)
-    if (hasData) {
-      // Persist while the old NGO's location/beneficiary are still in state.
-      persistManualRow(key, { row_ngo_id: value })
-    }
-    setFestNgo((cur) => ({ ...cur, [key]: value }))
-    setFestBenef((cur) => { const next = { ...cur }; delete next[key]; return next })
-    setFestLoc((cur) => { const next = { ...cur }; delete next[key]; return next })
-    if (String(key).slice(String(key).indexOf('::') + 2).startsWith('+')) {
-      persistManualRow(key, { row_ngo_id: value })
-    }
-    if (prevId && String(value) !== String(prevId)) {
-      const stale = (festivalSuggestionsByKey[key] || [])
-        .filter((s) => s.is_selected && String(s.ngo_id ?? '') === prevId)
-      if (stale.length) {
-        const ids = new Set(stale.map((s) => s.id))
-        setFestivalSuggestions((list) => list.map((x) => (ids.has(x.id) ? { ...x, is_selected: false } : x)))
-        stale.forEach((s) => setFestivalSuggestionSelected(s.id, false).catch(() => null))
-      }
-    }
-  }
-
   /* The category a festival row's dropdown shows, and the value sent when that
      festival's programmes are generated: the user's pending choice first, then
      the category the stored suggestions were actually generated with (so a
@@ -3900,11 +3882,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   }
   const removeExtraRow = (date, key) => {
     setFestExtra((cur) => ({ ...cur, [date]: (cur[date] || []).filter((s) => `${date}::${s}` !== key) }))
+    setFestManual((cur) => { const n = { ...cur }; delete n[`${ngoId || 'all'}|${month}|${key}`]; return n })
     setFestNgo((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestBenef((cur) => { const n = { ...cur }; delete n[key]; return n })
     setFestLoc((cur) => { const n = { ...cur }; delete n[key]; return n })
     const rowNgo = rowNgoId(key)
-    deletePlannerManualRow({ observance_date: date, festival: (key.split('::')[1] || ''), ngo_id: rowNgo || ngoId || '' }).catch(() => null)
+    deletePlannerManualRow({ observance_date: date, festival: (key.split('::')[1] || ''), ngo_id: rowNgo || ngoId || '' })
+      .then(() => showToast('Row removed'))
+      .catch(() => showToast('Could not remove row. Please try again.'))
   }
   /* A user-added programme row: same columns as every other row, with an
      editable name in the Festival / Day column, an NGO that starts on the row it
@@ -3948,13 +3933,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           </button>
         </td>
         <td className="ng divider">
-          <FestivalNgoSelect
-            ngos={ngos}
-            value={rowNgoId(key)}
-            disabled={festBusy}
-            title="Which NGO this programme belongs to"
-            onChange={(v) => changeRowNgo(key, v)}
-          />
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--eh-ink)' }}>
+            {ngo ? ngoShortLabel(ngo) : '—'}
+          </span>
         </td>
         <td className="bn divider">
           <FestivalBeneficiarySelect
@@ -4047,9 +4028,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           ngo_id: linkNgo || null,
           event_id: event.id,
         }
-         setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
-         if (linkNgo) setFestNgo((cur) => ({ ...cur, [key]: String(linkNgo) }))
-         setPlannerEventLink(link).catch(() => {
+          setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
+          // Do not override festNgo here: the row inherits the current tab's NGO
+          // unless the user explicitly chose a different one.
+          setPlannerEventLink(link).catch(() => {
            // The event exists either way; only the cross-device link is missing.
          })
       }
@@ -4574,13 +4556,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                         />
                       </td>
                       <td className="ng divider">
-                        <FestivalNgoSelect
-                          ngos={ngos}
-                          value={rowNgoId(key)}
-                          disabled={festBusy}
-                          title="Which NGO this date's event belongs to"
-                          onChange={(v) => changeRowNgo(key, v)}
-                        />
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--eh-ink)' }}>
+                          {ngo ? ngoShortLabel(ngo) : '—'}
+                        </span>
                       </td>
                       <td className="bn divider">
                         <FestivalBeneficiarySelect
@@ -4710,13 +4688,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                         <td className="dd divider">{shortDate(date)}</td>
                         <td className="ff divider">{festivalCell(o, key)}</td>
                         <td className="ng divider">
-                          <FestivalNgoSelect
-                            ngos={ngos}
-                            value={rowNgoId(key)}
-                            disabled={festBusy}
-                            title="Which NGO this festival's programme belongs to"
-                            onChange={(v) => changeRowNgo(key, v)}
-                          />
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--eh-ink)' }}>
+                            {ngo ? ngoShortLabel(ngo) : '—'}
+                          </span>
                         </td>
                         <td className="bn divider">
                           <FestivalBeneficiarySelect
@@ -4775,13 +4749,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                       <td key="d" className="dd divider" rowSpan={rowCount}>{shortDate(date)}</td>,
                       <td key="f" className="ff divider" rowSpan={rowCount}>{festivalCell(o, key)}</td>,
                       <td key="n" className="ng divider" rowSpan={rowCount}>
-                        <FestivalNgoSelect
-                          ngos={ngos}
-                          value={rowNgoId(key)}
-                          disabled={festBusy}
-                          title="Which NGO this festival's programme belongs to"
-                          onChange={(v) => changeRowNgo(key, v)}
-                        />
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--eh-ink)' }}>
+                          {ngo ? ngoShortLabel(ngo) : '—'}
+                        </span>
                       </td>,
                       <td key="b" className="bn divider" rowSpan={rowCount}>
                         <FestivalBeneficiarySelect
@@ -5223,3 +5193,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     </div>
   )
 }
+
+
+
+
+

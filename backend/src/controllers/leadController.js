@@ -8,7 +8,8 @@ import {
   getLeadsDashboard,
   ownsLead,
 } from '../models/leadModel.js';
-import { sendPushNotification } from '../services/fcmService.js';
+import { notifyWorker } from '../services/fcmService.js';
+import { emitRealtime } from '../socket.js';
 import db from '../config/db.js';
 
 // ── Who is allowed to see which lead ─────────────────────────────────────────
@@ -132,6 +133,28 @@ export const editLead = async (req, res) => {
       updates.scheduled_by_name = req.user.name || null;
     }
     const lead = await updateLead(req.params.id, updates);
+    // Notify the FRO when a lead is assigned to them via the edit flow.
+    if (status === 'assigned' && recruiter_id && String(recruiter_id) !== String(existing.recruiter_id || '')) {
+      const notifTitle = 'New WhatsApp Lead Assigned';
+      const notifBody = `${existing.name || ''} ${existing.phone || ''}`.trim();
+      try {
+        await notifyWorker(recruiter_id, notifTitle, notifBody, 'whatsapp_lead', req.params.id);
+      } catch (e) {
+        console.error('FRO notification failed:', e?.message || e);
+      }
+      try {
+        emitRealtime('fro:action', {
+          type: 'whatsapp_lead',
+          targetWorkerId: recruiter_id,
+          title: notifTitle,
+          body: notifBody,
+          referenceId: req.params.id,
+          sent_at: new Date().toISOString(),
+        }, 'role:fro');
+      } catch (e) {
+        console.error('FRO realtime notification failed:', e?.message || e);
+      }
+    }
     return res.json({ message: 'Lead updated successfully', lead });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -234,10 +257,24 @@ export const assignLeadToFro = async (req, res) => {
     }
 
     const lead = await updateLead(req.params.id, { recruiter_id: froId, status: 'assigned' });
+    const notifTitle = 'New WhatsApp Lead Assigned';
+    const notifBody = `${existing.name || ''} ${existing.phone || ''}`.trim();
     try {
-      await sendPushNotification(froId, 'New WhatsApp Lead Assigned', `${existing.name || ''} ${existing.phone || ''}`.trim(), 'whatsapp_lead', existing.id);
+      await notifyWorker(froId, notifTitle, notifBody, 'whatsapp_lead', existing.id);
     } catch (e) {
       console.error('FRO notification failed:', e?.message || e);
+    }
+    try {
+      emitRealtime('fro:action', {
+        type: 'whatsapp_lead',
+        targetWorkerId: froId,
+        title: notifTitle,
+        body: notifBody,
+        referenceId: existing.id,
+        sent_at: new Date().toISOString(),
+      }, 'role:fro');
+    } catch (e) {
+      console.error('FRO realtime notification failed:', e?.message || e);
     }
     return res.json({ message: 'Assigned successfully', lead, donor_id: donorId });
   } catch (error) {
