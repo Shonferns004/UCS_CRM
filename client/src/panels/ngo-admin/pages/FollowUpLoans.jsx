@@ -455,8 +455,11 @@ export default function FollowUpLoans() {
                             </td>
                           </tr>
                         ) : rows.map(r => {
-                          const active = r.activeLoans;
-                          const history = r.historyLoans;
+                          // Active loans are chips on every tab; closed loans
+                          // (RETURNED / EXPIRED / REVOKED) are only shown while
+                          // the History tab is open, so a revoked loan never
+                          // lingers above the table.
+                          const chips = tab === 'HISTORY' ? r.historyLoans : r.activeLoans;
                           return (
                             <tr key={r.key}>
                               <td>
@@ -471,33 +474,34 @@ export default function FollowUpLoans() {
                                   {r.donorCount.toLocaleString('en-IN')} donor{r.donorCount === 1 ? '' : 's'}
                                 </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }}>
-                                  {active.map(l => (
+                                  {chips.slice(0, 3).map(l => (
                                     <span
                                       key={l.id}
                                       className="ll-chip"
                                       onClick={() => openDetail(l)}
-                                      title={`${l.direction === 'out' ? 'Lent to' : 'Received from'} ${l.direction === 'out' ? l.target_station : l.source_station} · ${l.item_count} leads · until ${fmt(l.expires_at)} IST. Click for details.`}
-                                      style={{
-                                        background: l.direction === 'out' ? '#fffbeb' : '#eff6ff',
-                                        color: l.direction === 'out' ? '#92400e' : '#1d4ed8',
-                                        borderColor: l.direction === 'out' ? '#fde68a' : '#bfdbfe',
-                                      }}
+                                      title={tab === 'HISTORY'
+                                        ? `${l.computed_status} · ${l.source_station} → ${l.target_station} · ${l.item_count} leads · ${fmt(l.starts_at)} → ${fmt(l.expires_at)} IST. Click for details.`
+                                        : `${l.direction === 'out' ? 'Lent to' : 'Received from'} ${l.direction === 'out' ? l.target_station : l.source_station} · ${l.item_count} leads · until ${fmt(l.expires_at)} IST. Click for details.`}
+                                      style={tab === 'HISTORY'
+                                        ? { background: '#f8fafc', color: '#64748b', borderColor: '#e2e8f0' }
+                                        : {
+                                            background: l.direction === 'out' ? '#fffbeb' : '#eff6ff',
+                                            color: l.direction === 'out' ? '#92400e' : '#1d4ed8',
+                                            borderColor: l.direction === 'out' ? '#fde68a' : '#bfdbfe',
+                                          }}
                                     >
                                       {loanChip(l)}
                                     </span>
                                   ))}
-                                  {active.length === 0 && history.length > 0 && (
-                                    <span
-                                      className="ll-chip"
-                                      onClick={() => openDetail(history[0])}
-                                      style={{ background: '#f8fafc', color: '#64748b', borderColor: '#e2e8f0' }}
-                                      title={`Last loan: ${history[0].computed_status} · ${history[0].item_count} leads`}
-                                    >
-                                      {loanChip(history[0])}
+                                  {chips.length > 3 && (
+                                    <span style={{ fontSize: 9.5, color: 'var(--ink-soft)' }}>
+                                      +{chips.length - 3} more
                                     </span>
                                   )}
-                                  {active.length === 0 && history.length === 0 && (
-                                    <span style={{ fontSize: 9.5, color: 'var(--ink-soft)' }}>No active loan</span>
+                                  {chips.length === 0 && (
+                                    <span style={{ fontSize: 9.5, color: 'var(--ink-soft)' }}>
+                                      {tab === 'HISTORY' ? 'No loan history' : 'No active loan'}
+                                    </span>
                                   )}
                                 </div>
                               </td>

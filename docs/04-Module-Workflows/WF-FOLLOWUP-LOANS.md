@@ -71,7 +71,9 @@ lead can only be on one live loan.
    `All open`.
 4. Confirm → loan + items + audit event. The station row shows a loan chip.
 5. Tabs are **Old | New | Lending out | Receiving | History**; the detail modal
-   extends, returns early, revokes, and shows items + audit.
+   extends, returns early, revokes, and shows items + audit. Station rows show
+   chips only for live loans (`Lending out` / `Receiving`); closed loans
+   (`RETURNED` / `EXPIRED` / `REVOKED`) appear only on the **History** tab.
 
 ## API
 

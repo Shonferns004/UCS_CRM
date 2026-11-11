@@ -5,17 +5,11 @@ import {
   previewFollowUpLoan,
   listFollowUpLoanFroCandidates,
 } from '../api/auth';
+import Time12Control from '../components/Time12Control';
 
 // ─── Lend follow-ups / callbacks (station → station) ─────────────────────────
 // A loan only grants a time-boxed visibility window. No donor row, station or
 // owner is moved, so the permanent FRO and the donor's history stay untouched.
-
-const REASONS = [
-  { value: 'WORKLOAD_SUPPORT', label: 'Workload support' },
-  { value: 'STAFF_ABSENCE', label: 'Staff absence' },
-  { value: 'SPECIAL_ASSIGNMENT', label: 'Special assignment' },
-  { value: 'OTHER', label: 'Other (explanation required)' },
-];
 
 const SCOPES = [
   { value: 'BOTH', label: 'Follow-ups + promises + callbacks' },
@@ -72,8 +66,6 @@ export default function FollowUpLoanModal({ source, stations = [], onClose, onCr
   const [scope, setScope] = useState('BOTH');
   const [selection, setSelection] = useState('ALL_OPEN');
   const [count, setCount] = useState('');
-  const [reasonCode, setReasonCode] = useState('WORKLOAD_SUPPORT');
-  const [reasonNote, setReasonNote] = useState('');
   const [startsLocal, setStartsLocal] = useState(defaultStart);
   const [expiresLocal, setExpiresLocal] = useState(defaultExpiry);
   const [froId, setFroId] = useState('');
@@ -175,7 +167,6 @@ export default function FollowUpLoanModal({ source, stations = [], onClose, onCr
     if (!froId) return setError('Select the FRO who will receive the leads');
     if (windowError) return setError(windowError);
     if (!selectedCount) return setError('No open follow-up, promise or callback leads match this selection');
-    if (reasonCode === 'OTHER' && !reasonNote.trim()) return setError('Explain the reason for this loan');
 
     setSubmitting(true);
     try {
@@ -189,8 +180,8 @@ export default function FollowUpLoanModal({ source, stations = [], onClose, onCr
         count: selection === 'FIXED_COUNT' ? Number(count) : null,
         starts_at: toIso(startsLocal),
         expires_at: toIso(expiresLocal),
-        reason_code: reasonCode,
-        reason_note: reasonNote.trim() || null,
+        reason_code: 'WORKLOAD_SUPPORT',
+        reason_note: null,
       });
       setResult(payload);
       onCreated?.(payload);
@@ -212,7 +203,7 @@ export default function FollowUpLoanModal({ source, stations = [], onClose, onCr
           </div>
           <div style={{ padding: 16, fontSize: 13, lineHeight: 1.6 }}>
             <p style={{ margin: '0 0 10px', color: '#065f46', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 6, padding: '8px 10px' }}>
-              <b>{result.lent}</b> follow-up / callback lead(s) from <b>{source.station}</b> are now with{' '}
+              <b>{result.lent}</b> follow-up / promise / callback lead(s) from <b>{source.station}</b> are now with{' '}
               <b>{targetStation}</b> until <b>{fmt(loan.expires_at)} IST</b>.
             </p>
             <p style={{ margin: 0, color: 'var(--ink-soft)' }}>
@@ -232,7 +223,7 @@ export default function FollowUpLoanModal({ source, stations = [], onClose, onCr
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="modal-head">
-          <h3><ArrowRightLeft size={16} style={{ marginRight: 6, verticalAlign: -2 }} />Lend follow-ups / callbacks</h3>
+          <h3><ArrowRightLeft size={16} style={{ marginRight: 6, verticalAlign: -2 }} />Lend follow-ups / promises / callbacks</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
 
@@ -301,29 +292,22 @@ export default function FollowUpLoanModal({ source, stations = [], onClose, onCr
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Starts</label>
-              <input type="datetime-local" style={inputStyle} value={startsLocal} onChange={e => setStartsLocal(e.target.value)} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+              Loan window
             </div>
-            <div>
-              <label style={labelStyle}>Expires</label>
-              <input type="datetime-local" style={inputStyle} value={expiresLocal} onChange={e => setExpiresLocal(e.target.value)} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+              <Time12Control label="Starts (required)" value={startsLocal} onChange={setStartsLocal} />
+              <Time12Control label="Expires (required)" value={expiresLocal} onChange={setExpiresLocal} />
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>
+              Leads are visible to the receiving FRO between these two times, then return to {source.station} automatically.
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Reason</label>
-              <select style={inputStyle} value={reasonCode} onChange={e => setReasonCode(e.target.value)}>
-                {REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Note {reasonCode === 'OTHER' ? '(required)' : '(optional)'}</label>
-              <input style={inputStyle} value={reasonNote} onChange={e => setReasonNote(e.target.value)} placeholder="Short explanation" />
-            </div>
-          </div>
+          {windowError && startsLocal && expiresLocal && (
+            <div style={{ fontSize: 12.5, color: '#991b1b' }}>{windowError}</div>
+          )}
 
           <div style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: 12, background: 'var(--bg, #f8fafc)' }}>
             {!targetStation && (
