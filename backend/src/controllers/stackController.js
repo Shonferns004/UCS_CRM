@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { invalidateGrantCache, invalidateSliceCache } from '../services/temporaryAccessService.js';
+import { isStacksEnabledForStation, setStacksEnabledForStation, listStackSettings } from '../services/stackSettings.js';
 
 // Resolve acting admin to a valid users.id (super_admin id=0 is not a users row).
 async function resolveAdminId(user) {
@@ -16,6 +17,41 @@ async function resolveAdminId(user) {
   } catch { /* fall through */ }
   return null;
 }
+
+// ─── Stack settings (global on/off switch) ──────────────────────────────────
+
+export const getStackSettings = async (req, res) => {
+  try {
+    const { ngo_id, station } = req.query;
+    // One station (the settings dialog) or the full map (row ⋮ menus).
+    if (station) {
+      return res.json({ enabled: await isStacksEnabledForStation(ngo_id, station) });
+    }
+    return res.json({ stations: await listStackSettings() });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+export const updateStackSettings = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const ngoId = body.ngo_id ?? body.ngoId;
+    const station = String(body.station || '').trim();
+    if (!station) return res.status(400).json({ message: 'station is required' });
+    const raw = body.enabled ?? body.value ?? body.stacks_enabled;
+    const enabled = raw === true || raw === 'true' || raw === 1 || raw === '1';
+    await setStacksEnabledForStation(ngoId, station, enabled);
+    return res.json({
+      enabled,
+      message: enabled
+        ? `Stack assignments are ON for ${station} only.`
+        : `Stack assignments are OFF for ${station} — donors stay with the FRO they are assigned to.`,
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
 
 // ─── Stack CRUD + members + FRO assignment ────────────────────────────────────
 
@@ -51,6 +87,9 @@ export const createStack = async (req, res) => {
   try {
     const { ngo_id, station, name, stack_type = 'normal', donor_ids = [], created_by } = req.body || {};
     if (!ngo_id || !station || !name) return res.status(400).json({ message: 'ngo_id, station, name required' });
+    if (!(await isStacksEnabledForStation(ngo_id, station))) {
+      return res.status(409).json({ message: `Stack assignments are OFF for ${station}. Enable them in Settings first.` });
+    }
     const client = await db._pool.connect();
     try {
       await client.query('BEGIN');
@@ -190,6 +229,9 @@ export const assignFroToStack = async (req, res) => {
     const { rows: st } = await db._pool.query('SELECT * FROM donor_stacks WHERE id = $1', [id]);
     if (!st.length) return res.status(404).json({ message: 'stack not found' });
     const stack = st[0];
+    if (!(await isStacksEnabledForStation(stack.ngo_id, stack.station))) {
+      return res.status(409).json({ message: `Stack assignments are OFF for ${stack.station}. Enable them in Settings first.` });
+    }
 
     const oldFro = stack.fro_worker_id;
     const nextFro = fro_worker_id || null;
@@ -328,7 +370,19 @@ export const getMyStacks = async (req, res) => {
     sql += ` ORDER BY COALESCE(substring(s.name from '([0-9]+)\\s*$')::int, 2147483647) ASC,
                       s.name ASC, s.created_at ASC, s.id ASC`;
     const { rows } = await db._pool.query(sql, params);
-    return res.json({ stacks: rows || [] });
+    // Stacks are enabled per station. An FRO can hold stacks on several
+    // stations, so filter only the ones whose switch is ON — the rest keep
+    // working through their normal assigned donor list.
+    const switchCache = new Map();
+    const visible = [];
+    for (const row of rows || []) {
+      const key = `${row.ngo_id}|${row.station}`;
+      if (!switchCache.has(key)) {
+        switchCache.set(key, await isStacksEnabledForStation(row.ngo_id, row.station));
+      }
+      if (switchCache.get(key)) visible.push(row);
+    }
+    return res.json({ stacks: visible });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

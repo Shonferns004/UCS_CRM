@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, EyeOff, Download, XCircle, Clock, UserPlus, Upload, Unlink } from 'lucide-react';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, EyeOff, Download, XCircle, Clock, UserPlus, Upload, Layers, ShieldCheck } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess, getHideOldDonors, setHideOldDonors, setHideOldDonorsSchedule } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
@@ -8,6 +8,7 @@ import { istMonthKey } from '../../../utils/istDate';
 import { dispositionGroupOf, dispositionLabelOf } from '../../../lib/dispositions';
 import TemporaryAccessModal from './TemporaryAccessModal';
 import DonorStacksModal from './DonorStacksModal';
+import StackSettingsModal from './StackSettingsModal';
 
 // IST (Asia/Kolkata) helpers for temporary-access badges: the grant stores
 // UTC timestamptz; admins read IST, so every display goes through the zone
@@ -29,6 +30,11 @@ const NGO_NAME_COLORS = {
   mann: '#ec4899',
 };
 
+// Station names that are neither Old (BOD/AOD/MOD) nor New (FD). They used to
+// be mixed into the BSCT column; the Other tab now owns them exclusively.
+const OTHER_STATION_NAMES = new Set(['L', 'PS', 'PG', 'S']);
+const isOtherStation = (code) => OTHER_STATION_NAMES.has(String(code ?? '').trim().toUpperCase());
+
 function groupOfNameLocal(name) {
   const k = String(name || '').trim().toLowerCase();
   if (NGO_NAME_COLORS[k]) return k;
@@ -38,7 +44,7 @@ function groupOfNameLocal(name) {
   return 'other';
 }
 
-function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, renderRow }) {
+function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, renderRow, autoGroups = false }) {
   const term = String(searchTerm || '').trim().toLowerCase();
   const base = (stations || []).filter(s => fresh ? isFreshStation(s.station) : !isFreshStation(s.station));
   const searched = term ? base.filter(s => String(s.station || '').toLowerCase().includes(term) || String(s.fro_worker_name || '').toLowerCase().includes(term)) : base;
@@ -50,13 +56,21 @@ function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, r
     if ((g === 'bsct' || g === 'aflf' || g === 'mann') && !groupNgo[g]) groupNgo[g] = n;
   }
 
+  // Other tab: draw only the NGO columns that actually hold stations, so the
+  // four L/PS/PG/S rows are not stranded beside two empty AFLF/MANN columns.
+  const presentGroups = ['bsct', 'aflf', 'mann'].filter(g =>
+    searched.some(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g)));
+  const groupKeys = autoGroups
+    ? (presentGroups.length ? presentGroups : ['bsct'])
+    : ['bsct', 'aflf', 'mann'];
+
   const froNameOf = (id) => (froWorkers || []).find(f => String(f.id) === String(id))?.name || null;
 
   return (
     <>
     <style>{`.sm-no-scrollbar::-webkit-scrollbar{display:none}.sm-no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}`}</style>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, alignItems: 'start' }}>
-      {['bsct', 'aflf', 'mann'].map(g => {
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${groupKeys.length}, minmax(0, 1fr))`, gap: 12, alignItems: 'start' }}>
+      {groupKeys.map(g => {
         const ngo = groupNgo[g];
         const color = NGO_NAME_COLORS[g];
         const label = g.toUpperCase();
@@ -1136,6 +1150,104 @@ function SourcePill({ source, monthsEmployed, sourceMonth }) {
   return <span className="pill pill-gray">Not Set</span>;
 }
 
+// Page-level action menu (the ⋮ beside the station search box). Every control
+// that used to sit loose in the header — add station, export, auto-hide, show/
+// hide old donors — lives here so the toolbar stays one row.
+const PAGE_MENU_ITEM = {
+  display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
+  border: 'none', background: 'transparent', borderRadius: 6, fontSize: 12.5,
+  fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap',
+};
+
+// The two controls that used to sit as loose icons beside the FRO search box on
+// a station row ("grant temporary access" and the green S for stacks). One ⋮
+// menu replaces them; each item opens its own dialog.
+function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStacks, onSettings }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const run = (fn) => () => { setOpen(false); if (fn) fn(); };
+  const itemStyle = { display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit', background: 'transparent', border: 'none', width: '100%', textAlign: 'left', color: 'var(--ink)', whiteSpace: 'nowrap' };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label="Temporary and stack assignments"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Assignments — temporary access and donor stacks"
+        style={{ width: 26, height: 26, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1, borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff', color: 'var(--ink-soft)', cursor: 'pointer' }}
+      >
+        ⋮
+      </button>
+      {open && (
+        <div role="menu" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 200 }}>
+          <button role="menuitem" onClick={run(onTemp)} style={{ ...itemStyle, color: '#1d4ed8', fontWeight: 600 }}>
+            <Clock size={14} /> Temp assignment
+          </button>
+          {stacksEnabled && (
+            <button role="menuitem" onClick={run(onStacks)} style={{ ...itemStyle, color: '#166534', fontWeight: 600 }}>
+              <Layers size={14} /> Stack assignments
+              {hasStacks && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: '#16a34a', color: '#fff' }}>Active</span>}
+            </button>
+          )}
+          <div style={{ borderTop: '1px solid var(--line, #e5e7eb)', margin: '4px 0' }} />
+          <button role="menuitem" onClick={run(onSettings)} style={itemStyle}>
+            <Settings size={14} /> Settings
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Temporary-access chip. The standalone red ✕ used to sit beside the name and
+// pushed long names (Dhanshree Ghodke, Mahima Redkar) out of the station cell.
+// The revoke action now lives INSIDE the chip and only appears on hover.
+function TempGrantChip({ name, title, onRevoke }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onRevoke}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      title={hover ? 'Click to revoke this temporary access' : title}
+      aria-label={`Revoke temporary access${name ? ` for ${name}` : ''}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%',
+        fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, fontFamily: 'inherit',
+        background: hover ? '#fef2f2' : '#eff6ff',
+        color: hover ? '#b91c1c' : '#1d4ed8',
+        border: `1px solid ${hover ? '#fecaca' : '#bfdbfe'}`,
+        cursor: 'pointer', overflow: 'hidden',
+        transition: 'background .12s, color .12s, border-color .12s',
+      }}
+    >
+      {/* Both labels share one grid cell, so hover swaps the text without
+          changing the chip's width (which used to reflow the whole row). */}
+      <span style={{ display: 'grid', minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ gridArea: '1 / 1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', visibility: hover ? 'hidden' : 'visible' }}>
+          {name || 'FRO'}
+        </span>
+        <span style={{ gridArea: '1 / 1', textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap', visibility: hover ? 'visible' : 'hidden' }}>
+          Revoke
+        </span>
+      </span>
+    </button>
+  );
+}
+
 // Per-row ⋮ kebab menu (absolute overlay; does not affect column widths).
 function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onViewList, onAddDonor, onDownload, onTarget, onGrantTempAccess, onDelete }) {
   const [open, setOpen] = useState(false);
@@ -1228,6 +1340,96 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
               {adding ? 'Adding...' : 'Create Station'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Download donor list by NGO ─────────────────────────────────────────────
+// The admin asked for the whole NGO's donor book, not the slice on screen, so
+// this asks which NGO first and then hits /ngo-admin/donors-by-ngo. The exported
+// sheet keeps the requested columns - donor, mobile numbers, agent (the FRO
+// working the lead) and station - and paints DND rows red.
+function DownloadNgoModal({ allNgos, downloadingKey, onDownload, onClose }) {
+  // Two steps on purpose: the admin picks the NGO first, then says whether the
+  // sheet should contain the old stations, the new (FD-*) ones, or both. Keeping
+  // the choice on screen means the same NGO can be pulled twice without reopening.
+  const [ngo, setNgo] = useState(null);
+  const downloading = !!downloadingKey;
+  const busyWith = (type) => !!ngo && downloadingKey === `${ngo.id}:${type}`;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="modal-head">
+          <h3>{ngo ? `Download — ${ngo.name}` : 'Download Donor List'}</h3>
+          <button className="btn btn-sm btn-outline" onClick={onClose} disabled={downloading} aria-label="Close"><X size={14} /></button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {!ngo ? (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
+                Select an NGO. You will then choose <strong>Old</strong> or <strong>New</strong> donors.
+              </p>
+              {(allNgos || []).length === 0 ? (
+                <div className="empty-state"><p>No NGOs available.</p></div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {allNgos.map(n => (
+                    <button
+                      key={n.id}
+                      className="btn btn-outline"
+                      onClick={() => setNgo(n)}
+                      disabled={downloading}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}
+                    >
+                      <span style={{ fontWeight: 600 }}>{n.name}</span>
+                      <ChevronDown size={14} style={{ transform: 'rotate(-90deg)', opacity: .6 }} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
+                Which donors of <strong>{ngo.name}</strong> should be downloaded?
+                The Excel contains <strong>Donor Name</strong>, <strong>Mobile</strong>, <strong>Mobile 2</strong>, <strong>Agent Name</strong> and <strong>Station</strong>.
+                DND donors are highlighted in red.
+              </p>
+              {[
+                { type: 'all', label: 'All Donors (Old + New)', color: '#334155', bg: '#f1f5f9', border: '#cbd5e1' },
+                { type: 'old', label: 'Old Donors', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+                { type: 'new', label: 'New Donors', color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+              ].map(opt => (
+                <button
+                  key={opt.type}
+                  onClick={() => onDownload(ngo, opt.type)}
+                  disabled={downloading}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%',
+                    padding: '10px 12px', borderRadius: 8, fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+                    cursor: downloading ? 'wait' : 'pointer', background: opt.bg, color: opt.color,
+                    border: `1px solid ${opt.border}`, opacity: downloading && !busyWith(opt.type) ? .55 : 1,
+                  }}
+                >
+                  <span>{opt.label}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                    {busyWith(opt.type) ? 'Preparing…' : <><Download size={13} /> Excel</>}
+                  </span>
+                </button>
+              ))}
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={() => setNgo(null)}
+                disabled={downloading}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                ← Choose another NGO
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -2822,6 +3024,10 @@ export default function StationManagement() {
   const [stationTab, setStationTab] = useState('old');
   const [bulkRenameOpen, setBulkRenameOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // "Download" modal state. downloadingKey is `<ngoId>:<old|new>` while a sheet
+  // is being fetched, so the modal can show "Preparing…" on the exact choice.
+  const [downloadNgoOpen, setDownloadNgoOpen] = useState(false);
+  const [downloadingKey, setDownloadingKey] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef(null);
@@ -2834,12 +3040,17 @@ export default function StationManagement() {
   const [donorListTarget, setDonorListTarget] = useState(null);
   const [stationDetailTarget, setStationDetailTarget] = useState(null);
   const [addDonorTarget, setAddDonorTarget] = useState(null);
-  // Temporary Data Access: which station's "Grant temporary access" modal is
-  // open ({ station, ngoId, permanentFroId, permanentFroName, donorCount }).
-  // Separate from editNgoStation/permanent-assignment state on purpose — the
-  // grant flow must never route through the permanent FRO dropdown.
-  const [tempAccessTarget, setTempAccessTarget] = useState(null);
-  const [stacksModalTarget, setStacksModalTarget] = useState(null);
+  // Which assignment modal is open and for which station:
+  // { station, ngoId, permanentFroId, permanentFroName, donorCount, tab }.
+  // tab is 'temp' or 'stacks' and picks which of the two dialogs renders — they
+  // stay separate; the ⋮ menu only chooses between them.
+  const [assignmentsTarget, setAssignmentsTarget] = useState(null);
+  // Stack switch, one entry per (NGO, station): `{ "<ngoId>:<station>": true }`.
+  // Missing = OFF (the default). The row ⋮ shows "Stack assignments" only for
+  // stations in this map, and Settings edits exactly one key.
+  const [stackSettings, setStackSettings] = useState({});
+  const [stackSettingsTarget, setStackSettingsTarget] = useState(null);
+  const stackKey = (ngoId, station) => `${ngoId ?? ''}:${station ?? ''}`;
   const [allStacks, setAllStacks] = useState([]);
   // Live grants for the whole table: rendered as a per-station badge so the
   // admin SEES who currently has temporary access without leaving this page,
@@ -2961,6 +3172,10 @@ export default function StationManagement() {
     const match = preferred ? rowNgos.find(n => String(n.ngo_id) === preferred) : null;
     return (match || rowNgos[0]).ngo_id;
   };
+
+  // Is the stack feature on for THIS row's (NGO, station)? Per-row on purpose:
+  // enabling BOD-1 must not enable BOD-2 or another NGO's BOD-1.
+  const stacksEnabledFor = (s) => !!stackSettings[stackKey(ngoScopeForRow(s), s.station)];
 
   useEffect(() => {
     if (!toolsOpen) return;
@@ -3091,6 +3306,9 @@ export default function StationManagement() {
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('Initial transfers load error:', err));
+    apiGet('/ngo-admin/stack-settings')
+      .then(r => setStackSettings(r?.stations && typeof r.stations === 'object' ? r.stations : {}))
+      .catch(() => setStackSettings({}));
     loadHideOldDonors();
   }, []);
 
@@ -3107,13 +3325,22 @@ export default function StationManagement() {
   });
 
   const stationCounts = {
-    old: stations.filter(s => !isFreshStation(s.station)).length,
-    new: stations.filter(s => isFreshStation(s.station)).length,
+    old: stations.filter(s => !isFreshStation(s.station) && !isOtherStation(s.station)).length,
+    new: stations.filter(s => isFreshStation(s.station) && !isOtherStation(s.station)).length,
+    other: stations.filter(s => isOtherStation(s.station)).length,
   };
 
   const filteredStations = stations.filter(s => {
-    if (stationTab === 'new' && !isFreshStation(s.station)) return false;
-    if (stationTab === 'old' && isFreshStation(s.station)) return false;
+    // L / PS / PG / S live in their own "Other" tab and must never appear in the
+    // Old/New station columns (they showed under BSCT before and were mixed in
+    // with BOD/BFD stations).
+    if (stationTab === 'other') {
+      if (!isOtherStation(s.station)) return false;
+    } else {
+      if (isOtherStation(s.station)) return false;
+      if (stationTab === 'new' && !isFreshStation(s.station)) return false;
+      if (stationTab === 'old' && isFreshStation(s.station)) return false;
+    }
     const term = searchTerm.trim().toLowerCase();
     if (term && !(String(s.station).toLowerCase().includes(term) || String(s.fro_worker_name || '').toLowerCase().includes(term))) return false;
     return true;
@@ -3127,10 +3354,14 @@ export default function StationManagement() {
     for (const s of stations) {
       if (!s.fro_worker_id) continue;
       // Count only the stations of the kind the admin is currently looking at,
-      // so the badge reflects "old stations" on the Old tab and "new stations"
-      // on the New tab — not a combined total.
-      if (stationTab === 'new' && !isFreshStation(s.station)) continue;
-      if (stationTab === 'old' && isFreshStation(s.station)) continue;
+      // so the badge reflects "old stations" on the Old tab, "new stations"
+      // on the New tab and only L/PS/PG/S on the Other tab.
+      if (stationTab === 'other') { if (!isOtherStation(s.station)) continue; }
+      else {
+        if (isOtherStation(s.station)) continue;
+        if (stationTab === 'new' && !isFreshStation(s.station)) continue;
+        if (stationTab === 'old' && isFreshStation(s.station)) continue;
+      }
       const id = String(s.fro_worker_id);
       map[id] = (map[id] || 0) + 1;
     }
@@ -3148,18 +3379,12 @@ export default function StationManagement() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             <strong style={{ fontSize: 14, letterSpacing: '.2px', cursor: 'pointer', color: 'var(--sage)' }} onClick={() => setDonorListTarget({ station: s.station, ngoList: s.ngos || [], defaultNgoId: ngoScopeForRow(s) })}>{s.station}</strong>
             {liveGrantsFor(s).filter(g => g.scope_type !== 'STATION_HIGH_TIER').map(g => (
-              <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <span
-                  title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
-                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                >
-                  {g.working_fro_name || 'FRO'}
-                </span>
-                <button
-                  onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
-                  style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
-                >✕</button>
-              </span>
+              <TempGrantChip
+                key={g.id}
+                name={g.working_fro_name || 'FRO'}
+                title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
+                onRevoke={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+              />
             ))}
           </div>
           <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
@@ -3183,25 +3408,18 @@ export default function StationManagement() {
               />
             </div>
             {s.fro_worker_id && froStationCount[String(s.fro_worker_id)] >= 1 && (
-              <span title={`${w?.name || 'This FRO'} is assigned to ${froStationCount[String(s.fro_worker_id)]} ${stationTab === 'new' ? 'new' : 'old'} station${froStationCount[String(s.fro_worker_id)] === 1 ? '' : 's'} (this tab).`}
+              <span title={`${w?.name || 'This FRO'} is assigned to ${froStationCount[String(s.fro_worker_id)]} ${stationTab === 'new' ? 'new' : stationTab === 'other' ? 'other' : 'old'} station${froStationCount[String(s.fro_worker_id)] === 1 ? '' : 's'} (this tab).`}
                 style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', flexShrink: 0, whiteSpace: 'nowrap' }}>
                 {froStationCount[String(s.fro_worker_id)]}
               </span>
             )}
-            <button
-              title="Grant temporary access"
-              onClick={() => setTempAccessTarget({ station: s.station, ngoId: ngoScopeForRow(s), permanentFroId: s.fro_worker_id || null, permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null, donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0 })}
-              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', flexShrink: 0 }}
-            >
-              <Unlink size={13} />
-            </button>
-            <button
-              title="Manage donor stacks"
-              onClick={() => setStacksModalTarget({ station: s.station, ngoId: ngoScopeForRow(s) })}
-              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: (allStacks || []).some(st => st.station === s.station) ? '2px solid #16a34a' : '1px solid #bbf7d0', background: (allStacks || []).some(st => st.station === s.station) ? '#16a34a' : '#f0fdf4', color: (allStacks || []).some(st => st.station === s.station) ? '#fff' : '#166534', cursor: 'pointer', flexShrink: 0, fontSize: 12, fontWeight: 800 }}
-            >
-              S
-            </button>
+            <RowAssignmentsKebab
+              hasStacks={(allStacks || []).some(st => st.station === s.station)}
+              stacksEnabled={stacksEnabledFor(s)}
+              onTemp={() => openAssignments(s, 'temp')}
+              onStacks={() => openAssignments(s, 'stacks')}
+              onSettings={() => setStackSettingsTarget({ station: s.station, ngoId: ngoScopeForRow(s) })}
+            />
           </div>
         </td>
 
@@ -3262,7 +3480,100 @@ export default function StationManagement() {
     }
   };
 
+  // One NGO's donor book, narrowed to the old stations, the new (FD-*) ones, or
+  // both. Rows are sorted by station code (BOD-1, BOD-2, ... BOD-10) so the file
+  // reads station by station, and a DND lead is filled red. ExcelJS is used
+  // instead of the plain `xlsx` writer because the community SheetJS build drops
+  // cell styling on write - a red row would silently come out uncoloured.
+  const downloadNgoExcel = async (ngo, stationType) => {
+    const ngoId = ngo?.id;
+    const ngoName = ngo?.name || 'NGO';
+    if (!ngoId || !stationType) return;
+    const key = `${ngoId}:${stationType}`;
+    setDownloadingKey(key);
+    try {
+      const params = new URLSearchParams({ ngo_id: ngoId, station_type: stationType });
+      const rows = await apiGet(`/ngo-admin/donors-by-ngo?${params}`);
+
+      // `numeric: true` is what makes BOD-2 come before BOD-10; a plain string
+      // sort would put BOD-10 second. Blank stations go last, and ties inside a
+      // station are alphabetical by donor so the block stays easy to scan.
+      const ordered = (Array.isArray(rows) ? rows : []).slice().sort((a, b) => {
+        const sa = String(a.station || '~');
+        const sb = String(b.station || '~');
+        const byStation = sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
+        if (byStation !== 0) return byStation;
+        return String(a.donor_name || '').localeCompare(String(b.donor_name || ''), undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      if (ordered.length === 0) {
+        toast(`No ${stationType === 'all' ? '' : `${stationType} `}donors found for ${ngoName}`, 'error');
+        return;
+      }
+
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Donors');
+      ws.addRow(['Donor Name', 'Mobile', 'Mobile 2', 'Agent Name', 'Station']);
+      ws.getRow(1).eachCell(c => {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        c.alignment = { horizontal: 'center' };
+      });
+
+      const DND_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC7CE' } };
+      for (const r of ordered) {
+        const row = ws.addRow([
+          r.donor_name || '',
+          r.donor_mobile || '',
+          r.donor_mobile_2 || '',
+          r.fro_name || '',
+          r.station || '',
+        ]);
+        if (String(r.status || '').toLowerCase() === 'dnd') {
+          row.eachCell(c => {
+            c.fill = DND_FILL;
+            c.font = { color: { argb: 'FF9C0006' } };
+          });
+        }
+      }
+
+      ws.getColumn(1).width = 30;
+      ws.getColumn(2).width = 16;
+      ws.getColumn(3).width = 16;
+      ws.getColumn(4).width = 24;
+      ws.getColumn(5).width = 16;
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${ngoName.replace(/[^a-z0-9_-]/gi, '_')}-${stationType}-donors.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setDownloadNgoOpen(false);
+      toast(`Downloaded ${ordered.length} ${stationType === 'all' ? '' : `${stationType} `}donor${ordered.length === 1 ? '' : 's'} for ${ngoName}`, 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
+
   const downloadStationCsv = () => {};
+
+  // Open the merged station dialog on a given tab. The target carries the
+  // permanent-FRO context the temp-access form needs even when the stacks tab
+  // opened the dialog, so switching tabs never leaves a half-populated form.
+  const openAssignments = (s, tab) => setAssignmentsTarget({
+    station: s.station,
+    ngoId: ngoScopeForRow(s),
+    permanentFroId: s.fro_worker_id || null,
+    permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null,
+    donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0,
+    tab,
+  });
 
   const handleAddStation = async (tempFile) => {
     if (!newStation.trim()) return;
@@ -3428,7 +3739,7 @@ export default function StationManagement() {
       )}
 
 
-      <div className="card" style={{ margin: 0, borderRadius: 0, boxShadow: 'none', border: 'none', height: '100%' }}>
+      <div className="card" style={{ margin: 0, borderRadius: 0, boxShadow: 'none', border: 'none', height: '100%', background: stationTab === 'other' ? 'var(--bg)' : undefined }}>
         <div className="card-head" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
           {/* Title / count / month */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -3440,55 +3751,6 @@ export default function StationManagement() {
                   <EyeOff size={12} /> Old donors hidden — FROs see only new data
                 </span>
               )}
-              {autoSchedule?.usable && (
-                <span
-                  title={`Flips itself daily at ${autoSchedule.hideAt} (hide) and ${autoSchedule.showAt} (show), IST.${autoSchedule.nextChange ? ` Next change: ${autoSchedule.nextChange.when === 'tomorrow' ? 'kal' : 'aaj'} ${autoSchedule.nextChange.at} → ${autoSchedule.nextChange.action}.` : ''}`}
-                  style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <Clock size={12} /> Auto {autoSchedule.hideAt}→{autoSchedule.showAt} IST
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              {/* Auto-hide window: opens the daily hide/show schedule. Shown
-                  beside the manual switch because both write the same flag. */}
-              <button
-                onClick={() => setAutoScheduleOpen(true)}
-                title={autoSchedule?.usable
-                  ? `Auto-hide ON — donors stay hidden daily from ${autoSchedule.hideAt} to ${autoSchedule.showAt} IST. Click to change.`
-                  : 'Set a daily window so the Hide Old Donors switch flips itself (e.g. hide 10:00, show 19:00).'}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                  borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
-                  background: autoSchedule?.usable ? '#eff6ff' : '#f8fafc',
-                  color: autoSchedule?.usable ? '#1d4ed8' : 'var(--ink-soft)',
-                  border: `1px solid ${autoSchedule?.usable ? '#bfdbfe' : 'var(--line, #e5e7eb)'}`,
-                }}>
-                <Clock size={13} />
-                {autoSchedule?.usable
-                  ? `Auto ${autoSchedule.hideAt}→${autoSchedule.showAt}`
-                  : 'Auto hide'}
-              </button>
-              {/* Hide Old Donors: one global switch. ON → the field teams are
-                  limited to the new (FD) stations; the old stations' donors,
-                  follow-ups and history disappear from their panel. OFF → they
-                  come straight back. */}
-              <button
-                onClick={toggleHideOldDonors}
-                disabled={hidingOldDonors}
-                title={hideOldDonors
-                  ? 'Old-station donors are hidden from the field teams. Click to show them again.'
-                  : 'Hide the old stations\' donors, follow-ups and history from the field teams so they only work on the new data.'}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                  borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: hidingOldDonors ? 'wait' : 'pointer',
-                  background: hideOldDonors ? '#f0fdf4' : '#fef2f2',
-                  color: hideOldDonors ? '#15803d' : '#b91c1c',
-                  border: `1px solid ${hideOldDonors ? '#86efac' : '#fecaca'}`,
-                  opacity: hidingOldDonors ? 0.6 : 1,
-                }}>
-                {hideOldDonors ? <Eye size={13} /> : <EyeOff size={13} />}
-                {hidingOldDonors ? 'Working…' : hideOldDonors ? 'Show Old Donors' : 'Hide Old Donors'}
-              </button>
             </div>
           </div>
 
@@ -3521,7 +3783,7 @@ export default function StationManagement() {
             {[
               { key: 'old', label: 'Old', color: '#2563eb' },
               { key: 'new', label: 'New', color: '#16a34a' },
-              { key: 'high-tier', label: 'High', color: '#ec4899' },
+              { key: 'other', label: 'Other', color: '#0f766e' },
             ].map(tab => (
               <button key={tab.key} onClick={() => setStationTab(tab.key)}
                 style={{
@@ -3545,9 +3807,46 @@ export default function StationManagement() {
                 placeholder="Search FRO..." style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, fontFamily: 'inherit', background: 'transparent' }} />
             </div>
 
-            <button className="btn btn-primary btn-sm" onClick={() => setAddOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-              + Add Station
-            </button>
+            <div ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={() => setToolsOpen(o => !o)}
+                aria-label="Station actions"
+                aria-haspopup="menu"
+                aria-expanded={toolsOpen}
+                title="Station actions"
+                style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1 }}
+              >
+                ⋮
+              </button>
+              {toolsOpen && (
+                <div role="menu" style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 300,
+                  background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(15,23,42,.16)', minWidth: 224, overflow: 'hidden', padding: 4,
+                }}>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setAddOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <span style={{ width: 16, textAlign: 'center', fontWeight: 800 }}>+</span> Add station
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setDownloadNgoOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <Download size={14} /> Download donor list
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setAutoScheduleOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <Clock size={14} /> Auto-hide schedule
+                  </button>
+                  <div style={{ height: 1, background: 'var(--line, #e5e7eb)', margin: '4px 0' }} />
+                  <button
+                    role="menuitem"
+                    onClick={() => { setToolsOpen(false); toggleHideOldDonors(); }}
+                    disabled={hidingOldDonors}
+                    style={{ ...PAGE_MENU_ITEM, color: hideOldDonors ? '#15803d' : '#b91c1c', opacity: hidingOldDonors ? 0.6 : 1 }}
+                  >
+                    {hideOldDonors ? <Eye size={14} /> : <EyeOff size={14} />}
+                    {hidingOldDonors ? 'Working…' : hideOldDonors ? 'Show old donors' : 'Hide old donors'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           )}
         </div>
@@ -3555,15 +3854,7 @@ export default function StationManagement() {
 
 
         <div className="card-pad">
-          {stationTab === 'high-tier' ? (
-            <HighTierPanel
-              stations={stations}
-              froWorkers={froWorkers}
-              selectedNgoId={selectedNgoId}
-              allNgos={allNgos}
-              onDistributed={() => fetchData()}
-            />
-                    ) : loading ? (
+          {loading ? (
             <div>
               <style>{`@keyframes skelPulse { 0% { opacity: .45; } 50% { opacity: 1; } 100% { opacity: .45; } } .skel { background: #e2e8f0; border-radius: 6px; animation: skelPulse 1.4s ease-in-out infinite; }`}</style>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -3595,130 +3886,52 @@ export default function StationManagement() {
             />
             </>
           ) : filteredStations.length === 0 ? (
-            <div className="empty-state"><p>No {stationTab === 'new' ? 'NEW' : stationTab === 'old' ? 'OLD' : ''} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
+            <div className="empty-state"><p>No {stationTab === 'new' ? 'NEW' : stationTab === 'old' ? 'OLD' : 'OTHER'} stations found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p></div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="nga-st">
-                <thead>
-                  <tr>
-                    <th style={{ width: '13%' }}>Station</th>
-                    <th style={{ width: '8%' }}>NGO</th>
-                    <th style={{ width: '20%' }}>FRO Name</th>
-                    <th style={{ width: '13%' }}>Donors</th>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
+              {filteredStations.map((s) => {
+                const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
+                const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                return (
+                  <div
+                    key={s.station}
+                    onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(15,23,42,.08)'; }}
+                    onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--line, #e5e7eb)'; e.currentTarget.style.boxShadow = '0 1px 2px rgba(16,24,40,.04)'; }}
+                    style={{ background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 12, padding: 14, boxShadow: '0 1px 2px rgba(16,24,40,.04)', display: 'flex', flexDirection: 'column', gap: 12, transition: 'border-color .12s, box-shadow .12s' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Station</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '.3px', color: 'var(--ink)', lineHeight: 1.15 }}>{s.station}</div>
+                      </div>
+                    </div>
 
-                    <th style={{ width: '10%', textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredStations.map((s, i) => {
-                    const ngoName = s.ngos?.[0]?.ngo_name;
-                    const ngoCol = ngoColor(ngoName);
-                    const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
-                    const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
-                    return (
-                      <tr key={s.station} style={{ background: (!s.fro_worker_id && !s.fro_worker_name) ? `${ngoCol}14` : 'transparent' }}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: 15, letterSpacing: '.2px' }}>{s.station}</strong>
+                    <div>
+                      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 5 }}>FRO Name</div>
+                      <SearchableSelect
+                        options={froWorkers}
+                        value={s.fro_worker_id || ''}
+                        onChange={(val) => handleFroChange(s.station, val)}
+                        placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
+                      />
+                    </div>
 
-                          </div>
-                          <span className="nga-ngo-sub" style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: ngoCol, marginTop: 2, textTransform: 'uppercase', letterSpacing: '.3px' }}>
-                            {ngoName || 'No NGO'}
-                          </span>
-                          {at && (
-                            <div style={{ marginTop: 3, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
-                              → {at.target_station}
-                            </div>
-                          )}
-                          {liveGrantsFor(s).map(g => (
-                            <div key={g.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                              <span
-                                title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST. Ownership unchanged: ${(froWorkers.find(fw => fw.id === s.fro_worker_id) || {}).name || 'the permanent FRO'} remains the permanent FRO.`}
-                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                              >
-                                {g.working_fro_name || 'FRO'}
-                              </span>
-                              <button
-                                onClick={() => setRevokeGrantTarget({ grant: g, station: s.station })}
-                                title="Revoke this temporary access now"
-                                aria-label="Revoke temporary access"
-                                style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', lineHeight: 1.5 }}
-                              >✕</button>
-                            </div>
-                          ))}
-                        </td>
-                        <td className="ng-nh">
-                          <span onClick={() => setEditNgoStation(s.station)}
-                            style={{ cursor: 'pointer', fontWeight: 700, fontSize: 12, color: ngoCol, textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>
-                            {ngoName || <span style={{ color: '#9ca3af' }}>No NGO</span>}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <SearchableSelect
-                                options={froWorkers}
-                                value={s.fro_worker_id || ''}
-                                onChange={(val) => handleFroChange(s.station, val)}
-                                placeholder={s.fro_worker_id ? (w?.name || '--') : '+ Assign FRO'}
-                              />
-                            </div>
-                            {s.fro_worker_id && froStationCount[String(s.fro_worker_id)] >= 1 && (
-                              <span title={`${w?.name || 'This FRO'} is assigned to ${froStationCount[String(s.fro_worker_id)]} ${stationTab === 'new' ? 'new' : 'old'} station${froStationCount[String(s.fro_worker_id)] === 1 ? '' : 's'} (this tab).`}
-                                style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                {froStationCount[String(s.fro_worker_id)]}
-                              </span>
-                            )}
-                            <button
-                              title="Grant temporary access"
-                              onClick={() => setTempAccessTarget({ station: s.station, ngoId: ngoScopeForRow(s), permanentFroId: s.fro_worker_id || null, permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null, donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0 })}
-                              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', flexShrink: 0 }}
-                            >
-                              <Unlink size={13} />
-                            </button>
-                          </div>
-                        </td>
-                        <td>
-                          {renderDonorPills(s)}
-                          {/* amount range removed per request */}
-                        </td>
-
-                        <td className="nga-actions">
-                          <div className="nga-actions-inline" style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
-                            <StationKebab
-                              activeTransfer={at}
-                              returningId={returningId}
-                              onReturn={at ? handleReturnEarly : null}
-                              onUpload={() => setUploadStation(s.station)}
-                              onViewList={() => setDonorListTarget({
-                                station: s.station,
-                                ngoList: s.ngos || [],
-                                defaultNgoId: ngoScopeForRow(s),
-                              })}
-                              onAddDonor={() => setAddDonorTarget({
-                                station: s.station,
-                                ngoList: s.ngos || [],
-                                defaultNgoId: ngoScopeForRow(s),
-                              })}
-                              onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
-                              onTarget={() => openTarget(s)}
-                              onGrantTempAccess={() => setTempAccessTarget({
-                                station: s.station,
-                                ngoId: ngoScopeForRow(s),
-                                permanentFroId: s.fro_worker_id || null,
-                                permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null,
-                                // donor_count is a per-NGO map: { ngo_id: count }
-                                donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0,
-                              })}
-                              onDelete={() => handleDeleteStation(s.station)}
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    {at && (
+                      <div style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+                        → {at.target_station}
+                      </div>
+                    )}
+                    {liveGrantsFor(s).map(g => (
+                      <TempGrantChip
+                        key={g.id}
+                        name={g.working_fro_name || 'FRO'}
+                        title={`Temporary access${g.working_fro_name ? ` — ${g.working_fro_name}` : ''} until ${fmtIstDateTime(g.expires_at)} IST.`}
+                        onRevoke={() => setRevokeGrantTarget({ grant: g, station: s.station })}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -3816,6 +4029,15 @@ export default function StationManagement() {
         />
       )}
 
+      {downloadNgoOpen && (
+        <DownloadNgoModal
+          allNgos={allNgos}
+          downloadingKey={downloadingKey}
+          onDownload={downloadNgoExcel}
+          onClose={() => { if (!downloadingKey) setDownloadNgoOpen(false); }}
+        />
+      )}
+
       {autoScheduleOpen && (
         <AutoHideScheduleModal
           value={autoSchedule || undefined}
@@ -3858,50 +4080,99 @@ export default function StationManagement() {
         />
       )}
 
-      {tempAccessTarget && (
+      {stackSettingsTarget && (
+        <StackSettingsModal
+          ngoId={stackSettingsTarget.ngoId}
+          station={stackSettingsTarget.station}
+          enabled={!!stackSettings[stackKey(stackSettingsTarget.ngoId, stackSettingsTarget.station)]}
+          onChange={(enabled) => setStackSettings(prev => {
+            const key = stackKey(stackSettingsTarget.ngoId, stackSettingsTarget.station);
+            const next = { ...prev };
+            if (enabled) next[key] = true;
+            else delete next[key];
+            return next;
+          })}
+          onClose={() => setStackSettingsTarget(null)}
+        />
+      )}
+
+      {/* Two separate dialogs — the ⋮ menu picks exactly one, never a combined
+          tabbed view. */}
+      {assignmentsTarget?.tab === 'temp' && (
         <TemporaryAccessModal
-          target={tempAccessTarget}
-          existingGrants={liveGrantsFor({ station: tempAccessTarget.station, ngo_id: tempAccessTarget.ngoId })}
-          onClose={() => setTempAccessTarget(null)}
+          target={assignmentsTarget}
+          existingGrants={liveGrantsFor({ station: assignmentsTarget.station, ngo_id: assignmentsTarget.ngoId })}
+          onClose={() => setAssignmentsTarget(null)}
           // Granting changes no station field on this page (ownership untouched),
           // but the temp-access badges must reflect the new/changed grant.
           onGranted={() => loadTempGrants()}
         />
       )}
 
-      {stacksModalTarget && (
+      {assignmentsTarget?.tab === 'stacks' && (
         <DonorStacksModal
-          target={stacksModalTarget}
+          target={assignmentsTarget}
           froWorkers={froWorkers}
-          onClose={() => setStacksModalTarget(null)}
+          onClose={() => setAssignmentsTarget(null)}
           onGranted={() => loadTempGrants()}
+          onStacksEnabledChange={(enabled) => setStackSettings(prev => {
+            const key = stackKey(assignmentsTarget.ngoId, assignmentsTarget.station);
+            const next = { ...prev };
+            if (enabled) next[key] = true;
+            else delete next[key];
+            return next;
+          })}
         />
       )}
 
       {/* ── Revoke temporary access confirmation ── */}
       {revokeGrantTarget && (
         <div className="modal-overlay" onClick={() => !revokingGrant && setRevokeGrantTarget(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 430 }}>
-            <div className="modal-head">
-              <h3>Revoke temporary access — {revokeGrantTarget.station}</h3>
-              <button className="icon-btn" onClick={() => setRevokeGrantTarget(null)} aria-label="Close" disabled={revokingGrant}><X size={16} /></button>
-            </div>
-            <div style={{ padding: 16, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 10px' }}>
-                <b>{revokeGrantTarget.grant.working_fro_name || 'The FRO'}</b> immediately loses access to <b>{revokeGrantTarget.station}</b> on
-                their next request — the station disappears from their list and open pages will show a notice.
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, width: '94%', borderRadius: 14 }}>
+            <div className="modal-head" style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#fef2f2', color: '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <TriangleAlert size={17} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ margin: 0 }}>Revoke temporary access</h3>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 2 }}>Station {revokeGrantTarget.station}</div>
+                </div>
               </div>
-              <div style={{ color: 'var(--ink-soft)' }}>
-                Completed calls, dispositions, donations and receipts stay exactly where they are, and{' '}
-                <b>{revokeGrantTarget.grant.permanent_fro_name || 'the permanent FRO'}</b> remains the permanent owner.
-                You can grant access again at any time.
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setRevokeGrantTarget(null)}
+                aria-label="Close"
+                disabled={revokingGrant}
+                style={{ border: 'none', boxShadow: 'none', background: 'transparent', width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, color: 'var(--ink-soft)', cursor: revokingGrant ? 'wait' : 'pointer', flexShrink: 0 }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, padding: '11px 12px', fontSize: 12.5, lineHeight: 1.55 }}>
+                <TriangleAlert size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <b>{revokeGrantTarget.grant.working_fro_name || 'The FRO'}</b> immediately loses access to{' '}
+                  <b>{revokeGrantTarget.station}</b> on their next request — the station disappears from their list and open pages will show a notice.
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 9, padding: '11px 12px', fontSize: 12, lineHeight: 1.55 }}>
+                <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 1, color: '#475569' }} />
+                <div>
+                  <b>Work already done stays.</b> Completed calls, dispositions, donations and receipts are untouched, and{' '}
+                  <b>{revokeGrantTarget.grant.permanent_fro_name || 'the permanent FRO'}</b> remains the permanent owner. You can grant access again at any time.
+                </div>
               </div>
             </div>
-            <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '13px 20px', borderTop: '1px solid var(--line, #e5e7eb)' }}>
               <button className="btn btn-outline" onClick={() => setRevokeGrantTarget(null)} disabled={revokingGrant}>Cancel</button>
               <button
                 className="btn btn-primary"
-                style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                style={{ background: '#dc2626', borderColor: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 disabled={revokingGrant}
                 onClick={handleRevokeGrant}
               >{revokingGrant ? 'Revoking…' : 'Revoke now'}</button>

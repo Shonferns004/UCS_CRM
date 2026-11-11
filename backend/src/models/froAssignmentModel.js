@@ -291,6 +291,28 @@ export const getDonorsByStationAndStatus = async (ngoId, station, status, batchT
   return data || [];
 };
 
+// Every live donor assigned to one NGO, across all of its stations.
+//
+// WHY a separate function instead of calling getDonorsByStationAndStatus per
+// station: the Station Management "Download Excel" flow asks the admin for an
+// NGO and then wants that NGO's whole book, not one station's slice. Looping
+// over station names would also miss any assignment whose station was cleared,
+// and would re-query the same table N times. `reassigned` rows are left out for
+// the same reason as the per-station read: they are history, not live leads.
+export const getDonorsByNgo = async (ngoId) => {
+  // Only the columns the export needs. `select('*')` here would drag every
+  // donor_profiles column (including raw_data) across for a whole NGO's book,
+  // which is the largest read this feature makes.
+  const { data, error } = await db
+    .from('fro_assignments')
+    .select('id, donor_id, ngo_id, station, status, donor_profiles(name, mobile_number, mobile_2), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
+    .eq('ngo_id', ngoId)
+    .or('status.is.null,status.neq.reassigned');
+
+  if (error) throw error;
+  return data || [];
+};
+
 export const getStationDispositionStats = async (ngoId, from, to) => {
   const { data, error } = await db
     .rpc('get_station_disposition_stats', {

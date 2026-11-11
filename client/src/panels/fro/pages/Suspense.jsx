@@ -69,6 +69,8 @@ export default function FroSuspense() {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ngoFilter, setNgoFilter] = useState('');
+  // Filter icon toggles the NGO/Unclaimed pill row beside the search box.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReceipt, setClaimReceipt] = useState(null);
@@ -365,44 +367,71 @@ export default function FroSuspense() {
           .fro-wave-bg.is-waving { animation: none; clip-path: inset(0 0 0 0); }
         }
       `}</style>
-      {/* Toolbar: NGO pill tabs + search */}
+      {/* Toolbar: search bar first, filters open below it behind the funnel icon */}
       <div style={{ padding: isCompact ? '10px 12px 6px' : '14px 18px 8px', flexShrink: 0, minWidth: 0 }}>
-        <div style={{ display: 'flex', width: '100%', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3, overflowX: 'auto', minWidth: 0 }}>
-          {[['', 'All'], ['__unclaimed', 'Unclaimed']].concat(ngos.map(p => [p, NGO_SHORT[p] || p.toUpperCase()])).map(([v, l]) => {
-            const count = v === '__unclaimed'
-              ? receipts.filter(r => r.pool === 'unclaimed').length
-              : receipts.filter(r => r.pool !== 'unclaimed' && (!v || r.project_id === v)).length;
-            const active = ngoFilter === v;
-            return (
-              <button key={v || 'all'} onClick={() => setNgoFilter(v)}
-                style={{
-                  flex: isCompact ? '0 0 auto' : 1, padding: '5px 10px', borderRadius: 999, border: 'none', fontFamily: 'inherit',
-                  fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap',
-                  background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)',
-                  boxShadow: active ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s', flexShrink: 0,
-                }}>
-                {l}
-                <span style={{
-                  minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700,
-                  background: active ? 'rgba(255,255,255,.22)' : 'var(--line)', color: active ? '#fff' : 'var(--ink-soft)',
-                }}>{count}</span>
-              </button>
-            );
-          })}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)' }} />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search name or mobile…"
+              style={{
+                width: '100%', padding: '8px 12px 8px 32px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card-bg)',
+                fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFiltersOpen(o => !o)}
+            title={filtersOpen ? 'Hide filters' : 'Show filters'}
+            aria-label="Filters"
+            aria-expanded={filtersOpen}
+            style={{
+              position: 'relative', flexShrink: 0, width: 34, height: 34, borderRadius: 10,
+              border: `1px solid ${filtersOpen ? 'var(--sage)' : 'var(--line)'}`,
+              background: filtersOpen ? 'var(--sage)' : 'var(--card-bg)',
+              color: filtersOpen ? '#fff' : 'var(--ink-soft)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>tune</span>
+            {ngoFilter && (
+              <span style={{ position: 'absolute', top: -5, right: -5, width: 15, height: 15, borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
+            )}
+          </button>
         </div>
 
-        <div style={{ position: 'relative', marginTop: 10 }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)' }} />
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search name or mobile…"
-            style={{
-              width: '100%', padding: '8px 12px 8px 32px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card-bg)',
-              fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box',
-            }}
-          />
-        </div>
+        {filtersOpen && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--line)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flex: 1, minWidth: 0, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3, overflowX: 'auto' }}>
+                {[['', 'All'], ['__unclaimed', 'Unclaimed']].concat(ngos.map(p => [p, NGO_SHORT[p] || p.toUpperCase()])).map(([v, l]) => {
+                  const count = v === '__unclaimed'
+                    ? receipts.filter(r => r.pool === 'unclaimed').length
+                    : receipts.filter(r => r.pool !== 'unclaimed' && (!v || r.project_id === v)).length;
+                  const active = ngoFilter === v;
+                  return (
+                    <button key={v || 'all'} onClick={() => setNgoFilter(v)}
+                      style={{
+                        flex: isCompact ? '0 0 auto' : 1, padding: '5px 10px', borderRadius: 999, border: 'none', fontFamily: 'inherit',
+                        fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap',
+                        background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)',
+                        boxShadow: active ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s', flexShrink: 0,
+                      }}>
+                      {l}
+                      <span style={{
+                        minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700,
+                        background: active ? 'rgba(255,255,255,.22)' : 'var(--line)', color: active ? '#fff' : 'var(--ink-soft)',
+                      }}>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* List */}

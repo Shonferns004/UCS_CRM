@@ -226,6 +226,13 @@ export async function getMyDisposedLeads(opts = {}) {
   if (opts.station) params.set('station', opts.station);
   if (opts.ngoId) params.set('ngo_id', opts.ngoId);
   if (opts.allMonths) params.set('all_months', 'true');
+  // Whole-station history (all agents), used when the station's old data is
+  // finished so the FRO sees every donor's history, not just their own calls.
+  if (opts.stationWide && opts.station) params.set('station_wide', 'true');
+  // Every donor in the FRO's current station scope (all agents, pending included).
+  if (opts.scopeWide) params.set('scope_wide', 'true');
+  // Every donor in the station, not only dispositioned ones (empty-queue fallback).
+  if (opts.fullRoster && opts.station) params.set('full_roster', 'true');
   const qs = params.toString();
   return api(`/fro/my-disposed-leads${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }

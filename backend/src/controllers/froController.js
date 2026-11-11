@@ -559,6 +559,18 @@ async function denyWithTempAccessCode(res, workerId, donorId, fallbackStatus, fa
       [donorId],
     );
     for (const r of donorRows || []) {
+      // Permanent ownership wins: if this worker is (now) the station's assigned
+      // FRO, a denied request is NOT about an old temporary grant. Returning the
+      // revoke banner here made a permanently assigned agent see "temporary
+      // access was revoked" after an unrelated grant was cleaned up.
+      const { rows: permanent } = await db._pool.query(
+        `SELECT 1 FROM fro_station_assignments
+          WHERE fro_worker_id = $1 AND station = $2 AND ngo_id = $3
+          LIMIT 1`,
+        [workerId, r.station, r.ngo_id],
+      );
+      if (permanent.length > 0) continue;
+
       const { rows: grants } = await db._pool.query(
         `SELECT status FROM temporary_data_assignments
           WHERE working_fro_worker_id = $1 AND station = $2 AND ngo_id = $3
@@ -7941,22 +7953,61 @@ export const getMyDisposedLeads = async (req, res) => {
     const workerId = req.user.id;
     const { station: stationFilter, ngo_id: ngoFilter } = req.query;
     const allMonths = req.query.all_months === 'true' || req.query.lifetime === 'true';
+    // Station-wide history: show who worked the station, not only this FRO's own
+    // calls. Used when a station's old data is finished — the whole station's
+    // history must be visible, including dispositions made by previous agents.
+    // The scope check below still refuses any station that is not in the FRO's
+    // current scope.
+    const stationWide = req.query.station_wide === 'true' && !!stationFilter;
+    // Full station roster: when old data is finished the fallback list should
+    // show EVERY donor of the station (including ones another agent handled or
+    // that are still pending), not just the handful with a disposition log.
+    const fullRoster = req.query.full_roster === 'true' && !!stationFilter;
+    // Scope-wide history: every donor in the stations this FRO currently holds,
+    // not only the donors this FRO personally dispositioned. Used by History and
+    // by the empty-queue fallback, where "Old data is finished" must still show
+    // the station's full book (BOD-2 = 621 donors, not the 40 personal calls).
+    const scopeWide = req.query.scope_wide === 'true' || stationWide || fullRoster;
+
+    const { scope: myScopeRaw } = await getMyStationScope(workerId, froActPairs(req));
+    const myScope = myScopeRaw || [];
+    const scopeRows = myScope.filter(r => r.ngo_id && r.station);
+    const scopeStations = scopeRows.map(r => r.station);
+    const scopeNgos = scopeRows.map(r => r.ngo_id);
 
     let disposedLogs = [];
     let logErr = null;
     if (allMonths) {
+      const logParams = [];
+      let logFrom = 'JOIN fro_assignments fa ON fa.id = l.assignment_id';
+      let logWhere;
+      if (stationFilter) {
+        logParams.push(stationFilter);
+        logWhere = 'fa.station = $1';
+        if (ngoFilter) {
+          logParams.push(ngoFilter);
+          logWhere += ' AND fa.ngo_id = $2';
+        }
+      } else if (scopeWide) {
+        logParams.push(scopeStations.map(String), scopeNgos.map(String));
+        logFrom += ' JOIN unnest($1::text[], $2::text[]) AS sc(station, ngo_id) ON sc.station = fa.station AND sc.ngo_id = fa.ngo_id::text';
+        logWhere = 'true';
+      } else {
+        logParams.push(workerId);
+        logWhere = 'fa.fro_worker_id = $1';
+      }
       // Live (current month) logs first.
       try {
         const { rows } = await db._pool.query(
           `SELECT l.donor_id, l.assignment_id, l.disposition_detail, l.disposition_category, l.created_at,
                   fa.station, fa.ngo_id, n.name AS ngo_name, fa.batch_type, fa.is_new
              FROM fro_donor_logs l
-             JOIN fro_assignments fa ON fa.id = l.assignment_id
+             ${logFrom}
              LEFT JOIN ngos n ON n.id = fa.ngo_id
-            WHERE fa.fro_worker_id = $1 AND l.action = 'disposition'
+            WHERE ${logWhere} AND l.action = 'disposition'
            ORDER BY l.created_at ASC
            LIMIT 10000`,
-          [workerId]
+          logParams
         );
         disposedLogs = rows || [];
       } catch (e) {
@@ -7969,17 +8020,73 @@ export const getMyDisposedLeads = async (req, res) => {
           `SELECT a.donor_id, a.assignment_id, a.disposition_detail, a.disposition_category, a.created_at,
                   fa.station, fa.ngo_id, n.name AS ngo_name, fa.batch_type, fa.is_new
              FROM fro_donor_logs_archive a
-             JOIN fro_assignments fa ON fa.id = a.assignment_id
+             ${logFrom.replace('l.assignment_id', 'a.assignment_id')}
              LEFT JOIN ngos n ON n.id = fa.ngo_id
-            WHERE fa.fro_worker_id = $1 AND a.action = 'disposition'
+            WHERE ${logWhere} AND a.action = 'disposition'
            ORDER BY a.created_at ASC
            LIMIT 10000`,
-          [workerId]
+          logParams
         );
         if (archiveError) throw archiveError;
         if (rows && rows.length) disposedLogs = (disposedLogs || []).concat(rows);
       } catch (e) {
         console.warn('[getMyDisposedLeads] archive read skipped:', e?.message || String(e));
+      }
+
+      // Scope-wide history must also cover donors whose work was imported or
+      // closed without a disposition log — and pending rows, because the whole
+      // station book is what the FRO asked to see. Only reassigned rows are left
+      // out (they are another agent's live work).
+      if (scopeWide) {
+        try {
+          let extraParams;
+          let extraFrom;
+          let extraWhere;
+          if (stationFilter) {
+            extraParams = [stationFilter];
+            extraFrom = 'FROM fro_assignments fa';
+            extraWhere = 'fa.station = $1';
+            if (ngoFilter) {
+              extraParams.push(ngoFilter);
+              extraWhere += ' AND fa.ngo_id = $2';
+            }
+          } else {
+            extraParams = [scopeStations.map(String), scopeNgos.map(String)];
+            extraFrom = `FROM fro_assignments fa
+              JOIN unnest($1::text[], $2::text[]) AS sc(station, ngo_id)
+                ON sc.station = fa.station AND sc.ngo_id = fa.ngo_id::text`;
+            extraWhere = 'true';
+          }
+          const { rows } = await db._pool.query(
+            `SELECT fa.donor_id, fa.id AS assignment_id, fa.status, fa.station, fa.ngo_id,
+                    n.name AS ngo_name, fa.batch_type, fa.is_new,
+                    COALESCE(fa.updated_at, fa.assigned_at) AS worked_at
+               ${extraFrom}
+               LEFT JOIN ngos n ON n.id = fa.ngo_id
+              WHERE ${extraWhere}
+                AND (fa.status IS NULL OR fa.status <> 'reassigned')`,
+            extraParams
+          );
+          const logged = new Set((disposedLogs || []).map(l => `${l.donor_id}|${l.assignment_id}`));
+          for (const a of rows || []) {
+            const key = `${a.donor_id}|${a.assignment_id}`;
+            if (logged.has(key)) continue;
+            disposedLogs.push({
+              donor_id: a.donor_id,
+              assignment_id: a.assignment_id,
+              disposition_detail: a.status,
+              disposition_category: '',
+              created_at: a.worked_at,
+              station: a.station,
+              ngo_id: a.ngo_id,
+              ngo_name: a.ngo_name,
+              batch_type: a.batch_type,
+              is_new: a.is_new,
+            });
+          }
+        } catch (e) {
+          console.warn('[getMyDisposedLeads] scope roster skipped:', e?.message || String(e));
+        }
       }
       // Newest-first: the per-donor map below keeps the FIRST in-scope row, so
       // this order is what makes History show each lead's LATEST disposition.
@@ -8036,9 +8143,8 @@ export const getMyDisposedLeads = async (req, res) => {
     // required to match a CURRENT, non-reassigned assignment id, so archived rows
     // whose assignment was later reassigned were dropped. Scoping by the
     // disposition's own station/NGO pair fixes that without widening the scope.
-    const { scope: myScope } = await getMyStationScope(workerId, froActPairs(req));
     const scopePairs = new Set(
-      (myScope || [])
+      myScope
         .filter((row) => row.ngo_id && row.station)
         .map((row) => `${row.station}|${row.ngo_id}`),
     );

@@ -590,6 +590,7 @@ export default function FROPanel() {
   const isMobile = useIsMobile()
   const si = useSpecialIncentive()
   const [showMenu, setShowMenu] = useState(false)
+  const [logoutOpen, setLogoutOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
@@ -857,12 +858,14 @@ useEffect(() => onFroAction((action) => {
   }), [logout]);
   // Manual sign-out. The server banks any idle still running (so the day and
   // monthly totals keep it) before closing the session, so no confirm dialog is
-  // needed about losing time — the confirm is only to avoid accidental clicks.
+  // needed about losing time — the modal is only to avoid accidental clicks.
   const handleLogout = useCallback(() => {
     setShowMenu(false)
-    if (window.confirm('Log out of the FRO panel? Any idle time still running will be recorded up to now.')) {
-      logout()
-    }
+    setLogoutOpen(true)
+  }, [])
+  const confirmLogout = useCallback(() => {
+    setLogoutOpen(false)
+    logout()
   }, [logout])
   useEffect(() => {
     if (!froBroadcast) return;
@@ -1197,6 +1200,46 @@ useEffect(() => onFroAction((action) => {
       />
       <SpecialIncentive si={si} />
       <RangeRulePopup />
+      {logoutOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => setLogoutOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4000, padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 16, width: 420, maxWidth: '94vw', boxShadow: '0 24px 70px rgba(0,0,0,.3)', overflow: 'hidden' }}
+          >
+            <div style={{ padding: '20px 22px 0', display: 'flex', gap: 12 }}>
+              <span style={{ width: 40, height: 40, borderRadius: '50%', background: '#fef2f2', color: '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>logout</span>
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 700, color: '#0f172a' }}>Log out?</div>
+                <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 4, lineHeight: 1.55 }}>
+                  Any idle time still running will be recorded up to now. You can sign back in any time.
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '18px 22px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setLogoutOpen(false)}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmLogout}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}
+              >
+                Log out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {idleWarning && (
         <IdleWarningModal
           key={idleWarning.at}

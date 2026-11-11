@@ -128,7 +128,6 @@ export default function NgoAdminPanel() {
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingTeams, setMeetingTeams] = useState([]);
   const [teamsList, setTeamsList] = useState([]);
-  const meetingRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem('ngoadmin_nav_collapsed', navCollapsed ? '1' : '0');
@@ -240,12 +239,11 @@ export default function NgoAdminPanel() {
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
-      if (meetingRef.current && !meetingRef.current.contains(e.target)) setShowMeetingPrompt(false)
       if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifList(false)
     }
-    if (showMenu || showNotifList || showMeetingPrompt) document.addEventListener('mousedown', handler)
+    if (showMenu || showNotifList) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showMenu, showNotifList, showMeetingPrompt])
+  }, [showMenu, showNotifList])
 
   const handleMasterSearch = async (q) => {
     setSearchQuery(q);
@@ -411,91 +409,32 @@ return (
               )}
             </div>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <button
-              onClick={handleLogoutAllFros}
-              disabled={logoutAllBusy.current}
-              title="Log out every FRO immediately — all open FRO panels are sent back to the login screen"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 13px', border: 'none', borderRadius: 9,
-                fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-                color: '#fff', background: '#dc2626', boxShadow: '0 4px 14px rgba(220,38,38,.35)',
-              }}
-            >
-              Logout All FROs
-            </button>
-            <div style={{ position: 'relative' }} ref={meetingRef}>
-              <button
-                onClick={() => { if (meetingActive) handleEndMeeting(); else setShowMeetingPrompt(v => !v); }}
-                disabled={meetingBusy}
-                title={meetingActive
-                  ? `End the team meeting${meeting?.teams?.length ? ` for ${meeting.teams.join(' · ')}` : ' (all teams)'} and resume counters`
-                  : 'Start a team meeting — pauses live counters for the selected teams\' FROs'}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 13px', border: 'none', borderRadius: 9,
-                  fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: meetingBusy ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                  color: '#fff', background: meetingActive ? '#dc2626' : '#7c3aed',
-                  boxShadow: meetingActive ? '0 4px 14px rgba(220,38,38,.35)' : '0 4px 14px rgba(124,58,237,.35)',
-                }}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {meetingActive && (
+              <span
+                title={meeting?.title || 'Meeting in progress'}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', borderRadius: 999, background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap' }}
               >
-                {meetingActive ? '⏹ End Meeting' : '▶ Meeting'}
-              </button>
-              {!meetingActive && showMeetingPrompt && (
-                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 288, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14, zIndex: 300 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>Start team meeting</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
-                    A blocking popup appears for the selected teams' FROs and their live counters (calls, breaks) pause.
-                  </div>
-                  <input
-                    type="text"
-                    value={meetingTitle}
-                    onChange={e => setMeetingTitle(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleStartMeeting(); }}
-                    placeholder="Optional title (e.g. All-hands)"
-                    style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)' }}
-                  />
-                  {teamsList.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Apply to teams</span>
-                        <button
-                          onClick={() => setMeetingTeams(meetingTeams.length ? [] : [...teamsList])}
-                          style={{ border: 'none', background: 'none', color: '#7c3aed', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
-                        >{meetingTeams.length ? 'Clear' : 'Select all teams'}</button>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                        {teamsList.map(t => (
-                          <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: meetingTeams.includes(t) ? '#f5f3ff' : 'var(--bg)', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>
-                            <input type="checkbox" checked={meetingTeams.includes(t)} onChange={() => toggleMeetingTeam(t)} style={{ accentColor: '#7c3aed', margin: 0, cursor: 'pointer' }} />
-                            {t}
-                          </label>
-                        ))}
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 10, color: meetingTeams.length ? '#7c3aed' : 'var(--ink-soft)', fontWeight: 600 }}>
-                        {meetingTeams.length
-                          ? `Only ${meetingTeams.join(', ')} will be paused. FROs with no team assigned always get it too.`
-                          : 'No teams selected → applies to all teams (company-wide).'}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                    <button
-                      onClick={handleStartMeeting}
-                      disabled={meetingBusy}
-                      style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 700, cursor: meetingBusy ? 'default' : 'pointer', fontFamily: 'inherit' }}
-                    >{meetingBusy ? 'Starting…' : 'Start Meeting'}</button>
-                    <button
-                      onClick={() => setShowMeetingPrompt(false)}
-                      style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink-soft)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-                    >Cancel</button>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed' }} />
+                Meeting live
+              </span>
+            )}
+            <div
+              className="topbar-user"
+              ref={menuRef}
+              onClick={() => setShowMenu(!showMenu)}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '4px 9px 4px 4px', borderRadius: 12, cursor: 'pointer', border: '1px solid transparent', background: showMenu ? 'var(--bg)' : 'transparent' }}
+            >
               <div className="avatar">{initials}</div>
+              <div className="desktop-only" style={{ lineHeight: 1.2, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>{userName}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Admin</div>
+              </div>
+              <svg className="desktop-only" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: showMenu ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
               {showMenu && (
-                <div className="user-menu">
+                <div className="user-menu" onClick={e => e.stopPropagation()}>
                   <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
                     <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
                     <div style={{fontSize:11, color:'var(--ink-soft)'}}>Admin</div>
@@ -504,6 +443,31 @@ return (
                   <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     Settings
+                  </div>
+                  <div className="user-menu-divider" />
+                  <div
+                    className="user-menu-item"
+                    onClick={() => { setShowMenu(false); if (meetingActive) handleEndMeeting(); else setShowMeetingPrompt(true); }}
+                    style={{ cursor: 'pointer', color: meetingActive ? '#b91c1c' : '#6d28d9', fontWeight: 600 }}
+                  >
+                    {meetingActive ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                    ) : (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
+                    )}
+                    {meetingActive ? 'End meeting' : 'Start meeting'}
+                  </div>
+                  <div
+                    className="user-menu-item"
+                    onClick={() => { setShowMenu(false); handleLogoutAllFros(); }}
+                    style={{ cursor: 'pointer', color: '#b91c1c', fontWeight: 600 }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <line x1="17" y1="11" x2="23" y2="11" />
+                    </svg>
+                    Logout all FROs
                   </div>
                   <div className="user-menu-divider" />
                   <button className="user-menu-item" onClick={() => { setShowMenu(false); logout() }}>
@@ -522,6 +486,73 @@ return (
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
+
+        {!meetingActive && showMeetingPrompt && (
+          <div
+            onClick={() => !meetingBusy && setShowMeetingPrompt(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 20 }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ width: 340, maxWidth: '94vw', background: '#fff', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 24px 70px rgba(15,23,42,.3)', padding: 18 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <span style={{ width: 34, height: 34, borderRadius: '50%', background: '#f5f3ff', color: '#7c3aed', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
+                </span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Start team meeting</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>Selected teams' FROs get a blocking popup; live counters pause.</div>
+                </div>
+              </div>
+              <input
+                type="text"
+                value={meetingTitle}
+                onChange={e => setMeetingTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleStartMeeting(); }}
+                placeholder="Optional title (e.g. All-hands)"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)' }}
+              />
+              {teamsList.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Apply to teams</span>
+                    <button
+                      onClick={() => setMeetingTeams(meetingTeams.length ? [] : [...teamsList])}
+                      style={{ border: 'none', background: 'none', color: '#7c3aed', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                    >{meetingTeams.length ? 'Clear' : 'Select all teams'}</button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {teamsList.map(t => (
+                      <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: meetingTeams.includes(t) ? '#f5f3ff' : 'var(--bg)', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>
+                        <input type="checkbox" checked={meetingTeams.includes(t)} onChange={() => toggleMeetingTeam(t)} style={{ accentColor: '#7c3aed', margin: 0, cursor: 'pointer' }} />
+                        {t}
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 10, color: meetingTeams.length ? '#7c3aed' : 'var(--ink-soft)', fontWeight: 600 }}>
+                    {meetingTeams.length
+                      ? `Only ${meetingTeams.join(', ')} will be paused. FROs with no team assigned always get it too.`
+                      : 'No teams selected → applies to all teams (company-wide).'}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <button
+                  onClick={handleStartMeeting}
+                  disabled={meetingBusy}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 700, cursor: meetingBusy ? 'default' : 'pointer', fontFamily: 'inherit' }}
+                >{meetingBusy ? 'Starting…' : 'Start Meeting'}</button>
+                <button
+                  onClick={() => setShowMeetingPrompt(false)}
+                  disabled={meetingBusy}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink-soft)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                >Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Suspense fallback={<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh'}}><span style={{fontSize:13,color:'var(--ink-soft)'}}>Loading...</span></div>}>
           <Routes>

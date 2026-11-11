@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { apiGet, apiPost, apiDelete } from '../api/auth.js';
+import StackSettingsModal from './StackSettingsModal.jsx';
+
+
+// Simple gear glyph for the stack-settings control (the modal otherwise uses
+// inline SVGs, so no extra icon dependency is introduced here).
+function GearIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
 
 
 function SelectOption({ selected, muted, onClick, children }) {
@@ -121,8 +134,12 @@ function formatHistoryDate(value) {
   });
 }
 
-export default function DonorStacksModal({ target, froWorkers = [], onClose, onGranted }) {
+export default function DonorStacksModal({ target, froWorkers = [], onClose, onGranted, onStacksEnabledChange }) {
   const [tab, setTab] = useState('normal');
+  // Feature switch: when OFF the stack tab and every stack control disappear, so
+  // donors simply stay with the FRO they are assigned to.
+  const [stacksEnabled, setStacksEnabled] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [donors, setDonors] = useState([]);
   const [stacks, setStacks] = useState([]);
   const [stackedDonorMap, setStackedDonorMap] = useState({});
@@ -198,6 +215,39 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
 
   useEffect(() => { if (station) loadAll(); }, [station, ngoId]);
   useEffect(() => { if (!ngoId) setError('No NGO linked to this station. Select an NGO first.'); }, [ngoId]);
+
+  // Load this station's stack switch. Defaults to OFF until the read answers.
+  useEffect(() => {
+    let alive = true;
+    apiGet(`/ngo-admin/stack-settings?ngo_id=${encodeURIComponent(ngoId ?? '')}&station=${encodeURIComponent(station ?? '')}`)
+      .then(r => {
+        if (!alive) return;
+        const enabled = r?.enabled === true;
+        setStacksEnabled(enabled);
+        if (!enabled) setTab('normal');
+      })
+      .catch(() => { });
+    return () => { alive = false; };
+  }, [ngoId, station]);
+
+  useEffect(() => {
+    if (!stacksEnabled && tab === 'stacks') setTab('normal');
+    if (!stacksEnabled && listFilter === 'unstacked') setListFilter('all');
+  }, [stacksEnabled, tab, listFilter]);
+
+  // Apply the global switch locally and to the page that opened this dialog.
+  const applyStacksEnabled = (enabled) => {
+    setStacksEnabled(enabled);
+    onStacksEnabledChange?.(enabled);
+    if (!enabled) {
+      setTab('normal');
+      setListFilter('all');
+      setSelected(new Set());
+    }
+    setCountMsg(enabled
+      ? 'Stack assignments are ON.'
+      : 'Stack assignments are OFF — donors stay with the FRO they are assigned to.');
+  };
 
   const currentDonors = donors.filter(d => {
     const isStacked = !!stackedDonorMap[d.donor_id || d.id];
@@ -419,10 +469,21 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
             </div>
           </div>
 
-          {/* Tabs */}
-          <div style={{ display:'flex', gap:4, borderBottom:'1px solid #e5e7eb', marginBottom:14 }}>
+          {/* Tabs + settings */}
+          <div style={{ display:'flex', gap:4, alignItems:'center', borderBottom:'1px solid #e5e7eb', marginBottom:14 }}>
             <button onClick={() => setTab('normal')} style={{ padding:'8px 14px', border:'none', background:'transparent', cursor:'pointer', fontSize:12.5, fontWeight:600, color: tab==='normal' ? '#2563eb' : '#64748b', borderBottom: tab==='normal' ? '2px solid #2563eb' : '2px solid transparent' }}>All donors</button>
-            <button onClick={() => setTab('stacks')} style={{ padding:'8px 14px', border:'none', background:'transparent', cursor:'pointer', fontSize:12.5, fontWeight:600, color: tab==='stacks' ? '#2563eb' : '#64748b', borderBottom: tab==='stacks' ? '2px solid #2563eb' : '2px solid transparent' }}>Stacks ({stacks.length})</button>
+            {stacksEnabled && (
+              <button onClick={() => setTab('stacks')} style={{ padding:'8px 14px', border:'none', background:'transparent', cursor:'pointer', fontSize:12.5, fontWeight:600, color: tab==='stacks' ? '#2563eb' : '#64748b', borderBottom: tab==='stacks' ? '2px solid #2563eb' : '2px solid transparent' }}>Stacks ({stacks.length})</button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              title="Settings"
+              aria-label="Settings"
+              style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', justifyContent:'center', width:30, height:30, borderRadius:8, border:'1px solid #e5e7eb', background:'#fff', color:'#475569', cursor:'pointer' }}
+            >
+              <GearIcon size={15} />
+            </button>
           </div>
 
           {error && <div style={{ color:'#991b1b', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'8px 10px', fontSize:12.5, marginBottom:10 }}>{error}</div>}
@@ -431,38 +492,47 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
           {loading ? (
             <div style={{ textAlign:'center', padding:40, color:'var(--ink-soft)' }}>Loading…</div>
           ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 44px 1fr', gap:0 }}>
+            <div style={{ display:'grid', gridTemplateColumns: stacksEnabled ? '1fr 44px 1fr' : '1fr', gap:0 }}>
               {/* LEFT: donor list */}
               <div style={{ minWidth:0 }}>
                 <div style={{ display:'flex', gap:8, marginBottom:10, alignItems:'center', flexWrap:'wrap' }}>
                   <input type="text" placeholder="Search donor..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ flex:1, minWidth:180, padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:6, fontSize:12 }} />
                 <select value={listFilter} onChange={e => setListFilter(e.target.value)} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb', fontSize:11, background:'#fff' }}>
                   <option value="all">All ({donors.length})</option>
-                  <option value="unstacked">Unstacked ({donors.filter(d => !stackedDonorMap[d.donor_id || d.id]).length})</option>
+                  {stacksEnabled && <option value="unstacked">Unstacked ({donors.filter(d => !stackedDonorMap[d.donor_id || d.id]).length})</option>}
                   <option value="dispositioned">Dispositioned ({donors.filter(d => d.status && d.status !== 'pending' && d.status !== '' && d.status !== null).length})</option>
                 </select>
-                  <button onClick={toggleAll} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', fontSize:11, cursor:'pointer' }}>
-                    {selected.size === currentDonors.length ? 'Deselect all' : 'Select all'}
-                  </button>
-                  <select value={selectedStackId} onChange={e => setSelectedStackId(e.target.value)} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb', fontSize:11 }}>
-                    <option value="">Select stack…</option>
-                    {orderedStacks.map(st => <option key={st.id} value={st.id}>{st.name} ({st.member_count || 0})</option>)}
-                  </select>
+                {stacksEnabled && (
+                  <>
+                    <button onClick={toggleAll} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', fontSize:11, cursor:'pointer' }}>
+                      {selected.size === currentDonors.length ? 'Deselect all' : 'Select all'}
+                    </button>
+                    <select value={selectedStackId} onChange={e => setSelectedStackId(e.target.value)} style={{ padding:'6px 10px', borderRadius:6, border:'1px solid #e5e7eb', fontSize:11 }}>
+                      <option value="">Select stack…</option>
+                      {orderedStacks.map(st => <option key={st.id} value={st.id}>{st.name} ({st.member_count || 0})</option>)}
+                    </select>
+                  </>
+                )}
                 </div>
                 <div id="donorList" style={{ border:'1px solid #e5e7eb', borderRadius:8, maxHeight:420, overflow:'auto' }}>
                   {currentDonors.length === 0 ? (
                     <div style={{ padding:24, textAlign:'center', color:'#64748b' }}>No donors</div>
-                  ) : currentDonors.map(d => (
-                    <div key={d.id} className="donor-row" style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderBottom:'1px solid #f1f5f9', fontSize:12.5, opacity: stackedDonorMap[d.donor_id || d.id] ? 0.45 : 1, background: stackedDonorMap[d.donor_id || d.id] ? '#f1f5f9' : 'transparent' }}>
-                      <input type="checkbox" disabled={!!stackedDonorMap[d.donor_id || d.id]} checked={selected.has(d.donor_id || d.id)} onChange={() => toggleSelect(d)} />
-                      <span style={{ flex:1, fontWeight:500, opacity: stackedDonorMap[d.donor_id || d.id] ? 0.5 : 1 }}>{d.name || d.donor_name}</span>
+                  ) : currentDonors.map(d => {
+                    const stackedIn = stacksEnabled ? stackedDonorMap[d.donor_id || d.id] : null;
+                    return (
+                    <div key={d.id} className="donor-row" style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderBottom:'1px solid #f1f5f9', fontSize:12.5, opacity: stackedIn ? 0.45 : 1, background: stackedIn ? '#f1f5f9' : 'transparent' }}>
+                      {stacksEnabled && (
+                        <input type="checkbox" disabled={!!stackedIn} checked={selected.has(d.donor_id || d.id)} onChange={() => toggleSelect(d)} />
+                      )}
+                      <span style={{ flex:1, fontWeight:500, opacity: stackedIn ? 0.5 : 1 }}>{d.name || d.donor_name}</span>
                       <span style={{ color:'#64748b', fontSize:11 }}>{d.station} · {d.status}</span>
-                      {stackedDonorMap[d.donor_id || d.id] && <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:'#bbf7d0', color:'#166534', fontWeight:600 }}>in {stackedDonorMap[d.donor_id || d.id]}</span>}
+                      {stackedIn && <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:'#bbf7d0', color:'#166534', fontWeight:600 }}>in {stackedIn}</span>}
                       <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background: d.batch_type === 'high_tier' ? '#fef3c7' : '#e2e8f0', color: d.batch_type === 'high_tier' ? '#92400e' : '#334155' }}>
                         {d.batch_type || 'normal'}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div style={{ fontSize:11, color:'#64748b', marginTop:6 }}>
                   Showing {currentDonors.length} donors (all)
@@ -470,6 +540,8 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
                 {/* Move button removed — functionality moved to middle arrow. */}
               </div>
 
+              {stacksEnabled && (
+                <>
               {/* MIDDLE: arrow */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToStack(); }} disabled={busy || selected.size === 0}
@@ -555,6 +627,8 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
                   )}
                 </div>
               </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -669,6 +743,17 @@ export default function DonorStacksModal({ target, froWorkers = [], onClose, onG
             </div>
           </div>
         </div>
+      )}
+
+      {/* Stack settings — the shared global on/off switch */}
+      {settingsOpen && (
+        <StackSettingsModal
+          ngoId={ngoId}
+          station={station}
+          enabled={stacksEnabled}
+          onChange={applyStacksEnabled}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </div>
     </>
