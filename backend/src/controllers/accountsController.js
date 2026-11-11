@@ -4092,7 +4092,9 @@ export const getDonorsList = async (req, res) => {
 
     if (search) {
       const q = search.trim();
-      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+      // mobile_2 is searchable too: a donor's working number often lives there,
+      // and leaving it out made a number that IS in Master Data look missing.
+      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,mobile_2.ilike.%${q}%,city.ilike.%${q}%`);
     }
 
     // "Missing station" narrowing: donors with at least one live assignment
@@ -4984,20 +4986,31 @@ export const updateDonor = async (req, res) => {
 export const getStationOptions = async (req, res) => {
   try {
     const { ngo_id } = req.query;
-    let q = db.from('fro_station_assignments').select('station, ngo_id').order('station', { ascending: true });
+    // fro_worker_id/worker_name let the donor drawer derive the agent from the
+    // station (and the station from the agent) instead of asking for both.
+    let q = db
+      .from('fro_station_assignments')
+      .select('station, ngo_id, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(id, name)')
+      .order('station', { ascending: true });
     if (ngo_id) q = q.eq('ngo_id', ngo_id);
     const { data, error } = await q;
     if (error) throw error;
-    const seen = new Set();
-    const options = [];
+    const byKey = new Map();
     for (const s of data || []) {
       if (!s.station) continue;
       const key = `${s.ngo_id ?? ''}|${s.station}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      options.push({ station: s.station, ngo_id: s.ngo_id });
+      const existing = byKey.get(key);
+      // Prefer the duplicate row that actually names the station's agent.
+      if (!existing || (!existing.fro_worker_id && s.fro_worker_id)) {
+        byKey.set(key, {
+          station: s.station,
+          ngo_id: s.ngo_id,
+          fro_worker_id: s.fro_worker_id || null,
+          worker_name: s.workers?.name || '',
+        });
+      }
     }
-    return res.json({ options });
+    return res.json({ options: [...byKey.values()] });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

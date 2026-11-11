@@ -1,0 +1,22 @@
+-- 194_stacks_enabled.sql
+--
+-- "Stack assignments" — enabled per (NGO, station), not globally. Turning it on
+-- for BOD-1 must not enable BOD-2 or another NGO's station with the same name.
+--
+-- Stored in the existing `settings` key/value table:
+--   key   = 'stacks_enabled:<ngo_id>:<station>'
+--   value = '1' (enabled) | '0' (disabled)
+--
+-- There is NO default row: a missing key means OFF, so every station starts
+-- with stacks disabled and donors stay with the FRO they are assigned to.
+-- The switch is written on demand by services/stackSettings.js.
+--
+-- Rollback:
+--   DELETE FROM settings WHERE key LIKE 'stacks_enabled:%';
+--
+-- The idempotent boot-time copy lives in
+-- backend/src/bootstrap/ensureSettingsSchema.js, which also removes the old
+-- global 'stacks_enabled' key.
+
+-- Clean up the short-lived global switch, if a previous build created it.
+DELETE FROM settings WHERE key = 'stacks_enabled';

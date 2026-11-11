@@ -39,6 +39,7 @@ import {
   updateStationNgos,
   getStationStats,
   getDonorsByStation,
+  getDonorsByNgo,
   getDonorsByFro,
   getNewData,
   distributeNewData,
@@ -142,6 +143,7 @@ router.get('/ngos/all', authenticateRole('admin', 'super_admin', 'accounts'), ge
 
 // Accounts panel handles New Data distribution + Old Data viewing — allow accounts role
 router.get('/donors-by-station', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByStation);
+router.get('/donors-by-ngo', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByNgo);
 router.get('/new-data', authenticateRole('admin', 'super_admin', 'accounts'), getNewData);
 router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'accounts'), distributeNewData);
 router.post('/new-data/cleanup', authenticateRole('admin', 'super_admin', 'accounts'), cleanupNewData);

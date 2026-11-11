@@ -132,7 +132,10 @@ export default function ChatWorkspace() {
       // (e.g. an HR user added only to a Notices group) saw an empty rail.
       setActiveId((prev) => {
         if (prev && arr.some((c) => c.id === prev)) return prev
-        return null
+        // Open the most recent room on arrival instead of leaving the thread
+        // pane on the "Select a conversation" placeholder. The server returns
+        // rooms ordered by last activity, so arr[0] is the latest one.
+        return arr[0]?.id ?? null
       })
     } catch (e) {
       setListError(e.message || 'Could not load conversations.')

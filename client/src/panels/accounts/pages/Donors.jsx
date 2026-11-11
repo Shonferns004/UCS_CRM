@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
 import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X, MoreHorizontal, Eye, PencilLine, History, UserMinus, Search, ChevronDown, ChevronUp } from 'lucide-react'
@@ -153,6 +153,27 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
     }).catch(e => setAssignmentErr(e.message))
   }, [canManage])
 
+  // Only active FROs can be assigned (the server enforces the same), so the
+  // agent select is built from that list. The station registry is consulted for
+  // the mapping, but a mapping that points at a now-inactive worker must not be
+  // auto-selected or the save would be rejected.
+  const agentChoices = useMemo(() => {
+    const seen = new Set()
+    return agents
+      .filter(a => a?.id != null && a.name)
+      .filter(a => {
+        const k = String(a.id)
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+  }, [agents])
+  const activeAgentIds = useMemo(
+    () => new Set(agentChoices.map(a => String(a.id))),
+    [agentChoices]
+  )
+
   const startEdit = () => {
     if (!data?.donor) return
     const f = {}
@@ -197,6 +218,64 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
     setAssignmentErr('')
     setEditingAssignmentId(assignment.id)
     setAssignmentForm({ ngo_id: assignment.ngo_id || '', worker_id: assignment.worker_id || '', station: assignment.station || '' })
+  }
+
+  // ── Station ⇄ agent auto-fill ─────────────────────────────────────────────
+  // The station registry (fro_station_assignments) already says which FRO owns
+  // each station. So the admin picks the NGO and the station and the agent fills
+  // itself in; picking an agent instead walks the same mapping backwards and
+  // fills the NGO/station the agent is registered on.
+
+  const changeAssignmentNgo = (ngoId) => {
+    setAssignmentForm(p => {
+      // Changing NGO invalidates a station (and therefore an agent) picked under
+      // the previous one, so only keep a station that exists in the new NGO.
+      const keep = stationOpts.find(o => String(o.ngo_id) === String(ngoId) && o.station === p.station)
+      return {
+        ...p,
+        ngo_id: ngoId,
+        station: keep ? p.station : '',
+        worker_id: keep ? p.worker_id : '',
+      }
+    })
+  }
+
+  const changeAssignmentStation = (station) => {
+    setAssignmentForm(p => {
+      const opt = stationOpts.find(o => String(o.ngo_id) === String(p.ngo_id) && o.station === station)
+      const mapped = opt?.fro_worker_id != null ? String(opt.fro_worker_id) : ''
+      return {
+        ...p,
+        station,
+        // The agent registered on the station wins - but only if they are still
+        // an active FRO the server will accept.
+        worker_id: mapped && activeAgentIds.has(mapped) ? mapped : '',
+      }
+    })
+  }
+
+  const changeAssignmentAgent = (workerId) => {
+    setAssignmentForm(p => {
+      if (!workerId) return { ...p, worker_id: '' }
+      const rows = stationOpts.filter(o => o.fro_worker_id != null && String(o.fro_worker_id) === String(workerId))
+      if (rows.length === 0) return { ...p, worker_id: workerId }
+      // Prefer the agent's station inside the NGO already chosen, then the
+      // current station. On Replace the NGO is fixed server-side, so never
+      // switch it here; without a registration in that NGO, only the agent is
+      // filled and the admin picks the station.
+      const sameNgo = rows.filter(o => String(o.ngo_id) === String(p.ngo_id))
+      const pick =
+        sameNgo.find(o => o.station === p.station) ||
+        sameNgo[0] ||
+        (editingAssignmentId ? null : rows[0])
+      if (!pick) return { ...p, worker_id: workerId }
+      return {
+        ...p,
+        worker_id: workerId,
+        ngo_id: editingAssignmentId ? p.ngo_id : String(pick.ngo_id ?? p.ngo_id),
+        station: pick.station,
+      }
+    })
   }
 
   const saveAssignment = async (event) => {
@@ -287,6 +366,18 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
   const receipts = data.receipts || []
   const initial = (d.name || d.bank_donor_name || d.agent_donor_name || '?')[0].toUpperCase()
 
+  // Station choices follow the NGO, so the admin never has to eyeball which
+  // stations belong to it. Without an NGO (fresh Add before choosing one) all
+  // stations are offered.
+  const assignmentStationChoices = assignmentForm.ngo_id
+    ? stationOpts.filter(o => String(o.ngo_id) === String(assignmentForm.ngo_id))
+    : stationOpts
+  const selectedStationOpt = stationOpts.find(
+    o => String(o.ngo_id) === String(assignmentForm.ngo_id) && o.station === assignmentForm.station
+  )
+  const stationMappedAgentId = selectedStationOpt?.fro_worker_id != null ? String(selectedStationOpt.fro_worker_id) : ''
+  const stationAgentIsActive = !!stationMappedAgentId && activeAgentIds.has(stationMappedAgentId)
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 560, width: '92%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
@@ -375,26 +466,41 @@ function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
                 <form onSubmit={saveAssignment} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10, padding: 10, background: 'var(--bg)', borderRadius: 7 }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>
                     NGO
-                    <select value={assignmentForm.ngo_id} onChange={e => setAssignmentForm(p => ({ ...p, ngo_id: e.target.value }))} disabled={!!editingAssignmentId} style={inputStyle}>
+                    <select value={assignmentForm.ngo_id} onChange={e => changeAssignmentNgo(e.target.value)} disabled={!!editingAssignmentId} style={inputStyle}>
                       <option value="">Select NGO</option>
                       {ngoOptions.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                     </select>
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>
-                    Active FRO agent
-                    <select value={assignmentForm.worker_id} onChange={e => setAssignmentForm(p => ({ ...p, worker_id: e.target.value }))} style={inputStyle}>
-                      <option value="">Select agent</option>
-                      {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    Station
+                    <select value={assignmentForm.station} onChange={e => changeAssignmentStation(e.target.value)} style={inputStyle}>
+                      <option value="">Select station</option>
+                      {assignmentStationChoices.map(o => <option key={`${o.ngo_id}|${o.station}`} value={o.station}>{o.station}</option>)}
                     </select>
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>
-                    Station
-                    <select value={assignmentForm.station} onChange={e => setAssignmentForm(p => ({ ...p, station: e.target.value }))} style={inputStyle}>
-                      <option value="">Select station</option>
-                      {stationOpts.map(o => <option key={`${o.ngo_id}|${o.station}`} value={o.station}>{o.station}</option>)}
+                    Active FRO agent {stationAgentIsActive ? '(auto from station)' : ''}
+                    <select value={assignmentForm.worker_id} onChange={e => changeAssignmentAgent(e.target.value)} style={inputStyle}>
+                      <option value="">Select agent</option>
+                      {agentChoices.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
                   </label>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7 }}>
+                  {assignmentForm.station && !stationMappedAgentId && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#b45309', marginTop: -2 }}>
+                      No agent is mapped to {assignmentForm.station} yet — choose the agent manually, or pick a different station.
+                    </div>
+                  )}
+                  {assignmentForm.station && stationMappedAgentId && !stationAgentIsActive && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#b45309', marginTop: -2 }}>
+                      {selectedStationOpt?.worker_name || 'The agent'} is registered on {assignmentForm.station} but is not an active FRO — choose an active agent.
+                    </div>
+                  )}
+                  {assignmentForm.worker_id && !assignmentForm.station && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#b45309', marginTop: -2 }}>
+                      This agent has no station registered — pick the NGO and station, or assign the agent to a station first.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7, gridColumn: '1 / -1' }}>
                     <button type="submit" className="btn btn-sm btn-primary" disabled={assignmentBusy}>{assignmentBusy ? 'Saving...' : editingAssignmentId ? 'Save replacement' : 'Assign agent'}</button>
                     <button type="button" className="btn btn-sm" onClick={() => { setEditingAssignmentId(null); setAssignmentForm({ ngo_id: '', worker_id: '', station: '' }); setAssignmentErr('') }} disabled={assignmentBusy}>Cancel</button>
                   </div>
@@ -452,8 +558,11 @@ const parseAssignments = (d, ngoFilter = '', agent = '', showBlankStation = fals
   } else return []
 
   // Assigned To/Station columns only show real agent entries. Drops agent-less
-  // rows entirely; station-less rows are hidden by default but surface via the
-  // "Missing station" toggle (where they can be repaired).
+  // rows entirely. Station-less rows are KEPT: the assignment still exists and
+  // the agent is real, and hiding it made the whole donor vanish from Master
+  // Data (the row renders empty -> `if (assignments.length === 0) return null`),
+  // so a number with no station could not be found or repaired from here. The
+  // pill is painted with `.missing` so the gap is obvious.
   list = list.filter(a => a.name && String(a.name).trim() !== '')
   if (!showBlankStation) list = list.filter(a => a.station && String(a.station).trim() !== '')
 
@@ -468,6 +577,20 @@ const parseAssignments = (d, ngoFilter = '', agent = '', showBlankStation = fals
 const hasBlankStationEntry = (d) =>
   Array.isArray(d.assignment_list) &&
   d.assignment_list.some(a => a.id && a.name && !(a.station && String(a.station).trim() !== ''))
+
+// Assignments to render for one Master Data row. The donor must stay visible if
+// it has ANY live assignment, even one with neither an agent nor a station yet:
+// parseAssignments drops agent-less entries by design, and when those were the
+// only entries the row rendered empty and the donor disappeared from search.
+// Donors with no assignment list at all are still left to the page's own
+// unassigned/New Data surfaces.
+const displayAssignments = (d, ngoFilter, agentFilter) => {
+  if (d.isNewData) return [{ name: 'Unassigned (New Data)', station: '' }]
+  const parsed = parseAssignments(d, ngoFilter, agentFilter, true)
+  if (parsed.length > 0) return parsed
+  return (Array.isArray(d.assignment_list) ? d.assignment_list : [])
+    .map(a => ({ id: a.id, name: a.name || 'Unassigned agent', station: a.station || '' }))
+}
 
 // Mini modal to manage an orphaned donor's agent-assignments: set the missing
 // station, swap in a different agent, or delete the assignment outright.
@@ -1003,9 +1126,7 @@ export default function Donors() {
             ) : displayDonors.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</div>
             ) : displayDonors.map(d => {
-              const assignments = d.isNewData
-                ? [{ name: 'Unassigned (New Data)', station: '' }]
-                : parseAssignments(d, ngoFilter, agentFilter, false)
+              const assignments = displayAssignments(d, ngoFilter, agentFilter)
               if (assignments.length === 0) return null
               const isOpen = !!expanded[d.id]
               const { name, secondary, initial } = donorMeta(d)
@@ -1062,9 +1183,7 @@ export default function Donors() {
                 ) : displayDonors.length === 0 ? (
                   <tr><td colSpan={3} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
                 ) : displayDonors.map(d => {
-                  const assignments = d.isNewData
-                    ? [{ name: 'Unassigned (New Data)', station: '' }]
-                    : parseAssignments(d, ngoFilter, agentFilter, false)
+                  const assignments = displayAssignments(d, ngoFilter, agentFilter)
                   if (assignments.length === 0) return null
                   const isOpen = !!expanded[d.id]
                   const { name, secondary, initial } = donorMeta(d)

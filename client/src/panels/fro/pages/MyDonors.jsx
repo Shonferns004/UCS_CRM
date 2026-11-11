@@ -301,6 +301,12 @@ const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).jo
 // many each time the FRO nears the bottom.
 const LEADS_PAGE_SIZE = 10;
 
+// Small section captions inside the collapsible filter panel ("View", "Filters").
+const FILTER_LABEL = {
+  fontSize: 9.5, fontWeight: 800, letterSpacing: '.07em', textTransform: 'uppercase',
+  color: 'var(--ink-soft)', minWidth: 42,
+};
+
 // Client-side search memo. Mirrors the server cache so a term the FRO already
 // searched this session (a backspace, a re-typed prefix, switching back to a
 // station) renders instantly instead of re-querying. Short-lived on purpose —
@@ -425,6 +431,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   // one click and always counted — nothing is silently missing.
   const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
+  // Filter icon next to the search box: hides the New/Old/SS + NGO/station row
+  // until the FRO asks for it, so the header stays one clean line.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [waLeads, setWaLeads] = useState([]);
   const [showWaLeads, setShowWaLeads] = useState(false);
   const [historyLeads, setHistoryLeads] = useState([]);
@@ -827,9 +836,18 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     let cancelled = false;
     setHistoryLoading(true);
     const opts = {};
-    if (selectedStation !== 'all') opts.station = selectedStation;
+    if (selectedStation !== 'all') {
+      opts.station = selectedStation;
+      // Viewing one station's history means the STATION's history, including
+      // dispositions made by agents who held it before. Personal-only history
+      // made a station with 621 donors show just the current FRO's 40 calls.
+      opts.stationWide = true;
+    }
     if (selectedNgo) opts.ngoId = selectedNgo;
     if (historyAllTime) opts.allMonths = true;
+    // History is the station book, not just this FRO's own calls: BOD-2 holds
+    // 621 donors even if this agent personally dispositioned only 40.
+    if (opts.allMonths) opts.scopeWide = true;
     getMyDisposedLeads(opts).then(r => {
       if (cancelled) return;
       const arr = Array.isArray(r) ? r : r?.data || [];
@@ -919,8 +937,16 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       // when it still has workable leads the Old tab appends them below the queue.
       // Nothing is reset: the rows keep their disposition and the newest disposed
       // stays at the bottom.
-      const historyOpts = { allMonths: true };
-      if (filteredOpts.station) historyOpts.station = filteredOpts.station;
+      const historyOpts = { allMonths: true, scopeWide: true };
+      if (filteredOpts.station) {
+        historyOpts.station = filteredOpts.station;
+        // Whole-station history: the old data was finished by whoever held the
+        // station, so show every donor there, not only the current FRO's calls.
+        historyOpts.stationWide = true;
+        // Empty queue → the list IS the station, so include donors still marked
+        // pending / never dispositioned. Otherwise BOD-2 showed 11 rows out of 621.
+        if (queueEmpty) historyOpts.fullRoster = true;
+      }
       if (filteredOpts.ngoId) historyOpts.ngoId = filteredOpts.ngoId;
       const historyRows = await getMyDisposedLeads(historyOpts);
       const arr = Array.isArray(historyRows) ? historyRows : historyRows?.data || [];
@@ -1812,7 +1838,14 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
 
   const statusPill = (status) => {
     const label = status ? status.replace(/_/g, ' ') : 'unknown';
-    return <span className={`pill ${STATUS_PILL_MAP[status] || 'pill-gray'}`}>{label}</span>;
+    return (
+      <span
+        className={`pill ${STATUS_PILL_MAP[status] || 'pill-gray'}`}
+        style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.3px', textTransform: 'uppercase', padding: '2px 8px', whiteSpace: 'nowrap', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}
+      >
+        {label}
+      </span>
+    );
   };
 
   // ─────────────────────────── MY LEADS — LIST VIEW ─────────────────────────
@@ -1976,7 +2009,54 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(embedded ? { border: 'none' } : {}) }}>
         {/* Filter bar */}
         <div style={{ padding: isCompact ? '10px 10px 6px' : '14px 18px 8px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--ink-soft)' }}>search</span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => handleSearch(e.target.value)}
+                placeholder="Search name or mobile..."
+                style={{ width: '100%', padding: '8px 32px 8px 32px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card-bg)', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
+              />
+              {searchQuery && (
+                <span className="material-symbols-outlined" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setDisposedResults([]); }}>close</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(o => !o)}
+              title={filtersOpen ? 'Hide filters' : 'Show filters'}
+              aria-label="Filters"
+              aria-expanded={filtersOpen}
+              style={{
+                position: 'relative', flexShrink: 0, width: 34, height: 34, borderRadius: 10,
+                border: `1px solid ${filtersOpen ? 'var(--sage)' : 'var(--line)'}`,
+                background: filtersOpen ? 'var(--sage)' : 'var(--card-bg)',
+                color: filtersOpen ? '#fff' : 'var(--ink-soft)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>tune</span>
+              {(() => {
+                const n = (selectedNgo ? 1 : 0)
+                  + (selectedStation && selectedStation !== 'all' ? 1 : 0)
+                  + (listShowSuppressed ? 1 : 0)
+                  + (listView === 'history' && historyAllTime ? 1 : 0)
+                  + (listView !== 'leads' ? 1 : 0);
+                return n > 0 ? (
+                  <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span>
+                ) : null;
+              })()}
+            </button>
+          </div>
+
+          {/* All filters (view tabs, bucket, NGO/station, hidden) live behind the
+              funnel button and open BELOW the search bar. */}
+          {filtersOpen && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10, padding: 10, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--line)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={FILTER_LABEL}>View</span>
             <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
               <button onClick={() => setListView('leads')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'leads' ? 'var(--sage)' : 'transparent', color: listView === 'leads' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'leads' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
@@ -1999,6 +2079,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 {historyScoped.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'history' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'history' ? '#fff' : 'var(--ink-soft)' }}>{historyScoped.length}</span> : null}
                </button>
              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={FILTER_LABEL}>Filters</span>
             {/* Bucket tabs stay available in EVERY view. The active bucket now
                 also scopes Follow Ups / Overdue / History, so the High Tier tab
                 must not vanish the moment the FRO leaves Leads. */}
@@ -2046,7 +2129,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 {historyAllTime ? 'All months' : 'This month'}
               </button>
             )}
-          </div>
+            </div>
+            </div>
+          )}
 
            {showWaLeads && (
              <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2122,20 +2207,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               <span>Old station data is hidden right now — you can only work on the new stations. Ask your admin to show the old data again if you need it.</span>
             </div>
           )}
-
-          <div style={{ position: 'relative', marginTop: 10 }}>
-            <span className="material-symbols-outlined" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--ink-soft)' }}>search</span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => handleSearch(e.target.value)}
-              placeholder="Search name or mobile..."
-              style={{ width: '100%', padding: '8px 12px 8px 32px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card-bg)', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
-            />
-            {searchQuery && (
-              <span className="material-symbols-outlined" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setDisposedResults([]); }}>close</span>
-            )}
-          </div>
         </div>
 
         {message && (
@@ -2298,18 +2369,19 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                     onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                     onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.boxShadow = 'var(--shadow)'; e.currentTarget.style.transform = 'none'; }}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: isCompact ? 8 : 12,
-                      padding: isCompact ? '10px 10px' : '12px 14px',
-                      background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
-                      boxShadow: 'var(--shadow)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s, border-color .12s',
+                      display: 'flex', alignItems: 'center', gap: isCompact ? 10 : 14,
+                      padding: isCompact ? '11px 11px' : '13px 16px',
+                      background: '#fff', border: '1px solid var(--line)', borderRadius: 12,
+                      boxShadow: '0 1px 2px rgba(16,24,40,.04)', cursor: 'pointer',
+                      transition: 'transform .12s, box-shadow .12s, border-color .12s',
                     }}>
-                    <div style={{ width: isCompact ? 34 : 40, height: isCompact ? 34 : 40, borderRadius: '50%', background: d.is_disposed ? '#eef2f7' : '#3b82f6', color: d.is_disposed ? '#64748b' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isCompact ? 12 : 14, fontWeight: 700, flexShrink: 0 }}>
+                    <div style={{ width: isCompact ? 36 : 42, height: isCompact ? 36 : 42, borderRadius: '50%', background: d.is_disposed ? '#eef2f7' : 'linear-gradient(135deg, #60a5fa, #2563eb)', color: d.is_disposed ? '#64748b' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: isCompact ? 12 : 14, fontWeight: 700, flexShrink: 0, boxShadow: d.is_disposed ? 'none' : '0 2px 6px rgba(37,99,235,.28)' }}>
                       {initials(d.donor_name || '')}
                     </div>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: isCompact ? 6 : 8 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: isCompact ? 12.5 : 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.donor_name || 'Unknown'}</span>
+                          <span style={{ fontSize: isCompact ? 13 : 14, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.donor_name || 'Unknown'}</span>
                           {d.is_new && dataTab !== 'high_tier' && (
                             <span style={{ flexShrink: 0, padding: '1px 6px', borderRadius: 999, background: '#16a34a', color: '#fff', fontSize: isCompact ? 8 : 9, fontWeight: 700 }}>NEW</span>
                           )}
@@ -2338,7 +2410,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                             slot instead, so the row still reads as High Tier data. */}
                         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{d.station || '—'}</div>
                       </div>
-                      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, minWidth: isCompact ? 84 : 108 }}>
                         {d.type ? (
                           <>
                             <span style={{ padding: `1px 7px`, borderRadius: 999, fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap', background: d.type === 'promise' ? '#ede9fe' : d.type === 'callback' ? '#dbeafe' : '#dcfce7', color: d.type === 'promise' ? '#7e22ce' : d.type === 'callback' ? '#1d4ed8' : '#166534' }}>
@@ -2362,7 +2434,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                         ) : d.is_disposed ? (
                           <>
                             {statusPill(d.disposition_detail || 'disposed')}
-                            {d.disposed_at && <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(d.disposed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
+                            {d.disposed_at && <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{new Date(d.disposed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
                           </>
                         ) : statusPill(d.status)}
                         {/* Month-boundary context: this lead was worked before and
@@ -2392,7 +2464,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                         )}
                       </div>
                     </div>
-                    <span className="material-symbols-outlined" style={{ fontSize: isCompact ? 15 : 16, color: 'var(--sage)', flexShrink: 0 }}>chevron_right</span>
+                    <span style={{ width: isCompact ? 24 : 28, height: isCompact ? 24 : 28, borderRadius: '50%', background: 'var(--bg)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sage)', flexShrink: 0 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: isCompact ? 15 : 17 }}>chevron_right</span>
+                    </span>
                   </div>
                 );
               })}
@@ -2425,11 +2499,14 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                   ? `Showing ${renderedItems.length} of ${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
+                  : showHistoryFallback
+                    ? `Showing ${renderedItems.length} of ${listItems.length} allotted lead(s)`
+                      + (hasMoreRef.current ? ' · scroll for more' : ' · all shown')
                   : historyInlineItems.length
                     ? `Showing ${renderedItems.length} of ${listItems.length} (${visibleForLeads.length} pending + ${historyInlineItems.length} history)`
                       + (hasMoreRef.current ? ' · scroll for more' : ' · all shown')
-                    : `Showing ${renderedItems.length} of ${total || donors.length} pending leads (of ${allottedTotal || total || donors.length} allotted in this tab)`
-                    + (hasMoreRef.current ? ' · scroll for more' : ' ( total) · all shown')
+                    : `Showing ${renderedItems.length} of ${allottedTotal || total || donors.length} allotted lead(s)`
+                    + (hasMoreRef.current ? ' · scroll for more' : ' · all shown')
                     + (closedCount ? ` · ${closedCount} already worked${dataTab === 'high_tier' ? '' : ' — filter by status'}` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (${dataTab === 'high_tier' ? 'DND, donated, completed' : 'DND, donated this month'}) \u2014 use "Hidden: ${suppressedCount}" to view` : '')
                     + (dataTab === 'high_tier' && highTierStats

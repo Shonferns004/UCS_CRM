@@ -21,6 +21,9 @@ const STATEMENTS = [
   // table that has one, and rescues a table that was created without one
   // (PostgREST's upsert needs a unique key to resolve the conflict).
   `CREATE UNIQUE INDEX IF NOT EXISTS settings_key_uniq ON settings (key)`,
+  // Legacy global stack switch (superseded by per-station keys). Remove it so
+  // nothing can accidentally read a global value.
+  `DELETE FROM settings WHERE key = 'stacks_enabled'`,
 ];
 
 export async function ensureSettingsSchema() {

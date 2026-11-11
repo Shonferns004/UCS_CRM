@@ -11,6 +11,7 @@ import {
   findAssignmentsByNgo,
   getStationDispositionStats,
   getDonorsByStationAndStatus,
+  getDonorsByNgo as getDonorsByNgoRows,
   createTemporaryTransfer,
   reverseTransfer,
 } from '../models/froAssignmentModel.js';
@@ -38,6 +39,7 @@ import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../uti
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/workAsSessionModel.js';
 import { resolveStationNgoScope, dedupeStationDonors, ngoIdsMissingNames } from '../utils/stationDonorScope.js';
+import { isFreshStation } from '../utils/stations.js';
 // Loaded as a default import: the cache wrapper is CommonJS (redis.cjs) and
 // `require` does not exist in this ESM module. Calling require() at request
 // time was throwing "require is not defined" and taking the whole dashboard
@@ -2529,6 +2531,66 @@ export const getDonorsByStation = async (req, res) => {
       next_follow_up: a.next_follow_up,
       assigned_at: a.assigned_at,
       raw_data: a.donor_profiles?.raw_data || null,
+    }));
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Whole-NGO donor book for the Station Management download.
+//
+// The station-scoped reader above refuses a request without a station, so the
+// "download every donor of one NGO" flow could not use it. ngo_id is required
+// here (omitting it would mean "every NGO the admin can see", which is a
+// different, far larger export than the one the modal asks for) and is checked
+// against the caller's access using the same resolver as the per-station read,
+// so an admin can never pull another NGO's donor book by guessing an id.
+export const getDonorsByNgo = async (req, res) => {
+  try {
+    const { ngo_id } = req.query;
+    if (!ngo_id) {
+      return res.status(400).json({ message: 'ngo_id query param is required' });
+    }
+
+    // Old vs New is the same FD-* rule the panel and the field apps use, so the
+    // downloaded sheet matches what the station tabs show. 'all' (or omitting
+    // the param) keeps the whole book.
+    const stationType = String(req.query.station_type || '').toLowerCase();
+    if (stationType && stationType !== 'old' && stationType !== 'new' && stationType !== 'all') {
+      return res.status(400).json({ message: "station_type must be 'old', 'new' or 'all'" });
+    }
+
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    const accessibleIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (accessibleIds.length === 0 && req.user.ngo_id) {
+      accessibleIds.push(req.user.ngo_id);
+    }
+    if (accessibleIds.length === 0) {
+      return res.status(403).json({ message: 'No NGO access for the requested ngo_id' });
+    }
+
+    const scope = resolveStationNgoScope(accessibleIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+
+    const rows = await getDonorsByNgoRows(scope.ids[0]);
+    // Same one-row-per-(NGO, donor) rule as the station list: a donor can hold
+    // more than one assignment row inside an NGO, and an export must not show
+    // the same lead twice.
+    const unique = dedupeStationDonors(rows);
+    const scoped = stationType === 'new' || stationType === 'old'
+      ? unique.filter(a => stationType === 'new' ? isFreshStation(a.station) : !isFreshStation(a.station))
+      : unique;
+    const result = scoped.map(a => ({
+      donor_id: a.donor_id,
+      donor_name: a.donor_profiles?.name || 'Unknown',
+      donor_mobile: a.donor_profiles?.mobile_number || '',
+      donor_mobile_2: a.donor_profiles?.mobile_2 || '',
+      fro_name: a.workers?.name || 'Unassigned',
+      station: a.station || '',
+      status: a.status,
+      ngo_id: a.ngo_id,
     }));
 
     return res.json(result);

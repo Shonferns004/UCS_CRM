@@ -3,12 +3,14 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
   listStacks, createStack, updateStack, deleteStack,
   addMembers, removeMembers, assignFroToStack, getStackMembers, getMyStacks,
-  getStackFroHistory,
+  getStackFroHistory, getStackSettings, updateStackSettings,
 } from '../controllers/stackController.js';
 
 const router = Router();
 
 // Admin
+router.get('/ngo-admin/stack-settings', authenticateRole('admin', 'super_admin'), getStackSettings);
+router.put('/ngo-admin/stack-settings', authenticateRole('admin', 'super_admin'), updateStackSettings);
 router.get('/ngo-admin/stacks', authenticateRole('admin', 'super_admin'), listStacks);
 router.post('/ngo-admin/stacks', authenticateRole('admin', 'super_admin'), createStack);
 router.put('/ngo-admin/stacks/:id', authenticateRole('admin', 'super_admin'), updateStack);

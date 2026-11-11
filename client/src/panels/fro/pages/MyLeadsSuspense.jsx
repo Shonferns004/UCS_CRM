@@ -9,34 +9,47 @@ import { getMyPerformance } from '../api/donors';
 import { formatDuration } from '../../../utils/formatDuration';
 import { idleColorFor } from '../../../utils/warnTone';
 
-function SectionTitle({ label, pct }) {
+function SectionTitle({ label }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 34, borderBottom: '1px solid var(--line)', background: '#fbfcfb', flexShrink: 0 }}>
       <span style={{ width: 4, height: 12, borderRadius: 2, background: 'var(--sage)', display: 'inline-block' }} />
       <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>{label}</span>
-      <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, color: 'var(--line)' }}>{pct}</span>
     </div>
   );
 }
 
 function Arrow({ good }) {
   return (
-    <span className="metric-arrow" aria-label={good ? 'Above target' : 'Below target'} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 7, background: good ? '#dcfce7' : '#fee2e2' }}>
-      {good ? <ArrowUp size={16} strokeWidth={3} color="#16a34a" /> : <ArrowDown size={16} strokeWidth={3} color="#dc2626" />}
+    <span
+      className="metric-arrow"
+      aria-label={good ? 'Above target' : 'Below target'}
+      title={good ? 'Above target' : 'Below target'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 22, height: 22, borderRadius: 999, flexShrink: 0,
+        background: good ? '#ecfdf5' : '#fef2f2',
+        border: `1px solid ${good ? '#bbf7d0' : '#fecaca'}`,
+      }}
+    >
+      {good
+        ? <ArrowUp size={13} strokeWidth={2.6} color="#16a34a" />
+        : <ArrowDown size={13} strokeWidth={2.6} color="#dc2626" />}
     </span>
   );
 }
 
 function Metric({ label, value, good, accent, icon, valueColor, className, innerRef, style: extraStyle, labelColor }) {
   return (
-    <div ref={innerRef} className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...(extraStyle || {}) }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <span style={{ color: accent || '#94a3b8', display: 'inline-flex' }}>{icon}</span>
-        <span style={{ fontSize: 12, color: labelColor || '#94a3b8', textTransform: 'uppercase', letterSpacing: '.8px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-      </span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <strong style={{ color: valueColor || '#0f172a', fontSize: 17, lineHeight: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{value}</strong>
-        {good != null && <Arrow good={good} />}
+    <div ref={innerRef} className={`metric-cell${className ? ' ' + className : ''}`} style={{ minWidth: 0, flex: '1 1 0', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderLeft: '1px solid #eef1f6', ...(extraStyle || {}) }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+        <span style={{ fontSize: 9.5, color: labelColor || '#94a3b8', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <strong style={{ color: valueColor || '#0f172a', fontSize: 16.5, lineHeight: 1.1, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{value}</strong>
+          {good != null && <Arrow good={good} />}
+        </span>
+      </div>
+      <span style={{ width: 30, height: 30, borderRadius: 9, background: '#f8fafc', border: '1px solid #eef2f7', color: accent || '#94a3b8', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {icon}
       </span>
     </div>
   );
@@ -148,7 +161,7 @@ function PersonalPerformance() {
 
 return (
         <div style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', height: '100%' }} title={figuresOwner ? `Your figures: ${figuresOwner}` : undefined}>
-          <Metric label="Rank" value={data?.rank ? `#${data.rank}` : '—'} accent="#7c3aed" icon={<Trophy size={16} />} />
+          <Metric label="Rank" value={data?.rank ? `#${data.rank}` : '—'} accent="#7c3aed" icon={<Trophy size={16} />} style={{ borderLeft: 'none' }} />
           <Metric label="Worked" value={`${formatDuration(data?.worked_seconds)} / 8h`} good={(data?.worked_seconds ?? 0) >= 8 * 3600} accent="#0891b2" icon={<Timer size={16} />} />
           <Metric label="Calls" value={(data?.today_calls ?? 0).toString()} good={(data?.today_calls ?? 0) >= callTarget} accent="#2563eb" icon={<PhoneOutgoing size={16} />} />
           {/* Idle today, including a period still running. The timer in the top
@@ -213,7 +226,7 @@ export default function MyLeadsSuspense() {
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
-          <SectionTitle label="My Leads" pct="60%" />
+          <SectionTitle label="My Leads" />
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <MyDonors embedded portalEl={shellRef.current} onDetailStateChange={handleDetailStateChange} />
           </div>
@@ -226,7 +239,7 @@ export default function MyLeadsSuspense() {
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
         }}>
-          <SectionTitle label="Suspense" pct="40%" />
+          <SectionTitle label="Suspense" />
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <FroSuspense />
           </div>

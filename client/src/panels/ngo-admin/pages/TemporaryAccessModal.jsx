@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Clock } from 'lucide-react';
+import { X, Clock, CheckCircle2, ShieldCheck, User, MapPin, CalendarClock } from 'lucide-react';
 import { validateTemporaryAccess, createTemporaryAccess, extendTemporaryAccess, revokeTemporaryAccess, listTemporaryAccessFroCandidates } from '../api/auth';
 
 // ─── Grant Temporary Access modal ────────────────────────────────────────────
@@ -67,7 +67,7 @@ function Time12Control({ label, value, onChange }) {
   const set = (patch) => onChange(joinLocal({ ...p, ...patch }));
   const [mode, setMode] = useState('hour');
 
-  const R = 80, CX = 90, CY = 90;
+  const R = 68, CX = 80, CY = 80;
   const handleClockClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left - CX;
@@ -83,11 +83,11 @@ function Time12Control({ label, value, onChange }) {
   };
 
   const hourAngle = ((p.hour12 % 12) * 30 - 90) * (Math.PI / 180);
-  const hx = CX + R * 0.5 * Math.cos(hourAngle);
-  const hy = CY + R * 0.5 * Math.sin(hourAngle);
+  const hx = CX + R * 0.52 * Math.cos(hourAngle);
+  const hy = CY + R * 0.52 * Math.sin(hourAngle);
   const minuteAngle = (p.minute * 6 - 90) * (Math.PI / 180);
-  const mx = CX + R * 0.72 * Math.cos(minuteAngle);
-  const my = CY + R * 0.72 * Math.sin(minuteAngle);
+  const mx = CX + R * 0.74 * Math.cos(minuteAngle);
+  const my = CY + R * 0.74 * Math.sin(minuteAngle);
 
   const hourNumbers = Array.from({ length: 12 }, (_, i) => {
     const num = i === 0 ? 12 : i;
@@ -95,47 +95,59 @@ function Time12Control({ label, value, onChange }) {
     return { num, x: CX + R * 0.78 * Math.cos(a), y: CY + R * 0.78 * Math.sin(a) };
   });
 
-  const selStyle = { ...inputStyle, width: 'auto', padding: '4px 6px', textAlign: 'center', cursor: 'pointer' };
+  const modeBtn = (active) => ({
+    padding: '4px 10px', border: 'none', borderRadius: 5, fontFamily: 'inherit',
+    fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    background: active ? '#2563eb' : 'transparent',
+    color: active ? '#fff' : '#475569',
+  });
 
   return (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <input type="date" style={{ ...inputStyle, flex: '1 1 130px', minWidth: 0 }} value={p.date} onChange={e => set({ date: e.target.value })} />
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-          <svg width={180} height={180} viewBox="0 0 180 180"
-            style={{ cursor: 'pointer', borderRadius: '50%', background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)' }}
-            onClick={handleClockClick}>
-            <circle cx={CX} cy={CY} r={R} fill="none" stroke="#e5e7eb" strokeWidth={1} />
-            <circle cx={CX} cy={CY} r={3} fill="#2563eb" />
-            {hourNumbers.map(({ num, x, y }) => (
-              <text key={num} x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11}
-                fontWeight={p.hour12 === num ? 700 : 400} fill={p.hour12 === num ? '#2563eb' : '#374151'}>
-                {num}
-              </text>
-            ))}
-            {Array.from({ length: 12 }, (_, i) => {
-              const a = (i * 30 - 90) * (Math.PI / 180);
-              return <circle key={i} cx={CX + R * 0.9 * Math.cos(a)} cy={CY + R * 0.9 * Math.sin(a)} r={1.5} fill="#d1d5db" />;
-            })}
-            <line x1={CX} y1={CY} x2={hx} y2={hy} stroke="#2563eb" strokeWidth={3} strokeLinecap="round" opacity={mode === 'hour' ? 1 : 0.3} />
-            <line x1={CX} y1={CY} x2={mx} y2={my} stroke="#2563eb" strokeWidth={2} strokeLinecap="round" opacity={mode === 'minute' ? 1 : 0.3} />
-          </svg>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
-            <button type="button" onClick={() => setMode('hour')} style={{ padding: '2px 6px', fontSize: 10, fontWeight: mode === 'hour' ? 700 : 400, border: '1px solid var(--line, #e5e7eb)', borderRadius: 4, background: mode === 'hour' ? '#eff6ff' : '#fff', cursor: 'pointer', color: mode === 'hour' ? '#2563eb' : 'var(--ink-soft)' }}>Hr</button>
-            <button type="button" onClick={() => setMode('minute')} style={{ padding: '2px 6px', fontSize: 10, fontWeight: mode === 'minute' ? 700 : 400, border: '1px solid var(--line, #e5e7eb)', borderRadius: 4, background: mode === 'minute' ? '#eff6ff' : '#fff', cursor: 'pointer', color: mode === 'minute' ? '#2563eb' : 'var(--ink-soft)' }}>Min</button>
-            <span style={{ fontWeight: 700, color: '#2563eb', minWidth: 48, textAlign: 'center', fontSize: 12 }}>
-              {String(p.hour12).padStart(2, '0')}:{String(p.minute).padStart(2, '0')} {p.period}
-            </span>
-            <select value={p.period} onChange={e => set({ period: e.target.value })} style={{ ...selStyle, flex: '0 0 56px', fontWeight: 700, fontSize: 11 }} aria-label="AM or PM">
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
-            </select>
-          </div>
-          <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
-            {mode === 'hour' ? 'Click a number to set hour' : 'Click on clock to set minutes'}
-          </div>
+    <div style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 10, background: '#fff', padding: 12, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: '#2563eb', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {String(p.hour12).padStart(2, '0')}:{String(p.minute).padStart(2, '0')} {p.period}
+        </span>
+      </div>
+
+      <input type="date" style={{ ...inputStyle, padding: '6px 8px' }} value={p.date} onChange={e => set({ date: e.target.value })} />
+
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <svg width={160} height={160} viewBox="0 0 160 160"
+          style={{ cursor: 'pointer', borderRadius: '50%', background: '#f8fafc', border: '1px solid #eef2f7' }}
+          onClick={handleClockClick}>
+          <circle cx={CX} cy={CY} r={R} fill="none" stroke="#e5e7eb" strokeWidth={1} />
+          <circle cx={CX} cy={CY} r={3} fill="#2563eb" />
+          {hourNumbers.map(({ num, x, y }) => (
+            <text key={num} x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11}
+              fontWeight={p.hour12 === num ? 700 : 400} fill={p.hour12 === num ? '#2563eb' : '#374151'}>
+              {num}
+            </text>
+          ))}
+          {Array.from({ length: 12 }, (_, i) => {
+            const a = (i * 30 - 90) * (Math.PI / 180);
+            return <circle key={i} cx={CX + R * 0.93 * Math.cos(a)} cy={CY + R * 0.93 * Math.sin(a)} r={1.4} fill="#d1d5db" />;
+          })}
+          <line x1={CX} y1={CY} x2={hx} y2={hy} stroke="#2563eb" strokeWidth={3} strokeLinecap="round" opacity={mode === 'hour' ? 1 : 0.25} />
+          <line x1={CX} y1={CY} x2={mx} y2={my} stroke="#2563eb" strokeWidth={2} strokeLinecap="round" opacity={mode === 'minute' ? 1 : 0.25} />
+        </svg>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'inline-flex', padding: 2, borderRadius: 7, background: '#f1f5f9', border: '1px solid #e2e8f0' }}>
+          <button type="button" onClick={() => setMode('hour')} style={modeBtn(mode === 'hour')}>Hour</button>
+          <button type="button" onClick={() => setMode('minute')} style={modeBtn(mode === 'minute')}>Min</button>
         </div>
+        <select value={p.period} onChange={e => set({ period: e.target.value })}
+          style={{ ...inputStyle, width: 72, padding: '5px 7px', fontWeight: 700, fontSize: 11 }} aria-label="AM or PM">
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
+      </div>
+
+      <div style={{ fontSize: 10, color: 'var(--ink-soft)', textAlign: 'center' }}>
+        {mode === 'hour' ? 'Tap a number to set the hour' : 'Tap the clock face to set minutes'}
       </div>
     </div>
   );
@@ -156,9 +168,6 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
   const [scopeType, setScopeType] = useState('STATION_ALL');
   const [allowedCount, setAllowedCount] = useState('');
   const [hasHighTier, setHasHighTier] = useState(false);
-  const [convertCount, setConvertCount] = useState('');
-  const [converting, setConverting] = useState(false);
-  const [convertMsg, setConvertMsg] = useState(null);
   const [froPickerOpen, setFroPickerOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [warnings, setWarnings] = useState(null);
@@ -322,37 +331,101 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
     const extended = result.mode === 'extended';
     const revokedList = result.revoked || [];
     const revokeFailures = result.revokeFailures || [];
+    // Readable IST timestamp ("11 Nov 2026, 7:00 pm") instead of the browser's
+    // default "11/11/2026, 7:00:00 pm" that was hard to scan.
+    const expiresLabel = a.expires_at
+      ? new Date(a.expires_at).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      })
+      : '—';
+    const detailRows = [
+      { Icon: User, label: 'Temporary FRO', value: selectedFro?.name || '—' },
+      { Icon: MapPin, label: 'Station', value: target.station },
+      { Icon: CalendarClock, label: 'Valid until', value: expiresLabel === '—' ? '—' : `${expiresLabel} IST` },
+    ];
+
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' }}>
-          <div className="modal-head">
-            <h3><Clock size={16} style={{ marginRight: 6, verticalAlign: -2 }} />{extended ? 'Access extended' : 'Temporary access granted'}</h3>
-            <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        <div
+          className="modal"
+          onClick={e => e.stopPropagation()}
+          style={{ maxWidth: 460, width: '94%', maxHeight: '90vh', overflowY: 'auto', borderRadius: 14 }}
+        >
+          <div className="modal-head" style={{ padding: '16px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#ecfdf5', color: '#059669', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <CheckCircle2 size={18} />
+              </span>
+              <h3 style={{ margin: 0 }}>{extended ? 'Access extended' : 'Temporary access granted'}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, border: 'none', background: 'transparent', color: 'var(--ink-soft)', cursor: 'pointer', flexShrink: 0 }}
+            >
+              <X size={16} />
+            </button>
           </div>
-          <div style={{ padding: 16, fontSize: 13, lineHeight: 1.6 }}>
-            <p style={{ margin: '0 0 10px', color: '#065f46', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 6, padding: '8px 10px' }}>
-              {selectedFro?.name || 'The FRO'} may now work on <b>{target.station}</b> donors until{' '}
-              <b>{new Date(a.expires_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</b>.
-              {extended && ' Their previous expiry was pushed forward — no new grant was created.'}
-            </p>
+
+          <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Summary */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10, padding: '12px 14px' }}>
+              <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#d1fae5', color: '#047857', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <CheckCircle2 size={18} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#065f46', lineHeight: 1.5 }}>
+                <b>{selectedFro?.name || 'The FRO'}</b> can now work on <b>{target.station}</b> donors.
+                <div style={{ fontSize: 11.5, marginTop: 2, color: '#047857' }}>
+                  {extended ? 'Existing grant extended — no new grant was created.' : 'Temporary access is active.'}
+                </div>
+              </div>
+              <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', padding: '3px 8px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7', marginTop: 2 }}>
+                Active
+              </span>
+            </div>
+
+            {/* Grant details */}
+            <div style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '9px 14px', background: '#f8fafc', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>
+                Grant details
+              </div>
+              {detailRows.map(({ Icon, label, value }, i) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderTop: `1px solid ${i === 0 ? 'var(--line, #e5e7eb)' : '#f1f5f9'}` }}>
+                  <span style={{ display: 'inline-flex', color: 'var(--ink-soft)' }}><Icon size={14} /></span>
+                  <span style={{ fontSize: 11.5, color: 'var(--ink-soft)', minWidth: 96 }}>{label}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', marginLeft: 'auto', textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Ownership note */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 9, padding: '11px 12px' }}>
+              <ShieldCheck size={16} style={{ color: '#475569', flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.55 }}>
+                <b>Ownership unchanged.</b> {target.permanentFroName || 'The permanent FRO'} remains the permanent FRO of {target.station}. Donor records, receipts and history were not moved or copied.
+              </div>
+            </div>
+
             {revokedList.length > 0 && (
-              <p style={{ margin: '0 0 6px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px' }}>
-                Revoked in the same step: <b>{revokedList.map(g => g.working_fro_name || 'FRO').join(', ')}</b> —
-                they lose {target.station} on their next request. Their completed work stays untouched.
-              </p>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, padding: '11px 12px', fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>
+                <Clock size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  Revoked in the same step: <b>{revokedList.map(g => g.working_fro_name || 'FRO').join(', ')}</b>.
+                  They lose {target.station} on their next request; completed work stays untouched.
+                </div>
+              </div>
             )}
+
             {revokeFailures.length > 0 && (
-              <p style={{ margin: '6px 0 0', color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '8px 10px' }}>
-                Could not auto-revoke: <b>{revokeFailures.map(f => f.name).join(', ')}</b> —
-                revoke them from the station row's ✕ button or the Temporary Access page.
-              </p>
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, padding: '11px 12px', fontSize: 12, color: '#991b1b', lineHeight: 1.5 }}>
+                Could not auto-revoke: <b>{revokeFailures.map(f => f.name).join(', ')}</b> — revoke them from the station row's ✕ button or the Temporary Access page.
+              </div>
             )}
-            <p style={{ margin: '10px 0 0' }}>
-              <b>Ownership unchanged:</b> {target.permanentFroName || 'the permanent FRO'} remains the permanent FRO of {target.station}.
-              Donor records, receipts and history were not moved or copied.
-            </p>
           </div>
-          <div className="modal-foot">
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '13px 20px', borderTop: '1px solid var(--line, #e5e7eb)', background: '#fff' }}>
             <button className="btn btn-primary" onClick={onClose}>Done</button>
           </div>
         </div>
@@ -362,16 +435,37 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, maxHeight: '90vh', overflowY: 'auto' }}>
-        <div className="modal-head">
-          <h3><Clock size={16} style={{ marginRight: 6, verticalAlign: -2 }} />Grant temporary access</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+      <div
+        className="modal"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: 720, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      >
+        <div className="modal-head" style={{ padding: '16px 18px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: '#eff6ff', color: '#2563eb', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Clock size={17} />
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <h3 style={{ margin: 0 }}>Grant temporary access</h3>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 2 }}>
+                Give another FRO this station — ownership stays with the permanent FRO.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, border: 'none', boxShadow: 'none', background: 'transparent', color: 'var(--ink-soft)', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <X size={16} />
+          </button>
         </div>
 
-        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {/* ── Working FRO picker ── */}
           <div>
-            <label style={labelStyle}>Working FRO (temporary)</label>
+            <label style={labelStyle}>Working FRO</label>
             <div style={{ position: 'relative' }}>
               <input
                 style={inputStyle}
@@ -491,19 +585,16 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
               </div>
             </div>
           )}
-          {!hasHighTier && (
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)', background: '#f8fafc', border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, padding: '8px 10px' }}>
-              <b>Scope:</b> Entire station (all donors) — this station has no high-tier data.
+          {/* Duration — the two clocks sit in equal cards so the dates, dials
+              and time controls line up instead of floating at different heights. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+              Duration
             </div>
-          )}
-
-          {/* ── Duration (mandatory expiry) — 12-hour clock, side by side ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 }}>
-            {!isExtendMode && <Time12Control label="Starts" value={startsLocal} onChange={setStartsLocal} />}
-            <Time12Control label={isExtendMode ? 'New expiry (required)' : 'Expires (required)'} value={expiresLocal} onChange={setExpiresLocal} />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: -8 }}>
-            There is no indefinite access — access always ends at the expiry shown above.
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+              {!isExtendMode && <Time12Control label="Starts" value={startsLocal} onChange={setStartsLocal} />}
+              <Time12Control label={isExtendMode ? 'New expiry (required)' : 'Expires (required)'} value={expiresLocal} onChange={setExpiresLocal} />
+            </div>
           </div>
           {windowError && startsLocal && expiresLocal && (
             <div style={{ fontSize: 12.5, color: '#991b1b' }}>{windowError}</div>
@@ -516,46 +607,7 @@ export default function TemporaryAccessModal({ target, existingGrants = [], onCl
           )}
         </div>
 
-        {/* ── Convert station data to High Tier (without moving) ── */}
-        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line, #e5e7eb)', background: '#f8fafc' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>Convert station data to High Tier (data stays on this station)</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              type="number"
-              min="1"
-              value={convertCount}
-              onChange={e => setConvertCount(e.target.value)}
-              placeholder="rows (blank = all)"
-              style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 12 }}
-            />
-            <button
-              className="btn btn-sm"
-              disabled={converting}
-              onClick={async () => {
-                setConverting(true);
-                setConvertMsg(null);
-                try {
-                  const { apiPost } = await import('../api/auth.js');
-                  const res = await apiPost(`/ngo-admin/stations/${encodeURIComponent(target.station)}/convert-to-high-tier`, {
-                    ngo_id: target.ngoId,
-                    count: convertCount.trim() === '' ? null : Number(convertCount),
-                  });
-                  setConvertMsg(res?.message || 'Done');
-                } catch (e) {
-                  setConvertMsg(e?.message || 'Failed');
-                } finally {
-                  setConverting(false);
-                }
-              }}
-              style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600 }}
-            >
-              {converting ? 'Converting…' : 'Convert'}
-            </button>
-          </div>
-          {convertMsg && <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 4 }}>{convertMsg}</div>}
-        </div>
-
-        <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: '1px solid var(--line, #e5e7eb)' }}>
+        <div className="modal-foot" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: '1px solid var(--line, #e5e7eb)', background: '#fff', flexShrink: 0 }}>
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
