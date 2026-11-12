@@ -17,6 +17,12 @@ import {
   setHideOldDonorsSchedule,
 } from '../controllers/oldDonorVisibilityController.js';
 import {
+  listSsReplyLeads,
+  addSsReplyLeadToStation,
+  aiScoreSsLead,
+  aiScoreSsLeadsBatch,
+} from '../controllers/ssLeadAdminController.js';
+import {
   getFroWorkers,
   getAccessibleNgos,
   getAssignments,
@@ -143,6 +149,12 @@ router.get('/ngos/all', authenticateRole('admin', 'super_admin', 'accounts'), ge
 
 // Accounts panel handles New Data distribution + Old Data viewing — allow accounts role
 router.get('/donors-by-station', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByStation);
+// SS reply inbox: list + one-click "put it in the station". No FRO picker —
+// routing is station-based (see services/ssLeadService.js).
+router.get('/ss-leads', authenticateRole('admin', 'super_admin'), listSsReplyLeads);
+router.post('/ss-leads/ai-batch', authenticateRole('admin', 'super_admin'), aiScoreSsLeadsBatch);
+router.post('/ss-leads/:id/ai', authenticateRole('admin', 'super_admin'), aiScoreSsLead);
+router.post('/ss-leads/:id/add', authenticateRole('admin', 'super_admin'), addSsReplyLeadToStation);
 router.get('/donors-by-ngo', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByNgo);
 router.get('/new-data', authenticateRole('admin', 'super_admin', 'accounts'), getNewData);
 router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'accounts'), distributeNewData);

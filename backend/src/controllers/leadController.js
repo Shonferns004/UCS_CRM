@@ -9,6 +9,7 @@ import {
   ownsLead,
 } from '../models/leadModel.js';
 import { notifyWorker } from '../services/fcmService.js';
+import { materializeReplyLead } from '../services/ssLeadService.js';
 import { emitRealtime } from '../socket.js';
 import db from '../config/db.js';
 
@@ -133,6 +134,18 @@ export const editLead = async (req, res) => {
       updates.scheduled_by_name = req.user.name || null;
     }
     const lead = await updateLead(req.params.id, updates);
+    // The SS Leads tab reads fro_assignments, not the inbox row, so assigning a
+    // reply lead here must materialise the donor + station row (or move the
+    // existing SS row to the chosen FRO). Without this the admin sees
+    // "Assigned" while the donor never reaches a queue.
+    if (existing.source === 'WhatsApp Bulk Reply' && status === 'assigned' && recruiter_id) {
+      try {
+        const placed = await materializeReplyLead(existing, { froId: recruiter_id });
+        if (!placed.ok) console.warn('SS lead placement skipped:', placed.reason);
+      } catch (e) {
+        console.error('SS lead placement failed:', e?.message || e);
+      }
+    }
     // Notify the FRO when a lead is assigned to them via the edit flow.
     if (status === 'assigned' && recruiter_id && String(recruiter_id) !== String(existing.recruiter_id || '')) {
       const notifTitle = 'New WhatsApp Lead Assigned';
@@ -169,6 +182,21 @@ export const removeLead = async (req, res) => {
     // rule as reads instead of being able to remove anyone's lead by id.
     if (isRecruiter(req.user) && !owns(existing, req.user)) {
       return res.status(403).json({ message: 'You can only delete your own leads' });
+    }
+    // If this reply lead was materialised into an SS station, remove that
+    // pending station row too — otherwise the inbox row disappears but the lead
+    // keeps sitting in SS-BSCT/SS-AFLF/SS-MANN.
+    try {
+      await db._pool.query(
+        `update fro_assignments
+            set status = 'reassigned', updated_at = now()
+          where station like 'SS-%'
+            and status = 'pending'
+            and notes like '%[Lead:' || $1 || ']%'`,
+        [existing.id],
+      );
+    } catch (e) {
+      console.error('SS lead cleanup on delete failed:', e?.message || e);
     }
     const result = await deleteLead(req.params.id);
     return res.json(result);
@@ -214,44 +242,13 @@ export const assignLeadToFro = async (req, res) => {
     const froId = req.body?.fro_id || req.body?.recruiter_id;
     if (!froId) return res.status(400).json({ message: 'fro_id is required' });
 
-    // Turn the assigned reply-lead into a real donor + FRO assignment so it lands
-    // in the FRO's My Leads queue and opens the donor detail panel on click.
+    // Turn the assigned reply-lead into a real donor + station assignment so it
+    // lands in the FRO's SS queue and opens the donor detail panel on click.
     let donorId = null;
-    let ngoId = null;
     try {
-      const acct = String((existing.notes || '').match(/\[Account:\s*([^\]]+)\]/)?.[1] || '').toLowerCase();
-      const ngoName = acct.startsWith('bsct') ? 'BSCT' : acct.startsWith('aflf') ? 'AFLF' : acct.startsWith('mann') ? 'MANN' : null;
-      if (ngoName) {
-        const { rows: ngoRows } = await db._pool.query('SELECT id FROM ngos WHERE upper(name) = $1 LIMIT 1', [ngoName]);
-        ngoId = ngoRows[0]?.id || null;
-      }
-      const mobile = String(existing.phone || '').replace(/[^0-9]/g, '');
-      const mobile10 = mobile.length >= 10 ? mobile.slice(-10) : mobile;
-
-      const { rows: donorRows } = await db._pool.query('SELECT id FROM donor_profiles WHERE mobile_number = $1 LIMIT 1', [mobile10]);
-      if (donorRows[0]) {
-        donorId = donorRows[0].id;
-      } else {
-        const { rows: newDonor } = await db._pool.query(
-          `INSERT INTO donor_profiles (name, mobile_number, ngo, station) VALUES ($1, $2, $3, $4) RETURNING id`,
-          [existing.name || 'WhatsApp Reply', mobile10, ngoName, 'WhatsApp Replies'],
-        );
-        donorId = newDonor[0].id;
-      }
-
-      if (donorId && ngoId) {
-        const { rows: dup } = await db._pool.query(
-          'SELECT id FROM fro_assignments WHERE donor_id = $1 AND fro_worker_id = $2 AND ngo_id = $3 LIMIT 1',
-          [donorId, froId, ngoId],
-        );
-        if (!dup[0]) {
-          await db._pool.query(
-            `INSERT INTO fro_assignments (donor_id, fro_worker_id, ngo_id, status, is_new, station, notes)
-             VALUES ($1, $2, $3, 'pending', true, 'WhatsApp Replies', $4)`,
-            [donorId, froId, ngoId, existing.notes || null],
-          );
-        }
-      }
+      const placed = await materializeReplyLead(existing, { froId });
+      if (placed.ok) donorId = placed.donorId;
+      else console.warn('Reply-lead placement skipped:', placed.reason);
     } catch (e) {
       console.error('Reply-lead donor assignment creation failed:', e?.message || e);
     }

@@ -455,6 +455,86 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [followUps, setFollowUps] = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
   const [myLoans, setMyLoans] = useState([]);
+  // A loan can be created from the admin panel while this tab is already open.
+  // Refetch the borrowed lists when the tab regains focus so the lent leads
+  // appear (and disappear on revoke) without a manual reload.
+  const [listRefreshTick, setListRefreshTick] = useState(0);
+  const [borrowedLeads, setBorrowedLeads] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    getMyLeadLoanItems()
+      .then(list => { if (!cancelled) setBorrowedLeads(Array.isArray(list) ? list : []); })
+      .catch(() => { if (!cancelled) setBorrowedLeads([]); });
+    return () => { cancelled = true; };
+  }, [listRefreshTick]);
+  // Station scope can shrink mid-session: temporary access is a time window and
+  // an admin can revoke it. Re-read the station list on focus/visibility, on a
+  // TEMP_ACCESS_* denial, and once a minute; drop a selected station that is no
+  // longer in scope so the dropdown and History can never keep showing an
+  // expired station.
+  const stationsKeyRef = useRef('');
+  const refreshStations = useCallback(async ({ initial = false } = {}) => {
+    try {
+      const s = await getMyStations();
+      const arr = Array.isArray(s) ? s : [];
+      setStations(arr);
+      const allowed = new Set(arr.map(st => String(st.station ?? '').trim()));
+      setSelectedStation(prev => {
+        const cur = String(prev ?? '').trim();
+        if (cur === 'all' || allowed.has(cur)) return prev;
+        return 'all';
+      });
+      // Acting FRO: default to claimed station (e.g. DH-1) not saved FD-1/all
+      if (initial && isImpersonating()) {
+        try {
+          const u = getUser('ucs');
+          const act = Array.isArray(u?.act_stations) ? u.act_stations : [];
+          if (act.length > 0) {
+            const allowedAct = new Set(act.map(p => String(p.station ?? '').trim()));
+            setSelectedStation(prev => {
+              const cur = String(prev ?? '').trim();
+              return allowedAct.has(cur)
+                ? prev
+                : (String(act[0].station ?? '').trim() || (arr[0]?.station || 'all'));
+            });
+          }
+        } catch {}
+      }
+      if (initial && !savedView?.selectedNgo) {
+        const ngoMap = {};
+        arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+        const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+        if (ngoList.length === 1) setSelectedNgo(ngoList[0].ngo_id);
+      }
+      // A station granted or lost (e.g. temporary access ended) invalidates the
+      // History book, which is otherwise only fetched when its filters change.
+      const key = arr
+        .map(st => `${st.ngo_id ?? ''}|${String(st.station ?? '').trim()}`)
+        .sort()
+        .join(',');
+      if (stationsKeyRef.current && stationsKeyRef.current !== key) {
+        setHistoryRefresh(n => n + 1);
+      }
+      stationsKeyRef.current = key;
+    } catch (err) { console.error('API error:', err.message); }
+  }, [savedView?.selectedNgo]);
+
+  useEffect(() => {
+    const bump = () => { setListRefreshTick(t => t + 1); refreshStations(); };
+    const onVisible = () => { if (!document.hidden) bump(); };
+    window.addEventListener('focus', bump);
+    document.addEventListener('visibilitychange', onVisible);
+    // The API wrapper emits this when a request is denied because a grant was
+    // revoked/expired mid-session. Re-read scope immediately.
+    window.addEventListener('temp-access-denied', bump);
+    const scopePoll = setInterval(() => refreshStations(), 60 * 1000);
+    return () => {
+      window.removeEventListener('focus', bump);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('temp-access-denied', bump);
+      clearInterval(scopePoll);
+    };
+  }, [refreshStations]);
   // Preserves the list's vertical scroll position while the FRO opens a lead
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
@@ -507,8 +587,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         // request). Sticky: once true it stays true so the tab never disappears
         // mid-session.
         if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
-      if (r && !Array.isArray(r) && r.is_temp_station_view) setIsTempStationView(true);
-        if (r && !Array.isArray(r) && r.is_temp_station_view) setIsTempStationView(true);
+        // Not sticky: once temporary access ends the station view must clear.
+        if (r && !Array.isArray(r)) setIsTempStationView(!!r.is_temp_station_view);
         setHighTierStats(tab === 'high_tier' && r && !Array.isArray(r) ? (r.counts?.high_tier || null) : null);
         // Saved High Tier tab but nothing allotted any more (admin moved it
         // away): fall back to New instead of stranding the FRO on a hidden tab.
@@ -736,31 +816,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   }, [activeDonor, externalDonor, onDetailStateChange]);
 
   useEffect(() => {
-    getMyStations().then(s => {
-      const arr = Array.isArray(s) ? s : [];
-      setStations(arr);
-      // Acting FRO: default to claimed station (e.g. DH-1) not saved FD-1/all
-      if (isImpersonating()) {
-        try {
-          const u = getUser('ucs');
-          const act = Array.isArray(u?.act_stations) ? u.act_stations : [];
-          if (act.length > 0) {
-            const allowed = new Set(act.map(p => String(p.station ?? '').trim()));
-            const cur = String(selectedStation ?? '').trim();
-            if (!allowed.has(cur)) {
-              setSelectedStation(String(act[0].station ?? '').trim() || (arr[0]?.station || 'all'));
-            }
-          }
-        } catch {}
-      }
-      if (!savedView?.selectedNgo) {
-        const ngoMap = {};
-        arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
-        const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
-        if (ngoList.length === 1) setSelectedNgo(ngoList[0].ngo_id);
-      }
-    }).catch((err) => { console.error('API error:', err.message); });
-  }, []);
+    refreshStations({ initial: true });
+  }, [refreshStations]);
 
   // Why are the old stations' leads missing? Ask the backend.
   useEffect(() => {
@@ -790,7 +847,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     const currentNgo = current?.ngo_id;
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       if (r && !Array.isArray(r) && r.has_high_tier) setHasHighTier(true);
-      if (r && !Array.isArray(r) && r.is_temp_station_view) setIsTempStationView(true);
+      if (r && !Array.isArray(r)) setIsTempStationView(!!r.is_temp_station_view);
       setHighTierStats(dataTab === 'high_tier' && r && !Array.isArray(r) ? (r.counts?.high_tier || null) : null);
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
       const fresh = filterAndSortDonors(loaded, dataTab === 'high_tier' || isTempStationView);
@@ -2005,6 +2062,20 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       setSelected(null); setNotes(''); setLeadAmount('');
     };
 
+    // SS Leads tab: remove this lead from the FRO's own queue. Soft-delete —
+    // the donor record, the reply and its history stay intact; the assignment is
+    // parked as 'reassigned' so it never comes back on its own.
+    const removeSsLead = async (assignmentId) => {
+      if (!window.confirm('Remove this lead from your SS queue?')) return;
+      try {
+        await api(`/fro/ss-leads/${assignmentId}`, { method: 'DELETE', _prefix: 'ucs' });
+        setWaLeads((prev) => prev.filter((x) => x.id !== assignmentId));
+        toast('Lead removed', 'success');
+      } catch (e) {
+        toast(e?.message || 'Could not remove lead', 'error');
+      }
+    };
+
     return (
       <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(embedded ? { border: 'none' } : {}) }}>
         {/* Filter bar */}
@@ -2133,67 +2204,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             </div>
           )}
 
-           {showWaLeads && (
-             <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-               {waLeads.length === 0 ? (
-                 <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
-                   <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
-                   <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No SS leads yet</div>
-                   <div style={{ fontSize: 12 }}>Assign reply leads from the admin panel and they will appear here.</div>
-                 </div>
-               ) : waLeads.map((l) => {
-                 const raw = String(l.notes || '');
-                 const msg = raw.split('\n').filter((x) => !x.startsWith('[Template:') && !x.startsWith('[Account:')).join('\n').trim();
-                 const acct = (raw.match(/\[Account:\s*([^\]]+)\]/) || [])[1] || '';
-                 const acctName = String(acct || '').toLowerCase().startsWith('bsct') ? 'BSCT' : String(acct || '').toLowerCase().startsWith('aflf') ? 'AFLF' : String(acct || '').toLowerCase().startsWith('mann') ? 'MANN' : (acct || '');
-                 const phone = String(l.phone || '').replace(/[^0-9]/g, '');
-                  return (
-                    <div key={l.id} onClick={() => {
-                      setActiveDonor({
-                        id: l.donor_id,
-                        ngo_id: l.ngo_id,
-                        donor_name: l.name || '—',
-                        donor_mobile: l.phone,
-                        station: l.station || 'WhatsApp Replies',
-                        status: 'pending',
-                        is_new: true,
-                        ngo_name: acctName,
-                        donor_city: '',
-                        donor_type: '',
-                        donor_email: '',
-                        donor_address: '',
-                        donor_pan: '',
-                        donor_dob: '',
-                      });
-                      setSelected(null); setNotes(''); setLeadAmount('');
-                    }} style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card-bg)', cursor: 'pointer' }}>
-                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                         <div style={{ width: 38, height: 38, borderRadius: 999, display: 'grid', placeItems: 'center', background: 'var(--sage)', color: '#fff', fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
-                           {String(l.name || '?').charAt(0).toUpperCase()}
-                         </div>
-                         <div style={{ minWidth: 0 }}>
-                           <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }}>{l.name || '—'}</div>
-                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft)' }}>
-                             <a href={`tel:${phone}`} style={{ color: 'var(--ink-soft)', textDecoration: 'none' }}>{formatWaPhone(l.phone)}</a>
-                             {acctName && (
-                               <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, background: 'var(--line)', color: 'var(--ink-soft)' }}>{acctName}</span>
-                             )}
-                           </div>
-                         </div>
-                       </div>
-                       <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: l.status === 'assigned' ? '#16a34a' : '#b45309', background: l.status === 'assigned' ? '#16a34a1a' : '#b453091a' }}>
-                         {l.status === 'assigned' ? 'Assigned' : 'New'}
-                       </span>
-                     </div>
-                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg)', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid var(--line)' }}>
-                        {msg || '—'}
-                      </div>
-                    </div>
-                 );
-               })}
-             </div>
-           )}
            {/* The admin hid the old stations' donors. Say so, otherwise an FRO
               whose queue just emptied has no idea whether the app lost their
               leads or someone removed them on purpose. */}
@@ -2246,6 +2256,93 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
             </div>
           )}
+          {showWaLeads && (
+            <div style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {waLeads.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No SS leads yet</div>
+                  <div style={{ fontSize: 12 }}>Admin jab reply ko aapke SS station par add karega, lead yahan aa jayegi.</div>
+                </div>
+              ) : waLeads.map((l) => {
+                const raw = String(l.notes || '');
+                const replyLines = raw.split('\n')
+                  .filter((x) => !x.startsWith('[Template:') && !x.startsWith('[Account:') && !x.startsWith('[Lead:'))
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                const msg = replyLines.length ? replyLines[replyLines.length - 1] : '';
+                const earlierCount = Math.max(0, replyLines.length - 1);
+                const acct = (raw.match(/\[Account:\s*([^\]]+)\]/) || [])[1] || '';
+                const acctName = l.ngo_name || (String(acct || '').toLowerCase().startsWith('bsct') ? 'BSCT' : String(acct || '').toLowerCase().startsWith('aflf') ? 'AFLF' : String(acct || '').toLowerCase().startsWith('mann') ? 'MANN' : (acct || ''));
+                const phone = String(l.phone || '').replace(/[^0-9]/g, '');
+                 return (
+                   <div key={l.id} onClick={() => {
+                     setActiveDonor({
+                       id: l.donor_id,
+                       ngo_id: l.ngo_id,
+                       donor_name: l.name || '—',
+                       donor_mobile: l.phone,
+                       station: l.station || 'WhatsApp Replies',
+                       status: 'pending',
+                       is_new: true,
+                       ngo_name: acctName,
+                        notes: l.notes,
+                       donor_city: '',
+                       donor_type: '',
+                       donor_email: '',
+                       donor_address: '',
+                       donor_pan: '',
+                       donor_dob: '',
+                     });
+                     setSelected(null); setNotes(''); setLeadAmount('');
+                   }} style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card-bg)', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 999, display: 'grid', placeItems: 'center', background: 'var(--sage)', color: '#fff', fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
+                          {String(l.name || '?').charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }}>{l.name || '—'}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft)' }}>
+                            <a href={`tel:${phone}`} style={{ color: 'var(--ink-soft)', textDecoration: 'none' }}>{formatWaPhone(l.phone)}</a>
+                            {acctName && (
+                              <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, background: 'var(--line)', color: 'var(--ink-soft)' }}>{acctName}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: l.status === 'assigned' ? '#16a34a' : '#b45309', background: l.status === 'assigned' ? '#16a34a1a' : '#b453091a' }}>
+                          {l.status === 'assigned' ? 'Assigned' : 'New'}
+                        </span>
+                        <button
+                          type="button"
+                          title="Delete this lead from my SS queue"
+                          aria-label="Delete lead"
+                          onClick={(e) => { e.stopPropagation(); removeSsLead(l.id); }}
+                          style={{ width: 27, height: 27, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card-bg)', color: '#dc2626', display: 'inline-grid', placeItems: 'center', cursor: 'pointer' }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                        </button>
+                      </div>
+                    </div>
+                     <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg)', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid var(--line)' }}>
+                       {earlierCount > 0 && (
+                         <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 3 }}>
+                           Latest reply · {earlierCount} earlier
+                         </div>
+                       )}
+                       {msg || '—'}
+                     </div>
+                   </div>
+                );
+              })}
+            </div>
+          )}
+          {/* The normal queue must not render underneath the SS list: without
+              this the SS tab showed the SS cards AND the station's regular
+              leads (MFD-4 etc.), which read like SS leads that were not there. */}
+          <div style={{ display: showWaLeads ? 'none' : 'contents' }}>
           {siblingTabInfo && listView === 'leads' && donors.length === 0 && (
             <div style={{ fontSize: 11, color: '#1e3a8a', lineHeight: 1.5, padding: '9px 10px', marginBottom: 8, borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span>
@@ -2487,9 +2584,12 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               ) : null}
             </div>
           )}
+          </div>
         </div>
         <div style={{ padding: '8px 14px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
-          {loading
+          {showWaLeads
+            ? `Showing ${waLeads.length} SS lead(s)`
+            : loading
             ? 'Loading leads…'
             : isHistory
               ? `Showing ${renderedItems.length} of ${listItems.length} disposed lead(s)${historyAllTime ? ' (all months)' : ''}${searchQuery.trim() ? ' found' : ''}`
@@ -2535,7 +2635,9 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             <div style={{ textAlign: 'center', paddingTop: 12, paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div className="detail-avatar">{initials(donor.donor_name)}</div>
               <div className="detail-name">{donor.donor_name}</div>
-              <div className="fro-donor-position">#{index + 1} of {total || donors.length}</div>
+              <div className="fro-donor-position">
+                {/^SS-/i.test(String(donor.station || '')) ? 'SS lead' : `#${index + 1} of ${total || donors.length}`}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                   {donor.is_new && dataTab !== 'high_tier' && (
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
@@ -2560,6 +2662,29 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 )}
               </div>
             </div>
+
+            {/^SS-/i.test(String(donor.station || '')) && donor.notes && (() => {
+              const lines = String(donor.notes)
+                .split('\n')
+                .filter((x) => !/^\[(Template|Account|Lead):/i.test(x.trim()))
+                .map((x) => x.trim())
+                .filter(Boolean);
+              const latest = lines[lines.length - 1] || '—';
+              const earlier = lines.slice(0, -1);
+              return (
+                <div style={{ margin: '8px 12px 0', padding: '9px 11px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontSize: 11.5, lineHeight: 1.45 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', marginBottom: 3, opacity: .8 }}>
+                    WhatsApp reply{earlier.length ? ' · latest' : ''}
+                  </div>
+                  <div style={{ fontWeight: 700 }}>{latest}</div>
+                  {earlier.length > 0 && (
+                    <div style={{ marginTop: 4, fontSize: 10.5, opacity: .65 }}>
+                      Earlier: {earlier.join(' · ')}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {donor.is_loaned_in && (
               <div style={{ margin: '8px 12px 0', padding: '8px 10px', borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', fontSize: 11.5, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
