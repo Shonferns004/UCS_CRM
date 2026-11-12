@@ -19,7 +19,6 @@ import { SendIdempotencyKey } from './entities/send-idempotency-key.entity';
 import { SendIdempotencyService } from './idempotency/send-idempotency.service';
 import { SendIdempotencyInterceptor } from './idempotency/send-idempotency.interceptor';
 import { BaileysMessaging, blockSvgDecoding, type BaileysMessagingHost } from '../../engine/adapters/baileys-messaging';
-import { WhatsAppWebJsAdapter } from '../../engine/adapters/whatsapp-web-js.adapter';
 import { EngineNotSentError } from '../../common/errors/engine-not-sent.error';
 import { SSRF_BLOCKED_CLIENT_MESSAGE } from '../../common/security/ssrf-guard';
 
@@ -347,25 +346,6 @@ describe('a keyed send refused before anything reaches WhatsApp', () => {
     await expect(withKey('sendImage', body)).resolves.toMatchObject({ messageId: 'M1' });
   });
 
-  it('send-image whose url answers 404 frees the key on whatsapp-web.js, before the page is asked', async () => {
-    const adapter = new WhatsAppWebJsAdapter({
-      sessionId: 'sess-1',
-      sessionDataPath: './data/sessions',
-      puppeteer: {},
-    });
-    const client = { sendMessage: jest.fn() };
-    (adapter as unknown as { status: EngineStatus }).status = EngineStatus.READY;
-    (adapter as unknown as { client: unknown }).client = client;
-    engines.set('sess-1', adapter);
-    handler = (_req, res) => res.writeHead(404).end();
-
-    const error = await failure('sendImage', { chatId: '628123456789@c.us', url: `${base}/photo.png` });
-
-    expect(error).toBeInstanceOf(BadRequestException);
-    expect(client.sendMessage).not.toHaveBeenCalled();
-    expect(await keyState()).toBe('absent');
-  });
-
   it.each([
     ['bytes that do not decode', 'image/png', Buffer.from('nope'), /could not be converted to WebP/],
     ['a type that is no image', 'application/pdf', Buffer.from('%PDF-1.4'), /Received 'application\/pdf'/],
@@ -394,3 +374,4 @@ describe('a keyed send refused before anything reaches WhatsApp', () => {
     });
   });
 });
+

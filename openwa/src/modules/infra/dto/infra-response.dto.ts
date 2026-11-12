@@ -128,38 +128,6 @@ export class InfraStorageStatusDto {
 export class InfraEngineStatusDto {
   @ApiProperty({ description: 'Active engine.', example: 'baileys' })
   type!: string;
-
-  @ApiProperty({ description: 'Whether Chromium runs headless. Meaningful for whatsapp-web.js only.', example: true })
-  headless!: boolean;
-
-  @ApiProperty({ example: './data/sessions' })
-  sessionDataPath!: string;
-
-  @ApiProperty({
-    description:
-      'Effective Chromium launch arguments: PUPPETEER_ARGS or the defaults, with --lang=en-US appended unless a ' +
-      '--lang flag is already present.',
-    example: '--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu --lang=en-US',
-  })
-  browserArgs!: string;
-
-  @ApiPropertyOptional({
-    type: String,
-    nullable: true,
-    description:
-      'whatsapp-web.js only: the WhatsApp Web build sessions request as their pin, which is distinct from the ' +
-      'library version. A page can still run another build; each session logs the one it runs when it reaches ' +
-      'ready. Omitted for other engines.',
-    example: '2.3000.1234567890',
-  })
-  webVersion?: string | null;
-
-  @ApiPropertyOptional({
-    enum: ['pinned', 'auto', 'native'],
-    description: 'How that build was chosen. Omitted for other engines.',
-    example: 'pinned',
-  })
-  webVersionSource?: string;
 }
 
 export class InfraStatusResponseDto {
@@ -203,7 +171,7 @@ export class InfraHealthResponseDto {
 export class EngineLibraryDto {
   @ApiProperty({
     description: "The underlying library, distinct from the engine plugin's own manifest name.",
-    example: 'whatsapp-web.js',
+    example: 'baileys',
   })
   name!: string;
 
@@ -371,17 +339,8 @@ export class InfraConfigStorageDto {
 }
 
 export class InfraConfigEngineDto {
-  @ApiProperty({ example: 'whatsapp-web.js' })
+  @ApiProperty({ example: 'baileys' })
   type!: string;
-
-  @ApiProperty({ example: true })
-  headless!: boolean;
-
-  @ApiProperty({ example: './data/sessions' })
-  sessionDataPath!: string;
-
-  @ApiProperty({ example: '' })
-  browserArgs!: string;
 }
 
 export class InfraConfigResponseDto {
@@ -637,3 +596,4 @@ export class StorageImportResponseDto {
   @ApiProperty({ enum: ['local', 's3'], example: 'local' })
   storageType!: string;
 }
+

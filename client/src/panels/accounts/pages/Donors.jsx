@@ -5,6 +5,7 @@ import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X, MoreHorizontal, 
 import { useUcs } from '../../../store'
 import { useIsMobile } from '../../../hooks/useIsMobile'
 import { useRealtime } from '../../../hooks/useRealtime'
+import DonorTabs from '../components/DonorTabs'
 
 // Soft accent palette cycled per NGO so each assignment card is instantly
 // recognizable even when a donor spans several NGOs.
@@ -907,6 +908,9 @@ export default function Donors() {
   const [agentFilter, setAgentFilter] = useState('')
   const [agentOptions, setAgentOptions] = useState([])
   const [stationFilter, setStationFilter] = useState('')
+  const activeFilterCount = [ngoFilter, agentFilter, stationFilter].filter(Boolean).length
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
   const [stationOptions, setStationOptions] = useState([])
   const [expanded, setExpanded] = useState({})
   const [rowMenu, setRowMenu] = useState(new Set())
@@ -1066,59 +1070,122 @@ export default function Donors() {
 
   return (
     <div className="donors-page">
-      <div className="card donors-panel">
-        <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginRight: 'auto' }}>
-            <select
-              value={ngoFilter}
-              onChange={e => handleNgoChange(e.target.value)}
-              title="Filter donors by NGO"
-              style={filterSelectStyle(ngoFilter)}
-            >
-              <option value="">All NGOs</option>
-              {ngoOptions.map(n => <option key={n.id} value={n.name}>{n.name}</option>)}
-            </select>
-            <select
-              value={agentFilter}
-              onChange={e => { setAgentFilter(e.target.value); setPage(1) }}
-              title="Show only donors assigned to this agent (FRO)"
-              style={filterSelectStyle(agentFilter)}
-            >
-              <option value="">All agents</option>
-              {agentOptions.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-            </select>
-            <select
-              value={stationFilter}
-              onChange={e => { setStationFilter(e.target.value); setPage(1) }}
-              title="Show only donors assigned to this station"
-              style={filterSelectStyle(stationFilter)}
-            >
-              <option value="">All stations</option>
-              {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+      <DonorTabs>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {newDataRows.length > 0 && (
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+              Unassigned new data: {newDataRows.length}
+            </span>
+          )}
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)', pointerEvents: 'none' }} />
+            <input
+              className="search-input"
+              placeholder="Search by name, mobile, or ID..."
+              value={search}
+              onChange={handleSearch}
+              style={{ paddingLeft: 30 }}
+            />
+          </div>
+          <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(v => !v)}
+                title={filtersOpen ? 'Hide filters' : 'Show filters'}
+                aria-label="Filters"
+                aria-expanded={filtersOpen}
+                style={{
+                  position: 'relative', width: 38, height: 38, borderRadius: 9, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  border: `1px solid ${filtersOpen || activeFilterCount ? 'var(--sage)' : '#DCE6F1'}`,
+                  background: filtersOpen || activeFilterCount ? 'var(--sage)' : '#fff',
+                  color: filtersOpen || activeFilterCount ? '#fff' : '#64748b',
+                  boxShadow: filtersOpen || activeFilterCount ? '0 2px 6px rgba(91,107,78,.25)' : 'none',
+                  transition: 'background .12s, color .12s, border-color .12s',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
+                </svg>
+                {activeFilterCount > 0 && (
+                  <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+              {filtersOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
+                  <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 320, maxWidth: '92vw', background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <strong style={{ fontSize: 13, color: '#102544' }}>Filters</strong>
+                      <button
+                        type="button"
+                        onClick={() => { setNgoFilter(''); setAgentFilter(''); setStationFilter(''); setPage(1); setFiltersOpen(false) }}
+                        style={{ border: 'none', background: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                      >Reset</button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>NGO</span>
+                        <select value={ngoFilter} onChange={e => handleNgoChange(e.target.value)} style={{ ...filterSelectStyle(ngoFilter), width: '100%' }}>
+                          <option value="">All NGOs</option>
+                          {ngoOptions.map(n => <option key={n.id} value={n.name}>{n.name}</option>)}
+                        </select>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>Agent</span>
+                        <select value={agentFilter} onChange={e => { setAgentFilter(e.target.value); setPage(1) }} style={{ ...filterSelectStyle(agentFilter), width: '100%' }}>
+                          <option value="">All agents</option>
+                          {agentOptions.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
+                        </select>
+                      </label>
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>Station</span>
+                        <select value={stationFilter} onChange={e => { setStationFilter(e.target.value); setPage(1) }} style={{ ...filterSelectStyle(stationFilter), width: '100%' }}>
+                          <option value="">All stations</option>
+                          {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
             <div style={{ position: 'relative' }}>
-              <Search size={14} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)', pointerEvents: 'none' }} />
-              <input
-                className="search-input"
-                placeholder="Search by name, mobile, or ID..."
-                value={search}
-                onChange={handleSearch}
-                style={{ paddingLeft: 30 }}
-              />
+              <button
+                type="button"
+                onClick={() => setActionsOpen(v => !v)}
+                title="More actions"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={actionsOpen}
+                style={{ width: 38, height: 38, borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', color: '#475569', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <MoreHorizontal size={17} />
+              </button>
+              {actionsOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setActionsOpen(false)} />
+                  <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, width: 210, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 5 }}>
+                    <button
+                      role="menuitem"
+                      onClick={() => { setActionsOpen(false); handleExport() }}
+                      disabled={exporting}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: exporting ? 'wait' : 'pointer', color: '#15803d' }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      {exporting ? 'Exporting…' : 'Export Excel'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            {newDataRows.length > 0 && (
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
-                Unassigned new data: {newDataRows.length}
-              </span>
-            )}
-            <button className="btn" onClick={handleExport} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {exporting ? 'Exporting...' : 'Export Excel'}
-            </button>
           </div>
-        </div>
+      </DonorTabs>
+      <div className="card donors-panel">
         {isMobile ? (
           <div className="donor-cards-list">
             {loading ? (
@@ -1258,23 +1325,26 @@ export default function Donors() {
            table styles below. Keep this table scoped so every cell shares the
            same row track when the assignment list contains multiple items. */
         .panel-accounts .donors-table { table-layout: fixed; width: 100%; min-width: 820px; border-collapse: separate !important; border-spacing: 0; }
-        .panel-accounts .donors-table th { font-size: 10px; font-weight: 700; letter-spacing: .7px; color: var(--ink-soft); text-transform: uppercase; padding: 12px 16px; text-align: left; background: #f7f9f6; border-bottom: 1px solid var(--line); }
-        .panel-accounts .donors-table td { padding: 13px 16px; vertical-align: middle; border-bottom: 1px solid #eef1ec; background: #fff; }
+        .panel-accounts .donors-table th { font-size: 10px; font-weight: 800; letter-spacing: .7px; color: #7c8aa0; text-transform: uppercase; padding: 12px 20px; text-align: left; background: #f8fafc; border-bottom: 1px solid #e6ecf4; }
+        .panel-accounts .donors-table td { padding: 12px 20px; vertical-align: middle; border-bottom: 1px solid #f0f4f9; background: #fff; }
         /* Every row gets the same height so the table reads as a neat grid —
            cells stretch, content stays vertically centered. */
-        .panel-accounts .donors-table tbody tr { height: 64px; }
-        .donors-table th, .donors-table td { border-right: 1px solid #eef1ec; }
+        .panel-accounts .donors-table tbody tr { height: 62px; transition: background .12s ease; }
+        .donors-table th, .donors-table td { border-right: 1px solid #eef2f7; }
         .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
-        .panel-accounts .donors-table tbody tr:hover td { background: #fafbf8; }
+        .panel-accounts .donors-table tbody tr.clickable-row { cursor: pointer; }
+        .panel-accounts .donors-table tbody tr:hover td { background: #f8fafc; }
         .panel-accounts .donors-table tbody tr:last-child td { border-bottom: none; }
+        .mobile-cell { font-variant-numeric: tabular-nums; color: #475569; font-size: 13px; }
+        .assign-cell { min-width: 0; }
         /* The donor cell must stay a real table-cell so every cell in a row
            shares the row's height (the tallest cell wins); the flex layout
            lives on an inner wrapper instead of the <td> itself. */
         .donor-cell { vertical-align: middle !important; }
         .donor-cell-inner { display: flex; align-items: center; gap: 10px; min-width: 0; }
-        .donor-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--sage); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+        .donor-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--sage); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
         .donor-info { flex: 1; min-width: 0; }
-        .donor-name { font-weight: 600; font-size: 13px; color: var(--ink); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; max-height: calc(1.35em * 2); }
+        .donor-name { font-weight: 600; font-size: 13.5px; color: #102544; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; max-height: calc(1.35em * 2); }
         .donor-sub { font-size: 11px; color: var(--ink-soft); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .donor-card-head .donor-info { flex: 1; min-width: 0; }
         .kebab { background: transparent; border: none; color: var(--ink-soft); padding: 5px; border-radius: 8px; cursor: pointer; flex-shrink: 0; margin: 0; }
@@ -1290,9 +1360,9 @@ export default function Donors() {
         .mobile-cell { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: var(--ink); vertical-align: middle !important; }
         .assign-cell-inner { position: relative; padding-right: 22px; }
         .assign-pills { display: flex; flex-wrap: wrap; gap: 5px 6px; }
-        .assign-pill { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; font-size: 11.5px; padding: 3px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .assign-pill-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        .assign-pill-station { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .assign-pill { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; font-size: 11.5px; padding: 4px 11px; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .assign-pill-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .assign-pill-station { color: #7c8aa0; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-weight: 600; }
         .assign-pill.missing { background: #fff7ed; color: #9a3412; border-color: #fdba74; }
         .assign-expand { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; background: none; border: none; color: var(--ink-soft); padding: 2px 4px; border-radius: 6px; cursor: pointer; }
         .assign-expand:hover { background: var(--sage-soft, #E8EDE1); color: var(--sage); }

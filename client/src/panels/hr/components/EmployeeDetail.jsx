@@ -16,7 +16,6 @@ import { lateThresholds, calcLateDeductionDays } from '../../../lib/latePolicy';
 import EmployeeOverview from './employeeOverview/EmployeeOverview';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
-
 // 'YYYY-MM' -> 'Oct 2026' for profile-card month labels.
 const monthShortLabel = (monthKey) => {
   const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1585,97 +1584,100 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
                       {/* Sunday pay explanation */}
                       {activeSalary && sundayBonus && (
-                        <div style={{ marginBottom:14, padding:'10px 14px', border:'1px solid #f59e0b', borderRadius:8, background:'#fffbeb', fontSize:12 }}>
-                          <div style={{ fontWeight:600, color:'#92400e', marginBottom:6, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>
-                            Sunday pay — {sundayBonus.paidSundays}/{sundayBonus.totalSundays} Sundays paid this month
+                        <div style={{ marginBottom:14, border:'1px solid #fde68a', borderRadius:10, background:'#fffdf5', overflow:'hidden' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 14px', borderBottom:'1px solid #fef3c7' }}>
+                            <span style={{ width:20, height:20, borderRadius:6, background:'#fef3c7', color:'#b45309', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0 }}>☀</span>
+                            <span style={{ flex:1, fontSize:11, fontWeight:800, letterSpacing:'.05em', textTransform:'uppercase', color:'#92400e' }}>Sunday pay</span>
+                            <span style={{ fontSize:11, fontWeight:800, color:'#92400e', background:'#fef3c7', borderRadius:999, padding:'2px 9px', whiteSpace:'nowrap' }}>
+                              {sundayBonus.paidSundays}/{sundayBonus.totalSundays} paid
+                            </span>
                           </div>
-                          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                            <tbody>
-                              <tr>
-                                <td style={{ padding:'2px 6px 2px 0', width:80, verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                  <span style={{ display:'inline-block', width:8, height:8, background:'#bbf7d0', borderRadius:2, marginRight:4 }} />
-                                  <strong>Rule</strong>
-                                </td>
-                                <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                  {useNewSundayRules
-                                    ? <>Every Sunday from your join date is paid, worked or not. A Sunday is not paid only when it is clubbed (Sat/Mon absent) or cancelled by the 6+ absences / join-after-10th rule. Coming and going on a Sunday is your choice — it is never late or half-day.</>
-                                    : <>Every Sunday worked (present/late, even a cancelled one) is paid. On top, {sundayBonus.totalSundays - 1} Sundays are paid free, capped at all {sundayBonus.totalSundays} Sundays in the month.</>}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                  <span style={{ display:'inline-block', width:8, height:8, background: sundayBonus.attendedSundays > 0 ? '#bbf7d0' : '#f0f0f0', borderRadius:2, marginRight:4 }} />
-                                  <strong>Sundays</strong>
-                                </td>
-                                <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                  Total {sundayBonus.totalSundays} · Attended {sundayBonus.attendedSundays} · Paid {sundayBonus.paidSundays}
-                                </td>
-                              </tr>
-                              {unpaidSundays.length > 0 && (
-                                <tr>
-                                  <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                    <span style={{ display:'inline-block', width:8, height:8, background:'#fecaca', borderRadius:2, marginRight:4 }} />
-                                    <strong>Not paid</strong>
-                                  </td>
-                                  <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                    {unpaidSundays.map(d => 'Sun ' + new Date(d).getDate()).join(', ')} — beyond the free + attended Sundays
-                                  </td>
-                                </tr>
-                              )}
-                              {data.department === 'FRO' && (sundayBonus.incentiveAKI > 0 || sundayBonus.incentiveMonthly > 0) && (
-                                <tr>
-                                  <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                    <span style={{ display:'inline-block', width:8, height:8, background:'#bbf7d0', borderRadius:2, marginRight:4 }} />
-                                    <strong>Incentive</strong>
-                                  </td>
-                                  <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                    Target met → AKI +₹{sundayBonus.incentiveAKI.toLocaleString('en-IN')} · Monthly +₹{sundayBonus.incentiveMonthly.toLocaleString('en-IN')}
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
+                          <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:7, fontSize:12 }}>
+                            <div style={{ display:'grid', gridTemplateColumns:'92px 1fr', gap:10, alignItems:'flex-start' }}>
+                              <span style={{ fontWeight:700, color:'#92400e' }}>Rule</span>
+                              <span style={{ color:'#6b7280', lineHeight:1.5 }}>
+                                {useNewSundayRules
+                                  ? <>Every Sunday from your join date is paid, worked or not. A Sunday is not paid only when it is clubbed (Sat/Mon absent) or cancelled by the 6+ absences / join-after-10th rule. Coming and going on a Sunday is your choice — it is never late or half-day.</>
+                                  : <>Every Sunday worked (present/late, even a cancelled one) is paid. On top, {sundayBonus.totalSundays - 1} Sundays are paid free, capped at all {sundayBonus.totalSundays} Sundays in the month.</>}
+                              </span>
+                            </div>
+                            <div style={{ display:'grid', gridTemplateColumns:'92px 1fr', gap:10, alignItems:'center' }}>
+                              <span style={{ fontWeight:700, color:'#92400e' }}>Sundays</span>
+                              <span style={{ color:'#6b7280' }}>
+                                Total {sundayBonus.totalSundays} · Attended {sundayBonus.attendedSundays} · Paid {sundayBonus.paidSundays}
+                              </span>
+                            </div>
+                            {unpaidSundays.length > 0 && (
+                              <div style={{ display:'grid', gridTemplateColumns:'92px 1fr', gap:10, alignItems:'center' }}>
+                                <span style={{ fontWeight:700, color:'#92400e' }}>Not paid</span>
+                                <span style={{ color:'#6b7280' }}>
+                                  {unpaidSundays.map(d => 'Sun ' + new Date(d).getDate()).join(', ')} — beyond the free + attended Sundays
+                                </span>
+                              </div>
+                            )}
+                            {data.department === 'FRO' && (sundayBonus.incentiveAKI > 0 || sundayBonus.incentiveMonthly > 0) && (
+                              <div style={{ display:'grid', gridTemplateColumns:'92px 1fr', gap:10, alignItems:'center' }}>
+                                <span style={{ fontWeight:700, color:'#92400e' }}>Incentive</span>
+                                <span style={{ color:'#6b7280' }}>
+                                  Target met → AKI +₹{sundayBonus.incentiveAKI.toLocaleString('en-IN')} · Monthly +₹{sundayBonus.incentiveMonthly.toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
 
                       {/* Late minutes badge */}
-                      <div style={{ marginBottom:14 }}>
+                      <div style={{ marginBottom:14, display:'flex', flexDirection:'column', gap:8 }}>
                         {graceForfeitedNow && lateDeductionDays > 0 && (
-                          <div style={{ padding:'8px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12, marginBottom: totalLateMinutes > 0 || lateDeductionDays > 0 ? 8 : 0 }}>
-                            <strong style={{ color:'#d9534f' }}>Grace forfeited (unauthorized absence)</strong>
-                            <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
-                              The {lateT.grace} min grace is charged up-front this month — {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} late deduction applies. Use the admin app to roll it back if this was applied wrongly.
+                          <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'10px 14px', border:'1px solid #fecaca', borderRadius:10, background:'#fef2f2' }}>
+                            <span style={{ width:20, height:20, borderRadius:6, background:'#fee2e2', color:'#b91c1c', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0 }}>!</span>
+                            <div>
+                              <div style={{ fontSize:12, fontWeight:700, color:'#b91c1c' }}>Grace forfeited (unauthorized absence)</div>
+                              <div style={{ fontSize:11.5, color:'#6b7280', marginTop:2, lineHeight:1.5 }}>
+                                The {lateT.grace} min grace is charged up-front this month — {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} late deduction applies. Use the admin app to roll it back if this was applied wrongly.
+                              </div>
                             </div>
                           </div>
                         )}
                         {graceForfeitedNow && lateDeductionDays === 0 && lateRollbackMinutes > 0 && (
-                          <div style={{ padding:'8px 14px', border:'1px solid #bbf7d0', borderRadius:8, background:'#f0fdf4', fontSize:12, marginBottom: totalLateMinutes > 0 ? 8 : 0 }}>
-                            <strong style={{ color:'#15803d' }}>Grace rollback applied</strong>
-                            <div style={{ color:'var(--ink-soft)', marginTop:2 }}>
-                              {lateRollbackMinutes} min of the {lateT.grace} min grace was waived, so the {totalLateMinutes} late min no longer cost a day. The absence day is still deducted.
+                          <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'10px 14px', border:'1px solid #bbf7d0', borderRadius:10, background:'#f0fdf4' }}>
+                            <span style={{ width:20, height:20, borderRadius:6, background:'#dcfce7', color:'#15803d', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0 }}>✓</span>
+                            <div>
+                              <div style={{ fontSize:12, fontWeight:700, color:'#15803d' }}>Grace rollback applied</div>
+                              <div style={{ fontSize:11.5, color:'#6b7280', marginTop:2, lineHeight:1.5 }}>
+                                {lateRollbackMinutes} min of the {lateT.grace} min grace was waived, so the {totalLateMinutes} late min no longer cost a day. The absence day is still deducted.
+                              </div>
                             </div>
                           </div>
                         )}
-                        {totalLateMinutes > lateT.full ? (
-                          <div style={{ padding:'10px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12 }}>
-                            <div style={{ fontWeight:600, color:'#d9534f' }}>⚠ {totalLateMinutes} min late ({Math.round(totalLateMinutes / 60 * 10) / 10} hrs) → {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} deducted (proportional)</div>
-                            <div style={{ color:'var(--ink-soft)', marginTop:4 }}>
-                              Every {lateT.full} min of lateness = 1 day deducted.
+                        {(() => {
+                          let tone = null
+                          if (totalLateMinutes > lateT.full) {
+                            tone = {
+                              icon: '⚠',
+                              title: `${totalLateMinutes} min late (${Math.round(totalLateMinutes / 60 * 10) / 10} hrs) → ${lateDeductionDays} day${lateDeductionDays !== 1 ? 's' : ''} deducted`,
+                              sub: `Every ${lateT.full} min of lateness = 1 day deducted.`,
+                              bg: '#fef2f2', bd: '#fecaca', fg: '#b91c1c', iconBg: '#fee2e2',
+                            }
+                          } else if (totalLateMinutes > lateT.half) {
+                            tone = { icon: '⚠', title: `${totalLateMinutes} min late → 1 day deducted`, bg: '#fffbeb', bd: '#fde68a', fg: '#92400e', iconBg: '#fef3c7' }
+                          } else if (totalLateMinutes > lateT.grace) {
+                            tone = { icon: '◐', title: `${totalLateMinutes} min late → Half day deducted`, bg: '#fffbeb', bd: '#fde68a', fg: '#92400e', iconBg: '#fef3c7' }
+                          } else if (totalLateMinutes > 0) {
+                            tone = { icon: '✓', title: `${totalLateMinutes} min late — No deduction`, sub: `Within the ${lateT.grace} min grace.`, bg: '#f0fdf4', bd: '#bbf7d0', fg: '#15803d', iconBg: '#dcfce7' }
+                          }
+                          if (!tone) return null
+                          return (
+                            <div style={{ display:'flex', gap:10, alignItems:'flex-start', padding:'10px 14px', border:`1px solid ${tone.bd}`, borderRadius:10, background:tone.bg }}>
+                              <span style={{ width:20, height:20, borderRadius:6, background:tone.iconBg, color:tone.fg, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0 }}>{tone.icon}</span>
+                              <div>
+                                <div style={{ fontSize:12, fontWeight:700, color:tone.fg }}>{tone.title}</div>
+                                {tone.sub && <div style={{ fontSize:11.5, color:'#6b7280', marginTop:2 }}>{tone.sub}</div>}
+                              </div>
                             </div>
-                          </div>
-                        ) : totalLateMinutes > lateT.half ? (
-                          <div style={{ padding:'8px 14px', border:'1px solid #e67e22', borderRadius:8, background:'#fff8f0', fontSize:12 }}>
-                            <strong style={{ color:'#e67e22' }}>{totalLateMinutes} min late → 1 day deducted</strong>
-                          </div>
-                        ) : totalLateMinutes > lateT.grace ? (
-                          <div style={{ padding:'8px 14px', border:'1px solid #e67e22', borderRadius:8, background:'#fff8f0', fontSize:12 }}>
-                            <strong style={{ color:'#e67e22' }}>{totalLateMinutes} min late → Half day deducted</strong>
-                          </div>
-                        ) : totalLateMinutes > 0 ? (
-                          <div style={{ padding:'8px 14px', border:'1px solid #5B6B4E', borderRadius:8, background:'#f6f9f4', fontSize:12 }}>
-                            <strong style={{ color:'#5B6B4E' }}>{totalLateMinutes} min late — No deduction (≤ {lateT.grace} min)</strong>
-                          </div>
-                        ) : null}
+                          )
+                        })()}
                       </div>
 
                       {/* Loan / Advance deduction info */}
@@ -1692,12 +1694,17 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
                       {/* Join info — highlighted box */}
                       {joinedThisMonth && (
-                        <div style={{ marginBottom:14, padding:'10px 14px', border:'1px solid #f0d58c', borderRadius:8, background:'#fffbea', fontSize:12 }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:4 }}>
-                            <span><strong>Joined:</strong> {new Date(data.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })}</span>
-                            <span><strong>Available:</strong> {joinDayNum} – {daysInMonth} → <span style={{ fontWeight:700, fontSize:14 }}>{availableDays} days</span></span>
-                            <span><strong>Joining deduction:</strong> {joiningDeduction} days</span>
-                          </div>
+                        <div style={{ marginBottom:14, border:'1px solid #fde68a', borderRadius:10, background:'#fffdf5', padding:'10px 14px', display:'grid', gridTemplateColumns:'repeat(3, minmax(0,1fr))', gap:12 }}>
+                          {[
+                            { label: 'Joined', value: new Date(data.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }) },
+                            { label: 'Available', value: `${joinDayNum} – ${daysInMonth} · ${availableDays} days` },
+                            { label: 'Joining deduction', value: `${joiningDeduction} days` },
+                          ].map((m, i) => (
+                            <div key={m.label} style={{ display:'flex', flexDirection:'column', gap:2, minWidth:0, ...(i ? { borderLeft:'1px solid #fef3c7', paddingLeft:12 } : {}) }}>
+                              <span style={{ fontSize:9.5, fontWeight:800, letterSpacing:'.05em', textTransform:'uppercase', color:'#a16207' }}>{m.label}</span>
+                              <span style={{ fontSize:12.5, fontWeight:700, color:'#102544' }}>{m.value}</span>
+                            </div>
+                          ))}
                         </div>
                       )}
 
@@ -1711,95 +1718,74 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                         );
                         const hasAny = absentDatesAfterJoin.length > 0 || autoSundays.length > 0 || extraSundays.length > 0 || unpaidSundays.length > 0 || lateDeductionDays > 0 || joiningDeduction > 0;
                         if (!hasAny) return null;
+                        const rows = [];
+                        if (absentDatesAfterJoin.length > 0) {
+                          rows.push({
+                            label: `${absentDatesAfterJoin.length} absent`,
+                            dot: '#ef4444',
+                            desc: absentDatesAfterJoin.map(d => {
+                              const dt = new Date(d);
+                              return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()] + ' ' + dt.getDate();
+                            }).join(', '),
+                          });
+                        }
+                        if (autoSundays.length > 0) {
+                          rows.push({
+                            label: `${autoSundays.length} Sun${autoSundays.length > 1 ? 's' : ''}`,
+                            dot: '#f59e0b',
+                            desc: `${autoSundays.map(d => 'Sun ' + new Date(d).getDate()).join(', ')} · Sat/Mon → next/prev Sun`,
+                          });
+                        }
+                        if (extraSundays.length > 0) {
+                          rows.push({
+                            label: `${extraSundays.length} extra`,
+                            dot: '#dc2626',
+                            desc: `≥6 absences rule → ${extraSundays.map(d => 'Sun ' + new Date(d).getDate()).join(', ')}`,
+                          });
+                        }
+                        if (unpaidSundays.length > 0) {
+                          rows.push({
+                            label: `${unpaidSundays.length} Sun`,
+                            dot: '#fbbf24',
+                            desc: `${unpaidSundays.map(d => 'Sun ' + new Date(d).getDate()).join(', ')} · beyond free + attended Sundays`,
+                          });
+                        }
+                        if (lateDeductionDays > 0) {
+                          rows.push({
+                            label: `${lateDeductionDays} late`,
+                            dot: '#f97316',
+                            desc: `${totalLateMinutes} min late → ${lateDeductionDays} day${lateDeductionDays !== 1 ? 's' : ''} deducted`,
+                          });
+                        }
+                        if (joiningDeduction > 0) {
+                          rows.push({
+                            label: `${joiningDeduction} joining`,
+                            dot: '#8b5cf6',
+                            desc: 'First month deduction for new joiners',
+                          });
+                        }
                         return (
-                          <div style={{ marginBottom:14, padding:'10px 14px', border:'1px solid var(--danger)', borderRadius:8, background:'#fff5f5', fontSize:12 }}>
-                            <div style={{ fontWeight:600, color:'var(--danger)', marginBottom:6, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>
-                              Why {deducted.size} day{deducted.size != 1 ? 's' : ''} are deducted
+                          <div style={{ marginBottom:14, border:'1px solid #fecaca', borderRadius:10, background:'#fffafa', overflow:'hidden' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 14px', borderBottom:'1px solid #fee2e2' }}>
+                              <span style={{ width:20, height:20, borderRadius:6, background:'#fee2e2', color:'#b91c1c', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>!</span>
+                              <span style={{ flex:1, fontSize:11, fontWeight:800, letterSpacing:'.05em', textTransform:'uppercase', color:'#b91c1c' }}>
+                                Why {deducted.size} day{deducted.size !== 1 ? 's' : ''} are deducted
+                              </span>
+                              <span style={{ fontSize:11, fontWeight:800, color:'#b91c1c', background:'#fee2e2', borderRadius:999, padding:'2px 9px', whiteSpace:'nowrap' }}>
+                                {deducted.size} day{deducted.size !== 1 ? 's' : ''}
+                              </span>
                             </div>
-                            <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                              <tbody>
-                                {absentDatesAfterJoin.length > 0 && (
-                                  <tr>
-                                    <td style={{ padding:'2px 6px 2px 0', width:80, verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                      <span style={{ display:'inline-block', width:8, height:8, background:'#ffe0e0', borderRadius:2, marginRight:4 }} />
-                                      <strong>{absentDatesAfterJoin.length} absent</strong>
-                                    </td>
-                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                      {absentDatesAfterJoin.map(d => {
-                                        const dt = new Date(d);
-                                        return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()] + ' ' + dt.getDate();
-                                      }).join(', ')}
-                                    </td>
-                                  </tr>
-                                )}
-                                {autoSundays.length > 0 && (
-                                  <tr>
-                                    <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                      <span style={{ display:'inline-block', width:8, height:8, background:'#fce4b0', borderRadius:2, marginRight:4 }} />
-                                      <strong>{autoSundays.length} Sun{autoSundays.length > 1 ? 's' : ''}</strong>
-                                    </td>
-                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                      {autoSundays.map(d => {
-                                        const dt = new Date(d);
-                                        return 'Sun ' + dt.getDate();
-                                      }).join(', ')}
-                                      {' (Sat/Mon → next/prev Sun)'}
-                                    </td>
-                                  </tr>
-                                )}
-                                {extraSundays.length > 0 && (
-                                  <tr>
-                                    <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                      <span style={{ display:'inline-block', width:8, height:8, background:'#f0c0c0', borderRadius:2, marginRight:4 }} />
-                                      <strong>{extraSundays.length} extra</strong>
-                                    </td>
-                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                      {'≥6 absences rule → ' + extraSundays.map(d => {
-                                        const dt = new Date(d);
-                                        return 'Sun ' + dt.getDate();
-                                      }).join(', ')}
-                                    </td>
-                                  </tr>
-                                )}
-                                {unpaidSundays.length > 0 && (
-                                  <tr>
-                                    <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                      <span style={{ display:'inline-block', width:8, height:8, background:'#fce4b0', borderRadius:2, marginRight:4 }} />
-                                      <strong>{unpaidSundays.length} Sun</strong>
-                                    </td>
-                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                      {unpaidSundays.map(d => {
-                                        const dt = new Date(d);
-                                        return 'Sun ' + dt.getDate();
-                                      }).join(', ')}
-                                      {' (beyond free + attended Sundays)'}
-                                    </td>
-                                  </tr>
-                                )}
-                                {lateDeductionDays > 0 && (
-                                  <tr>
-                                    <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                      <span style={{ display:'inline-block', width:8, height:8, background:'#e67e22', borderRadius:2, marginRight:4 }} />
-                                      <strong>{lateDeductionDays} late</strong>
-                                    </td>
-                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                      {totalLateMinutes} min late → {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} deducted
-                                    </td>
-                                  </tr>
-                                )}
-                                {joiningDeduction > 0 && (
-                                  <tr>
-                                    <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                      <span style={{ display:'inline-block', width:8, height:8, background:'#8B5CF6', borderRadius:2, marginRight:4 }} />
-                                      <strong>{joiningDeduction} joining</strong>
-                                    </td>
-                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                      First month deduction for new joiners
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
+                            <div style={{ padding:'2px 14px 6px' }}>
+                              {rows.map((r, i) => (
+                                <div key={r.label} style={{ display:'grid', gridTemplateColumns:'120px 1fr', gap:10, alignItems:'flex-start', padding:'7px 0', borderBottom: i === rows.length - 1 ? 'none' : '1px solid #fee2e2' }}>
+                                  <span style={{ display:'inline-flex', alignItems:'center', gap:6, fontWeight:700, color:'#7f1d1d', fontSize:12 }}>
+                                    <span style={{ width:8, height:8, borderRadius:'50%', background:r.dot, flexShrink:0 }} />
+                                    {r.label}
+                                  </span>
+                                  <span style={{ color:'#6b7280', fontSize:12, lineHeight:1.5 }}>{r.desc}</span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         );
                       })()}
@@ -2377,7 +2363,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
       {holdModal && (
         <div style={{
-          position:'fixed', inset:0, background:'rgba(15,23,42,.45)', zIndex:200,
+          position:'fixed', inset:0, background:'rgba(15,23,42,.45)', zIndex:4000,
           display:'flex', alignItems:'center', justifyContent:'center',
         }} onClick={() => setHoldModal(false)}>
           <div style={{
@@ -2412,55 +2398,92 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
       {docModal && (
         <div style={{
-          position:'fixed', inset:0, background:'rgba(15,23,42,.45)', zIndex:200,
-          display:'flex', alignItems:'center', justifyContent:'center',
+          position:'fixed', inset:0, background:'rgba(15,23,42,.5)', zIndex:4000,
+          display:'flex', alignItems:'center', justifyContent:'center', padding:16,
         }} onClick={() => setDocModal(false)}>
           <div style={{
-            background:'#fff', borderRadius:14, width:'min(92vw,420px)',
-            padding:'20px 22px', boxShadow:'0 20px 60px rgba(0,0,0,.25)',
+            background:'#fff', borderRadius:16, width:'min(94vw, 480px)', maxHeight:'90vh',
+            display:'flex', flexDirection:'column', overflow:'hidden',
+            boxShadow:'0 24px 60px rgba(15,23,42,.28)',
           }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Documents Submitted</div>
-            <div style={{ fontSize:12, color:'var(--ink-soft)', marginBottom:14 }}>
-              {data?.name || 'Volunteer'} — which documents have been submitted?
-            </div>
-            <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>
-              Documents
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              {DOC_OPTIONS.map(d => (
-                <label key={d} style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}>
-                  <input
-                    type="checkbox"
-                    style={{ width:14, height:14, margin:0, cursor:'pointer' }}
-                    checked={docValue.includes(d)}
-                    onChange={e => setDocValue(e.target.checked
-                      ? DOC_OPTIONS.filter(o => o === d || docValue.includes(o))
-                      : docValue.filter(o => o !== d))}
-                  />
-                  <span>{d}</span>
-                </label>
-              ))}
-            </div>
-            {docValue.includes(OTHER_DOC) && (
-              <div style={{ marginTop:12 }}>
-                <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>
-                  Specify document
+            {/* Header */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 18px', borderBottom:'1px solid var(--line)' }}>
+              <span style={{ width:36, height:36, borderRadius:10, background:'#eef2ff', color:'#4338ca', display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="9" y1="17" x2="13" y2="17" />
+                </svg>
+              </span>
+              <div style={{ minWidth:0, flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:15, color:'var(--ink)' }}>Documents Submitted</div>
+                <div style={{ fontSize:11.5, color:'var(--ink-soft)', marginTop:2 }}>
+                  {data?.name || 'Volunteer'} — which documents have been submitted?
                 </div>
-                <input
-                  type="text"
-                  value={docOther}
-                  onChange={e => setDocOther(e.target.value)}
-                  placeholder="e.g. Passport"
-                  style={{ width:'100%', padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)' }}
-                />
               </div>
-            )}
-            {docValue.length === 0 && (
-              <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:10 }}>
-                Nothing ticked — this is saved as not submitted.
+              <button type="button" onClick={() => setDocModal(false)} aria-label="Close"
+                style={{ border:'none', background:'transparent', color:'var(--ink-soft)', width:30, height:30, borderRadius:8, cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding:16, overflowY:'auto', display:'flex', flexDirection:'column', gap:12 }}>
+              <div style={{ fontSize:10, fontWeight:800, letterSpacing:'.06em', textTransform:'uppercase', color:'#94a3b8' }}>
+                Select all that apply
               </div>
-            )}
-            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:16 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(2, minmax(0,1fr))', gap:8 }}>
+                {DOC_OPTIONS.map(d => {
+                  const on = docValue.includes(d)
+                  return (
+                    <label
+                      key={d}
+                      style={{
+                        display:'flex', alignItems:'center', gap:8, padding:'9px 10px', borderRadius:9,
+                        border:`1px solid ${on ? '#93c5fd' : 'var(--line)'}`,
+                        background: on ? '#eff6ff' : '#fff',
+                        color: on ? '#1d4ed8' : 'var(--ink)',
+                        fontSize:12.5, fontWeight: on ? 700 : 500, cursor:'pointer',
+                        transition:'background .12s, border-color .12s',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        style={{ width:14, height:14, margin:0, cursor:'pointer', accentColor:'#2563eb' }}
+                        checked={on}
+                        onChange={e => setDocValue(e.target.checked
+                          ? DOC_OPTIONS.filter(o => o === d || docValue.includes(o))
+                          : docValue.filter(o => o !== d))}
+                      />
+                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {docValue.includes(OTHER_DOC) && (
+                <div>
+                  <div style={{ fontSize:10, fontWeight:800, letterSpacing:'.06em', textTransform:'uppercase', color:'#94a3b8', marginBottom:5 }}>
+                    Specify document
+                  </div>
+                  <input
+                    type="text"
+                    value={docOther}
+                    onChange={e => setDocOther(e.target.value)}
+                    placeholder="e.g. Passport"
+                    style={{ width:'100%', boxSizing:'border-box', padding:'9px 11px', border:'1px solid var(--line)', borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:'var(--ink)' }}
+                  />
+                </div>
+              )}
+
+              <div style={{ fontSize:11, color: docValue.length ? '#15803d' : 'var(--ink-soft)', background: docValue.length ? '#f0fdf4' : '#f8fafc', border:`1px solid ${docValue.length ? '#bbf7d0' : '#eef2f7'}`, borderRadius:8, padding:'7px 10px' }}>
+                {docValue.length
+                  ? `${docValue.length} document${docValue.length === 1 ? '' : 's'} selected — marked as submitted.`
+                  : 'Nothing ticked — this is saved as not submitted.'}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8, padding:'12px 16px', borderTop:'1px solid var(--line)', background:'#f8fafc' }}>
               <button className="btn btn-sm" onClick={() => setDocModal(false)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveDocs} disabled={docsBusy}>
                 {docsBusy ? 'Saving…' : 'Save'}

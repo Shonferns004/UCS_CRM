@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session } from './entities/session.entity';
-import { baileysAuthDir, readAuthDirEntries, wwjsAuthDir } from '../../engine/auth-dir-paths';
+import { baileysAuthDir, readAuthDirEntries } from '../../engine/auth-dir-paths';
 import { isSafeSessionName } from '../../common/utils/path-safety';
 import { createLogger } from '../../common/services/logger.service';
 
@@ -64,25 +64,15 @@ export class SessionAuthDirMigration implements OnModuleInit {
 
     const ids = new Set(rows.map(row => row.id));
 
-    const sessionDataPath = this.configService.get<string>('engine.sessionDataPath') ?? './data/sessions';
     const authDir = this.configService.get<string>('engine.baileys.authDir') ?? './data/baileys';
-    // Both engine shapes, whatever ENGINE_TYPE says: a session that ever ran under the other engine
-    // still has a live auth directory there, and leaving it name-keyed would strand it (the same
-    // reason EngineFactory.purgeSessionData removes both).
-    const found = [
-      ...this.migrateBase('whatsapp-web.js', sessions, ids, path.resolve(sessionDataPath), key =>
-        wwjsAuthDir(sessionDataPath, key),
-      ),
-      ...this.migrateBase('baileys', sessions, ids, authDir, key => baileysAuthDir(authDir, key)),
-    ];
+    const found = [...this.migrateBase('baileys', sessions, ids, authDir, key => baileysAuthDir(authDir, key))];
     this.warnOnCaseCollisions(sessions, new Set(found));
   }
 
   /**
-   * Rename every legacy directory under one engine's base directory, and return the names a legacy
-   * directory was actually found for. The entry names come from `dirFor`, the same builder the
-   * adapters use, so the per-engine shape (`session-<key>` for whatsapp-web.js, a bare `<key>` for
-   * baileys) is not spelled out a second time here.
+   * Rename every legacy directory under the engine's base directory, and return the names a legacy
+   * directory was actually found for. The entry names come from `dirFor`, the same builder the adapter
+   * uses, so the auth-directory shape is not spelled out a second time here.
    */
   private migrateBase(
     engine: string,

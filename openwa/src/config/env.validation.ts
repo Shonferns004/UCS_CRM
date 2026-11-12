@@ -158,7 +158,7 @@ export function validateEnv(config: EnvConfig): EnvConfig {
       errors.push(`${key} must be one of ${allowed.map(v => `"${v}"`).join(', ')} (got ${JSON.stringify(value)})`);
     }
   };
-  checkEnum('ENGINE_TYPE', ['whatsapp-web.js', 'baileys']);
+  checkEnum('ENGINE_TYPE', ['baileys']);
   checkEnum('STORAGE_TYPE', ['local', 's3']);
   checkEnum('MESSAGE_INLINE_MEDIA', ['inline', 'archive']);
   // 'archive' drops the inline copy only after the archiver stored the file; with the archiver off
@@ -479,9 +479,6 @@ export function validateEnv(config: EnvConfig): EnvConfig {
     'SESSION_LEASE_HEARTBEAT_MS',
     'SESSION_TAKEOVER_SWEEP_MS',
     'SESSION_PROXY_TIMEOUT_MS',
-    // Positive-only is the POINT here, not a convention: 0 arms no Puppeteer timer at all, so a
-    // wedged renderer holds the request forever (see wwebjs-lifecycle.ts).
-    'PUPPETEER_PROTOCOL_TIMEOUT_MS',
     // The read fell back to its default on garbage, so `10s` silently meant 10000.
     'SSRF_DNS_TIMEOUT_MS',
     // The media knobs take RAW numbers while their neighbours in .env.example and docs/12 take unit
@@ -542,7 +539,6 @@ export function validateEnv(config: EnvConfig): EnvConfig {
   // than clamped, so they learn the value they wrote is not the value they would have got.
   // Every knob below becomes a timer delay, where Node's overflow turns a long wait into a 1 ms spin.
   for (const [key, consequence] of [
-    ['PUPPETEER_PROTOCOL_TIMEOUT_MS', 'the browser never finishes launching'],
     ['MEDIA_CONVERSION_TIMEOUT_MS', 'every conversion is killed as timed out'],
     ['CHAT_MEDIA_ORPHAN_SWEEP_INTERVAL_MS', 'the orphan sweep reruns every millisecond'],
     ['STATUS_ORPHAN_SWEEP_INTERVAL_MS', 'the orphan sweep reruns every millisecond'],
@@ -746,8 +742,7 @@ export function validateEnv(config: EnvConfig): EnvConfig {
     // `=== 'true'` in the SSRF guard: a typo keeps redirects refused when the operator allowed them.
     'WEBHOOK_SSRF_REDIRECTS',
     // DELIBERATELY NOT LISTED. `MCP_READONLY` is read `!== 'false'` and mcp.server.spec.ts asserts
-    // that `yes` keeps it read-only — a tolerance the repo tests on purpose. `PUPPETEER_HEADLESS` is
-    // read `!== 'false'` and `new` is a real Puppeteer value that works today. Both fail toward the
+    // that `yes` keeps it read-only — a tolerance the repo tests on purpose, and it fails toward the
     // safe state, so strictness here would refuse working deployments to no benefit.
   ]) {
     checkBool(key);

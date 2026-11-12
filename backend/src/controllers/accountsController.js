@@ -4266,7 +4266,7 @@ export const getDonorsList = async (req, res) => {
 // assignment (unassigned). Used by the Accounts "Master Data -> DND" tab.
 export const getDndDonors = async (req, res) => {
   try {
-    const { search, page = '1', limit = '20', type = 'all' } = req.query;
+    const { search, page = '1', limit = '20', type = 'all', ngo } = req.query;
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const bucket = String(type || 'all').toLowerCase();
@@ -4318,6 +4318,7 @@ export const getDndDonors = async (req, res) => {
     }
 
     let query = db.from('donor_profiles').select('*', { count: 'exact' }).in('id', [...ids]);
+    if (ngo) query = query.eq('ngo', String(ngo));
     if (search) {
       const q = String(search).trim();
       query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);

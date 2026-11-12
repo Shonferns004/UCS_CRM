@@ -835,120 +835,71 @@ export default function ReceiptHistory() {
                 style={{ width: '100%', padding: '8px 10px 8px 31px', borderRadius: 9, border: '1px solid var(--line)', fontSize: 12.5, background: '#fff', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
               />
             </div>
-            <div style={{ position: 'relative' }}>
             <button
               type="button"
-              onClick={() => { setFiltersOpen(v => !v); setActionsOpen(false); }}
-              title={filtersOpen ? 'Hide filters' : 'Show filters'}
-              aria-label="Filters"
-              aria-expanded={filtersOpen}
-              style={{
-                position: 'relative', width: 34, height: 34, borderRadius: 10, cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                border: `1px solid ${filtersOpen || activeFilterCount ? 'var(--sage)' : 'var(--line)'}`,
-                background: filtersOpen || activeFilterCount ? 'var(--sage)' : '#fff',
-                color: filtersOpen || activeFilterCount ? '#fff' : 'var(--ink-soft)',
-              }}
+              onClick={handleDownloadExcel}
+              disabled={excelDownloading}
+              title="Download the filtered receipts as Excel"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 12px', borderRadius: 10, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#15803d', fontSize: 12, fontWeight: 700, cursor: excelDownloading ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: excelDownloading ? 0.6 : 1 }}
             >
-              <SlidersHorizontal size={16} />
-              {activeFilterCount > 0 && (
-                <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{activeFilterCount}</span>
-              )}
+              <FileSpreadsheet size={14} /> {excelDownloading ? 'Exporting…' : 'Download Excel'}
             </button>
-            {filtersOpen && (
-              <>
-                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
-                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 780, maxWidth: '94vw', background: '#fff', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 18px 48px rgba(15,23,42,.18)', padding: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <strong style={{ fontSize: 13, color: 'var(--ink)' }}>Filters</strong>
-                    <button
-                      type="button"
-                      onClick={() => { setSearchQuery(''); setFromDate(''); setToDate(''); setReceiptNgo(''); setSuspenseMode(false); setPgMode(false); setLibraryMode(false); setPage(1); }}
-                      style={{ border: 'none', background: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
-                    >Reset</button>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 132 }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>From</span>
-                      <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }} />
-                    </label>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 132 }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>To</span>
-                      <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }} />
-                    </label>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>NGO</span>
-                      <select value={receiptNgo} onChange={e => { setReceiptNgo(e.target.value); setPage(1); setFiltersOpen(false); }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
-                        <option value="">All NGOs</option>
-                        <option value="bsct">Being Sevak Charitable Trust (BSCT)</option>
-                        <option value="mann">Mann Care Foundation (MANN)</option>
-                        <option value="aflf">Ashray For Life Foundation (AFLF)</option>
-                        <option value="library">Library</option>
-                        <option value="pg">PG</option>
-                      </select>
-                    </label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Type</span>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {[{ k: 'suspense', l: 'Suspense', c: '#dc2626' }, { k: 'pg', l: 'PG', c: '#2563eb' }, { k: 'library', l: 'Library', c: '#0f766e' }].map(tab => {
-                          const active = tab.k === 'suspense' ? suspenseMode : tab.k === 'pg' ? pgMode : libraryMode;
-                          return (
-                            <button key={tab.k} type="button" onClick={() => {
-                              if (tab.k === 'suspense') { const next = !suspenseMode; if (next) { setPgMode(false); setLibraryMode(false); setFromDate(f => f || '2026-08-01'); } setSuspenseMode(next); setPage(1); }
-                              else if (tab.k === 'pg') { const next = !pgMode; if (next) { setSuspenseMode(false); setLibraryMode(false); } setPgMode(next); setPage(1); }
-                              else { const next = !libraryMode; if (next) { setSuspenseMode(false); setPgMode(false); } setLibraryMode(next); setPage(1); }
-                              setFiltersOpen(false);
-                            }}
-                              style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${active ? tab.c : 'var(--line)'}`, background: active ? tab.c : '#fff', color: active ? '#fff' : 'var(--ink-soft)', fontWeight: 700, fontSize: 11.5, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                              {tab.l}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-            </div>
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setActionsOpen(v => !v)}
-                title="Download actions"
-                aria-label="Download actions"
-                aria-haspopup="menu"
-                aria-expanded={actionsOpen}
-                style={{ width: 34, height: 34, padding: 0, borderRadius: 10, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-              >
-                <MoreHorizontal size={17} />
-              </button>
-              {actionsOpen && (
-                <>
-                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setActionsOpen(false)} />
-                  <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, width: 235, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 5 }}>
-                    <button
-                      role="menuitem"
-                      onClick={() => { setActionsOpen(false); handleDownloadExcel(); }}
-                      disabled={excelDownloading}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#15803d' }}
-                    >
-                      <FileSpreadsheet size={15} /> {excelDownloading ? 'Exporting…' : 'Download Excel'}
-                    </button>
-                    <button
-                      role="menuitem"
-                      onClick={() => { setActionsOpen(false); handleDownloadReceipts(); }}
-                      disabled={todayDownloading}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#5B6B4E' }}
-                    >
-                      <Download size={15} /> {todayDownloading ? 'Zipping…' : 'Download Receipts'}
-                    </button>
-                  </div>
-                </>
-              )}
+            <button
+              type="button"
+              onClick={handleDownloadReceipts}
+              disabled={todayDownloading}
+              title="Download the receipt PDFs for this filter"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 12px', borderRadius: 10, border: '1px solid var(--line)', background: '#fff', color: '#5B6B4E', fontSize: 12, fontWeight: 700, cursor: todayDownloading ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: todayDownloading ? 0.6 : 1 }}
+            >
+              <Download size={14} /> {todayDownloading ? 'Zipping…' : 'Download Receipts'}
+            </button>
+          </div>
+        </div>
+        {/* Inline filters (no popover). */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)', background: '#f8fafc' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 132 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>From</span>
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 132 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>To</span>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>NGO</span>
+            <select value={receiptNgo} onChange={e => { setReceiptNgo(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+              <option value="">All NGOs</option>
+              <option value="bsct">Being Sevak Charitable Trust (BSCT)</option>
+              <option value="mann">Mann Care Foundation (MANN)</option>
+              <option value="aflf">Ashray For Life Foundation (AFLF)</option>
+              <option value="library">Library</option>
+              <option value="pg">PG</option>
+            </select>
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Type</span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[{ k: 'suspense', l: 'Suspense', c: '#dc2626' }, { k: 'pg', l: 'PG', c: '#2563eb' }, { k: 'library', l: 'Library', c: '#0f766e' }].map(tab => {
+                const active = tab.k === 'suspense' ? suspenseMode : tab.k === 'pg' ? pgMode : libraryMode
+                return (
+                  <button key={tab.k} type="button" onClick={() => {
+                    if (tab.k === 'suspense') { const next = !suspenseMode; if (next) { setPgMode(false); setLibraryMode(false); setFromDate(f => f || '2026-08-01') } setSuspenseMode(next); setPage(1) }
+                    else if (tab.k === 'pg') { const next = !pgMode; if (next) { setSuspenseMode(false); setLibraryMode(false) } setPgMode(next); setPage(1) }
+                    else { const next = !libraryMode; if (next) { setSuspenseMode(false); setPgMode(false) } setLibraryMode(next); setPage(1) }
+                  }}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${active ? tab.c : 'var(--line)'}`, background: active ? tab.c : '#fff', color: active ? '#fff' : 'var(--ink-soft)', fontWeight: 700, fontSize: 11.5, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {tab.l}
+                  </button>
+                )
+              })}
             </div>
           </div>
+          {(fromDate || toDate || receiptNgo || suspenseMode || pgMode || libraryMode) && (
+            <button type="button" onClick={() => { setFromDate(''); setToDate(''); setReceiptNgo(''); setSuspenseMode(false); setPgMode(false); setLibraryMode(false); setPage(1) }}
+              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: '#fff', color: '#475569', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+              Clear
+            </button>
+          )}
         </div>
         <div className="rx-table-wrap" style={{ margin: 0, borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
           <style>{`

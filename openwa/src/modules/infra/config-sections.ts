@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { DEFAULT_PUPPETEER_ARGS } from '../../config/configuration';
 import { isEnvPinned } from '../../config/env-precedence';
 import { postgresSchemaError } from '../../config/env.validation';
 import type { EngineFactory } from '../../engine/engine.factory';
@@ -340,24 +339,13 @@ export function applyEngineSection(
   engineFactory: EngineFactory,
 ): void {
   const { updates } = ctx;
-  // Persist the selected engine so the Infrastructure tile can actually switch engines (the
-  // active engine was previously only settable via the ENGINE_TYPE env, never from the UI).
+  // Persist the selected engine. Only baileys ships, so this is effectively a no-op guard that still
+  // rejects an unknown id rather than saving something the runtime would refuse to start.
   if (engine.type) {
     const validEngineIds = engineFactory.getAvailableEngines().map(e => e.id);
     if (!validEngineIds.includes(engine.type)) {
       throw new BadRequestException(`Unknown engine type: ${engine.type}`);
     }
     updates.ENGINE_TYPE = engine.type;
-  }
-  if (engine.headless !== undefined) {
-    updates.PUPPETEER_HEADLESS = engine.headless ? 'true' : 'false';
-  }
-  if (engine.sessionDataPath !== undefined) {
-    updates.SESSION_DATA_PATH = engine.sessionDataPath || './data/sessions';
-  }
-  if (engine.browserArgs !== undefined) {
-    // Once compose blank-forwards PUPPETEER_ARGS, this saved value wins at runtime, so an empty field
-    // saves the same default configuration.ts applies.
-    updates.PUPPETEER_ARGS = engine.browserArgs || DEFAULT_PUPPETEER_ARGS.join(' ');
   }
 }

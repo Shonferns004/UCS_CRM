@@ -187,24 +187,6 @@ export class EngineConfigDto {
   @ToStrictString()
   @IsString()
   type?: string;
-
-  @ApiPropertyOptional()
-  @ToStrictBoolean()
-  @IsOptional()
-  @IsBoolean()
-  headless?: boolean;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @ToStrictString()
-  @IsString()
-  sessionDataPath?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @ToStrictString()
-  @IsString()
-  browserArgs?: string;
 }
 
 export class SaveConfigDto {

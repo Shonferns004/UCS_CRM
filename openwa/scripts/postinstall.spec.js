@@ -25,70 +25,18 @@ const PATCHERS_ON_DISK = fs
 
 /** The sequence planSteps must keep. Every patcher on disk has to appear here; asserted below. */
 const EXPECTED_PATCHER_ORDER = [
-  'patch-wwebjs-201832.js',
-  'patch-wwebjs-newsletter-preview.js',
-  'patch-wwebjs-status.js',
-  'patch-wwebjs-ready-sync.js',
-  'patch-wwebjs-participant-arity.js',
-  'patch-wwebjs-block.js',
-  'patch-wwebjs-group-description.js',
-  'patch-wwebjs-media-id.js',
-  'patch-wwebjs-send-error.js',
   'patch-baileys-appstate.js',
   'patch-baileys-newsletter-create.js',
   'patch-baileys-pairing.js',
-  'patch-wwebjs-puppeteer.js',
 ];
 
 /** Bare temp dir optionally holding a dashboard/ and/or the patch scripts. */
-function makeRoot({
-  dashboard = false,
-  patchers = [],
-  patcher = false,
-  previewPatcher = false,
-  statusPatcher = false,
-  readySyncPatcher = false,
-  participantArityPatcher = false,
-  baileysPatcher = false,
-  baileysNewsletterPatcher = false,
-} = {}) {
+function makeRoot({ dashboard = false, patchers = [] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openwa-postinstall-'));
   if (dashboard) fs.mkdirSync(path.join(root, 'dashboard'));
-  if (
-    patchers.length ||
-    patcher ||
-    previewPatcher ||
-    statusPatcher ||
-    readySyncPatcher ||
-    participantArityPatcher ||
-    baileysPatcher ||
-    baileysNewsletterPatcher
-  ) {
-    fs.mkdirSync(path.join(root, 'scripts'));
-  }
+  if (patchers.length) fs.mkdirSync(path.join(root, 'scripts'));
   for (const name of patchers) {
     fs.writeFileSync(path.join(root, 'scripts', name), '// stub\n');
-  }
-  if (patcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-wwebjs-201832.js'), '// stub\n');
-  }
-  if (previewPatcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-wwebjs-newsletter-preview.js'), '// stub\n');
-  }
-  if (statusPatcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-wwebjs-status.js'), '// stub\n');
-  }
-  if (readySyncPatcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-wwebjs-ready-sync.js'), '// stub\n');
-  }
-  if (participantArityPatcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-wwebjs-participant-arity.js'), '// stub\n');
-  }
-  if (baileysPatcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-baileys-appstate.js'), '// stub\n');
-  }
-  if (baileysNewsletterPatcher) {
-    fs.writeFileSync(path.join(root, 'scripts', 'patch-baileys-newsletter-create.js'), '// stub\n');
   }
   return root;
 }
@@ -118,58 +66,32 @@ test('planSteps: dashboard only plans the dashboard install (shell, inherited st
   assert.equal(steps[0].options.cwd, path.join(root, 'dashboard'));
 });
 
-test('planSteps: patcher only plans the best-effort backport via the current node', () => {
-  const steps = planSteps(makeRoot({ patcher: true }));
+test('planSteps: appstate patcher plans its best-effort repair via the current node', () => {
+  const steps = planSteps(makeRoot({ patchers: ['patch-baileys-appstate.js'] }));
   assert.equal(steps.length, 1);
   assert.equal(steps[0].command, process.execPath);
-  assert.match(steps[0].args[0], /patch-wwebjs-201832\.js$/);
+  assert.match(steps[0].args[0], /patch-baileys-appstate\.js$/);
   assert.deepEqual(steps[0].args.slice(1), ['--best-effort']);
 });
 
-test('planSteps: newsletter preview patcher plans its own best-effort backport', () => {
-  const steps = planSteps(makeRoot({ previewPatcher: true }));
+test('planSteps: newsletter-create patcher plans its own best-effort fix', () => {
+  const steps = planSteps(makeRoot({ patchers: ['patch-baileys-newsletter-create.js'] }));
   assert.equal(steps.length, 1);
-  assert.equal(steps[0].command, process.execPath);
-  assert.match(steps[0].args[0], /patch-wwebjs-newsletter-preview\.js$/);
+  assert.match(steps[0].args[0], /patch-baileys-newsletter-create\.js$/);
   assert.deepEqual(steps[0].args.slice(1), ['--best-effort']);
 });
 
-test('planSteps: both present plans dashboard first, patcher second', () => {
-  const steps = planSteps(makeRoot({ dashboard: true, patcher: true }));
-  assert.equal(steps.length, 2);
-  assert.equal(steps[0].command, 'npm ci');
-  assert.equal(steps[1].command, process.execPath);
-});
-
-test('planSteps: status patcher plans its own best-effort repair', () => {
-  const steps = planSteps(makeRoot({ statusPatcher: true }));
+test('planSteps: pairing patcher plans its own best-effort refresh', () => {
+  const steps = planSteps(makeRoot({ patchers: ['patch-baileys-pairing.js'] }));
   assert.equal(steps.length, 1);
-  assert.equal(steps[0].command, process.execPath);
-  assert.match(steps[0].args[0], /patch-wwebjs-status\.js$/);
-  assert.deepEqual(steps[0].args.slice(1), ['--best-effort']);
-});
-
-test('planSteps: ready-sync patcher plans its own best-effort repair', () => {
-  const steps = planSteps(makeRoot({ readySyncPatcher: true }));
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].command, process.execPath);
-  assert.match(steps[0].args[0], /patch-wwebjs-ready-sync\.js$/);
-  assert.deepEqual(steps[0].args.slice(1), ['--best-effort']);
-});
-
-test('planSteps: participant-arity patcher plans its own best-effort repair', () => {
-  const steps = planSteps(makeRoot({ participantArityPatcher: true }));
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].command, process.execPath);
-  assert.match(steps[0].args[0], /patch-wwebjs-participant-arity\.js$/);
+  assert.match(steps[0].args[0], /patch-baileys-pairing\.js$/);
   assert.deepEqual(steps[0].args.slice(1), ['--best-effort']);
 });
 
 test('planSteps: dashboard and all patchers run in stable order', () => {
   // The fixture is derived rather than hand-listed. A hand-listed one never creates the file for a
   // patcher added later, so planSteps never plans it, the count assertion stays green, and the test
-  // quietly stops covering what it is named for. The block and group-description patchers both
-  // reached that state.
+  // quietly stops covering what it is named for.
   assert.deepEqual(
     [...EXPECTED_PATCHER_ORDER].sort(),
     PATCHERS_ON_DISK,
@@ -186,10 +108,7 @@ test('planSteps: dashboard and all patchers run in stable order', () => {
   );
   for (const step of steps.slice(1)) {
     assert.equal(step.command, process.execPath);
-    assert.deepEqual(
-      step.args.slice(1),
-      path.basename(step.args[0]) === 'patch-wwebjs-puppeteer.js' ? [] : ['--best-effort'],
-    );
+    assert.deepEqual(step.args.slice(1), ['--best-effort']);
   }
 });
 
@@ -201,13 +120,13 @@ test('run: nothing to do exits 0 and never spawns', () => {
 
 test('run: all steps succeed exits 0', () => {
   const { calls, spawn } = fakeSpawn([OK, OK]);
-  assert.equal(run(makeRoot({ dashboard: true, patcher: true }), spawn), 0);
+  assert.equal(run(makeRoot({ dashboard: true, patchers: ['patch-baileys-appstate.js'] }), spawn), 0);
   assert.equal(calls.length, 2);
 });
 
 test('run: non-zero dashboard install exits 1 and never reaches the patcher (fail-fast)', () => {
   const { calls, spawn } = fakeSpawn([{ status: 1, signal: null, error: null }]);
-  assert.equal(run(makeRoot({ dashboard: true, patcher: true }), spawn), 1);
+  assert.equal(run(makeRoot({ dashboard: true, patchers: ['patch-baileys-appstate.js'] }), spawn), 1);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, 'npm ci');
 });
@@ -224,7 +143,7 @@ test('run: step killed by a signal exits 1', () => {
 
 test('run: non-zero patcher exit propagates (half-patched tree must stay fatal)', () => {
   const { calls, spawn } = fakeSpawn([{ status: 1, signal: null, error: null }]);
-  assert.equal(run(makeRoot({ patcher: true }), spawn), 1);
+  assert.equal(run(makeRoot({ patchers: ['patch-baileys-appstate.js'] }), spawn), 1);
   assert.equal(calls.length, 1);
 });
 
@@ -258,18 +177,8 @@ test('planSteps: strips npm_config_allow_scripts from step options.env to avoid 
     npm_config_allow_scripts: 'true',
     NPM_CONFIG_ALLOW_SCRIPTS: 'true',
   };
-  const steps = planSteps(
-    makeRoot({
-      dashboard: true,
-      patcher: true,
-      previewPatcher: true,
-      statusPatcher: true,
-      readySyncPatcher: true,
-      baileysPatcher: true,
-    }),
-    env,
-  );
-  assert.equal(steps.length, 6);
+  const steps = planSteps(makeRoot({ dashboard: true, patchers: PATCHERS_ON_DISK }), env);
+  assert.equal(steps.length, PATCHERS_ON_DISK.length + 1);
   for (const step of steps) {
     assert.equal('npm_config_allow_scripts' in step.options.env, false);
     assert.equal('NPM_CONFIG_ALLOW_SCRIPTS' in step.options.env, false);

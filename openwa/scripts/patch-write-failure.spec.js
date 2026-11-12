@@ -67,26 +67,6 @@ const finds = edits => edits.map(edit => edit.find).join('\n');
 const PATCHERS = [
   ['patch-baileys-appstate.js', '@whiskeysockets/baileys/lib/Socket/chats.js', m => m.LOOP_FIND],
   ['patch-baileys-newsletter-create.js', '@whiskeysockets/baileys/lib/Socket/newsletter.js', m => m.PARSE_FIND],
-  [
-    'patch-wwebjs-block.js',
-    'whatsapp-web.js/src/structures/Contact.js',
-    m => m.GROUPS.map(group => group.find).join('\n'),
-  ],
-  ['patch-wwebjs-group-description.js', 'whatsapp-web.js/src/structures/GroupChat.js', m => m.POSITIONAL_CALL],
-  ['patch-wwebjs-media-id.js', 'whatsapp-web.js/src/util/Injected/Utils.js', m => m.ANCHOR],
-  ['patch-wwebjs-newsletter-preview.js', 'whatsapp-web.js/src/util/Injected/Utils.js', m => m.LEGACY_CALL],
-  [
-    'patch-wwebjs-participant-arity.js',
-    'whatsapp-web.js/src/structures/GroupChat.js',
-    m => finds(m.GROUPS.flatMap(group => group.edits)),
-  ],
-  ['patch-wwebjs-ready-sync.js', 'whatsapp-web.js/src/Client.js', m => finds(m.EDITS)],
-  ['patch-wwebjs-send-error.js', 'whatsapp-web.js/src/Client.js', m => m.ANCHOR],
-  [
-    'patch-wwebjs-status.js',
-    'whatsapp-web.js/src/util/Injected/Utils.js',
-    m => finds(m.GROUPS.flatMap(group => group.edits)),
-  ],
 ];
 
 function fixture(name, files) {
@@ -259,25 +239,6 @@ test('patch-baileys-pairing.js patches both files when the file system refuses c
   patchedWithoutChmod(tree, result, before, [SOCKET]);
 });
 
-// The Puppeteer patch has no --best-effort mode: any failure is fatal, and leaves the file untouched.
-const puppeteer = require('./patch-wwebjs-puppeteer.js');
-test('patch-wwebjs-puppeteer.js fails on a write error and leaves Client.js as it was', () => {
-  const relative = 'whatsapp-web.js/src/Client.js';
-  const shape = `// fixture\n${puppeteer.REPLACEMENTS.map(([before]) => before).join('\n')}\n`;
-  const tree = fixture('patch-wwebjs-puppeteer.js', { [relative]: shape });
-  const result = patch(tree, { fault: { op: 'write', code: 'ENOSPC', file: tree.targets[relative] } });
-  assert.match(result.stderr, new RegExp(MARKER), 'the injected fault did not fire');
-  assert.equal(fs.readFileSync(tree.targets[relative], 'utf8'), shape);
-  assert.deepEqual(leftovers(tree), []);
-  assert.equal(result.status, 1);
-});
-
-test('patch-wwebjs-puppeteer.js patches Client.js when the file system refuses chmod, without --best-effort', () => {
-  const relative = 'whatsapp-web.js/src/Client.js';
-  const shape = `// fixture\n${puppeteer.REPLACEMENTS.map(([before]) => before).join('\n')}\n`;
-  const tree = fixture('patch-wwebjs-puppeteer.js', { [relative]: shape });
-  patchedWithoutChmod(tree, patch(tree, { fault: refusedChmod(tree), bestEffort: false }), { [relative]: shape });
-});
 
 test('a link is written through, not replaced', () => {
   const { writeFileAtomic } = require('./atomic-write.js');

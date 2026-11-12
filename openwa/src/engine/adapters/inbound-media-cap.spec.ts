@@ -2,7 +2,6 @@ import type { WAMessage, WASocket } from '@whiskeysockets/baileys';
 import { ConcurrencyLimiter } from '../../common/utils/concurrency-limiter';
 import { createLogger } from '../../common/services/logger.service';
 import { BaileysEvents, type BaileysEventsHost } from './baileys-events';
-import { WhatsAppWebJsAdapter } from './whatsapp-web-js.adapter';
 import {
   __resetGlobalInboundMediaGate,
   globalInboundMediaGate,
@@ -332,80 +331,6 @@ describe('process-wide inbound media gate (INBOUND_MEDIA_GLOBAL_CONCURRENCY)', (
     });
     expect(ran).toBe(true); // no gate: the task starts synchronously
     await expect(pending).resolves.toBe('ok');
-  });
-
-  describe('whatsapp-web.js', () => {
-    const newAdapter = (sessionId: string): WhatsAppWebJsAdapter =>
-      new WhatsAppWebJsAdapter({ sessionId, sessionDataPath: './data/sessions', puppeteer: {} });
-    const cap = (adapter: WhatsAppWebJsAdapter, m: unknown): Promise<{ data?: string; omitted?: boolean }> =>
-      (
-        adapter as unknown as { capInboundMediaFor: (msg: unknown) => Promise<{ data?: string; omitted?: boolean }> }
-      ).capInboundMediaFor(m);
-
-    it('caps downloads in flight across sessions while each session keeps its own cap', async () => {
-      process.env.INBOUND_MEDIA_CONCURRENCY = '4';
-      process.env.INBOUND_MEDIA_GLOBAL_CONCURRENCY = '2';
-      process.env.MEDIA_DOWNLOAD_TIMEOUT_MS = '100000';
-      let inFlight = 0;
-      let maxInFlight = 0;
-      const downloads: Deferred<{ mimetype: string; data: string }>[] = [];
-      const makeMsg = (id: string): unknown => ({
-        id: { _serialized: id },
-        _data: { size: 100, mimetype: 'image/png' },
-        ...onPage(
-          jest.fn(() => {
-            inFlight++;
-            maxInFlight = Math.max(maxInFlight, inFlight);
-            const d = defer<{ mimetype: string; data: string }>();
-            downloads.push(d);
-            return d.promise.finally(() => inFlight--);
-          }),
-        ),
-      });
-      const a = newAdapter('gate-a');
-      const b = newAdapter('gate-b');
-
-      const results = [
-        ...['a1', 'a2', 'a3'].map(id => cap(a, makeMsg(id))),
-        ...['b1', 'b2', 'b3'].map(id => cap(b, makeMsg(id))),
-      ];
-      for (let settled = 0; settled < 6; settled++) {
-        await new Promise(resolve => setImmediate(resolve));
-        expect(inFlight).toBeLessThanOrEqual(2);
-        downloads[settled].resolve({ mimetype: 'image/png', data: Buffer.from(`m${settled}`).toString('base64') });
-      }
-
-      expect((await Promise.all(results)).every(r => typeof r.data === 'string')).toBe(true);
-      expect(maxInFlight).toBe(2);
-    });
-
-    it('never downloads a message that timed out while queued on the shared gate', async () => {
-      process.env.INBOUND_MEDIA_CONCURRENCY = '4';
-      process.env.INBOUND_MEDIA_GLOBAL_CONCURRENCY = '1';
-      process.env.MEDIA_DOWNLOAD_TIMEOUT_MS = '50';
-      jest.useFakeTimers();
-      const held = defer<{ mimetype: string; data: string }>();
-      const first = {
-        id: { _serialized: 'x1' },
-        _data: { size: 100, mimetype: 'image/png' },
-        ...onPage(jest.fn(() => held.promise)),
-      };
-      const second = {
-        id: { _serialized: 'y1' },
-        _data: { size: 100, mimetype: 'image/png' },
-        ...onPage(jest.fn()),
-      };
-
-      const r1 = cap(newAdapter('gate-x'), first);
-      const r2 = cap(newAdapter('gate-y'), second);
-      await jest.advanceTimersByTimeAsync(60);
-
-      expect(await r2).toEqual(expect.objectContaining({ omitted: true, sizeBytes: 100 }));
-      held.resolve({ mimetype: 'image/png', data: Buffer.from('late').toString('base64') });
-      await jest.advanceTimersByTimeAsync(0);
-      expect(second.downloadMedia).not.toHaveBeenCalled();
-      await r1;
-    });
   });
 
   describe('Baileys', () => {

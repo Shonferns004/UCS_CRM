@@ -198,7 +198,7 @@ export class PluginsService {
 
     if (
       plugin.manifest.type === PluginType.ENGINE &&
-      id === (this.configService.get<string>('engine.type') ?? 'whatsapp-web.js')
+      id === (this.configService.get<string>('engine.type') ?? 'baileys')
     ) {
       // The engine factory is pinned to engine.type and never reads plugin status, and boot re-enables
       // that engine regardless: "disabling" it here reported success while sessions kept starting on
@@ -778,3 +778,4 @@ export class PluginsService {
     }
   }
 }
+

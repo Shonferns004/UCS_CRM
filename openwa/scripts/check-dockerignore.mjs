@@ -149,7 +149,6 @@ const mustReject = [
   '.remember/state.json',
   '.superpowers/config.yml',
   '.worktrees/topic/package.json',
-  '.wwebjs_cache/chrome/linux/chrome',
   'CLAUDE.md',
   'docs/plans/plan.md',
   'docs/superpowers/run.md',
@@ -175,11 +174,9 @@ const mustKeep = [
   'dashboard/vite.config.ts',
   'dashboard/src/main.tsx',
   'scripts/postinstall.js',
-  'scripts/patch-wwebjs-201832.js',
-  'scripts/patch-wwebjs-newsletter-preview.js',
-  'scripts/patch-wwebjs-status.js',
-  'scripts/patch-wwebjs-ready-sync.js',
-  'scripts/wwebjs-201832.patch',
+  'scripts/patch-baileys-appstate.js',
+  'scripts/patch-baileys-newsletter-create.js',
+  'scripts/patch-baileys-pairing.js',
   'scripts/pgdg-ACCC4CF8.asc',
   'scripts/backup.sh',
   'scripts/restore.sh',
@@ -272,3 +269,4 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(`✓ Docker-context check OK (${rules.length} .dockerignore rules, ${mustReject.length} rejected / ${keep.length} kept paths asserted).`);
+
