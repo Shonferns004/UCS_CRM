@@ -3191,8 +3191,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       /* The "No important day" rows are keyed "date::" (no festival), so the
          Festival column reads the user's typed event name — or the row's own
          "No important day" label when they never named it. */
-      const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '')
-        || e?.name || 'No important day'
+      const suffix = k.includes('::') ? k.slice(k.indexOf('::') + 2) : ''
+      const festival = (suffix && !suffix.startsWith('+') ? suffix : '') || e?.name || 'No important day'
       rows.push({
         date: d,
         dateLabel: shortDate(d),
@@ -3708,6 +3708,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       const evDate = String(p.date || '').slice(0, 10)
       const evNgo = String(p.ngoId || '')
       if (evName !== name || evDate !== d) return false
+      // Never hand this row an event that another row already owns by link —
+      // the name+date match must not become a second path to the same event.
+      const owner = ownerLinkForEvent(ev)
+      if (owner && String(owner?.festival || '').trim().toLowerCase() !== name) return false
       if (ngo) {
         // Never credit another NGO's event to this row. An event that carries
         // no NGO of its own only counts when the month's feed was already
@@ -3722,6 +3726,47 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return found.sort((a, b) => ((b?.extendedProps?.images?.length || 0) - (a?.extendedProps?.images?.length || 0)))[0]
   }
 
+  /* One event belongs to exactly ONE planner row. An older build could write two
+     durable links for the same event (e.g. "Vidhya Potli - Jogeshwari" and
+     "Vidhya Potli - Nalasopara" both pointing at the Jogeshwari event), which
+     made Download / Edit / Delete act on a sibling row's programme. The owner is
+     decided from the event itself: its own name, then its venue ("... -
+     Jogeshwari"), then the oldest link. Every other row then sees no event, so
+     the two rows can never share one event again. */
+  const ownerLinkForEvent = (linkedEv) => {
+    if (!linkedEv) return null
+    const same = Object.values(plannerLinkMap || {}).filter((l) => String(l?.event_id ?? '') === String(linkedEv?.id ?? ''))
+    if (!same.length) return null
+    const evName = String(linkedEv?.title || '').split(' · ')[0].trim().toLowerCase()
+    const evVenue = String(linkedEv?.extendedProps?.venue ?? linkedEv?.venue ?? '').trim().toLowerCase()
+    if (evName) {
+      const byName = same.find((l) => String(l?.festival || '').trim().toLowerCase() === evName)
+      if (byName) return byName
+    }
+    if (evVenue) {
+      const byVenue = same.find((l) => {
+        const f = String(l?.festival || '').trim().toLowerCase()
+        return Boolean(f) && (f === evVenue || f.includes(evVenue) || evVenue.includes(f))
+      })
+      if (byVenue) return byVenue
+    }
+    return same.slice().sort((a, b) => {
+      const ac = String(a?.created_at || '')
+      const bc = String(b?.created_at || '')
+      if (ac && bc && ac !== bc) return ac < bc ? -1 : 1
+      if (ac && !bc) return -1
+      if (!ac && bc) return 1
+      return String(a?.festival || '').localeCompare(String(b?.festival || ''))
+    })[0]
+  }
+  const linkOwnsItsEvent = (link, linkedEv) => {
+    if (!link || !linkedEv) return false
+    const owner = ownerLinkForEvent(linkedEv)
+    if (!owner) return true
+    const keyOf = (l) => `${String(l?.event_id ?? '')}|${String(l?.observance_date ?? '').slice(0, 10)}|${String(l?.festival ?? '').trim().toLowerCase()}|${String(l?.ngo_id ?? '')}`
+    return keyOf(owner) === keyOf(link)
+  }
+
   /* The event a planner row already produced. Found through the durable row link
      recorded when the event was created (survives a refresh and other devices),
      falling back to the older suggestion-level link (suggested_event_id), and
@@ -3731,10 +3776,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      name or NGO. */
   const findScheduledEvent = (key, date, label) => {
     const link = findDurableLink(key)
-    const linkedId = link
-      ? link.event_id
-      : (key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null)
-    if (linkedId) return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+    if (link) {
+      const linkedEv = monthEvents.find((ev) => String(ev?.id) === String(link.event_id)) || null
+      // A link owned by a sibling row resolves to nothing, so this row keeps its
+      // own Create state instead of borrowing the other programme's event.
+      return linkedEv && linkOwnsItsEvent(link, linkedEv) ? linkedEv : null
+    }
+    const suggId = key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null
+    if (suggId) return monthEvents.find((ev) => String(ev?.id) === String(suggId)) || null
     return findExistingPlannedEvent(key, date, label)
   }
 
@@ -3769,9 +3818,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const findLinkedScheduledEvent = (key, date, label) => {
     if (!key) return null
     const link = findDurableLink(key)
-    const linkedId = link ? link.event_id : null
-    if (!linkedId) return null
-    return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+    if (!link?.event_id) return null
+    const linkedEv = monthEvents.find((ev) => String(ev?.id) === String(link.event_id)) || null
+    return linkedEv && linkOwnsItsEvent(link, linkedEv) ? linkedEv : null
   }
   const deleteScheduledProgramme = async (key, date, label) => {
     const ev = findScheduledEvent(key, date, label)

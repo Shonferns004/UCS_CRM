@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoanItems, getDataVisibility } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoans, getDataVisibility } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { openLeadWhatsApp } from '../utils/leadWhatsApp';
@@ -454,28 +454,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [followUps, setFollowUps] = useState([]);
   const [followUpsLoading, setFollowUpsLoading] = useState(false);
-  // A loan can be created from the admin panel while this tab is already open.
-  // Refetch the borrowed lists when the tab regains focus so the lent leads
-  // appear (and disappear on revoke) without a manual reload.
-  const [listRefreshTick, setListRefreshTick] = useState(0);
-  const [borrowedLeads, setBorrowedLeads] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    getMyLeadLoanItems()
-      .then(list => { if (!cancelled) setBorrowedLeads(Array.isArray(list) ? list : []); })
-      .catch(() => { if (!cancelled) setBorrowedLeads([]); });
-    return () => { cancelled = true; };
-  }, [listRefreshTick]);
-  useEffect(() => {
-    const bump = () => setListRefreshTick(t => t + 1);
-    const onVisible = () => { if (!document.hidden) bump(); };
-    window.addEventListener('focus', bump);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      window.removeEventListener('focus', bump);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, []);
+  const [myLoans, setMyLoans] = useState([]);
   // Preserves the list's vertical scroll position while the FRO opens a lead
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
@@ -1034,7 +1013,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       .catch((err) => { if (!cancelled) { console.error('Follow-ups error:', err.message); setFollowUps([]); } })
       .finally(() => { if (!cancelled) setFollowUpsLoading(false); });
     return () => { cancelled = true; };
-  }, [listView, activeDonor, listRefreshTick]);
+  }, [listView, activeDonor]);
 
   // Overdue tab: server-side list of every lead whose follow-up date (across all
   // past days/months) has passed and is still open — most overdue first.
@@ -1048,10 +1027,17 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       .catch((err) => { if (!cancelled) { console.error('Overdue error:', err.message); setOverdueLeads([]); } })
       .finally(() => { if (!cancelled) setFollowUpsLoading(false); });
     return () => { cancelled = true; };
-  }, [listView, activeDonor, listRefreshTick]);
+  }, [listView, activeDonor]);
 
-  // Live loan strip moved to the Dashboard — the working list stays focused on
-  // the donor rows themselves.
+  // Live loan strip: explains leads that vanish from the source list and shows
+  // the borrowed window on the recipient side. Cheap endpoint, no donor data.
+  useEffect(() => {
+    let cancelled = false;
+    getMyLeadLoans()
+      .then((list) => { if (!cancelled) setMyLoans(Array.isArray(list) ? list : []); })
+      .catch(() => { if (!cancelled) setMyLoans([]); });
+    return () => { cancelled = true; };
+  }, [listView]);
 
   const donorsRef = useRef(donors);
   const indexRef = useRef(index);
@@ -1907,72 +1893,20 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     // Overdue tab: every past-due follow-up/callback/promise, most-overdue first,
     // fetched server-side from next_follow_up so it spans every past day/month.
     const isOverdueTab = listView === 'overdue';
-    // Borrowed leads come straight from the loan items, so a lent lead always
-    // shows here even if the status/schedule based lists skip it. Split by due
-    // date exactly like the normal lists: upcoming → Follow Ups, past → Overdue.
-    const borrowedRows = (borrowedLeads || []).map(b => ({
-      id: b.donor_id,
-      ngo_id: b.ngo_id,
-      ngo_name: b.ngo_name,
-      owner_name: b.source_fro_name || null,
-      donor_name: b.donor_name || 'Unknown',
-      donor_mobile: b.donor_mobile || '',
-      station: b.source_station || null,
-      scheduled_at: b.scheduled_at || b.next_follow_up || null,
-      due_date: b.next_follow_up || null,
-      batch_type: b.batch_type || null,
-      type: ['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent', 'promise_pay_wa_email'].includes(b.status)
-        ? 'promise' : b.status === 'callback' ? 'callback' : 'scheduled',
-      is_loaned_in: true,
-      loan_id: b.loan_id,
-      loan_source_station: b.source_station,
-      loan_expires_at: b.expires_at,
-    }));
-    const borrowedDue = (r) => (r.scheduled_at ? new Date(r.scheduled_at).getTime() : null);
-    const borrowedUpcoming = borrowedRows.filter(r => borrowedDue(r) === null || borrowedDue(r) >= Date.now());
-    const borrowedPast = borrowedRows.filter(r => borrowedDue(r) !== null && borrowedDue(r) < Date.now());
-    const withBorrowed = (list, extra) => {
-      const seen = new Set(list.map(x => `${x.id}|${x.ngo_id}`));
-      const out = [...list];
-      for (const r of extra) {
-        const key = `${r.id}|${r.ngo_id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(r);
-      }
-      return out;
-    };
-    const overdueList = withBorrowed(
-      overdueLeads.filter(d => inActiveBucket(d, dataTab)),
-      (searchQuery.trim()
-        ? borrowedPast.filter(r => {
-          const q = searchQuery.trim().toLowerCase();
-          return (r.donor_name || '').toLowerCase().includes(q) || (r.donor_mobile || '').includes(q);
-        })
-        : borrowedPast).map(r => ({ ...r, is_overdue: true })),
-    );
+    const overdueList = overdueLeads.filter(d => inActiveBucket(d, dataTab));
     // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
     const searching = listView === 'leads' && searchQuery.trim().length >= 2 && dataTab !== 'high_tier';
-    // Borrowed leads live on the SOURCE station, so the station-scoped backend
-    // search never returns them. Match them locally by mobile/name instead, or
-    // a lent donor looks missing when the FRO searches the number.
-    const borrowedSearch = (listView === 'leads' && searchQuery.trim().length >= 2)
-      ? borrowedRows.filter(r => {
-        const q = searchQuery.trim().toLowerCase();
-        return (r.donor_mobile || '').includes(q) || (r.donor_name || '').toLowerCase().includes(q);
-      })
-      : [];
     // High Tier holds the whole (already-worked + pending) batch in `donors`, so
     // search filters that loaded list locally instead of swapping to the backend's
     // disposed-only search (which would hide pending high-tier leads and make
     // search appear broken).
     const highTierSearching = listView === 'leads' && dataTab === 'high_tier' && searchQuery.trim().length >= 2;
-    const visibleForLeads = highTierSearching ? withBorrowed(visible.filter(d => {
+    const visibleForLeads = highTierSearching ? visible.filter(d => {
       const q = searchQuery.trim().toLowerCase();
       return (d.donor_name || '').toLowerCase().includes(q)
         || (d.donor_mobile || '').includes(q)
         || (d.station || '').toLowerCase().includes(q);
-    }), borrowedSearch) : visible;
+    }) : visible;
     // Leads-tab History fallback. When the queue is fully exhausted it becomes the
     // list; on the Old tab it is also appended BELOW the remaining workable leads,
     // so "Old" is not just the one or two leads still ringing when the FRO's real
@@ -2030,12 +1964,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       ...r,
       id: r.donor_id,
       is_disposed: true,
-      })) : isOverdueTab ? overdueFiltered : isFollowUps ? withBorrowed(followUpActive, searchQuery.trim()
-        ? borrowedUpcoming.filter(r => {
-          const q = searchQuery.trim().toLowerCase();
-          return (r.donor_name || '').toLowerCase().includes(q) || (r.donor_mobile || '').includes(q);
-        })
-        : borrowedUpcoming) : (searching ? withBorrowed(disposedResults.map(r => ({
+      })) : isOverdueTab ? overdueFiltered : isFollowUps ? followUpActive : (searching ? disposedResults.map(r => ({
         ...r,
         id: r.donor_id,
         ngo_id: r.ngo_id,
@@ -2045,7 +1974,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         is_disposed: !!r.disposed_at || r.status === 'disposed',
         disposition_detail: r.disposition_detail,
         disposed_at: r.disposed_at,
-      })), borrowedSearch) : (showHistoryFallback ? historyFallbackItems : [...visibleForLeads, ...historyInlineItems]));
+      })) : (showHistoryFallback ? historyFallbackItems : [...visibleForLeads, ...historyInlineItems]));
 
     // Only the first `visibleCount` rows are mounted. `hasMoreRef` is read by the
     // scroll handler above to decide whether the window can still grow.
@@ -2287,8 +2216,36 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
           </div>
         )}
 
+        {myLoans.length > 0 && (
+          <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {myLoans.filter(l => l.direction === 'out').map(l => (
+              <div key={`out-${l.id}`} style={{ padding: '7px 10px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 11, display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>swap_horiz</span>
+                <span>
+                  <b>{l.item_count} {l.scope === 'FOLLOW_UP' ? 'follow-up' : l.scope === 'CALLBACK' ? 'callback' : 'follow-up/callback'} lead{l.item_count === 1 ? '' : 's'}</b> are temporarily with <b>{l.target_station}</b>
+                  {l.counterpart_name ? ` (${l.counterpart_name})` : ''} until {new Date(l.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}. They return automatically.
+                </span>
+              </div>
+            ))}
+            {myLoans.filter(l => l.direction === 'in').map(l => (
+              <div key={`in-${l.id}`} style={{ padding: '7px 10px', borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', fontSize: 11, display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>swap_horiz</span>
+                <span>
+                  <b>{l.item_count} lead{l.item_count === 1 ? '' : 's'}</b> lent from <b>{l.source_station}</b>
+                  {l.counterpart_name ? ` (${l.counterpart_name})` : ''} until {new Date(l.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}. Your calls are credited to you.
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* List */}
         <div ref={listScrollRef} onScroll={handleListScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
+          {isFollowUps && !followUpsLoading && (
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', lineHeight: 1.5, padding: '6px 10px', marginBottom: 8, borderRadius: 8, background: 'var(--bg)', border: '1px dashed var(--line)', fontStyle: 'italic' }}>
+              Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
+            </div>
+          )}
           {siblingTabInfo && listView === 'leads' && donors.length === 0 && (
             <div style={{ fontSize: 11, color: '#1e3a8a', lineHeight: 1.5, padding: '9px 10px', marginBottom: 8, borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span>
@@ -2451,14 +2408,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                             and reads as someone else's station (e.g. a BFD-x that
                             belongs to another operator). The bucket name takes that
                             slot instead, so the row still reads as High Tier data. */}
-                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                          {d.is_loaned_in && (
-                            <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: '.04em', color: '#0369a1', background: '#e0f2fe', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
-                              LENT FROM
-                            </span>
-                          )}
-                          <span>{d.station || '—'}</span>
-                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{d.station || '—'}</div>
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, minWidth: isCompact ? 84 : 108 }}>
                         {d.type ? (
