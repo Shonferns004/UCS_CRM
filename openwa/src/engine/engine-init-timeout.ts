@@ -1,48 +1,30 @@
 /**
- * The deadline the session lifecycle races `engine.initialize()` against, and the whatsapp-web.js
- * auth window it is derived from.
+ * The deadline the session lifecycle races `engine.initialize()` against.
  *
- * These live outside the adapters because the OUTER deadline is engine-agnostic —
- * SessionEngineLifecycle applies it to every engine — while the value it must clear is set by
- * whatsapp-web.js. Deriving it inside the session lifecycle service meant the lifecycle owner
- * imported the wwjs adapter just to size a
- * timeout, which is why this pair now has one home instead of a cross-layer import.
+ * It lives outside the adapters because SessionEngineLifecycle applies it to every engine, and
+ * importing an adapter just to size a timeout would be a cross-layer import.
  */
 
-/**
- * Optional override for whatsapp-web.js's initial boot/inject wait (#353). On slow first boots
- * (e.g. WSL2 or low-resource containers) the default 30s `authTimeoutMs` can expire before WhatsApp
- * Web finishes loading, aborting QR generation. Set WWEBJS_AUTH_TIMEOUT_MS to a larger value in
- * milliseconds (e.g. 120000) to extend it. Unset, or a value that is not a positive safe integer,
- * keeps the whatsapp-web.js default (30000ms).
- */
-export function resolveAuthTimeoutMs(): number | undefined {
-  const raw = process.env.WWEBJS_AUTH_TIMEOUT_MS?.trim();
-  if (!raw || !/^\d+$/.test(raw)) {
-    return undefined;
-  }
-  const ms = Number(raw);
-  // Number.isSafeInteger rejects Infinity (from huge digit strings) and >2^53 unsafe integers — both
-  // pass the /^\d+$/ shape check but would make whatsapp-web.js's inject loop wait effectively forever.
-  return Number.isSafeInteger(ms) && ms > 0 ? ms : undefined;
-}
+/** Largest delay a Node timer can hold; above it `setTimeout` fires after 1 ms instead. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** Floor for the deadline: long enough for a slow pairing/QR handshake on a loaded host. */
+const MIN_INIT_TIMEOUT_MS = 60_000;
 
 /**
  * How long a session waits for `engine.initialize()` before treating it as wedged.
  *
- * The deadline MUST exceed the auth wait whatsapp-web.js runs INSIDE engine.initialize()
- * (authTimeoutMs — the inject() poll for WA Web's JS to bootstrap, raisable via
- * WWEBJS_AUTH_TIMEOUT_MS for slow first boots). A shorter outer deadline would SIGKILL a legitimate
- * slow init mid-auth. Floor 60s for the hang case; otherwise the configured auth window plus 30s for
- * launch/navigation/post-inject overhead.
- *
- * WWEBJS_AUTH_TIMEOUT_MS can only ever RAISE this above the 60s floor, never lower it, so a
- * Baileys session whose operator set it for whatsapp-web.js gets a more generous deadline — never a
- * shorter one. Giving the two engines separate windows would need its own env var and is a
- * behaviour change, not part of moving this out of the adapter.
+ * Override with `ENGINE_INIT_TIMEOUT_MS` (milliseconds) on a slow host; the value is raised to the
+ * floor above and capped at the largest delay a Node timer holds, so a huge or garbage value cannot
+ * turn every start into an instant failure. Unset means the floor.
  */
 export function resolveEngineInitTimeoutMs(): number {
-  // Capped at the largest delay a Node timer holds: above it setTimeout fires after 1 ms, so a huge
-  // WWEBJS_AUTH_TIMEOUT_MS failed every start at once instead of waiting longer.
-  return Math.min(2_147_483_647, Math.max(60_000, (resolveAuthTimeoutMs() ?? 30_000) + 30_000));
+  const raw = process.env.ENGINE_INIT_TIMEOUT_MS?.trim();
+  if (raw && /^\d+$/.test(raw)) {
+    const ms = Number(raw);
+    if (Number.isSafeInteger(ms) && ms > 0) {
+      return Math.min(MAX_TIMER_MS, Math.max(MIN_INIT_TIMEOUT_MS, ms));
+    }
+  }
+  return MIN_INIT_TIMEOUT_MS;
 }

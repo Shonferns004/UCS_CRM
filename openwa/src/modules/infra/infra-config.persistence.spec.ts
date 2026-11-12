@@ -77,7 +77,7 @@ function build(available = true) {
     stop,
     shutdown,
     controller: new InfraConfigController(
-      { getAvailableEngines: () => [{ id: 'baileys' }, { id: 'whatsapp-web.js' }] } as never,
+      { getAvailableEngines: () => [{ id: 'baileys' }] } as never,
       { isDockerAvailable: () => available, stopManagedService: stop, orchestrateProfiles: jest.fn() } as never,
       { shutdown, isShuttingDown: () => false } as never,
     ),
@@ -96,7 +96,7 @@ it.each([true, false])('preserves the SQLite file path with an explicit type %s'
   seed({ DATABASE_NAME: './data/customer.sqlite' });
   const result = build().controller.saveConfig({
     database: explicit ? { type: 'sqlite' } : {},
-    engine: { headless: false },
+    engine: { type: 'baileys' },
   });
   expect(result.saved).toBe(true);
   expect(dotenv.parse(actualFs.readFileSync(file)).DATABASE_NAME).toBe('./data/customer.sqlite');
@@ -138,7 +138,7 @@ it('drops the PostgreSQL database name when leaving PostgreSQL for SQLite', () =
 });
 
 it('preserves the old overlay after a bounded partial write failure and lets a retry succeed', async () => {
-  seed({ ...database, PUPPETEER_HEADLESS: 'true' });
+  seed({ ...database, ENGINE_TYPE: 'stale' });
   const before = actualFs.readFileSync(file);
   jest.mocked(fs.writeFileSync).mockImplementationOnce((target, data, options) => {
     actualFs.writeFileSync(
@@ -151,11 +151,11 @@ it('preserves the old overlay after a bounded partial write failure and lets a r
     );
     throw Object.assign(new Error('bounded write failure'), { code: 'ENOSPC' });
   });
-  expect((await save({ engine: { headless: false } })).saved).toBe(false);
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(false);
   expect(actualFs.readFileSync(file)).toEqual(before);
   expect(actualFs.readdirSync(path.dirname(file))).toEqual(['.env.generated']);
-  expect((await save({ engine: { headless: false } })).saved).toBe(true);
-  expect(dotenv.parse(actualFs.readFileSync(file)).PUPPETEER_HEADLESS).toBe('false');
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
+  expect(dotenv.parse(actualFs.readFileSync(file)).ENGINE_TYPE).toBe('baileys');
 });
 
 it('preserves the old overlay and removes staging after a replacement failure', async () => {
@@ -163,7 +163,7 @@ it('preserves the old overlay and removes staging after a replacement failure', 
   jest.mocked(fs.renameSync).mockImplementationOnce(() => {
     throw new Error('replacement denied');
   });
-  expect((await save({ engine: { headless: false } })).saved).toBe(false);
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(false);
   expect(actualFs.readFileSync(file)).toEqual(before);
   expect(actualFs.readdirSync(path.dirname(file))).toEqual(['.env.generated']);
 });
@@ -171,28 +171,28 @@ it('preserves the old overlay and removes staging after a replacement failure', 
 it.each(['EBUSY', 'EXDEV', 'EACCES', 'EPERM', 'EROFS'])(
   'writes in place when the replacement fails with %s',
   async code => {
-    seed({ ...database, PUPPETEER_HEADLESS: 'true' });
+    seed({ ...database, ENGINE_TYPE: 'stale' });
     jest.mocked(fs.renameSync).mockImplementationOnce(() => {
       throw Object.assign(new Error('the file cannot be replaced'), { code });
     });
-    expect((await save({ engine: { headless: false } })).saved).toBe(true);
-    expect(dotenv.parse(actualFs.readFileSync(file)).PUPPETEER_HEADLESS).toBe('false');
+    expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
+    expect(dotenv.parse(actualFs.readFileSync(file)).ENGINE_TYPE).toBe('baileys');
     expect(actualFs.readdirSync(path.dirname(file))).toEqual(['.env.generated']);
   },
 );
 
 it.each(['EACCES', 'EPERM', 'EROFS'])('writes in place when the staged file cannot be created (%s)', async code => {
-  seed({ ...database, PUPPETEER_HEADLESS: 'true' });
+  seed({ ...database, ENGINE_TYPE: 'stale' });
   jest.mocked(fs.writeFileSync).mockImplementationOnce(() => {
     throw Object.assign(new Error('the directory cannot be written'), { code });
   });
-  expect((await save({ engine: { headless: false } })).saved).toBe(true);
-  expect(dotenv.parse(actualFs.readFileSync(file)).PUPPETEER_HEADLESS).toBe('false');
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
+  expect(dotenv.parse(actualFs.readFileSync(file)).ENGINE_TYPE).toBe('baileys');
   expect(actualFs.readdirSync(path.dirname(file))).toEqual(['.env.generated']);
 });
 
 it('fails the save when the in-place write fails too, leaving the old overlay', async () => {
-  seed({ ...database, PUPPETEER_HEADLESS: 'true' });
+  seed({ ...database, ENGINE_TYPE: 'stale' });
   const before = actualFs.readFileSync(file);
   jest
     .mocked(fs.writeFileSync)
@@ -202,19 +202,19 @@ it('fails the save when the in-place write fails too, leaving the old overlay', 
     .mockImplementationOnce(() => {
       throw Object.assign(new Error('the file cannot be written'), { code: 'EIO' });
     });
-  expect((await save({ engine: { headless: false } })).saved).toBe(false);
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(false);
   expect(actualFs.readFileSync(file)).toEqual(before);
 });
 
 it('never writes in place after the staged copy ran out of space', async () => {
-  seed({ ...database, PUPPETEER_HEADLESS: 'true' });
+  seed({ ...database, ENGINE_TYPE: 'stale' });
   const before = actualFs.readFileSync(file);
   const writes = jest.mocked(fs.writeFileSync);
   writes.mockClear();
   writes.mockImplementationOnce(() => {
     throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
   });
-  expect((await save({ engine: { headless: false } })).saved).toBe(false);
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(false);
   expect(writes).toHaveBeenCalledTimes(1);
   expect(actualFs.readFileSync(file)).toEqual(before);
 });
@@ -223,11 +223,11 @@ it('never writes in place after the staged copy ran out of space', async () => {
 (process.getuid?.() === 0 ? it.skip : it)(
   'saves a writable overlay file inside a directory that cannot be written',
   async () => {
-    seed({ ...database, PUPPETEER_HEADLESS: 'true' });
+    seed({ ...database, ENGINE_TYPE: 'stale' });
     actualFs.chmodSync(path.dirname(file), 0o555);
     try {
-      expect((await save({ engine: { headless: false } })).saved).toBe(true);
-      expect(dotenv.parse(actualFs.readFileSync(file)).PUPPETEER_HEADLESS).toBe('false');
+      expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
+      expect(dotenv.parse(actualFs.readFileSync(file)).ENGINE_TYPE).toBe('baileys');
     } finally {
       actualFs.chmodSync(path.dirname(file), 0o755);
     }
@@ -241,9 +241,9 @@ describe('an overlay that is a symbolic link', () => {
     actualFs.mkdirSync(path.dirname(managed()));
     actualFs.renameSync(file, managed());
     actualFs.symlinkSync(managed(), file);
-    expect((await save({ engine: { headless: false } })).saved).toBe(true);
+    expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
     expect(actualFs.lstatSync(file).isSymbolicLink()).toBe(true);
-    expect(dotenv.parse(actualFs.readFileSync(managed())).PUPPETEER_HEADLESS).toBe('false');
+    expect(dotenv.parse(actualFs.readFileSync(managed())).ENGINE_TYPE).toBe('baileys');
     expect(actualFs.readdirSync(path.dirname(file)).sort()).toEqual(['.env.generated']);
     expect(actualFs.readdirSync(path.dirname(managed()))).toEqual(['overlay.env']);
   });
@@ -251,20 +251,18 @@ describe('an overlay that is a symbolic link', () => {
   it('is created at its target when the link points nowhere', async () => {
     actualFs.unlinkSync(file);
     actualFs.symlinkSync(path.join(directory, 'data', 'created.env'), file);
-    expect((await save({ engine: { headless: false } })).saved).toBe(true);
+    expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
     expect(actualFs.lstatSync(file).isSymbolicLink()).toBe(true);
-    expect(dotenv.parse(actualFs.readFileSync(path.join(directory, 'data', 'created.env'))).PUPPETEER_HEADLESS).toBe(
-      'false',
-    );
+    expect(dotenv.parse(actualFs.readFileSync(path.join(directory, 'data', 'created.env'))).ENGINE_TYPE).toBe('baileys');
   });
 });
 
 it('creates and replaces the overlay owner-only', async () => {
   actualFs.unlinkSync(file);
-  expect((await save({ engine: { headless: false } })).saved).toBe(true);
-  expect((await save({ engine: { headless: true } })).saved).toBe(true);
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
+  expect((await save({ engine: { type: 'baileys' } })).saved).toBe(true);
   if (process.platform !== 'win32') expect(actualFs.statSync(file).mode & 0o777).toBe(0o600);
-  expect(dotenv.parse(actualFs.readFileSync(file)).PUPPETEER_HEADLESS).toBe('true');
+  expect(dotenv.parse(actualFs.readFileSync(file)).ENGINE_TYPE).toBe('baileys');
 });
 
 const invalidBootCases: Array<{
@@ -442,3 +440,5 @@ it('writes the same unused-profile stop to the signal-file fallback', async () =
   ).toEqual(['postgres']);
   expect(stop).not.toHaveBeenCalled();
 });
+
+

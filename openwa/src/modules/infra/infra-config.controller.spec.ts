@@ -64,7 +64,7 @@ import {
 // CI Postgres or compose Redis settings would otherwise feed the save guard and the pin checks.
 // Scrub the infrastructure keys for the whole file; tests that need a host value set it themselves.
 const HOST_ENV = Object.keys(process.env).filter(k =>
-  /^(DATABASE_|POSTGRES_|REDIS_|STORAGE_|S3_|MINIO_|QUEUE_|PUPPETEER_|ENGINE_TYPE$|SESSION_DATA_PATH$)/.test(k),
+  /^(DATABASE_|POSTGRES_|REDIS_|STORAGE_|S3_|MINIO_|QUEUE_|ENGINE_TYPE$)/.test(k),
 );
 const hostEnvSaved = HOST_ENV.map(k => [k, process.env[k]] as const);
 beforeAll(() => HOST_ENV.forEach(k => delete process.env[k]));
@@ -215,7 +215,7 @@ describe('InfraConfigController.saveConfig values the next boot refuses', () => 
     // What the dashboard sends after a reload: the storage section is always present, with the stored endpoint.
     const dashboardSave = (storage: object) =>
       ({
-        engine: { headless: false },
+        engine: { type: 'baileys' },
         storage: { type: 's3', s3Bucket: 'media', s3Endpoint: 'minio:9000', ...storage },
       }) as never;
     afterEach(() => {
@@ -228,7 +228,7 @@ describe('InfraConfigController.saveConfig values the next boot refuses', () => 
 
     it('does not stop a save of another section', () => {
       store(S3_STORED);
-      expect(newController().saveConfig({ engine: { headless: false } }).saved).toBe(true);
+      expect(newController().saveConfig({ engine: { type: 'baileys' } }).saved).toBe(true);
     });
 
     it('does not stop a dashboard save that resubmits the stored endpoint', () => {
@@ -483,13 +483,11 @@ describe('InfraConfigController.saveConfig env-name correctness and merge (#226)
 
   it('writes the env names the backend actually reads (not the old ignored names)', () => {
     const env = written({
-      engine: { headless: false, sessionDataPath: './sess', browserArgs: '--flag' },
+      engine: { type: 'baileys' },
       storage: { type: 's3', s3Bucket: 'b', s3AccessKey: 'ak', s3SecretKey: 'sk' },
     });
     // Correct names (configuration.ts reads these)
-    expect(env).toContain('PUPPETEER_HEADLESS=false');
-    expect(env).toContain('SESSION_DATA_PATH=./sess');
-    expect(env).toContain('PUPPETEER_ARGS=--flag');
+    expect(env).toContain('ENGINE_TYPE=baileys');
     expect(env).toContain('S3_ACCESS_KEY_ID=ak');
     expect(env).toContain('S3_SECRET_ACCESS_KEY=sk');
     // Old, silently-ignored names must be gone
@@ -500,14 +498,6 @@ describe('InfraConfigController.saveConfig env-name correctness and merge (#226)
     expect(env).not.toContain('S3_SECRET_KEY=');
   });
 
-  it('defaults PUPPETEER_ARGS to the full Docker sandbox flag set when browserArgs is empty', () => {
-    // Once compose blank-forwards PUPPETEER_ARGS this saved value wins at runtime, so the default must
-    // keep --disable-dev-shm-usage (the Docker /dev/shm tab-crash guard) — NOT the old 2-flag set.
-    const env = written({ engine: { headless: true, sessionDataPath: './data/sessions', browserArgs: '' } });
-    expect(env).toContain('PUPPETEER_ARGS=--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu');
-    expect(env).not.toContain('PUPPETEER_ARGS=--no-sandbox --disable-gpu');
-  });
-
   it('writes STORAGE_LOCAL_PATH (the name the backend reads) for local storage', () => {
     const env = written({ storage: { type: 'local', localPath: './data/media' } });
     expect(env).toContain('STORAGE_LOCAL_PATH=./data/media');
@@ -515,9 +505,9 @@ describe('InfraConfigController.saveConfig env-name correctness and merge (#226)
   });
 
   it('preserves existing keys that are not in the current payload', () => {
-    const env = written({ engine: { headless: true } }, 'WEBHOOK_TIMEOUT=5000\nSESSION_DATA_PATH=./old\n');
+    const env = written({ engine: { type: 'baileys' } }, 'WEBHOOK_TIMEOUT=5000\nENGINE_TYPE=stale\n');
     expect(env).toContain('WEBHOOK_TIMEOUT=5000'); // untouched key survives
-    expect(env).toContain('PUPPETEER_HEADLESS=true'); // payload applied
+    expect(env).toContain('ENGINE_TYPE=baileys'); // payload applied
   });
 
   it('does not blank a stored secret when the form submits an empty value', () => {
@@ -567,7 +557,7 @@ describe('InfraConfigController.saveConfig rejects values that would inject extr
 
     // A newline-injected value is rejected outright with a 4xx (BadRequestException), not masked as a
     // {saved:false} 200 — and nothing is written.
-    expect(() => newController().saveConfig({ engine: { browserArgs: malicious } })).toThrow(BadRequestException);
+    expect(() => newController().saveConfig({ engine: { type: malicious } })).toThrow(BadRequestException);
     expect(fs.writeFileSync as jest.Mock).not.toHaveBeenCalled();
   });
 
@@ -575,7 +565,7 @@ describe('InfraConfigController.saveConfig rejects values that would inject extr
     (fs.existsSync as jest.Mock).mockReturnValue(false);
     (fs.writeFileSync as jest.Mock).mockClear();
 
-    const result = newController().saveConfig({ engine: { browserArgs: '--no-sandbox --disable-gpu' } });
+    const result = newController().saveConfig({ engine: { type: 'baileys' } });
 
     expect(result.saved).toBe(true);
     expect(fs.writeFileSync as jest.Mock).toHaveBeenCalled();
@@ -656,7 +646,7 @@ describe('InfraConfigController.saveConfig writes values the next boot reads bac
 
 describe('InfraConfigController.saveConfig engine selection (persist ENGINE_TYPE — Infrastructure tile)', () => {
   const engineFactory = {
-    getAvailableEngines: () => [{ id: 'whatsapp-web.js' }, { id: 'baileys' }],
+    getAvailableEngines: () => [{ id: 'baileys' }],
   };
   const newController = () => new InfraConfigController(engineFactory as never, {} as never, {} as never);
 
@@ -672,14 +662,13 @@ describe('InfraConfigController.saveConfig engine selection (persist ENGINE_TYPE
   }
 
   it('persists ENGINE_TYPE when a valid engine is selected', () => {
-    const env = written({ engine: { type: 'baileys', headless: true } });
+    const env = written({ engine: { type: 'baileys' } });
     expect(env).toContain('ENGINE_TYPE=baileys');
   });
 
   it('does not write ENGINE_TYPE when no engine type is provided (avoids clobbering)', () => {
-    const env = written({ engine: { headless: false } });
+    const env = written({ storage: { type: 'local' } });
     expect(env).not.toContain('ENGINE_TYPE=');
-    expect(env).toContain('PUPPETEER_HEADLESS=false');
   });
 
   it('rejects an unknown engine type and writes nothing', () => {
@@ -696,7 +685,7 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
   // the per-key merge change. The literal key maps below were derived from the previous
   // implementation's output; any drift in written keys or values fails this gate.
   const engineFactory = {
-    getAvailableEngines: () => [{ id: 'whatsapp-web.js' }, { id: 'baileys' }],
+    getAvailableEngines: () => [{ id: 'baileys' }],
   };
   const newController = () => new InfraConfigController(engineFactory as never, {} as never, {} as never);
 
@@ -759,10 +748,7 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
       'S3_SECRET_ACCESS_KEY=minioadmin',
       'S3_BUCKET=openwa',
       'S3_REGION=us-east-1',
-      'ENGINE_TYPE=whatsapp-web.js',
-      'PUPPETEER_HEADLESS=true',
-      'SESSION_DATA_PATH=./data/sessions',
-      'PUPPETEER_ARGS=--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu',
+      'ENGINE_TYPE=baileys',
       'WEBHOOK_TIMEOUT=5000',
       '',
     ].join('\n');
@@ -794,12 +780,7 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
         s3SecretKey: '',
         s3Endpoint: 'http://minio:9000',
       },
-      engine: {
-        type: 'whatsapp-web.js',
-        headless: true,
-        sessionDataPath: './data/sessions',
-        browserArgs: '--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu',
-      },
+      engine: { type: 'baileys' },
     };
 
     const content = saveAndGetContent(payload, existing);
@@ -814,12 +795,10 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
         DATABASE_SSL: 'false',
         DATABASE_TYPE: 'postgres',
         DATABASE_USERNAME: 'openwa',
-        ENGINE_TYPE: 'whatsapp-web.js',
+        ENGINE_TYPE: 'baileys',
         MINIO_BUILTIN: 'true',
         POSTGRES_BUILTIN: 'true',
         POSTGRES_SCHEMA: 'public',
-        PUPPETEER_ARGS: '--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu',
-        PUPPETEER_HEADLESS: 'true',
         QUEUE_ENABLED: 'true',
         REDIS_BUILTIN: 'true',
         REDIS_ENABLED: 'true',
@@ -831,7 +810,6 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
         S3_ENDPOINT: 'http://minio:9000',
         S3_REGION: 'us-east-1',
         S3_SECRET_ACCESS_KEY: 'minioadmin',
-        SESSION_DATA_PATH: './data/sessions',
         STORAGE_TYPE: 's3',
         WEBHOOK_TIMEOUT: '5000',
       }),
@@ -865,9 +843,6 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
       'S3_BUCKET=mybucket',
       'S3_REGION=eu-west-1',
       'ENGINE_TYPE=baileys',
-      'PUPPETEER_HEADLESS=false',
-      'SESSION_DATA_PATH=/var/lib/openwa/sessions',
-      'PUPPETEER_ARGS=--no-sandbox',
       '',
     ].join('\n');
     const payload = {
@@ -896,12 +871,7 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
         s3SecretKey: '',
         s3Endpoint: 'https://s3.eu-west-1.amazonaws.com',
       },
-      engine: {
-        type: 'baileys',
-        headless: false,
-        sessionDataPath: '/var/lib/openwa/sessions',
-        browserArgs: '--no-sandbox',
-      },
+      engine: { type: 'baileys' },
     };
 
     const content = saveAndGetContent(payload, existing);
@@ -921,8 +891,6 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
         MINIO_BUILTIN: 'false',
         POSTGRES_BUILTIN: 'false',
         POSTGRES_SCHEMA: 'openwa',
-        PUPPETEER_ARGS: '--no-sandbox',
-        PUPPETEER_HEADLESS: 'false',
         QUEUE_ENABLED: 'false',
         REDIS_BUILTIN: 'false',
         REDIS_ENABLED: 'true',
@@ -934,7 +902,6 @@ describe('InfraConfigController.saveConfig byte-identical regression (full dashb
         S3_ENDPOINT: 'https://s3.eu-west-1.amazonaws.com',
         S3_REGION: 'eu-west-1',
         S3_SECRET_ACCESS_KEY: 's3-super-secret',
-        SESSION_DATA_PATH: '/var/lib/openwa/sessions',
         STORAGE_TYPE: 's3',
       }),
     );
@@ -1038,15 +1005,6 @@ describe('InfraConfigController.saveConfig per-key merge (partial payloads)', ()
     expect(env).toContain('S3_ACCESS_KEY_ID=ak-strong');
   });
 
-  it('a partial engine save keeps the stored session path and browser args', () => {
-    const env = written(
-      { engine: { headless: false } },
-      'SESSION_DATA_PATH=./old-path\nPUPPETEER_ARGS=--custom-flag\n',
-    );
-    expect(env).toContain('PUPPETEER_HEADLESS=false');
-    expect(env).toContain('SESSION_DATA_PATH=./old-path');
-    expect(env).toContain('PUPPETEER_ARGS=--custom-flag');
-  });
 
   // The page leaves out a type the environment pins while the operator has not touched it, so the pin is never
   // written over the stored choice. The section then applies to the stored selection, and never rewrites it.
@@ -1921,7 +1879,7 @@ describe('InfraConfigController.saveConfig built-in/external mode flips and the 
         s3SecretKey: '',
         s3Endpoint: s3,
       },
-      engine: { headless: false },
+      engine: { type: 'baileys' },
     });
 
     afterEach(() => {
@@ -2321,7 +2279,7 @@ describe('InfraConfigController.saveConfig persists strictly-coerced form boolea
       redis: { enabled: 'false', builtIn: 'false' },
       queue: { enabled: 'false' },
       storage: { type: 's3', builtIn: 'false', s3Bucket: 'b', s3AccessKey: 'ak-strong', s3SecretKey: 'sk-strong' },
-      engine: { headless: 'false' },
+      engine: { type: 'baileys' },
     };
     // Mirror the real pipe: implicit conversion on, whitelist validation (src/config/app-validation.ts).
     const instance = plainToInstance(SaveConfigDto, formPayload, { enableImplicitConversion: true });
@@ -2340,7 +2298,7 @@ describe('InfraConfigController.saveConfig persists strictly-coerced form boolea
     expect(env).toContain('REDIS_BUILTIN=false');
     expect(env).toContain('QUEUE_ENABLED=false');
     expect(env).toContain('MINIO_BUILTIN=false');
-    expect(env).toContain('PUPPETEER_HEADLESS=false');
+    expect(env).toContain('ENGINE_TYPE=baileys');
   });
 });
 
@@ -2348,7 +2306,7 @@ describe('InfraConfigController.getConfig (#226)', () => {
   it('returns the saved config shape without echoing secrets', () => {
     (fs.existsSync as jest.Mock).mockReturnValue(true);
     (fs.readFileSync as jest.Mock).mockReturnValue(
-      'DATABASE_TYPE=postgres\nDATABASE_HOST=db\nDATABASE_PASSWORD=secret\nSESSION_DATA_PATH=./sess\nENGINE_TYPE=baileys\nSTORAGE_TYPE=s3\nS3_ACCESS_KEY_ID=ak\nS3_SECRET_ACCESS_KEY=sk\n',
+      'DATABASE_TYPE=postgres\nDATABASE_HOST=db\nDATABASE_PASSWORD=secret\nENGINE_TYPE=baileys\nSTORAGE_TYPE=s3\nS3_ACCESS_KEY_ID=ak\nS3_SECRET_ACCESS_KEY=sk\n',
     );
     const controller = new InfraConfigController({} as never, {} as never, {} as never);
 
@@ -2359,7 +2317,6 @@ describe('InfraConfigController.getConfig (#226)', () => {
     expect(cfg.database.type).toBe('postgres');
     expect(cfg.database.host).toBe('db');
     expect(cfg.database.passwordSet).toBe(true);
-    expect(cfg.engine.sessionDataPath).toBe('./sess');
     expect(cfg.engine.type).toBe('baileys');
     expect(cfg.storage.type).toBe('s3');
     expect(cfg.storage.s3CredentialsSet).toBe(true);
@@ -2430,7 +2387,7 @@ describe('InfraConfigController.getConfig reflects environment-pinned values (#1
     // new one. The key is not pinned (it never came from the host or .env), so the freshly saved
     // file must hydrate the form — otherwise it flips back to the pre-save value (#226/#1082).
     recordPinnedEnvKeys({}); // the host supplied nothing; ENGINE_TYPE below came from the file
-    process.env.ENGINE_TYPE = 'whatsapp-web.js';
+    process.env.ENGINE_TYPE = 'stale-engine';
     (fs.existsSync as jest.Mock).mockReturnValue(true);
     (fs.readFileSync as jest.Mock).mockReturnValue('ENGINE_TYPE=baileys\n');
 
@@ -2449,7 +2406,7 @@ describe('InfraConfigController.getConfig reflects environment-pinned values (#1
     (fs.existsSync as jest.Mock).mockReturnValue(true);
     (fs.readFileSync as jest.Mock).mockReturnValue('ENGINE_TYPE=baileys\n');
 
-    expect(newController().getConfig().engine.type).toBe('whatsapp-web.js');
+    expect(newController().getConfig().engine.type).toBe('baileys');
 
     (fs.existsSync as jest.Mock).mockReturnValue(false);
     (fs.readFileSync as jest.Mock).mockReturnValue('');
@@ -2620,7 +2577,7 @@ describe('InfraConfigController.saveConfig beside flags the environment pins tru
     'REDIS_ENABLED=true\nREDIS_BUILTIN=false\nREDIS_HOST=cache.ext.example\nREDIS_PORT=6380\n' +
     'REDIS_PASSWORD=RedisPw123456\nQUEUE_ENABLED=false\nSTORAGE_TYPE=s3\nMINIO_BUILTIN=false\n' +
     'S3_ENDPOINT=https://s3.ext.example\nS3_BUCKET=media\nS3_REGION=eu-west-1\nS3_ACCESS_KEY_ID=AKIAEXTERNAL12345\n' +
-    'S3_SECRET_ACCESS_KEY=ExternalSecret1234567890\nPUPPETEER_HEADLESS=true\n';
+    'S3_SECRET_ACCESS_KEY=ExternalSecret1234567890\nENGINE_TYPE=baileys\n';
   const pins = { POSTGRES_BUILTIN: 'true', REDIS_BUILTIN: 'true', MINIO_BUILTIN: 'true' };
   const dotenv = jest.requireActual<typeof import('dotenv')>('dotenv');
 
@@ -2638,7 +2595,7 @@ describe('InfraConfigController.saveConfig beside flags the environment pins tru
     (fs.readFileSync as jest.Mock).mockReturnValue('');
   });
 
-  it('keeps every external value when only Headless Mode changes', () => {
+  it('keeps every external value when only the engine type is resubmitted', () => {
     const controller = new InfraConfigController({ getAvailableEngines: () => [] } as never, {} as never, {} as never);
     const cfg = controller.getConfig();
     // What the form seeds from GET /config and sends: no host is pinned, so every flag is sent; secrets are blank.
@@ -2655,7 +2612,7 @@ describe('InfraConfigController.saveConfig beside flags the environment pins tru
         s3AccessKey: '',
         s3SecretKey: '',
       },
-      engine: { headless: !cfg.engine.headless },
+      engine: { type: 'baileys' },
     });
 
     const written = dotenv.parse(((fs.writeFileSync as jest.Mock).mock.calls as Array<[string, string]>)[0][1]);
@@ -2663,7 +2620,6 @@ describe('InfraConfigController.saveConfig beside flags the environment pins tru
       ...dotenv.parse(STORED),
       DATABASE_POOL_SIZE: '10',
       DATABASE_SSL: 'false',
-      PUPPETEER_HEADLESS: 'false',
     });
   });
 });
@@ -3180,7 +3136,7 @@ describe('InfraConfigController.requestRestart when the built-in database does n
 
   it('puts back the overlay this process booted from after more than one save', async () => {
     const controller = build(failedStart);
-    expect(controller.saveConfig({ engine: { headless: false } }).saved).toBe(true);
+    expect(controller.saveConfig({ engine: { type: 'baileys' } }).saved).toBe(true);
     (fs.readFileSync as jest.Mock).mockReturnValue(writes().at(-1));
     const profiles = saveBuiltIn(controller);
 
@@ -3492,3 +3448,8 @@ describe('InfraConfigController built-in Redis username', () => {
     expect(() => write({ enabled: false, builtIn: true })).not.toThrow();
   });
 });
+
+
+
+
+

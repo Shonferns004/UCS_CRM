@@ -114,13 +114,6 @@ export const BLANK_SHADOWED_ENV_KEYS: string[] = [
   'REDIS_ENABLED',
   'REDIS_HOST',
   'REDIS_PORT',
-  // Engine launch options the dashboard saves (data/.env.generated). Compose blank-forwards these so a
-  // dashboard edit is not shadowed by a pinned container default; the app layer (configuration.ts)
-  // supplies the sane default when nothing is set.
-  'PUPPETEER_HEADLESS',
-  'SESSION_DATA_PATH',
-  'PUPPETEER_ARGS',
-  'PUPPETEER_PROTOCOL_TIMEOUT_MS',
   // Rate-limit values are blank-forwarded by Compose so a host value can take precedence without an
   // empty forward masking the lower-priority loaded .env / data/.env.generated value.
   'RATE_LIMIT_SHORT_TTL',
@@ -138,11 +131,8 @@ export const BLANK_SHADOWED_ENV_KEYS: string[] = [
   'API_MASTER_KEY',
   'TRUSTED_PROXIES',
   'CSP_UPGRADE_INSECURE_REQUESTS',
-  // whatsapp-web.js launch knobs: the WhatsApp Web version pin, its remote HTML template, and the
-  // first-boot init wait raised for slow hosts.
-  'WWEBJS_WEB_VERSION',
-  'WWEBJS_WEB_VERSION_REMOTE_PATH',
-  'WWEBJS_AUTH_TIMEOUT_MS',
+  // Session init wait raised for slow hosts (resolveEngineInitTimeoutMs).
+  'ENGINE_INIT_TIMEOUT_MS',
   // The remainder of the documented knob set, forwarded blank once the compose forwarding list was
   // completed (compose-parity.spec.ts now derives the required forwards from .env.example, so every
   // entry here exists because a `${KEY:-}` line renders blank when the operator sets nothing).
@@ -216,7 +206,6 @@ export const BLANK_SHADOWED_ENV_KEYS: string[] = [
   'BAILEYS_SESSION_STORE_MAX_ENTRIES',
   'BAILEYS_CHAT_STATE_CACHE_MAX',
   'BAILEYS_GROUP_METADATA_CACHE_TTL_MS',
-  'WWEBJS_ONBOARDING_CONTINUE_LABELS',
   'SHUTDOWN_DELAY_MS',
   'SIMULATE_TYPING_MAX_MS',
   'LID_MAPPING_CACHE_MAX',
@@ -318,3 +307,4 @@ export function recordPinnedEnvKeys(env: NodeJS.ProcessEnv = process.env): void 
 export function isEnvPinned(key: string): boolean {
   return pinnedEnvKeys !== null && pinnedEnvKeys.has(key);
 }
+

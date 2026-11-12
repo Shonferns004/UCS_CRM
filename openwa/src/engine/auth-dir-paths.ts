@@ -2,23 +2,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * The on-disk engine auth directories, keyed by the session's UUID (`Session.id`).
+ * The on-disk engine auth directory, keyed by the session's UUID (`Session.id`).
  *
- * They used to be keyed by `Session.name`. Names are unique case-sensitively, so `my-bot` and
+ * It used to be keyed by `Session.name`. Names are unique case-sensitively, so `my-bot` and
  * `My-Bot` are two rows, but on a case-insensitive filesystem (macOS APFS, Windows, and Docker
  * Desktop bind mounts of a host directory on either) they resolved to ONE directory: the second
  * session loaded the first one's WhatsApp login, and deleting either wiped both (#1597). A UUID has
  * no case variants, so the key is unambiguous on every filesystem.
  *
- * These two builders are the single source of truth for the paths: the adapters build them to write
- * credentials, EngineFactory to pre-create and purge them, and the boot migration to rename the
- * legacy name-keyed directories onto them.
+ * These builders are the single source of truth for the path: the adapter builds it to write
+ * credentials, EngineFactory to pre-create and purge it, and the boot migration to rename the
+ * legacy name-keyed directories onto it.
  */
-
-/** whatsapp-web.js LocalAuth profile dir: `sessionDataPath` resolved, then `session-<id>` appended. */
-export function wwjsAuthDir(sessionDataPath: string, sessionId: string): string {
-  return path.join(path.resolve(sessionDataPath), `session-${sessionId}`);
-}
 
 /** Baileys multi-file auth dir: `authDir/<id>`, with `authDir` left unresolved, as the adapter does. */
 export function baileysAuthDir(authDir: string, sessionId: string): string {

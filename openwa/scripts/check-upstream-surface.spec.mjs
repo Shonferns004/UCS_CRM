@@ -1,42 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  extractWwebjsClientMethods,
-  extractWwebjsEvents,
   extractBaileysSocketMethods,
   extractBaileysEvents,
   extractSurface,
   compareSurfaces,
   diffLists,
 } from './check-upstream-surface.mjs';
-
-test('extracts Client method names from a wwebjs-shaped d.ts block', () => {
-  const dts = [
-    'export class Client extends EventEmitter {',
-    '        getBlockedContacts(): Promise<Contact[]>;',
-    '        approveGroupMembershipRequests(',
-    '            groupId: string,',
-    '        ): Promise<Array<MembershipRequestActionResult>>;',
-    '    }',
-    'export class OtherClass {',
-    '        notAClientMethod(): void;',
-    '    }',
-  ].join('\n');
-  assert.deepEqual(extractWwebjsClientMethods(dts), ['approveGroupMembershipRequests', 'getBlockedContacts']);
-});
-
-test('extracts Events VALUES from a Constants.js-shaped block', () => {
-  const js = [
-    'exports.Events = {',
-    "    GROUP_MEMBERSHIP_REQUEST: 'group_membership_request',",
-    "    MESSAGE_RECEIVED: 'message',",
-    '};',
-    'const WAState = {',
-    "    CONFLICT: 'CONFLICT',",
-    '};',
-  ].join('\n');
-  assert.deepEqual(extractWwebjsEvents(js), ['group_membership_request', 'message']);
-});
 
 test('extracts socket method names across Baileys layer files, deduped', () => {
   const groups = [

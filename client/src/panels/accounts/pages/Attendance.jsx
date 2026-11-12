@@ -194,6 +194,8 @@ export default function Attendance() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [attendanceFilter, setAttendanceFilter] = useState('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [previewImg, setPreviewImg] = useState(null);
   // Selfie URLs are presigned server-side and expire; if one still fails to load
   // (expired link, object gone) it is remembered here so the row can fall back to
@@ -209,12 +211,22 @@ export default function Attendance() {
     });
   };
 
-  // export range (defaults to this month's start -> today, IST)
-  const [exportFrom, setExportFrom] = useState(() => {
-    const ist = new Date(Date.now() + IST_OFFSET);
-    return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  // Export modal: the admin picks full month / one day / one week at export
+  // time instead of carrying a date range in the toolbar.
+  const istNow = new Date(Date.now() + IST_OFFSET);
+  const todayIst = getIstDateStr(new Date());
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMode, setExportMode] = useState('month');
+  const [exportMonth, setExportMonth] = useState(() => `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}`);
+  const [exportDay, setExportDay] = useState(todayIst);
+  const [exportWeekStart, setExportWeekStart] = useState(() => {
+    const d = new Date(todayIst + 'T00:00:00');
+    const dow = d.getDay();
+    d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
-  const [exportTo, setExportTo] = useState(() => getIstDateStr(new Date()));
+  const [exportCustomFrom, setExportCustomFrom] = useState(`${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}-01`);
+  const [exportCustomTo, setExportCustomTo] = useState(todayIst);
 
   // detailed drill-down (read-only)
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -269,11 +281,32 @@ export default function Attendance() {
     }
   };
 
+  const exportRange = () => {
+    if (exportMode === 'day') return [exportDay, exportDay];
+    if (exportMode === 'custom') {
+      return exportCustomTo < exportCustomFrom
+        ? [exportCustomFrom, exportCustomFrom]
+        : [exportCustomFrom, exportCustomTo];
+    }
+    if (exportMode === 'week') {
+      const start = new Date(exportWeekStart + 'T00:00:00');
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return [exportWeekStart, ymd(end)];
+    }
+    const [y, m] = exportMonth.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return [`${exportMonth}-01`, `${exportMonth}-${String(lastDay).padStart(2, '0')}`];
+  };
+
   const handleExportSheet = () => {
     // The sheet builder lives at module level so the Salary & Advances page
     // can drive the same export through its month-picker modal; here we just
     // hand it the data this page already has loaded.
-    exportAttendanceSheet(exportFrom, exportTo, { workers, allRecords });
+    const [from, to] = exportRange();
+    exportAttendanceSheet(from, to, { workers, allRecords });
+    setExportOpen(false);
   };
 
   const fmt = (t) => {
@@ -283,7 +316,11 @@ export default function Attendance() {
   };
 
   const yesterdayStr = getIstDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
-  const merged = workers.map(w => {
+  // System / test accounts that must not appear in the attendance list.
+  const EXCLUDED_WORKER_NAMES = new Set(['admin', 'appdev', 'library', 'pg', 'shawn', 'shawnnn', 'suspense']);
+  const merged = workers
+    .filter(w => !EXCLUDED_WORKER_NAMES.has(String(w.name || '').trim().toLowerCase()))
+    .map(w => {
     const record = todayRecords.find(r => r.worker_id === w.id);
     const yesterdayRecord = (allRecords || []).find(r => {
       if (r.worker_id !== w.id) return false;
@@ -323,6 +360,7 @@ export default function Attendance() {
 
   const punchedIn = filtered.filter(r => r.hasPunch).length;
   const noPunch = filtered.filter(r => !r.hasPunch).length;
+  const activeFilterCount = (statusFilter !== 'active' ? 1 : 0) + (attendanceFilter !== 'all' ? 1 : 0);
 
   // detailed worker attendance for selected month (read-only) — hide future dates, most recent first
   const workerRecords = (() => {
@@ -384,6 +422,10 @@ export default function Attendance() {
       calendarDays.push(day);
     }
 
+    const lateTotal = workerRecords.reduce(
+      (s, r) => s + (r.status === 'half-day' ? 0 : (r.late_minutes || 0)), 0,
+    );
+
     const summaryCards = [
       { label: 'Present', value: counts.present, ...CELL_STATUS.present },
       { label: 'Late', value: counts.late, ...CELL_STATUS.late },
@@ -415,26 +457,17 @@ export default function Attendance() {
           </div>
         </div>
 
-        <div className="acc-cards">
-          {summaryCards.map(c => (
-            <div key={c.label} className="acc-card">
-              <div className="acc-card-label">{c.label}</div>
-              <div className="acc-card-val" style={{ color: c.text }}>{c.value}</div>
-            </div>
-          ))}
-        </div>
-
         <div className="acc-cal-card">
-          <div className="acc-cal-head">
-            <div>
-              <h3>Attendance Calendar</h3>
-              <p>Tap any day to view punch details and selfies</p>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:8 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <button className="acc-nav-btn" onClick={() => shiftMonth(-1)} aria-label="Previous month">‹</button>
+              <h3 style={{ fontSize:16, minWidth:160, textAlign:'center', margin:0 }}>{monthLabel}</h3>
+              <button className="acc-nav-btn" onClick={() => shiftMonth(1)} disabled={workerMonth >= nowMonth} aria-label="Next month">›</button>
             </div>
-            <div className="acc-nav">
-              <button className="acc-nav-btn" onClick={() => shiftMonth(-1)}>‹</button>
-              <span className="acc-month-label">{monthLabel}</span>
-              <button className="acc-nav-btn" onClick={() => shiftMonth(1)} disabled={workerMonth >= nowMonth}>›</button>
-              <button className="acc-today-btn" onClick={() => setWorkerMonth(nowMonth)}>Today</button>
+            <div style={{ display:'flex', alignItems:'baseline', gap:7, padding:'7px 13px', background:'var(--bg)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)' }}>
+              <span style={{ fontWeight:600, fontSize:12, color:'var(--ink)' }}>Late this month</span>
+              <span style={{ fontWeight:700, fontSize:16, color: lateTotal > 0 ? 'var(--danger)' : 'var(--sage)' }}>{lateTotal}</span>
+              <span style={{ fontSize:11, color:'var(--ink-soft)' }}>actual late minutes</span>
             </div>
           </div>
 
@@ -452,58 +485,66 @@ export default function Attendance() {
             </div>
           ) : (
             <>
-              <div className="acc-grid">
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2, background:'var(--line)', border:'1px solid var(--line)', borderRadius:6, overflow:'hidden', fontSize:12 }}>
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                  <div key={d} className="acc-cal-dayhead">{d}</div>
+                  <div key={d} style={{ textAlign:'center', fontWeight:600, color:'var(--ink-soft)', padding:'7px 0', background:'var(--bg)' }}>{d}</div>
                 ))}
-                {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} className="acc-grid-blank" />)}
-                {calendarDays.map(d => (
-                  <div
-                    key={d.dateStr}
-                    onClick={() => { if (!d.isFuture) setSelectedDay(d); }}
-                    className={`acc-cal-day ${d.isFuture ? 'acc-future' : ''} ${d.isToday ? 'acc-today' : ''} ${selectedDay && selectedDay.dateStr === d.dateStr ? 'acc-selected' : ''}`}
-                  >
-                    <div className="acc-cal-day-top">
-                      <span className="acc-cal-daynum">{d.day}{d.isToday ? <span className="acc-today-tag">TODAY</span> : null}</span>
-                      {d.rec && d.rec.id && (
-                        <span className="acc-cal-selfies" onClick={e => e.stopPropagation()}>
-                          {d.rec.punch_in_selfie_url ? (
-                            <img
-                              src={d.rec.punch_in_selfie_url}
-                              alt="in"
-                              title="Punch-in selfie"
-                              className="acc-sel-thumb"
-                              onClick={() => setPreviewImg(d.rec.punch_in_selfie_url)}
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                          ) : null}
-                          {d.rec.punch_out_selfie_url && d.rec.punch_out_selfie_url !== d.rec.punch_in_selfie_url ? (
-                            <img
-                              src={d.rec.punch_out_selfie_url}
-                              alt="out"
-                              title="Punch-out selfie"
-                              className="acc-sel-thumb"
-                              onClick={() => setPreviewImg(d.rec.punch_out_selfie_url)}
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                          ) : null}
-                        </span>
+                {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} style={{ background:'#fff', minHeight:52 }} />)}
+                {calendarDays.map(d => {
+                  const s = d.isFuture ? null : d.status;
+                  let bg = '#fff';
+                  if (!d.isFuture) {
+                    if (s === 'present') bg = '#d4edda';
+                    else if (s === 'late') bg = '#fef3c7';
+                    else if (s === 'absent') bg = '#ffe0e0';
+                    else if (s === 'leave') bg = '#f3e8ff';
+                    else if (s === 'half-day') bg = '#e8d5f5';
+                    else if (s === 'off' || d.dow === 0) bg = '#f0f0f0';
+                  }
+                  const inT = d.rec?.punch_in_time ? formatAttendanceTime(d.rec.punch_in_time) : '';
+                  const outT = d.rec?.punch_out_time ? formatAttendanceTime(d.rec.punch_out_time) : '';
+                  // Show punches whenever they exist, even if the status is
+                  // absent/half-day — the admin still needs the IN/OUT times.
+                  const showTimes = !d.isFuture && (!!inT || !!outT);
+                  const fallback = d.isFuture ? ''
+                    : s === 'absent' ? 'Absent'
+                    : s === 'leave' ? 'Leave'
+                    : (s === 'off' || d.dow === 0) ? '—'
+                    : '';
+                  const selected = selectedDay && selectedDay.dateStr === d.dateStr;
+                  return (
+                    <div
+                      key={d.dateStr}
+                      onClick={() => { if (!d.isFuture) setSelectedDay(d); }}
+                      title={d.isFuture ? 'Upcoming' : `${d.dateStr}${CELL_STATUS[d.status]?.label ? ` · ${CELL_STATUS[d.status].label}` : ''}`}
+                      style={{
+                        textAlign:'center', padding:'7px 2px', background:bg, fontSize:11, minHeight:58, boxSizing:'border-box',
+                        cursor: d.isFuture ? 'default' : 'pointer',
+                        outline: selected ? '2px solid var(--sage)' : 'none', outlineOffset: -2,
+                        opacity: d.isFuture ? 0.65 : 1,
+                      }}
+                    >
+                      <div style={{ fontWeight:700, fontSize:13, color:'#111827', lineHeight:1.2 }}>{d.day}</div>
+                      {d.isToday && (
+                        <div style={{ marginTop:1 }}>
+                          <span style={{ fontSize:8, fontWeight:800, letterSpacing:'.04em', color:'#059669', background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:999, padding:'0 5px' }}>
+                            TODAY
+                          </span>
+                        </div>
                       )}
+                      {showTimes ? (
+                        <div style={{ fontSize:11, lineHeight:1.5, color:'#111827', fontVariantNumeric:'tabular-nums', fontWeight:700, marginTop:1 }}>
+                          <div><span style={{ fontSize:9, fontWeight:800, color:'#16a34a', marginRight:3 }}>IN</span>{inT || '—'}</div>
+                          <div><span style={{ fontSize:9, fontWeight:800, color:'#6b7280', marginRight:3 }}>OUT</span>{outT || '—'}</div>
+                        </div>
+                      ) : fallback ? (
+                        <div style={{ fontSize:10, fontWeight:700, color:'#374151', marginTop:2 }}>{fallback}</div>
+                      ) : null}
                     </div>
-                    <span className="acc-cal-badge" style={{ background: CELL_STATUS[d.status].bg, color: CELL_STATUS[d.status].text }}>
-                      {CELL_STATUS[d.status].icon} {CELL_STATUS[d.status].label}
-                    </span>
-                    {d.status === 'present' || d.status === 'late' || d.status === 'half-day' ? (
-                      <div className="acc-cal-times">
-                        <span>IN {d.rec.punch_in_time ? formatAttendanceTime(d.rec.punch_in_time) : 'Not recorded'}</span>
-                        <span>OUT {d.rec.punch_out_time ? formatAttendanceTime(d.rec.punch_out_time) : 'Not recorded'}</span>
-                      </div>
-                    ) : (
-                      <div className="acc-cal-times acc-cal-times-muted">
-                        <span>{d.status === 'leave' ? 'Marked leave' : d.status === 'off' ? 'Weekly off' : 'No attendance recorded'}</span>
-                      </div>
-                    )}
-                  </div>
+                  );
+                })}
+                {Array.from({ length: (7 - ((firstDow + daysInMonth) % 7)) % 7 }).map((_, i) => (
+                  <div key={`t${i}`} style={{ background:'#fff', minHeight:52 }} />
                 ))}
               </div>
 
@@ -525,13 +566,6 @@ export default function Attendance() {
                 ))}
               </div>
 
-              <div className="acc-legend">
-                {Object.entries(CELL_STATUS).map(([k, v]) => (
-                  <span key={k} className="acc-legend-item">
-                    <i style={{ background: v.bg, color: v.text }}>{v.icon}</i> {v.label}
-                  </span>
-                ))}
-              </div>
             </>
           )}
         </div>
@@ -668,88 +702,157 @@ export default function Attendance() {
 
   return (
     <div style={{ background: '#F3F7FB', minHeight: '100vh', padding: '28px 36px', fontFamily: 'Inter, "Segoe UI", Roboto, Arial, sans-serif' }}>
-      <div style={{ background: '#FFFFFF', border: '1px solid #DCE6F1', borderRadius: 14, boxShadow: '0 2px 10px rgba(16,37,68,.04)', padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #DCE6F1' }}>
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#102544' }}>Today's Attendance</h2>
             <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748B' }}>
               {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#087F8C', lineHeight: 1 }}>{punchedIn}</div>
-              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Punched In</div>
-            </div>
-            <div style={{ width: 1, height: 36, background: '#DCE6F1' }} />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#C62835', lineHeight: 1 }}>{noPunch}</div>
-              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>No Punch</div>
-            </div>
-            <div style={{ width: 1, height: 36, background: '#DCE6F1' }} />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#64748B', lineHeight: 1 }}>{filtered.length}</div>
-              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Total</div>
-            </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Punched In', value: punchedIn, color: '#087F8C', bg: '#ECFEFF', border: '#CFFAFE' },
+              { label: 'No Punch', value: noPunch, color: '#C62835', bg: '#FEF2F2', border: '#FECACA' },
+              { label: 'Total', value: filtered.length, color: '#334155', bg: '#F1F5F9', border: '#E2E8F0' },
+            ].map(t => (
+              <div key={t.label} style={{ minWidth: 92, padding: '8px 14px', borderRadius: 10, background: t.bg, border: `1px solid ${t.border}`, textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: t.color, lineHeight: 1.1 }}>{t.value}</div>
+                <div style={{ fontSize: 11, color: '#64748B', marginTop: 2, fontWeight: 600 }}>{t.label}</div>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#F7FAFD', border: '1px solid #DCE6F1', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#087F8C' }}>Export Monthly Attendance Sheet</span>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748B' }}>
-            From
-            <input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, height: 40 }} />
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748B' }}>
-            To
-            <input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, height: 40 }} />
-          </label>
-          <button
-            onClick={handleExportSheet}
-            style={{ padding: '0 16px', height: 40, borderRadius: 6, border: 'none', background: '#087F8C', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            Export Sheet
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 360 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round"
+              style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search name or department..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '0 12px 0 34px', height: 38, borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 13, background: 'white', outline: 'none', fontFamily: 'inherit' }}
+            />
+          </div>
           <div style={{ flex: 1 }} />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: '0 10px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, background: 'white' }}>
-            <option value="active">Active</option>
-            <option value="absconded">Absconded</option>
-          </select>
-          <select value={attendanceFilter} onChange={e => setAttendanceFilter(e.target.value)} style={{ padding: '0 10px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, background: 'white' }}>
-            <option value="all">All</option>
-            <option value="present">Present</option>
-            <option value="halfday">Half Day</option>
-            <option value="absent">Absent</option>
-          </select>
-          <input
-            type="text"
-            placeholder="Search name or department..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ padding: '0 12px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', fontSize: 13, width: 220, background: 'white' }}
-          />
-          <button
-            onClick={load}
-            style={{ padding: '0 14px', height: 40, borderRadius: 6, border: '1px solid #DCE6F1', background: 'white', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}
-          >
-            Refresh
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(v => !v)}
+              title={filtersOpen ? 'Hide filters' : 'Show filters'}
+              aria-label="Filters"
+              aria-expanded={filtersOpen}
+              style={{
+                position: 'relative', width: 40, height: 40, borderRadius: 6, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                border: `1px solid ${filtersOpen || activeFilterCount ? '#087F8C' : '#DCE6F1'}`,
+                background: filtersOpen || activeFilterCount ? '#087F8C' : 'white',
+                color: filtersOpen || activeFilterCount ? '#fff' : '#475569',
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
+              </svg>
+              {activeFilterCount > 0 && (
+                <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+            {filtersOpen && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 320, maxWidth: '92vw', background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <strong style={{ fontSize: 13, color: '#102544' }}>Filters</strong>
+                    <button
+                      type="button"
+                      onClick={() => { setStatusFilter('active'); setAttendanceFilter('all'); setFiltersOpen(false); }}
+                      style={{ border: 'none', background: 'none', color: '#087F8C', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                    >Reset</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 130 }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>Status</span>
+                      <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 12.5, background: 'white', fontFamily: 'inherit' }}>
+                        <option value="active">Active</option>
+                        <option value="absconded">Absconded</option>
+                      </select>
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 140 }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>Attendance</span>
+                      <select value={attendanceFilter} onChange={e => setAttendanceFilter(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 12.5, background: 'white', fontFamily: 'inherit' }}>
+                        <option value="all">All</option>
+                        <option value="present">Present</option>
+                        <option value="halfday">Half Day</option>
+                        <option value="absent">Absent</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setExportMenuOpen(v => !v)}
+              title="More actions"
+              aria-label="More actions"
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+              style={{ width: 40, height: 40, borderRadius: 6, border: '1px solid #DCE6F1', background: 'white', color: '#102544', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1 }}
+            >
+              ⋮
+            </button>
+            {exportMenuOpen && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setExportMenuOpen(false)} />
+                <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 220, background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 5 }}>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setExportMenuOpen(false); setExportOpen(true); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#087F8C' }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Export Sheet
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setExportMenuOpen(false); load(); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#475569' }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
+      <div style={{ background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(16,37,68,.05)' }}>
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>Loading...</div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>No workers found</div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14, background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 3px rgba(15,23,42,.08)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, background: '#fff' }}>
             <thead>
-              <tr style={{ background: '#F7FAFD', borderBottom: '1px solid #DCE6F1', textAlign: 'left' }}>
-                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Name</th>
-                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Yesterday Punch Out</th>
-                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Today Punch In</th>
-                <th style={{ padding: '10px 14px', fontWeight: 650, color: '#64748B', whiteSpace: 'nowrap', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.4px' }}>Status</th>
-                {/* <th style={{ padding: '10px 14px', fontWeight: 600, color: '#374151', textAlign: 'center' }}>Actions</th> */}
+              <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
+                <th style={{ padding: '10px 22px', fontWeight: 700, color: '#64748B', whiteSpace: 'nowrap', fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.5px', borderBottom: '1px solid #EEF2F7' }}>Name</th>
+                <th style={{ padding: '10px 22px', fontWeight: 700, color: '#64748B', whiteSpace: 'nowrap', fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.5px', borderBottom: '1px solid #EEF2F7' }}>Yesterday Punch Out</th>
+                <th style={{ padding: '10px 22px', fontWeight: 700, color: '#64748B', whiteSpace: 'nowrap', fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.5px', borderBottom: '1px solid #EEF2F7' }}>Today Punch In</th>
+                <th style={{ padding: '10px 22px', fontWeight: 700, color: '#64748B', whiteSpace: 'nowrap', fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.5px', borderBottom: '1px solid #EEF2F7' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -762,22 +865,22 @@ export default function Attendance() {
                   <tr
                     key={w.id}
                     onClick={() => setSelectedWorker(w)}
-                    style={{ borderBottom: '1px solid #DCE6F1', cursor: 'pointer', transition: 'background .12s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#F7FAFD'}
+                    style={{ borderBottom: '1px solid #F1F5F9', cursor: 'pointer', transition: 'background .12s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
                     onMouseLeave={e => e.currentTarget.style.background = 'white'}
                     title="Click to view detailed attendance"
                   >
-                    <td style={{ padding: '10px 14px' }}>
-                      <div style={{ fontWeight: 500 }}>{w.name || 'Unknown'}</div>
+                    <td style={{ padding: '11px 22px' }}>
+                      <div style={{ fontWeight: 600, color: '#102544' }}>{w.name || 'Unknown'}</div>
                     </td>
-                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '11px 22px', whiteSpace: 'nowrap' }}>
                       {w.yesterdayRecord?.punch_out_time ? (
                         <span>{fmt(w.yesterdayRecord.punch_out_time)}</span>
                       ) : (
-                        <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
+                        <span style={{ color: '#CBD5E1', fontSize: 13 }}>—</span>
                       )}
                     </td>
-                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '11px 22px', whiteSpace: 'nowrap' }}>
                       {r ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {hasSelfieIn ? (
@@ -805,17 +908,17 @@ export default function Attendance() {
                         <span style={{ color: '#d1d5db', fontSize: 13 }}>No punch</span>
                       )}
                     </td>
-                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '11px 22px', whiteSpace: 'nowrap' }}>
                       {!r ? (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontSize: 12, fontWeight: 500 }}>Absent</span>
+                        <span style={{ padding: '3px 10px', borderRadius: 999, background: '#fee2e2', color: '#991b1b', fontSize: 11.5, fontWeight: 700 }}>Absent</span>
                       ) : r.selfie_status === 'pending' ? (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 500 }}>⏳ Pending</span>
+                        <span style={{ padding: '3px 10px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 11.5, fontWeight: 700 }}>⏳ Pending</span>
                       ) : r.selfie_status === 'verified' ? (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontSize: 12, fontWeight: 500 }}>✓ Verified</span>
+                        <span style={{ padding: '3px 10px', borderRadius: 999, background: '#d1fae5', color: '#065f46', fontSize: 11.5, fontWeight: 700 }}>✓ Verified</span>
                       ) : r.status === 'late' ? (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 500 }}>Late {r.late_minutes}m</span>
+                        <span style={{ padding: '3px 10px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 11.5, fontWeight: 700 }}>Late {r.late_minutes}m</span>
                       ) : (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontSize: 12, fontWeight: 500 }}>{r.status || 'present'}</span>
+                        <span style={{ padding: '3px 10px', borderRadius: 999, background: '#d1fae5', color: '#065f46', fontSize: 11.5, fontWeight: 700 }}>{r.status || 'present'}</span>
                       )}
                     </td>
                     {/* <td style={{ padding: '10px 14px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
@@ -846,6 +949,76 @@ export default function Attendance() {
         </div>
       )}
       </div>
+      </div>
+
+      {exportOpen && (
+        <div onClick={() => setExportOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 440, boxShadow: '0 24px 60px rgba(15,23,42,.28)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #EEF2F7', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#102544' }}>Export attendance sheet</div>
+                <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 2 }}>Choose the range to include in the Excel file.</div>
+              </div>
+              <button type="button" onClick={() => setExportOpen(false)} aria-label="Close"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748B', width: 28, height: 28, borderRadius: 8, fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
+                {[{ k: 'month', l: 'Full month' }, { k: 'day', l: 'One day' }, { k: 'week', l: 'One week' }, { k: 'custom', l: 'Custom' }].map(o => (
+                  <button key={o.k} type="button" onClick={() => setExportMode(o.k)}
+                    style={{
+                      padding: '8px 6px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+                      border: `1px solid ${exportMode === o.k ? '#087F8C' : '#DCE6F1'}`,
+                      background: exportMode === o.k ? '#087F8C' : '#fff',
+                      color: exportMode === o.k ? '#fff' : '#475569',
+                    }}>{o.l}</button>
+                ))}
+              </div>
+
+              {exportMode === 'month' && (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>Month</span>
+                  <input type="month" value={exportMonth} onChange={e => setExportMonth(e.target.value)}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 13, fontFamily: 'inherit' }} />
+                </label>
+              )}
+              {exportMode === 'day' && (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>Day</span>
+                  <input type="date" value={exportDay} onChange={e => setExportDay(e.target.value)}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 13, fontFamily: 'inherit' }} />
+                </label>
+              )}
+              {exportMode === 'week' && (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>Week starting (Monday)</span>
+                  <input type="date" value={exportWeekStart} onChange={e => setExportWeekStart(e.target.value)}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 13, fontFamily: 'inherit' }} />
+                  <span style={{ fontSize: 11, color: '#64748B' }}>Includes the 7 days from the selected date.</span>
+                </label>
+              )}
+              {exportMode === 'custom' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>From</span>
+                    <input type="date" value={exportCustomFrom} onChange={e => setExportCustomFrom(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 13, fontFamily: 'inherit' }} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#64748B' }}>To</span>
+                    <input type="date" value={exportCustomTo} onChange={e => setExportCustomTo(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: '1px solid #DCE6F1', fontSize: 13, fontFamily: 'inherit' }} />
+                  </label>
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '10px 16px', borderTop: '1px solid #EEF2F7', background: '#F8FAFC', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-sm" onClick={() => setExportOpen(false)}>Cancel</button>
+              <button className="btn btn-sm btn-primary" onClick={handleExportSheet} style={{ background: '#087F8C', borderColor: '#087F8C' }}>Export</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {previewImg && (
         <div

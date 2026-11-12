@@ -26,7 +26,6 @@ const BOOLEAN_FIELDS: Array<{ section: 'database' | 'redis' | 'queue' | 'storage
   { section: 'redis', field: 'builtIn' },
   { section: 'queue', field: 'enabled' },
   { section: 'storage', field: 'builtIn' },
-  { section: 'engine', field: 'headless' },
 ];
 
 const SECTION_BASE: Record<string, Record<string, unknown>> = {
@@ -70,11 +69,11 @@ describe('SaveConfigDto strict coercion', () => {
   it('accepts real booleans untouched', async () => {
     const { instance, errors } = await run({
       queue: { enabled: false },
-      engine: { headless: true },
+      engine: { type: 'baileys' },
     });
     expect(errors).toHaveLength(0);
     expect(instance.queue?.enabled).toBe(false);
-    expect(instance.engine?.headless).toBe(true);
+    expect(instance.engine?.type).toBe('baileys');
   });
 
   it("rejects a blank poolSize (Number('') is 0 — a real value the caller never sent)", async () => {
@@ -123,3 +122,4 @@ describe('SaveConfigDto section types', () => {
     expect(errors.map(e => e.property)).toEqual([section]);
   });
 });
+

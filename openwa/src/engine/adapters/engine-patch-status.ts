@@ -19,20 +19,14 @@ import * as path from 'path';
  * outcome: a record can survive a dependency being reinstalled underneath it, and a guard that
  * says "patched" about an unpatched tree is worse than no guard at all.
  *
- * Diagnostic, not preventive, matching `wwebjs-backport-check.ts`: startup continues, so a session
- * reaching READY is not evidence that every patch landed.
- *
- * `scripts/patch-wwebjs-201832.js` is absent from this by design. It is the one patcher that
- * already has a runtime guard (`wwebjs-backport-check.ts`, its own predicate and its own message),
- * so it exports no `isApplied` and is skipped here rather than being reported twice or migrated in
- * the same change. `engine-patch-status.spec.ts` pins it as the only such exception.
+ * Diagnostic, not preventive: startup continues, so a session reaching READY is not evidence that
+ * every patch landed.
  */
 
 /** Which library a patcher targets, read from its filename prefix. */
-export type PatchFamily = 'wwebjs' | 'baileys';
+export type PatchFamily = 'baileys';
 
 const PACKAGE_FOR: Record<PatchFamily, string> = {
-  wwebjs: 'whatsapp-web.js',
   baileys: '@whiskeysockets/baileys',
 };
 
@@ -104,3 +98,4 @@ export function unappliedPatchesMessage(family: PatchFamily, names: string[]): s
     'See docs/12-troubleshooting-faq.md.'
   );
 }
+

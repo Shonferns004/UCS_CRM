@@ -132,22 +132,9 @@ describe('InfraStatusController.getStatus queue job counts', () => {
   });
 });
 
-describe('InfraStatusController.getStatus engine (reads the real engine.puppeteer.* keys)', () => {
-  // Pin the WA-Web version so getStatus does not fire the wa-version registry fetch (no network in tests).
-  const savedWebVer = process.env.WWEBJS_WEB_VERSION;
-  beforeAll(() => (process.env.WWEBJS_WEB_VERSION = 'off'));
-  afterAll(() => {
-    if (savedWebVer === undefined) delete process.env.WWEBJS_WEB_VERSION;
-    else process.env.WWEBJS_WEB_VERSION = savedWebVer;
-  });
-
-  it('reports the saved headless/browserArgs instead of stale defaults from non-existent flat keys', async () => {
-    const map: Record<string, unknown> = {
-      'engine.type': 'whatsapp-web.js',
-      'engine.puppeteer.headless': false,
-      'engine.puppeteer.args': ['--foo', '--bar'],
-      'engine.sessionDataPath': './sess',
-    };
+describe('InfraStatusController.getStatus engine', () => {
+  it('reports the active engine', async () => {
+    const map: Record<string, unknown> = { 'engine.type': 'baileys' };
     const config = { get: (key: string, def?: unknown) => (key in map ? map[key] : def) };
     const cache = { isAvailable: () => Promise.resolve(false) };
     const ds = { isInitialized: true, query: jest.fn().mockResolvedValue([{ '1': 1 }]) };
@@ -162,28 +149,7 @@ describe('InfraStatusController.getStatus engine (reads the real engine.puppetee
     );
 
     const status = await controller.getStatus();
-    expect(status.engine.headless).toBe(false);
-    expect(status.engine.browserArgs).toBe('--foo --bar');
-    expect(status.engine.sessionDataPath).toBe('./sess');
-  });
-
-  it('reports the default Chromium flags when no args are configured', async () => {
-    const config = { get: (key: string, def?: unknown) => (key === 'engine.type' ? 'whatsapp-web.js' : def) };
-    const ds = { isInitialized: true, query: jest.fn().mockResolvedValue([{ '1': 1 }]) };
-    const controller = new InfraStatusController(
-      config as never,
-      ds as never,
-      ds as never,
-      {} as never,
-      { isDockerAvailable: () => false } as never,
-      { isAvailable: () => Promise.resolve(false) } as never,
-      { refreshS3Availability: () => Promise.resolve(false) } as never,
-    );
-
-    const status = await controller.getStatus();
-    expect(status.engine.browserArgs).toBe(
-      '--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu',
-    );
+    expect(status.engine.type).toBe('baileys');
   });
 });
 
@@ -278,7 +244,7 @@ describe('InfraStatusController.getStatus envPinned', () => {
 
   it('reports only the editable selection keys a shadowing layer supplies', async () => {
     // Snapshot as load-env does: ENGINE_TYPE comes from the host/.env, REDIS_ENABLED from the file.
-    recordPinnedEnvKeys({ ENGINE_TYPE: 'whatsapp-web.js', PATH: '/usr/bin' });
+    recordPinnedEnvKeys({ ENGINE_TYPE: 'baileys', PATH: '/usr/bin' });
 
     const status = await buildController().getStatus();
 
@@ -334,7 +300,7 @@ describe('InfraStatusController.getStatus envPinned', () => {
   // unreported pin under an edited field reads as a change the next boot makes (a bucket or database switch).
   it('reports every key a save from the page writes, and no other', async () => {
     recordPinnedEnvKeys({});
-    const engines = { getAvailableEngines: () => [{ id: 'whatsapp-web.js' }, { id: 'baileys' }] };
+    const engines = { getAvailableEngines: () => [{ id: 'baileys' }] };
     const saver = new InfraConfigController(engines as never, {} as never, {} as never) as unknown as {
       applyConfigSections: (config: SaveConfigDto, existing: Record<string, string>, ctx: ConfigSectionContext) => void;
     };
@@ -364,7 +330,7 @@ describe('InfraStatusController.getStatus envPinned', () => {
           s3SecretKey: 'secret',
           s3Endpoint: 'https://s3.example',
         },
-        engine: { type: 'baileys', headless: false, sessionDataPath: './data/s', browserArgs: '--no-sandbox' },
+        engine: { type: 'baileys' },
       },
       {
         database: { type: 'postgres', builtIn: true },
@@ -689,3 +655,5 @@ describe('InfraStatusController unavailable Docker inventory', () => {
     expect(recovered.redis.running).toBe(true);
   });
 });
+
+

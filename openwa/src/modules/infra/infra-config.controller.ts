@@ -84,7 +84,7 @@ interface SavedConfigResponse {
     s3Endpoint: string;
     s3CredentialsSet: boolean;
   };
-  engine: { type: string; headless: boolean; sessionDataPath: string; browserArgs: string };
+  engine: { type: string };
 }
 
 // Errors of replacing the overlay by rename that the in-place write v0.25.0 used can still get past.
@@ -187,10 +187,7 @@ export class InfraConfigController {
         ),
       },
       engine: {
-        type: effective('ENGINE_TYPE') || 'whatsapp-web.js',
-        headless: effective('PUPPETEER_HEADLESS') !== 'false',
-        sessionDataPath: effective('SESSION_DATA_PATH') || '',
-        browserArgs: effective('PUPPETEER_ARGS') || '',
+        type: effective('ENGINE_TYPE') || 'baileys',
       },
     };
   }

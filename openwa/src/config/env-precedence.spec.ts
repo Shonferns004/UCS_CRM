@@ -26,7 +26,7 @@ describe('clearBlankEnv', () => {
 describe('isEnvPinned — does a layer above data/.env.generated supply this key?', () => {
   it('counts a key present before the saved file is merged, and not one the file supplies', () => {
     // Mirrors load-env's order: the snapshot is taken after process.env and .env, before the file.
-    const env: NodeJS.ProcessEnv = { ENGINE_TYPE: 'whatsapp-web.js' };
+    const env: NodeJS.ProcessEnv = { ENGINE_TYPE: 'baileys' };
     recordPinnedEnvKeys(env);
     env.REDIS_ENABLED = 'true'; // supplied by data/.env.generated afterwards
 
@@ -47,7 +47,7 @@ describe('isEnvPinned — does a layer above data/.env.generated supply this key
   });
 
   it('counts a real value that merely repeats the default — the case BLANK_SHADOWED_ENV_KEYS cannot cover', () => {
-    const env: NodeJS.ProcessEnv = { ENGINE_TYPE: 'whatsapp-web.js' };
+    const env: NodeJS.ProcessEnv = { ENGINE_TYPE: 'baileys' };
     clearBlankEnv(env, BLANK_SHADOWED_ENV_KEYS);
     recordPinnedEnvKeys(env);
 
@@ -85,10 +85,10 @@ describe('engine-selection env precedence (ENGINE_TYPE)', () => {
   });
 
   it('keeps a real operator ENGINE_TYPE and ignores the .env.generated default', () => {
-    process.env[KEY] = 'whatsapp-web.js'; // real operator/host value forwarded by compose
+    process.env[KEY] = 'baileys'; // real operator/host value forwarded by compose
     clearBlankEnv(process.env, [KEY]);
     dotenv.config({ path: genPath, override: false });
-    expect(process.env[KEY]).toBe('whatsapp-web.js');
+    expect(process.env[KEY]).toBe('baileys');
   });
 });
 
@@ -139,12 +139,6 @@ describe('blank-shadowed env keys (compose ${VAR:-} forwards the dashboard manag
       'REDIS_ENABLED',
       'REDIS_HOST',
       'REDIS_PORT',
-      // Engine launch options the dashboard saves — compose blank-forwards these too, so a dashboard
-      // edit isn't shadowed by a pinned container default; the app layer (configuration.ts) supplies
-      // the sane default when nothing is set.
-      'PUPPETEER_HEADLESS',
-      'SESSION_DATA_PATH',
-      'PUPPETEER_ARGS',
     ]) {
       expect(BLANK_SHADOWED_ENV_KEYS).toContain(key);
     }
@@ -154,7 +148,7 @@ describe('blank-shadowed env keys (compose ${VAR:-} forwards the dashboard manag
     ['DATABASE_TYPE', 'postgres'],
     ['STORAGE_TYPE', 's3'],
     ['REDIS_ENABLED', 'true'],
-    ['PUPPETEER_HEADLESS', 'false'],
+    ['ENGINE_TYPE', 'baileys'],
   ])('lets .env.generated supply %s when the forwarded value is blank, but a host value pins', (key, fileValue) => {
     const prev = process.env[key];
     try {

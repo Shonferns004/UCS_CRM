@@ -77,23 +77,22 @@ export default function EmployeeOverview({ workerId, onOpenAttendance, history }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Date presets — scrolls away with the tab, not pinned. */}
-      <div className="card">
-        <div style={{ padding: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Performance</div>
-          <OverviewDateFilter value={range} onChange={setRange} />
-        </div>
+      {/* Date range control — no card/heading; the filter carries the range. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        {overview?.partial?.length > 0 && !error ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#6b7280', background: '#f8fafc', border: '1px solid #eef2f7', borderRadius: 999, padding: '4px 10px' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+            {[
+              overview.partial.includes('range_clamped_to_3_years') && 'Range limited to the last 3 years.',
+              overview.partial.includes('range_starts_before_joining') && 'Range starts before joining — pre-joining days are excluded.',
+              overview.partial.includes('attendance_unavailable') && 'Attendance summary unavailable for this range.',
+            ].filter(Boolean).join(' ')}
+          </span>
+        ) : <span />}
+        <OverviewDateFilter value={range} onChange={setRange} />
       </div>
 
       {error && <div className="err-banner">{error}</div>}
-
-      {overview?.partial?.length > 0 && !error && (
-        <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)' }}>
-          {overview.partial.includes('range_clamped_to_3_years') && 'Range limited to the last 3 years. '}
-          {overview.partial.includes('range_starts_before_joining') && 'Range starts before joining — pre-joining days are excluded. '}
-          {overview.partial.includes('attendance_unavailable') && 'Attendance summary unavailable for this range. '}
-        </div>
-      )}
 
       <KpiCards
         data={overview}

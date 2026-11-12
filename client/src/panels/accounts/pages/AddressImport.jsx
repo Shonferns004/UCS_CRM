@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 import * as XLSX from 'xlsx'
 import { X } from 'lucide-react'
 import { apiGet, apiPost, apiPatch } from '../api/auth'
+import DonorTabs from '../components/DonorTabs'
 
 const COLUMNS = [
   { key: 'mobile_number', label: 'Mobile No.', required: true, aliases: ['mobile no', 'mobileno', 'mobile number', 'mobile', 'phone no', 'phone', 'contact no', 'contact number', 'contact', 'mob no', 'mo no'] },
@@ -113,25 +114,34 @@ export default function AddressImport() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [filterProject, setFilterProject] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
   const [projectOptions, setProjectOptions] = useState([])
   const [receiptsLoading, setReceiptsLoading] = useState(true)
   const [listReload, setListReload] = useState(0)
-  const [editingId, setEditingId] = useState(null)
-  const [editForm, setEditForm] = useState({})
-  const [savingId, setSavingId] = useState(null)
+  // Excel-style single-cell editing: double-click a cell, type, Enter/blur
+  // saves just that field. Nothing else on the row enters edit mode.
+  const [cellEdit, setCellEdit] = useState(null) // { id, key }
+  const [cellForm, setCellForm] = useState({})
+  const [savingCell, setSavingCell] = useState(false)
   const [editError, setEditError] = useState('')
-  const [moreOpen, setMoreOpen] = useState(false)
   const [sortKey, setSortKey] = useState('')
   const [sortDir, setSortDir] = useState('')
-  const MORE_FIELDS = RECEIPT_EDIT_FIELDS.filter(([key]) => !['donor_name', 'donor_mobile', 'email', 'pan_number', 'address', 'address_2'].includes(key))
 
-  const fullAddress = (r) => [r.address, r.address_2]
-    .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
+  const fullAddress = (r) => {
+    const parts = [r.address, r.address_2].map(s => String(s || '').trim()).filter(s => s && s !== '-' && s !== '—')
+    return parts.length ? parts.join(', ') : 'NA'
+  }
+  // Anything the table shows for a missing value reads "NA" — never a dash.
+  const na = (v) => {
+    const s = String(v ?? '').trim()
+    return (!s || s === '-' || s === '—') ? 'NA' : s
+  }
   const sortAddress = (r) => [r.address, r.address_2]
     .map(s => String(s || '').trim()).filter(Boolean).join(' ')
-  const editInputStyle = { width: '100%', padding: '5px 7px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, boxSizing: 'border-box', color: 'var(--ink)', background: '#fff' }
+  const editInputStyle = { width: '100%', height: 18, padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', color: 'inherit', font: 'inherit', lineHeight: '18px', boxSizing: 'border-box' }
   const rv = (r, k) => { const v = r?.[k]; return v == null ? '' : String(v) }
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'NA'
 
   const SORT_COLS = [
     ['receipt_no', 'Receipt No.'],
@@ -216,44 +226,73 @@ export default function AddressImport() {
 
   const visibleReceipts = sortedReceipts
 
-  const startEdit = (r) => {
-    setEditingId(r.id)
+  const isEditableKey = (key) => RECEIPT_EDIT_FIELDS.some(([k]) => k === key)
+
+  const beginCellEdit = (r, key) => {
+    if (!isEditableKey(key)) return
     setEditError('')
-    setMoreOpen(false)
-    const f = {}
-    for (const [key] of RECEIPT_EDIT_FIELDS) f[key] = rv(r, key)
-    setEditForm(f)
+    setCellEdit({ id: r.id, key })
+    if (key === 'address') setCellForm({ address: rv(r, 'address'), address_2: rv(r, 'address_2') })
+    else setCellForm({ [key]: rv(r, key) })
   }
 
-  const cancelEdit = () => { setEditingId(null); setEditForm({}); setEditError(''); setMoreOpen(false) }
+  const cancelCellEdit = () => { setCellEdit(null); setCellForm({}) }
 
-  const saveEdit = async (r) => {
-    if (savingId) return
+  const commitCellEdit = async (r) => {
+    if (!cellEdit || savingCell) return
     const changes = {}
-    for (const [key] of RECEIPT_EDIT_FIELDS) {
-      if (String(editForm[key] ?? '').trim() !== rv(r, key).trim()) changes[key] = editForm[key]
+    for (const [k, v] of Object.entries(cellForm)) {
+      if (String(v ?? '').trim() !== rv(r, k).trim()) changes[k] = v
     }
-    if (Object.keys(changes).length === 0) { setEditingId(null); return }
-    setSavingId(r.id); setEditError('')
+    if (Object.keys(changes).length === 0) { cancelCellEdit(); return }
+    setSavingCell(true); setEditError('')
     try {
       await apiPatch(`/accounts/receipts/${r.id}`, changes)
-      setEditingId(null)
-      setEditForm({})
-      setMoreOpen(false)
+      cancelCellEdit()
       setListReload(c => c + 1)
     } catch (err) {
       setEditError(err.message || 'Unable to save receipt')
-    } finally { setSavingId(null) }
+    } finally {
+      setSavingCell(false)
+    }
   }
 
-  const editInput = (key) => (
-    <input
-      type="text"
-      value={editForm[key] ?? ''}
-      onChange={e => setEditForm(p => ({ ...p, [key]: e.target.value }))}
-      style={{ ...editInputStyle, fontFamily: RECEIPT_MONO.includes(key) ? 'monospace' : undefined }}
-    />
+  // In-cell editor. Blur only commits when focus leaves the whole cell, so the
+  // address cell can hold two inputs without saving between them. The input has
+  // no box and a fixed line box so entering edit mode never changes row height.
+  const cellEditor = (r, keys) => (
+    <div
+      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) commitCellEdit(r) }}
+      style={{ display: 'flex', flexDirection: keys.length > 1 ? 'row' : 'column', gap: 4 }}
+    >
+      {keys.map(key => (
+        <input
+          key={key}
+          autoFocus={key === keys[0]}
+          value={cellForm[key] ?? ''}
+          onChange={e => setCellForm(p => ({ ...p, [key]: e.target.value }))}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(r) }
+            if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit() }
+          }}
+          style={{ ...editInputStyle, flex: keys.length > 1 ? 1 : undefined, fontFamily: RECEIPT_MONO.includes(key) ? 'monospace' : undefined }}
+        />
+      ))}
+    </div>
   )
+
+  const editableCell = (r, key, display, tdStyle) => {
+    const active = cellEdit && cellEdit.id === r.id && cellEdit.key === key
+    return (
+      <td
+        style={{ ...tdStyle, cursor: isEditableKey(key) ? 'text' : 'default', ...(active ? { boxShadow: 'inset 0 0 0 2px var(--sage)', background: '#fff' } : null) }}
+        title={isEditableKey(key) ? 'Double-click to edit' : undefined}
+        onDoubleClick={e => { if (!active) { e.preventDefault(); beginCellEdit(r, key) } }}
+      >
+        {active ? cellEditor(r, key === 'address' ? ['address', 'address_2'] : [key]) : display}
+      </td>
+    )
+  }
 
   useEffect(() => {
     if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -342,6 +381,111 @@ export default function AddressImport() {
 
   return (
     <div>
+      <DonorTabs>
+        {(() => {
+          const activeFilterCount = (filterProject ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0)
+          return (
+            <>
+              <input
+                type="text"
+                placeholder="Search mobile / receipt no. / name..."
+                aria-label="Search receipts by mobile or receipt number"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                style={{ width: 260, maxWidth: '100%', height: 38, border: '1px solid #DCE6F1', borderRadius: 9, background: '#fff', padding: '0 12px', fontSize: 12.5, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
+              />
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(v => !v)}
+                  title={filtersOpen ? 'Hide filters' : 'Show filters'}
+                  aria-label="Filters"
+                  aria-expanded={filtersOpen}
+                  style={{
+                    position: 'relative', width: 38, height: 38, borderRadius: 9, cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    border: `1px solid ${filtersOpen || activeFilterCount ? 'var(--sage)' : '#DCE6F1'}`,
+                    background: filtersOpen || activeFilterCount ? 'var(--sage)' : '#fff',
+                    color: filtersOpen || activeFilterCount ? '#fff' : '#64748b',
+                    transition: 'background .12s, color .12s, border-color .12s',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
+                  </svg>
+                  {activeFilterCount > 0 && (
+                    <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+                {filtersOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
+                    <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 470, maxWidth: '92vw', background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <strong style={{ fontSize: 13, color: '#102544' }}>Filters</strong>
+                        <button
+                          type="button"
+                          onClick={() => { setFilterProject(''); setFromDate(''); setToDate(''); setFiltersOpen(false) }}
+                          style={{ border: 'none', background: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                        >Reset</button>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 130 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>NGO</span>
+                          <select value={filterProject} onChange={e => setFilterProject(e.target.value)} style={{ width: '100%', height: 34, border: '1px solid #DCE6F1', borderRadius: 8, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }}>
+                            <option value="">All NGOs</option>
+                            {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 130 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>From</span>
+                          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', height: 34, border: '1px solid #DCE6F1', borderRadius: 8, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }} />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 130 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>To</span>
+                          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', height: 34, border: '1px solid #DCE6F1', borderRadius: 8, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }} />
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setActionsOpen(v => !v)}
+                  title="More actions"
+                  aria-label="More actions"
+                  aria-haspopup="menu"
+                  aria-expanded={actionsOpen}
+                  style={{ width: 38, height: 38, borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', color: '#475569', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1 }}
+                >
+                  ⋮
+                </button>
+                {actionsOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setActionsOpen(false)} />
+                    <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 210, background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 5 }}>
+                      <button
+                        role="menuitem"
+                        onClick={() => { setActionsOpen(false); window.dispatchEvent(new CustomEvent('open-upload-sheet-modal')) }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#2563eb' }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        Upload Sheet
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )
+        })()}
+      </DonorTabs>
       {uploadModal && (
         <div className="modal-overlay" onClick={() => setUploadModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div
@@ -460,42 +604,14 @@ export default function AddressImport() {
       )}
 
       <div className="card">
-        <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ marginRight: 'auto' }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Receipts</div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
-              NGO
-              <select value={filterProject} onChange={e => { setFilterProject(e.target.value) }} style={{ display: 'block', height: 32, maxWidth: 180, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }}>
-                <option value="">All NGOs</option>
-                {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </label>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
-              From
-              <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
-            </label>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
-              To
-              <input type="date" value={toDate} onChange={e => { setToDate(e.target.value) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
-            </label>
-            {(fromDate || toDate) && (
-              <button className="btn btn-sm" onClick={() => { setFromDate(''); setToDate('') }}>Clear dates</button>
-            )}
-            <input
-              type="text"
-              placeholder="Search mobile / receipt no. / name..."
-              aria-label="Search receipts by mobile or receipt number"
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              style={{ width: 230, height: 32, border: '1px solid var(--line)', borderRadius: 8, background: '#fff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
-            />
-          </div>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Receipts</div>
+          <span style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>Double-click a cell to edit</span>
+          {savingCell && <span style={{ fontSize: 11.5, color: 'var(--sage)', fontWeight: 700, marginLeft: 'auto' }}>Saving…</span>}
         </div>
 
-        <div className="table-wrap" style={{ maxHeight: 520, overflowY: 'auto' }}>
-          <table className="donors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="table-wrap">
+          <table className="donors-table receipts-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
               <tr>
                 {SORT_COLS.map(([key, label]) => (
@@ -511,64 +627,35 @@ export default function AddressImport() {
                 <th>Email</th>
                 <th>Amount</th>
                 <th>Date</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {receiptsLoading ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>Loading receipts…</td></tr>
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={`sk-${i}`}>
+                    {[70, 130, 100, 170, 90, 140, 60, 70].map((w, j) => (
+                      <td key={j} style={{ padding: '10px 16px' }}>
+                        <span style={{ display: 'inline-block', width: w, height: 14, borderRadius: 4, background: 'linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : receipts.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
+                <tr><td colSpan={8} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
                   {search || fromDate || toDate ? 'No receipts match your search / date range.' : 'No receipts found.'}
                 </td></tr>
               ) : visibleReceipts.map(r => {
-                const editing = editingId === r.id
                 return (
-                  <Fragment key={r.id}>
-                  <tr className={editing ? 'receipt-editing' : ''} style={{ verticalAlign: 'top' }}>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.receipt_no || '—'}</td>
-                    <td style={{ minWidth: 150 }}>{editing ? editInput('donor_name') : (r.donor_name || '—')}</td>
-                    <td style={{ fontFamily: 'monospace', whiteSpace: 'nowrap', minWidth: 110 }}>{editing ? editInput('donor_mobile') : (r.donor_mobile || '—')}</td>
-                    <td style={{ maxWidth: 280, minWidth: 180 }}>
-                      {editing
-                        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{editInput('address')}{editInput('address_2')}</div>
-                        : <span style={{ wordBreak: 'break-word' }}>{fullAddress(r)}</span>}
-                    </td>
-                    <td style={{ fontFamily: 'monospace', minWidth: 120 }}>{editing ? editInput('pan_number') : (r.pan_number || '—')}</td>
-                    <td style={{ maxWidth: 160, minWidth: 140, wordBreak: 'break-word' }}>{editing ? editInput('email') : (r.email || '—')}</td>
+                  <tr key={r.id} style={{ verticalAlign: 'top' }}>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.receipt_no || 'NA'}</td>
+                    {editableCell(r, 'donor_name', na(r.donor_name), { minWidth: 150 })}
+                    {editableCell(r, 'donor_mobile', na(r.donor_mobile), { fontFamily: 'monospace', whiteSpace: 'nowrap', minWidth: 110 })}
+                    {editableCell(r, 'address', <span style={{ wordBreak: 'break-word' }}>{fullAddress(r)}</span>, { maxWidth: 280, minWidth: 180 })}
+                    {editableCell(r, 'pan_number', na(r.pan_number), { fontFamily: 'monospace', minWidth: 120 })}
+                    {editableCell(r, 'email', <span style={{ wordBreak: 'break-word' }}>{na(r.email)}</span>, { maxWidth: 160, minWidth: 140 })}
                     <td style={{ fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.receipt_date)}{r.receipt_date && r.receipt_time ? ` ${r.receipt_time}` : ''}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        {editing ? (
-                          <>
-                            {moreOpen
-                              ? <button className="btn btn-sm" onClick={() => setMoreOpen(false)} disabled={!!savingId}>Less</button>
-                              : <button className="btn btn-sm" onClick={() => setMoreOpen(true)} disabled={!!savingId}>More</button>}
-                            <button className="btn btn-sm" onClick={cancelEdit} disabled={!!savingId}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={() => saveEdit(r)} disabled={!!savingId}>{savingId ? 'Saving…' : 'Save'}</button>
-                          </>
-                        ) : (
-                          <button className="btn btn-sm" onClick={() => startEdit(r)}>Edit</button>
-                        )}
-                      </div>
-                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.receipt_date)}</td>
                   </tr>
-                  {editing && moreOpen && (
-                    <tr className="receipt-editing" style={{ verticalAlign: 'top' }}>
-                      <td colSpan={9} style={{ borderTop: '1px dashed var(--line)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, padding: '4px 0' }}>
-                          {MORE_FIELDS.map(([key, label]) => (
-                            <label key={key} style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              {label}
-                              {editInput(key)}
-                            </label>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  </Fragment>
                 )
               })}
             </tbody>
@@ -601,8 +688,11 @@ export default function AddressImport() {
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
         .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
+        /* Fixed cell box: entering edit mode must never change the row height. */
+        .receipts-table td { padding: 10px 16px; line-height: 18px; height: 38px; vertical-align: middle; }
+        .receipts-table td > div { line-height: 18px; }
+        .receipts-table td input { height: 18px; line-height: 18px; }
         .receipt-editing { background: #f4f8f1; }
-        .receipt-editing td { padding-top: 6px; padding-bottom: 6px; }
       `}</style>
     </div>
   )

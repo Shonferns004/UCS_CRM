@@ -23,7 +23,7 @@ describe('SessionController — create() response contract', () => {
     status: SessionStatus.CREATED,
     phone: null,
     pushName: null,
-    config: { engine: 'whatsapp-web.js', webhook: 'https://internal.example/hook' },
+    config: { engine: 'baileys', webhook: 'https://internal.example/hook' },
     proxyUrl: 'http://user:pass@proxy.internal:8080',
     proxyType: 'http',
     connectedAt: null,
@@ -867,3 +867,4 @@ describe('SessionController.getPresence() OpenAPI response', () => {
     expect(responses['200'].schema?.nullable).toBe(true);
   });
 });
+

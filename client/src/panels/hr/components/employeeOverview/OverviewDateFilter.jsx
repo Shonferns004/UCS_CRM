@@ -50,62 +50,118 @@ export function presetRange(key) {
   }
 }
 
+const FunnelIcon = ({ size = 15 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
+  </svg>
+)
+
 export default function OverviewDateFilter({ value, onChange }) {
   const [active, setActive] = useState('month')
-  const [customOpen, setCustomOpen] = useState(false)
+  const [open, setOpen] = useState(false)
 
   const applyPreset = (key) => {
     setActive(key)
-    if (key === 'custom') { setCustomOpen(true); return }
-    setCustomOpen(false)
+    if (key === 'custom') {
+      // Keep the currently selected dates; the inputs below edit them directly.
+      setOpen(true)
+      return
+    }
     onChange(presetRange(key))
+    setOpen(false)
   }
 
   const invalid = value.from && value.to && value.from > value.to
+  const activeLabel = PRESETS.find(p => p.key === active)?.label || 'This Month'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {PRESETS.map(p => (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => applyPreset(p.key)}
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={open ? 'Hide date range' : 'Choose date range'}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 7,
+          padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit',
+          border: `1px solid ${open || active !== 'month' ? 'var(--sage, #5B6B4E)' : 'var(--line, #e5e7eb)'}`,
+          background: open || active !== 'month' ? 'var(--sage, #5B6B4E)' : '#fff',
+          color: open || active !== 'month' ? '#fff' : '#475569',
+          fontSize: 12.5, fontWeight: 600,
+        }}
+      >
+        <FunnelIcon />
+        {activeLabel}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
+          <div
+            role="dialog"
+            aria-label="Date range"
             style={{
-              border: '1px solid',
-              borderColor: active === p.key ? 'var(--sage, #5B6B4E)' : 'var(--line, #e5e7eb)',
-              background: active === p.key ? 'var(--sage, #5B6B4E)' : '#fff',
-              color: active === p.key ? '#fff' : 'var(--ink-soft, #64748b)',
-              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
-              fontFamily: 'inherit', cursor: 'pointer',
+              position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50,
+              width: 300, maxWidth: '92vw', background: '#fff', border: '1px solid var(--line, #e5e7eb)',
+              borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 6,
             }}
           >
-            {p.label}
-          </button>
-        ))}
-      </div>
-      {(customOpen || active === 'custom') && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
-          <label style={{ color: 'var(--ink-soft, #64748b)', fontWeight: 600 }}>
-            From
-            <input
-              type="date" value={value.from || ''} max={value.to || undefined}
-              onChange={e => onChange({ ...value, from: e.target.value })}
-              style={{ display: 'block', height: 32, border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }}
-            />
-          </label>
-          <label style={{ color: 'var(--ink-soft, #64748b)', fontWeight: 600 }}>
-            To
-            <input
-              type="date" value={value.to || ''} min={value.from || undefined}
-              onChange={e => onChange({ ...value, to: e.target.value })}
-              style={{ display: 'block', height: 32, border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }}
-            />
-          </label>
-        </div>
-      )}
-      {invalid && (
-        <div style={{ fontSize: 12, color: '#b91c1c' }}>Start date cannot be after end date.</div>
+            {PRESETS.map(p => {
+              const isOn = active === p.key
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => applyPreset(p.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                    width: '100%', padding: '8px 10px', border: 'none', borderRadius: 8,
+                    background: isOn ? '#f4f7f1' : 'transparent', cursor: 'pointer',
+                    fontFamily: 'inherit', fontSize: 12.5, fontWeight: isOn ? 700 : 500,
+                    color: isOn ? 'var(--sage, #5B6B4E)' : '#475569', textAlign: 'left',
+                  }}
+                  onMouseEnter={e => { if (!isOn) e.currentTarget.style.background = '#f8fafc' }}
+                  onMouseLeave={e => { if (!isOn) e.currentTarget.style.background = 'transparent' }}
+                >
+                  {p.label}
+                  {isOn && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
+                </button>
+              )
+            })}
+
+            {active === 'custom' && (
+              <div style={{ borderTop: '1px solid var(--line, #e5e7eb)', marginTop: 6, padding: '10px 6px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <label style={{ flex: 1, fontSize: 10, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: '#94a3b8' }}>
+                    From
+                    <input
+                      type="date" value={value.from || ''} max={value.to || undefined}
+                      onChange={e => onChange({ ...value, from: e.target.value })}
+                      style={{ display: 'block', width: '100%', height: 32, border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 4 }}
+                    />
+                  </label>
+                  <label style={{ flex: 1, fontSize: 10, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: '#94a3b8' }}>
+                    To
+                    <input
+                      type="date" value={value.to || ''} min={value.from || undefined}
+                      onChange={e => onChange({ ...value, to: e.target.value })}
+                      style={{ display: 'block', width: '100%', height: 32, border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 4 }}
+                    />
+                  </label>
+                </div>
+                {invalid && <div style={{ fontSize: 11.5, color: '#b91c1c' }}>Start date cannot be after end date.</div>}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   )

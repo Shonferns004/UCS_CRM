@@ -176,7 +176,7 @@ describe('SessionAuthDirMigration', () => {
     await migration.onModuleInit();
 
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('whatsapp-web.js'),
+      expect.stringContaining('baileys'),
       expect.objectContaining({ action: 'auth_dir_migration_unreadable' }),
     );
   });
@@ -307,3 +307,4 @@ describe('SessionAuthDirMigration', () => {
     expect(fs.readdirSync(sessionsDir)).toEqual(['session-orphan']);
   });
 });
+

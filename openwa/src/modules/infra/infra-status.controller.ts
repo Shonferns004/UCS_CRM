@@ -17,7 +17,6 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { Public, RequireRole, RequireUnscopedKey } from '../auth/decorators/auth.decorators';
 import { ApiKeyRole } from '../auth/entities/api-key.entity';
 import { EngineFactory } from '../../engine/engine.factory';
-import { getEffectiveWebVersionInfo, resolveCurrentWebVersion } from '../../engine/wa-web-version';
 import { DockerService, namesBundledContainer } from '../docker';
 import { CacheService } from '../../common/cache/cache.service';
 import { StorageService } from '../../common/storage/storage.service';
@@ -25,7 +24,6 @@ import { createLogger } from '../../common/services/logger.service';
 import { readGeneratedEnv } from './generated-env';
 import { effectiveBuiltInFlag } from './saved-builtin-mode';
 import { isEnvPinned } from '../../config/env-precedence';
-import { DEFAULT_PUPPETEER_ARGS } from '../../config/configuration';
 import { checkForUpdate, type UpdateCheck } from './update-check';
 
 interface InfraStatus {
@@ -51,13 +49,6 @@ interface InfraStatus {
   };
   engine: {
     type: string;
-    headless: boolean;
-    sessionDataPath: string;
-    browserArgs: string;
-    // whatsapp-web.js only: the actual WhatsApp Web build in use (distinct from the library version),
-    // and how it was chosen. Omitted for other engines (e.g. baileys). (#488)
-    webVersion?: string | null;
-    webVersionSource?: 'pinned' | 'auto' | 'native';
   };
   // Which of the settings this page can edit are supplied by a layer ABOVE data/.env.generated (the
   // container environment or a project .env) and therefore cannot be changed from the dashboard until
@@ -102,9 +93,6 @@ const DASHBOARD_PINNABLE_ENV_KEYS = [
   'S3_SECRET_ACCESS_KEY',
   'STORAGE_LOCAL_PATH',
   'ENGINE_TYPE',
-  'PUPPETEER_HEADLESS',
-  'SESSION_DATA_PATH',
-  'PUPPETEER_ARGS',
 ];
 
 @ApiTags('infrastructure')
@@ -190,29 +178,7 @@ export class InfraStatusController {
     // backend. `path` is kept (additive) so the dashboard's local-mode rendering is unchanged.
     const storageBucket = this.configService.get<string>('storage.s3.bucket');
 
-    const engineType = this.configService.get<string>('engine.type', 'whatsapp-web.js');
-    // whatsapp-web.js only: surface the actual WhatsApp Web build (not the library version) so the
-    // dashboard shows which build is running. Trigger the auto-resolve so the panel is populated even
-    // before a session starts; the result is cached, so this is a one-time fetch. (#488)
-    let webVersion: string | null | undefined;
-    let webVersionSource: 'pinned' | 'auto' | 'native' | undefined;
-    if (engineType === 'whatsapp-web.js') {
-      // Kick the auto-resolve but DON'T await it — /infra/status is polled frequently and the registry
-      // fetch can take up to 5s on a firewalled host. Read whatever's cached now (null until the first
-      // success); a later poll reflects the resolved build. (#488)
-      if (getEffectiveWebVersionInfo().source === 'auto') {
-        void resolveCurrentWebVersion().catch(() => undefined);
-      }
-      const info = getEffectiveWebVersionInfo();
-      webVersion = info.version;
-      webVersionSource = info.source;
-    }
-    // configuration.ts nests these under engine.puppeteer.{headless,args}; the old flat
-    // engine.headless / engine.browserArgs keys never existed, so status always reported defaults.
-    const engineHeadless = this.configService.get<boolean>('engine.puppeteer.headless', true) ?? true;
-    const sessionDataPath = this.configService.get<string>('engine.sessionDataPath', './data/sessions');
-    const browserArgs =
-      this.configService.get<string[]>('engine.puppeteer.args')?.join(' ') || DEFAULT_PUPPETEER_ARGS.join(' ');
+    const engineType = this.configService.get<string>('engine.type', 'baileys');
 
     // Built-in detection: prefer the actually-running bundled container as truth (so a stopped/missing
     // container, or a host-pinned external host, reads as NOT built-in), and require the app to be
@@ -285,10 +251,6 @@ export class InfraStatusController {
       },
       engine: {
         type: engineType,
-        headless: engineHeadless,
-        sessionDataPath,
-        browserArgs,
-        ...(engineType === 'whatsapp-web.js' ? { webVersion, webVersionSource } : {}),
       },
       envPinned: DASHBOARD_PINNABLE_ENV_KEYS.filter(isEnvPinned),
     };

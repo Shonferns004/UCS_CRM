@@ -59,48 +59,10 @@ export function resolveNonNegativeIntEnv(raw: string | undefined, fallback: numb
 /**
  * Largest delay Node's timers accept. Above this a `setTimeout` overflows its 32-bit signed field,
  * warns `TimeoutOverflowWarning`, and fires after 1 ms instead — so an operator reaching for an
- * "effectively unlimited" budget by typing a row of nines gets the shortest possible one. Puppeteer
- * arms `protocolTimeout` with a plain `setTimeout` (`common/CallbackRegistry.js`), so the ceiling
- * applies to it directly and the browser never finishes launching.
+ * "effectively unlimited" budget by typing a row of nines gets the shortest possible one.
  */
 export { MAX_TIMER_MS };
 
-/**
- * The UI locale Chromium is pinned to. Without a pin the browser's language is whatever the launched
- * binary defaults to, which differs between the amd64 (Chrome for Testing) and arm64 (Debian chromium)
- * images and between host installs. The pin settles the browser's locale only: WhatsApp Web can still
- * render its chrome, including the new-account onboarding modal the whatsapp-web.js adapter dismisses
- * (#982), in the account's own language (#1679), so a non-English modal needs
- * WWEBJS_ONBOARDING_CONTINUE_LABELS.
- */
-export const PINNED_BROWSER_LOCALE = 'en-US';
-
-/**
- * Chromium launch flags used when PUPPETEER_ARGS is unset, and the single fallback for every other
- * path that has no configured args (the adapter, the Infrastructure save and status views).
- * --disable-dev-shm-usage keeps tabs from crashing on Docker's 64 MB /dev/shm.
- */
-export const DEFAULT_PUPPETEER_ARGS: readonly string[] = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-];
-
-/**
- * Append the locale pin unless the operator already set one. Deliberately applied AFTER the
- * PUPPETEER_ARGS override rather than baked into the default string: that variable REPLACES the
- * defaults, so a deployment that customises args for an unrelated reason would otherwise silently
- * lose the pin and fall back to the binary's default browser language. An explicit `--lang` always
- * wins.
- *
- * Returns a NEW array — never mutates the input — because the resolved args object is shared by every
- * session, and pushing per-session flags onto a shared array leaked proxy settings across sessions
- * once already (#840).
- */
-export function withPinnedBrowserLocale(args: readonly string[]): string[] {
-  return args.some(arg => arg.startsWith('--lang')) ? [...args] : [...args, `--lang=${PINNED_BROWSER_LOCALE}`];
-}
 
 export default () => ({
   port: parseInt(process.env.PORT || '2785', 10),
@@ -223,39 +185,9 @@ export default () => ({
 
   // WhatsApp engine configuration
   engine: {
-    type: process.env.ENGINE_TYPE || 'whatsapp-web.js',
-    puppeteer: {
-      headless: process.env.PUPPETEER_HEADLESS !== 'false',
-      // Accept either delimiter: .env/compose use commas, the dashboard Infrastructure form
-      // persists space-separated. Splitting on both keeps each flag a discrete argv token —
-      // a single glued token like "--no-sandbox --disable-gpu" silently neuters --no-sandbox.
-      // A comma only splits before the next flag, since flag values carry commas of their own
-      // (--disable-features=A,B, --window-size=1280,720).
-      args: withPinnedBrowserLocale(
-        (process.env.PUPPETEER_ARGS || DEFAULT_PUPPETEER_ARGS.join(','))
-          .split(/\s+|,+(?=-)/)
-          .map(arg => arg.replace(/^,+|,+$/g, ''))
-          .filter(Boolean),
-      ),
-      // Optional path to a system Chromium/Chrome binary. When unset, whatsapp-web.js
-      // uses Puppeteer's bundled Chromium. Required on hosts where the bundled binary
-      // is missing or incompatible (Alpine, ARM, custom base images).
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      // How long one CDP command may take. An account with thousands of chats can push a single
-      // chat-list read past Puppeteer's own budget; raising this is the escape hatch. Left
-      // UNDEFINED rather than defaulted to Puppeteer's number, so an unset or out-of-range value
-      // means "whatever puppeteer-core's `timeout ?? 180_000` says" instead of pinning today's
-      // figure here and silently outliving it. Out of range is not clamped either: see
-      // wwebjs-lifecycle.ts for why a falsy value is not "no limit", and MAX_TIMER_MS above for
-      // why a huge one is not either.
-      protocolTimeoutMs: (() => {
-        const n = parseInt(process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS || '', 10);
-        return Number.isFinite(n) && n > 0 && n <= MAX_TIMER_MS ? n : undefined;
-      })(),
-    },
-    sessionDataPath: process.env.SESSION_DATA_PATH || './data/sessions',
-    // Baileys engine (used when ENGINE_TYPE=baileys). Multi-file auth state base dir; each session
-    // gets its own subdirectory. Read by the Baileys plugin from the opaque engine config blob.
+    type: process.env.ENGINE_TYPE || 'baileys',
+    // Baileys engine. Multi-file auth state base dir; each session gets its own subdirectory.
+    // Read by the Baileys plugin from the opaque engine config blob.
     baileys: {
       authDir: process.env.BAILEYS_AUTH_DIR || './data/baileys',
     },

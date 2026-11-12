@@ -21,7 +21,7 @@ export class GroupParticipantDto {
   @ApiProperty({
     description:
       'MSISDN digits, without a leading + or separators, for a `<phone>@c.us` participant. For a `<lid>@lid` ' +
-      "participant it carries the lid's digits on both engines, which are not a phone number.",
+      "participant it carries the lid's digits, which are not a phone number.",
     example: '628123456789',
   })
   number!: string;
