@@ -167,7 +167,7 @@ const EventPosterReport = forwardRef(function EventPosterReport({
           <div style={{ position: 'relative', marginTop: 6, minHeight: 66 }}>
             <div style={{ position: 'absolute', left: 0, top: 0 }}><Flag /></div>
             <div style={{ position: 'absolute', right: 0, top: 0 }}><SevakBano image={sevakBanoImage} /></div>
-            <div style={{ color: '#fff', fontSize: 17, marginTop: 34 }}>VENUE : {venue || '—'}</div>
+            <div style={{ color: '#fff', fontSize: 17, marginTop: 34 }}>VENUE : {venue ? String(venue).toUpperCase() : '—'}</div>
             {team.length > 0 && (
               <div style={{ color: '#dfe3ff', fontSize: 11.5, marginTop: 4, padding: '0 90px' }}>Team: {team.join(', ')}</div>
             )}
