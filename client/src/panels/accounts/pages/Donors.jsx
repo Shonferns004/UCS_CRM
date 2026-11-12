@@ -1087,71 +1087,33 @@ export default function Donors() {
               style={{ paddingLeft: 30 }}
             />
           </div>
-          <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setFiltersOpen(v => !v)}
-                title={filtersOpen ? 'Hide filters' : 'Show filters'}
-                aria-label="Filters"
-                aria-expanded={filtersOpen}
-                style={{
-                  position: 'relative', width: 38, height: 38, borderRadius: 9, cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  border: `1px solid ${filtersOpen || activeFilterCount ? 'var(--sage)' : '#DCE6F1'}`,
-                  background: filtersOpen || activeFilterCount ? 'var(--sage)' : '#fff',
-                  color: filtersOpen || activeFilterCount ? '#fff' : '#64748b',
-                  boxShadow: filtersOpen || activeFilterCount ? '0 2px 6px rgba(91,107,78,.25)' : 'none',
-                  transition: 'background .12s, color .12s, border-color .12s',
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
-                </svg>
-                {activeFilterCount > 0 && (
-                  <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {activeFilterCount}
-                  </span>
-                )}
-              </button>
-              {filtersOpen && (
-                <>
-                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
-                  <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 320, maxWidth: '92vw', background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <strong style={{ fontSize: 13, color: '#102544' }}>Filters</strong>
-                      <button
-                        type="button"
-                        onClick={() => { setNgoFilter(''); setAgentFilter(''); setStationFilter(''); setPage(1); setFiltersOpen(false) }}
-                        style={{ border: 'none', background: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
-                      >Reset</button>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>NGO</span>
-                        <select value={ngoFilter} onChange={e => handleNgoChange(e.target.value)} style={{ ...filterSelectStyle(ngoFilter), width: '100%' }}>
-                          <option value="">All NGOs</option>
-                          {ngoOptions.map(n => <option key={n.id} value={n.name}>{n.name}</option>)}
-                        </select>
-                      </label>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>Agent</span>
-                        <select value={agentFilter} onChange={e => { setAgentFilter(e.target.value); setPage(1) }} style={{ ...filterSelectStyle(agentFilter), width: '100%' }}>
-                          <option value="">All agents</option>
-                          {agentOptions.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-                        </select>
-                      </label>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>Station</span>
-                        <select value={stationFilter} onChange={e => { setStationFilter(e.target.value); setPage(1) }} style={{ ...filterSelectStyle(stationFilter), width: '100%' }}>
-                          <option value="">All stations</option>
-                          {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </label>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+          <select
+            value={ngoFilter}
+            onChange={e => handleNgoChange(e.target.value)}
+            title="Filter donors by NGO"
+            style={{ height: 38, minWidth: 130, padding: '0 10px', borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', fontSize: 12.5, fontFamily: 'inherit', color: '#475569' }}
+          >
+            <option value="">All NGOs</option>
+            {ngoOptions.map(n => <option key={n.id} value={n.name}>{n.name}</option>)}
+          </select>
+          <select
+            value={agentFilter}
+            onChange={e => { setAgentFilter(e.target.value); setPage(1) }}
+            title="Filter donors by agent"
+            style={{ height: 38, minWidth: 130, padding: '0 10px', borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', fontSize: 12.5, fontFamily: 'inherit', color: '#475569' }}
+          >
+            <option value="">All agents</option>
+            {agentOptions.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
+          </select>
+          <select
+            value={stationFilter}
+            onChange={e => { setStationFilter(e.target.value); setPage(1) }}
+            title="Filter donors by station"
+            style={{ height: 38, minWidth: 130, padding: '0 10px', borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', fontSize: 12.5, fontFamily: 'inherit', color: '#475569' }}
+          >
+            <option value="">All stations</option>
+            {stationOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
             <div style={{ position: 'relative' }}>

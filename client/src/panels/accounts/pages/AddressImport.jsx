@@ -394,64 +394,29 @@ export default function AddressImport() {
                 onChange={e => setSearchInput(e.target.value)}
                 style={{ width: 260, maxWidth: '100%', height: 38, border: '1px solid #DCE6F1', borderRadius: 9, background: '#fff', padding: '0 12px', fontSize: 12.5, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
               />
-              <div style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  onClick={() => setFiltersOpen(v => !v)}
-                  title={filtersOpen ? 'Hide filters' : 'Show filters'}
-                  aria-label="Filters"
-                  aria-expanded={filtersOpen}
-                  style={{
-                    position: 'relative', width: 38, height: 38, borderRadius: 9, cursor: 'pointer',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    border: `1px solid ${filtersOpen || activeFilterCount ? 'var(--sage)' : '#DCE6F1'}`,
-                    background: filtersOpen || activeFilterCount ? 'var(--sage)' : '#fff',
-                    color: filtersOpen || activeFilterCount ? '#fff' : '#64748b',
-                    transition: 'background .12s, color .12s, border-color .12s',
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
-                  </svg>
-                  {activeFilterCount > 0 && (
-                    <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {activeFilterCount}
-                    </span>
-                  )}
-                </button>
-                {filtersOpen && (
-                  <>
-                    <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
-                    <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 470, maxWidth: '92vw', background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                        <strong style={{ fontSize: 13, color: '#102544' }}>Filters</strong>
-                        <button
-                          type="button"
-                          onClick={() => { setFilterProject(''); setFromDate(''); setToDate(''); setFiltersOpen(false) }}
-                          style={{ border: 'none', background: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
-                        >Reset</button>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 130 }}>
-                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>NGO</span>
-                          <select value={filterProject} onChange={e => setFilterProject(e.target.value)} style={{ width: '100%', height: 34, border: '1px solid #DCE6F1', borderRadius: 8, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }}>
-                            <option value="">All NGOs</option>
-                            {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
-                          </select>
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 130 }}>
-                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>From</span>
-                          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', height: 34, border: '1px solid #DCE6F1', borderRadius: 8, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }} />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 130 }}>
-                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7c8aa0' }}>To</span>
-                          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', height: 34, border: '1px solid #DCE6F1', borderRadius: 8, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }} />
-                        </label>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+              <select
+                value={filterProject}
+                onChange={e => setFilterProject(e.target.value)}
+                title="Filter receipts by NGO"
+                style={{ height: 38, minWidth: 130, padding: '0 10px', borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', fontSize: 12.5, fontFamily: 'inherit', color: '#475569' }}
+              >
+                <option value="">All NGOs</option>
+                {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={e => setFromDate(e.target.value)}
+                title="From date"
+                style={{ height: 38, borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', fontSize: 12.5, fontFamily: 'inherit', padding: '0 8px', color: '#475569' }}
+              />
+              <input
+                type="date"
+                value={toDate}
+                onChange={e => setToDate(e.target.value)}
+                title="To date"
+                style={{ height: 38, borderRadius: 9, border: '1px solid #DCE6F1', background: '#fff', fontSize: 12.5, fontFamily: 'inherit', padding: '0 8px', color: '#475569' }}
+              />
               <div style={{ position: 'relative' }}>
                 <button
                   type="button"
