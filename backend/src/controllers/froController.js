@@ -5717,6 +5717,50 @@ export const getFroOverdue = async (req, res) => {
   }
 };
 
+// Donor-level rows for the loans lent TO this worker. The Follow Ups / Overdue
+// lists are status + schedule driven, so a borrowed lead can fall through them
+// (e.g. an open assignment with no fresh schedule row). This endpoint joins the
+// loan items directly, guaranteeing the borrowed leads appear with their SOURCE
+// station label while the window is live.
+export const getMyLeadLoanItems = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    if (!isFollowUpLoansEnabled() || !workerId) return res.json([]);
+    const { rows, error } = await db._pool.query(
+      `SELECT * FROM (
+         SELECT li.assignment_id, li.donor_id, li.ngo_id,
+                l.id AS loan_id, l.source_station, l.expires_at, l.scope,
+                sw.name AS source_fro_name,
+                a.status, a.next_follow_up, a.batch_type,
+                (SELECT MIN(s.scheduled_at)
+                   FROM fro_scheduled_contacts s
+                  WHERE s.assignment_id = a.id AND s.is_completed = false) AS scheduled_at,
+                d.name AS donor_name, d.mobile_number AS donor_mobile,
+                n.name AS ngo_name
+           FROM followup_loan_items li
+           JOIN followup_loans l ON l.id = li.loan_id
+           LEFT JOIN fro_assignments a ON a.id = li.assignment_id
+           LEFT JOIN donor_profiles d ON d.id = li.donor_id
+           LEFT JOIN ngos n ON n.id = li.ngo_id
+           LEFT JOIN workers sw ON sw.id = l.source_fro_worker_id
+          WHERE l.target_fro_worker_id = $1
+            AND l.status IN ('SCHEDULED', 'ACTIVE')
+            AND now() >= l.starts_at
+            AND now() < l.expires_at
+            AND li.returned_at IS NULL
+       ) q
+       ORDER BY COALESCE(q.scheduled_at, q.next_follow_up::timestamptz) ASC NULLS LAST
+       LIMIT 5000`,
+      [workerId],
+    );
+    if (error) throw new Error(error.message);
+    return res.json(rows || []);
+  } catch (error) {
+    console.error('getMyLeadLoanItems error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Active follow-up / callback loans involving this worker, in both directions.
 // The FRO panel uses it for the "temporarily lent" strip so a lead that
 // disappears from the source list is explained rather than looking lost.

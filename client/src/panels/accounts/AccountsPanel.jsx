@@ -1,6 +1,6 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Wallet, Smartphone, BookOpen, Boxes, Target, CalendarCheck, CalendarClock, Unlock, Lock } from 'lucide-react'
+import { Users, Wallet, Smartphone, BookOpen, Boxes, Target, CalendarCheck, CalendarClock, Unlock, Lock, MoreHorizontal } from 'lucide-react'
 import { useUcs } from '../../store'
 import { useSalaryPrivacy } from '../../context/SalaryPrivacyContext'
 import { themes, applyTheme } from '../hr/theme'
@@ -65,6 +65,14 @@ import GoogleMapApi from './pages/GoogleMapApi'
 import BusinessFinder from './pages/BusinessFinder'
 import GooglePlacesSearch from './pages/GooglePlacesSearch'
 import OsmPlacesSearch from './pages/OsmPlacesSearch'
+
+// Dropdown row shared by the Operations actions menu.
+const menuItemStyle = (color = 'var(--ink)') => ({
+  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+  padding: '8px 10px', border: 'none', background: 'transparent', borderRadius: 7,
+  fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color, textAlign: 'left',
+  cursor: 'pointer', whiteSpace: 'nowrap',
+})
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
@@ -201,8 +209,6 @@ const MODULES_NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> },
   { id: 'whatsapp-dashboard', path: '/accounts/whatsapp-dashboard', label: 'WhatsApp',
     icon: <Smartphone size={18} /> },
-  { id: 'openwa-engine', path: '/accounts/openwa-engine', label: 'OpenWA Engine',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-5-5z"/><path d="M2 2l20 8 2-8H2z"/></svg> },
   { ...BENEFICIARY_NAV[0], match: (p) => p.startsWith('/accounts/beneficiaries') },
   SIM_NAV_ITEM,
 ]
@@ -348,6 +354,16 @@ function PayrollSection({ theme }) {
   // Salary File, Compensations). It hands them up once so the top strip can
   // render the buttons next to Manage Teams while the list page is mounted.
   const [workersActions, setWorkersActions] = useState(null)
+  // All Operations actions live behind one menu so the header stays one line
+  // instead of six buttons that overflow on smaller screens.
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsRef = useRef(null)
+  useEffect(() => {
+    if (!actionsOpen) return
+    const onDown = (e) => { if (actionsRef.current && !actionsRef.current.contains(e.target)) setActionsOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [actionsOpen])
   const { isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy()
   // Loan & Advance is a full page in this strip again — Accounts reconciles
   // those deductions here, not inside a volunteer's detail view.
@@ -364,45 +380,66 @@ function PayrollSection({ theme }) {
       {!onDetail && (
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <PageTabs tabs={tabs} ariaLabel="Operations" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-            {workersActions && (
-              <>
-                <button className="btn btn-sm btn-primary" onClick={() => { if (isSalaryUnlocked) lockSalary(); else promptUnlock(); }}
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap', background: isSalaryUnlocked ? undefined : '#2563eb', borderColor: '#2563eb' }}
-                  title={isSalaryUnlocked ? 'Hide salary figures again' : 'Enter your access code to view salary figures'}>
-                  {isSalaryUnlocked ? <><Lock size={14} /> Hide Salary</> : <><Unlock size={14} /> Unlock Salary</>}
-                </button>
-                <button className="btn btn-sm btn-outline" onClick={workersActions.downloadFroTargets}
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
-                  title="Download this month's FRO targets (FRO department only) as Excel">
-                  <Target size={14} /> Targets
-                </button>
-                <button className="btn btn-sm btn-outline" onClick={workersActions.openAttExport}
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
-                  title="Export a month's attendance sheet (In/Out per day) to Excel">
-                  <CalendarCheck size={14} /> Attendance
-                </button>
-                <button className="btn btn-sm btn-outline" onClick={workersActions.openPagar}
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
-                  title="Download Salary File (July format)">
-                  <Wallet size={14} /> Salary
-                </button>
-                <button className="btn btn-sm btn-outline" onClick={workersActions.openCompensations}
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}
-                  title="Manage compensatory Sundays and holidays">
-                  <CalendarClock size={14} /> Compensations
-                </button>
-              </>
-            )}
+          <div style={{ position: 'relative', marginTop: 6, flexShrink: 0 }} ref={actionsRef}>
             <button
               type="button"
               className="btn btn-sm btn-outline"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
-              onClick={() => setTeamsOpen(true)}
-              title="Add, rename or remove teams"
+              onClick={() => setActionsOpen(o => !o)}
+              aria-label="Operations actions"
+              aria-haspopup="menu"
+              aria-expanded={actionsOpen}
+              title="Actions"
+              style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              <Users size={14} /> Manage Teams
+              <MoreHorizontal size={16} />
             </button>
+            {actionsOpen && (
+              <div
+                role="menu"
+                className="actions-menu"
+                style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 300,
+                  minWidth: 224, background: '#fff', border: '1px solid var(--line, #e5e7eb)',
+                  borderRadius: 10, boxShadow: '0 10px 28px rgba(15,23,42,.16)', padding: 4, overflow: 'hidden',
+                }}
+              >
+                <style>{`.actions-menu button:hover{background:#f8fafc}`}</style>
+                {workersActions && (
+                  <>
+                    <button
+                      role="menuitem"
+                      onClick={() => { setActionsOpen(false); if (isSalaryUnlocked) lockSalary(); else promptUnlock(); }}
+                      title={isSalaryUnlocked ? 'Hide salary figures again' : 'Enter your access code to view salary figures'}
+                      style={menuItemStyle(isSalaryUnlocked ? 'var(--ink)' : '#1d4ed8')}
+                    >
+                      {isSalaryUnlocked ? <Lock size={14} /> : <Unlock size={14} />}
+                      {isSalaryUnlocked ? 'Hide Salary' : 'Unlock Salary'}
+                    </button>
+                    <button role="menuitem" onClick={() => { setActionsOpen(false); workersActions.downloadFroTargets(); }}
+                      title="Download this month's FRO targets (FRO department only) as Excel" style={menuItemStyle()}>
+                      <Target size={14} /> Targets
+                    </button>
+                    <button role="menuitem" onClick={() => { setActionsOpen(false); workersActions.openAttExport(); }}
+                      title="Export a month's attendance sheet (In/Out per day) to Excel" style={menuItemStyle()}>
+                      <CalendarCheck size={14} /> Attendance
+                    </button>
+                    <button role="menuitem" onClick={() => { setActionsOpen(false); workersActions.openPagar(); }}
+                      title="Download Salary File (July format)" style={menuItemStyle()}>
+                      <Wallet size={14} /> Salary
+                    </button>
+                    <button role="menuitem" onClick={() => { setActionsOpen(false); workersActions.openCompensations(); }}
+                      title="Manage compensatory Sundays and holidays" style={menuItemStyle()}>
+                      <CalendarClock size={14} /> Compensations
+                    </button>
+                    <div style={{ height: 1, background: 'var(--line, #e5e7eb)', margin: '4px 0' }} />
+                  </>
+                )}
+                <button role="menuitem" onClick={() => { setActionsOpen(false); setTeamsOpen(true); }}
+                  title="Add, rename or remove teams" style={menuItemStyle()}>
+                  <Users size={14} /> Manage Teams
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,2 +1,0 @@
-password --> Sevak@123P
-ucs_admin--> password: Sevak1432P

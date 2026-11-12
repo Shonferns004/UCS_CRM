@@ -880,7 +880,36 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
 
       <div className="detail-split">
         <div className="detail-sidebar-wrap">
-        <div className="card detail-sidebar">
+        <div className="card detail-sidebar" style={{ position:'relative' }}>
+          {/* Half-in / half-out lock toggle, pinned to the card's top-right
+              corner: unlock asks for the salary access code, lock hides the
+              numbers again. */}
+          <button
+            type="button"
+            onClick={() => { if (isSalaryUnlocked) lockSalary(); else promptUnlock(); }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px) scale(1.05)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}
+            title={isSalaryUnlocked ? 'Hide salary figures' : 'Unlock salary figures'}
+            aria-label={isSalaryUnlocked ? 'Hide salary figures' : 'Unlock salary figures'}
+            style={{
+              position:'absolute', top:-16, right:-16, width:38, height:38, borderRadius:'50%',
+              border:'2px solid #fff',
+              background: isSalaryUnlocked ? '#166534' : 'var(--sage, #5B6B4E)',
+              color:'#fff',
+              display:'grid', placeItems:'center', cursor:'pointer',
+              boxShadow: isSalaryUnlocked
+                ? '0 0 0 4px rgba(22,101,52,.16), 0 6px 16px rgba(15,23,42,.28)'
+                : '0 0 0 4px rgba(91,107,78,.18), 0 6px 16px rgba(15,23,42,.28)',
+              zIndex:3, transition:'transform .15s ease, box-shadow .15s ease',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              {isSalaryUnlocked
+                ? <path d="M8 11V7a4 4 0 0 1 7.5-2" />
+                : <path d="M8 11V7a4 4 0 0 1 8 0v4" />}
+            </svg>
+          </button>
           <div style={{ textAlign:'center', padding:'24px 0 12px', position:'relative' }}>
             <input ref={photoInputRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handlePhotoSelect} />
             <div onClick={() => editing && photoInputRef.current?.click()} onPaste={editing ? handlePhotoPaste : undefined} title={editing ? 'Click or paste (Ctrl+V) to change photo' : undefined} style={{ cursor: editing ? 'pointer' : 'default', display:'inline-block' }}>

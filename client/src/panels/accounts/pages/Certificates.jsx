@@ -639,9 +639,16 @@ export default function Certificates() {
         .hero p { margin:0 0 16px 0; font-size:15px; line-height:24px; color:#64748B; }
         .hero-pills { display:flex; gap:8px; flex-wrap:wrap; }
         .hero-pills span { border:1px solid #E5E7EB; background:#fff; color:#334155; font-size:12px; border-radius:999px; padding:4px 10px; }
-        .toolbar { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
-        .tpl-toolbar-left { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-        .tpl-toolbar-right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .toolbar { background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; box-shadow:0 1px 3px rgba(15,23,42,.05); }
+        .tpl-toolbar-left { display:flex; gap:3px; flex-wrap:wrap; align-items:center; background:#F8FAFC; border:1px solid #E5E7EB; border-radius:12px; padding:3px; }
+        .tpl-toolbar-left .tab { padding:7px 14px; border-radius:9px; border:none; background:transparent; color:#64748B; font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit; transition:background .12s, color .12s, box-shadow .12s; }
+        .tpl-toolbar-left .tab:hover { background:#fff; color:#0F172A; }
+        .tpl-toolbar-left .tab.active { background:#3B82F6; color:#fff; box-shadow:0 2px 6px rgba(59,130,246,.35); }
+        .tpl-toolbar-right { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+        .tpl-count { font-size:12px; font-weight:600; color:#64748B; white-space:nowrap; }
+        .tpl-ngo-select { height:36px; padding:0 12px; border:1px solid #E5E7EB; border-radius:10px; background:#fff; font-size:13px; font-family:inherit; color:#0F172A; outline:none; cursor:pointer; min-width:170px; }
+        .tpl-ngo-select:hover { border-color:#CBD5E1; }
+        .tpl-ngo-select:focus { border-color:#3B82F6; box-shadow:0 0 0 3px rgba(59,130,246,.12); }
         .view-toggle { display:flex; gap:4px; border:1px solid #E5E7EB; border-radius:8px; padding:2px; }
         .view-toggle button { border:none; background:transparent; padding:4px 10px; border-radius:6px; font-size:12px; cursor:pointer; font-family:inherit; color:#64748B; }
         .view-toggle button.active { background:#3B82F6; color:#fff; }
@@ -782,9 +789,6 @@ export default function Certificates() {
                     )}
                   </div>
                 )}
-                <button className="btn btn-sm" onClick={toggleHistory}>
-                  <History size={14} /> {showHistory ? 'Templates' : 'History'}
-                </button>
                 {canManage && (
                   <button className="btn btn-sm btn-primary" onClick={openWizard}>
                     <Plus size={14} /> New Template
@@ -845,13 +849,17 @@ export default function Certificates() {
               ))}
             </div>
             <div className="tpl-toolbar-right">
-              <select value={ngoFilter} onChange={(e) => setNgoFilter(e.target.value)} style={META_STYLE}>
+              <span className="tpl-count">
+                {visibleTemplates.length} template{visibleTemplates.length === 1 ? '' : 's'}
+              </span>
+              <select
+                className="tpl-ngo-select"
+                value={ngoFilter}
+                onChange={(e) => setNgoFilter(e.target.value)}
+              >
                 <option value="">All NGOs</option>
                 {ngos.map((n) => <option key={String(n.id)} value={n.id}>{n.name}</option>)}
               </select>
-              <button className="btn btn-sm" onClick={toggleHistory}>
-                <History size={14} /> History
-              </button>
             </div>
           </div>
           {loading ? (

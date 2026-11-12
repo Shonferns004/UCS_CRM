@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { Download, FileSpreadsheet, Pencil, Trash2, Search, X } from 'lucide-react';
+import { Download, FileSpreadsheet, Pencil, Trash2, Search, X, MoreHorizontal, SlidersHorizontal } from 'lucide-react';
 import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
@@ -178,8 +178,8 @@ export default function ReceiptHistory() {
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [minAmount, setMinAmount] = useState('');
-  const [maxAmount, setMaxAmount] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -239,8 +239,6 @@ export default function ReceiptHistory() {
     if (libraryMode) params.set('library', '1');
     if (fromDate) params.set('from_date', fromDate);
     if (toDate) params.set('to_date', toDate);
-    if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) params.set('min_amount', String(minAmount));
-    if (maxAmount !== '' && !Number.isNaN(parseFloat(maxAmount))) params.set('max_amount', String(maxAmount));
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -249,7 +247,7 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, pgMode, libraryMode, minAmount, maxAmount]);
+  }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, pgMode, libraryMode]);
 
   // Live: a receipt raised or its status changed must appear in the list
   // straight away, not on the next page load.
@@ -422,7 +420,7 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  useEffect(() => { setPage(1); }, [debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, minAmount, maxAmount]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -639,8 +637,8 @@ export default function ReceiptHistory() {
     if (pgMode) p.set('pg', '1');
     if (fromDate) p.set('from_date', fromDate);
     if (toDate) p.set('to_date', toDate);
-    if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) p.set('min_amount', String(minAmount));
-    if (maxAmount !== '' && !Number.isNaN(parseFloat(maxAmount))) p.set('max_amount', String(maxAmount));
+    if (fromDate) p.set('from_date', fromDate);
+    if (toDate) p.set('to_date', toDate);
     for (const [k, v] of Object.entries(extra)) p.set(k, v);
     return p;
   };
@@ -810,6 +808,15 @@ export default function ReceiptHistory() {
     return () => { cancelled = true };
   }, [historyForDownload]);
 
+  const activeFilterCount = [fromDate, toDate, receiptNgo, suspenseMode, pgMode, libraryMode].filter(Boolean).length;
+
+  // Shared input styling for the Edit Receipt modal.
+  const editInputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 9,
+    border: '1px solid var(--line, #d1d5db)', fontSize: 12.5, fontFamily: 'inherit',
+    background: '#fff', outline: 'none', color: 'var(--ink)',
+  };
+
   return (
     <div>
       <div className="rx-card">
@@ -818,82 +825,137 @@ export default function ReceiptHistory() {
             <h3>Receipt History</h3>
             <div className="rx-card-sub">{total} total receipts</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ position: 'relative', width: 280, maxWidth: '100%' }}>
+              <Search size={13} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)', pointerEvents: 'none' }} />
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search name, mobile, PAN, email, UTR, receipt no..."
+                style={{ width: '100%', padding: '8px 10px 8px 31px', borderRadius: 9, border: '1px solid var(--line)', fontSize: 12.5, background: '#fff', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+              />
+            </div>
+            <div style={{ position: 'relative' }}>
             <button
-              onClick={handleDownloadExcel}
-              disabled={excelDownloading}
-              className="btn btn-sm"
-              style={{ background: '#16a34a', color: '#fff', border: 'none', opacity: excelDownloading ? 0.6 : 1 }}>
-              <FileSpreadsheet size={14} strokeWidth={2.5} />
-              {excelDownloading ? 'Exporting...' : 'Download Excel'}
-            </button>
-            <button
-              onClick={handleDownloadReceipts}
-              disabled={todayDownloading}
-              className="btn btn-sm"
-              style={{ background: '#5B6B4E', color: '#fff', border: 'none', opacity: todayDownloading ? 0.6 : 1 }}>
-              <Download size={14} strokeWidth={2.5} />
-              {todayDownloading ? 'Zipping...' : 'Download Receipts'}
-            </button>
-          </div>
-        </div>
-        <div className="rx-tabs" style={{ paddingLeft: 16, paddingRight: 16, borderBottom: 'none', gap: 0 }}>
-          {[{ k: 'suspense', l: 'Suspense', c: '#dc2626' }, { k: 'pg', l: 'PG', c: '#2563eb' }, { k: 'library', l: 'Library', c: '#0f766e' }].map(tab => {
-            const active = tab.k === 'suspense' ? suspenseMode : tab.k === 'pg' ? pgMode : libraryMode;
-            return (
-              <button key={tab.k} className="rx-tab" onClick={() => {
-                if (tab.k === 'suspense') { const next = !suspenseMode; if (next) { setPgMode(false); setLibraryMode(false); setFromDate(f => f || '2026-08-01'); } setSuspenseMode(next); setPage(1); }
-                else if (tab.k === 'pg') { const next = !pgMode; if (next) { setSuspenseMode(false); setLibraryMode(false); } setPgMode(next); setPage(1); }
-                else { const next = !libraryMode; if (next) { setSuspenseMode(false); setPgMode(false); } setLibraryMode(next); setPage(1); }
+              type="button"
+              onClick={() => { setFiltersOpen(v => !v); setActionsOpen(false); }}
+              title={filtersOpen ? 'Hide filters' : 'Show filters'}
+              aria-label="Filters"
+              aria-expanded={filtersOpen}
+              style={{
+                position: 'relative', width: 34, height: 34, borderRadius: 10, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                border: `1px solid ${filtersOpen || activeFilterCount ? 'var(--sage)' : 'var(--line)'}`,
+                background: filtersOpen || activeFilterCount ? 'var(--sage)' : '#fff',
+                color: filtersOpen || activeFilterCount ? '#fff' : 'var(--ink-soft)',
               }}
-                style={{ background: active ? tab.c : 'var(--bg)', color: active ? '#fff' : 'var(--ink-soft)', fontWeight: 600, borderRadius: 7, padding: '5px 10px', border: 'none', fontSize: 12 }}>
-                {tab.l}
+            >
+              <SlidersHorizontal size={16} />
+              {activeFilterCount > 0 && (
+                <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{activeFilterCount}</span>
+              )}
+            </button>
+            {filtersOpen && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setFiltersOpen(false)} />
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 780, maxWidth: '94vw', background: '#fff', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 18px 48px rgba(15,23,42,.18)', padding: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <strong style={{ fontSize: 13, color: 'var(--ink)' }}>Filters</strong>
+                    <button
+                      type="button"
+                      onClick={() => { setSearchQuery(''); setFromDate(''); setToDate(''); setReceiptNgo(''); setSuspenseMode(false); setPgMode(false); setLibraryMode(false); setPage(1); }}
+                      style={{ border: 'none', background: 'none', color: '#2563eb', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                    >Reset</button>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 132 }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>From</span>
+                      <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 132 }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>To</span>
+                      <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>NGO</span>
+                      <select value={receiptNgo} onChange={e => { setReceiptNgo(e.target.value); setPage(1); setFiltersOpen(false); }} style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                        <option value="">All NGOs</option>
+                        <option value="bsct">Being Sevak Charitable Trust (BSCT)</option>
+                        <option value="mann">Mann Care Foundation (MANN)</option>
+                        <option value="aflf">Ashray For Life Foundation (AFLF)</option>
+                        <option value="library">Library</option>
+                        <option value="pg">PG</option>
+                      </select>
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Type</span>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {[{ k: 'suspense', l: 'Suspense', c: '#dc2626' }, { k: 'pg', l: 'PG', c: '#2563eb' }, { k: 'library', l: 'Library', c: '#0f766e' }].map(tab => {
+                          const active = tab.k === 'suspense' ? suspenseMode : tab.k === 'pg' ? pgMode : libraryMode;
+                          return (
+                            <button key={tab.k} type="button" onClick={() => {
+                              if (tab.k === 'suspense') { const next = !suspenseMode; if (next) { setPgMode(false); setLibraryMode(false); setFromDate(f => f || '2026-08-01'); } setSuspenseMode(next); setPage(1); }
+                              else if (tab.k === 'pg') { const next = !pgMode; if (next) { setSuspenseMode(false); setLibraryMode(false); } setPgMode(next); setPage(1); }
+                              else { const next = !libraryMode; if (next) { setSuspenseMode(false); setPgMode(false); } setLibraryMode(next); setPage(1); }
+                              setFiltersOpen(false);
+                            }}
+                              style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${active ? tab.c : 'var(--line)'}`, background: active ? tab.c : '#fff', color: active ? '#fff' : 'var(--ink-soft)', fontWeight: 700, fontSize: 11.5, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                              {tab.l}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            </div>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setActionsOpen(v => !v)}
+                title="Download actions"
+                aria-label="Download actions"
+                aria-haspopup="menu"
+                aria-expanded={actionsOpen}
+                style={{ width: 34, height: 34, padding: 0, borderRadius: 10, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+              >
+                <MoreHorizontal size={17} />
               </button>
-            )
-          })}
-        </div>
-        <div className="rx-filters">
-          <div className="rx-fselect">
-            <span className="rx-fkey">From</span>
-            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }} />
-          </div>
-          <div className="rx-fselect">
-            <span className="rx-fkey">To</span>
-            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }} />
-          </div>
-          <div className="rx-fselect">
-            <span className="rx-fkey">NGO</span>
-            <select value={receiptNgo} onChange={e => { setReceiptNgo(e.target.value); setPage(1) }}>
-              <option value="">All NGOs</option>
-              <option value="bsct">Being Sevak</option>
-              <option value="mann">Mann Care</option>
-              <option value="aflf">Ashray</option>
-              <option value="library">Library</option>
-              <option value="pg">PG</option>
-            </select>
-          </div>
-          <div className="rx-fselect">
-            <span className="rx-fkey">Amount</span>
-            <div className="rx-amt">
-              <input type="number" min="0" placeholder="Min" value={minAmount} onChange={e => setMinAmount(e.target.value)} />
-              <span className="rx-amt-sep">&ndash;</span>
-              <input type="number" min="0" placeholder="Max" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} />
+              {actionsOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setActionsOpen(false)} />
+                  <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, width: 235, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 5 }}>
+                    <button
+                      role="menuitem"
+                      onClick={() => { setActionsOpen(false); handleDownloadExcel(); }}
+                      disabled={excelDownloading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#15803d' }}
+                    >
+                      <FileSpreadsheet size={15} /> {excelDownloading ? 'Exporting…' : 'Download Excel'}
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => { setActionsOpen(false); handleDownloadReceipts(); }}
+                      disabled={todayDownloading}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#5B6B4E' }}
+                    >
+                      <Download size={15} /> {todayDownloading ? 'Zipping…' : 'Download Receipts'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-          <div className="rx-fselect rx-filter-grow">
-            <span className="rx-fkey">Search</span>
-            <div className="tw-search">
-              <Search size={13} />
-              <input placeholder="Name, mobile, PAN, email, UTR, receipt no..."
-                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-            </div>
-          </div>
-          <button className="rx-iconbtn" onClick={() => { setSearchQuery(''); setFromDate(''); setToDate(''); setReceiptNgo(''); setMinAmount(''); setMaxAmount(''); setSuspenseMode(false); setPgMode(false); setLibraryMode(false); setPage(1); }}
-            title="Reset filters">
-            <X size={14} />
-          </button>
         </div>
         <div className="rx-table-wrap" style={{ margin: 0, borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
+          <style>{`
+            .rx-history-row .rx-row-del { opacity: 0; transition: opacity .12s; }
+            .rx-history-row:hover .rx-row-del { opacity: 1; }
+            @media (hover: none) { .rx-history-row .rx-row-del { opacity: 1; } }
+          `}</style>
           <table className="rx-table">
             <thead>
               <tr>
@@ -904,9 +966,7 @@ export default function ReceiptHistory() {
                 <th>Date</th>
                 <th>Time</th>
                 <th>Amount</th>
-                <th>No. of Donations</th>
                 <th>Delivery</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -921,12 +981,11 @@ export default function ReceiptHistory() {
                     <td><div className="sk" style={{ width: 45, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 40, height: 12, borderRadius: 3 }} /></td>
-                    <td><div className="sk" style={{ width: 70, height: 12, borderRadius: 3 }} /></td>
                   </tr>
                 ))
               ) : receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                     {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
                   </td>
                 </tr>
@@ -937,13 +996,28 @@ export default function ReceiptHistory() {
                   const info = donorMap[key] || { count: 1, total: 0 };
                   const dateStr = r.receipt_date ? formatReceiptDate(r.receipt_date) : '\u2014';
                   return (
-                    <tr key={r.id || i} className="clickable-row" onClick={() => {
+                    <tr key={r.id || i} className="clickable-row rx-history-row" onClick={() => {
                       setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: donorMap[key]?.receipts || [r] });
                     }}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{(r.donor_name || '?')[0].toUpperCase()}</div>
                           <strong>{r.donor_name || '\u2014'}</strong>
+                          {mostRecentPerNgo[r.project_id || 'unknown'] === r.id && (
+                            <button
+                              className="rx-row-del"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteReceipt(r); }}
+                              disabled={deletingId === r.id}
+                              title="Delete receipt (returns to audit)"
+                              style={{ border: '1px solid #fecaca', background: '#fef2f2', cursor: 'pointer', padding: 3, borderRadius: 6, color: deletingId === r.id ? '#d1d5db' : '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                            >
+                              {deletingId === r.id ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" /></circle></svg>
+                              ) : (
+                                <Trash2 size={12.5} strokeWidth={2} />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.receipt_no || '\u2014'}</td>
@@ -952,36 +1026,8 @@ export default function ReceiptHistory() {
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateStr}</td>
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
-                      <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <WhatsAppDeliveryBadge receipt={r} compact />
-                      </td>
-                      <td style={{ display: 'flex', gap: 2 }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleEditReceipt(r); }}
-                          title="Edit receipt"
-                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
-                          onMouseOut={e => e.currentTarget.style.background = 'none'}
-                        >
-                          <Pencil size={14} strokeWidth={2} />
-                        </button>
-                        {mostRecentPerNgo[r.project_id || 'unknown'] === r.id && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteReceipt(r); }}
-                            disabled={deletingId === r.id}
-                            title="Delete receipt (returns to audit)"
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: deletingId === r.id ? '#d1d5db' : '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            onMouseOver={e => { if (deletingId !== r.id) e.currentTarget.style.background = '#fef2f2'; }}
-                            onMouseOut={e => e.currentTarget.style.background = 'none'}
-                          >
-                            {deletingId === r.id ? (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" /></circle></svg>
-                            ) : (
-                              <Trash2 size={14} strokeWidth={2} />
-                            )}
-                          </button>
-                        )}
                       </td>
                     </tr>
                   );
@@ -999,8 +1045,6 @@ export default function ReceiptHistory() {
                     {currency(receipts.reduce((s, r) => s + Number(r.amount || 0), 0))}
                   </td>
                   <td style={{ padding: '9px 12px', fontWeight: 700 }}>{receipts.length} rows</td>
-                  <td></td>
-                  <td></td>
                 </tr>
               )}
             </tbody>
@@ -1086,7 +1130,7 @@ export default function ReceiptHistory() {
           <div className="rx-drawer" style={{ zIndex: 3101 }}>
             <div className="rx-drawer-head">
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #60a5fa, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16, fontWeight: 700, flexShrink: 0, boxShadow: '0 2px 8px rgba(37,99,235,.28)' }}>
                   {(donorDetail.name || '?')[0].toUpperCase()}
                 </div>
                 <div>
@@ -1096,28 +1140,46 @@ export default function ReceiptHistory() {
               </div>
               <button className="rx-iconbtn" onClick={() => setDonorDetail(null)}><X size={16} /></button>
             </div>
-            <div className="rx-drawer-body" style={{ padding: 0 }}>
+            <div className="rx-drawer-body" style={{ padding: 14 }}>
               <div className="rx-drawer-list">
                 {donorDetail.receipts.map((r, i) => (
-                  <div key={r.id} className="rx-drawer-list-item" onClick={() => { setSavedDetail(donorDetail); setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--line)', flexShrink: 0 }} />
+                  <div key={r.id} className="rx-drawer-list-item" style={{ padding: '12px 14px', gap: 10, alignItems: 'flex-start' }} onClick={() => { setSavedDetail(donorDetail); setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', marginTop: 5, background: r.project_id === 'mann' ? '#ec4899' : r.project_id === 'aflf' ? '#2563eb' : '#16a34a', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span className="rx-mono" style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{r.receipt_no}</span>
-                        <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.receipt_date ? formatReceiptDate(r.receipt_date) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                        <span className="rx-mono" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{r.receipt_no}</span>
+                        <span style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{r.receipt_date ? formatReceiptDate(r.receipt_date) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>
-                        {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginTop: 5 }}>
+                        {r.mode && <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 6, background: '#f1f5f9', color: '#475569' }}>{r.mode}</span>}
+                        {r.project_id && (
+                          <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 6, background: r.project_id === 'mann' ? '#fce7f3' : r.project_id === 'aflf' ? '#dbeafe' : '#dcfce7', color: r.project_id === 'mann' ? '#be185d' : r.project_id === 'aflf' ? '#1d4ed8' : '#15803d' }}>
+                            {r.project_id === 'mann' ? 'MANN' : r.project_id === 'aflf' ? 'AFLF' : r.project_id === 'bsct' ? 'BSCT' : String(r.project_id).toUpperCase()}
+                          </span>
+                        )}
                       </div>
                       {r.bank_payer_name && (
-                        <div style={{ fontSize: 10, color: '#a3a3a3', marginTop: 1 }}>Payer: {r.bank_payer_name}</div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>Payer: {r.bank_payer_name}</div>
                       )}
-<div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                        {agentCell(r)}
+                      <div style={{ marginTop: 6 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8' }}>{agentCell(r)}</span>
                       </div>
                     </div>
-                    <div className="rx-amount">{currency(r.amount)}</div>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" style={{ flexShrink: 0, opacity: .5 }}><polyline points="9 18 15 12 9 6" /></svg>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 7, flexShrink: 0 }}>
+                      <span style={{ fontWeight: 800, fontSize: 12.5, color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '2px 8px', borderRadius: 7, whiteSpace: 'nowrap' }}>{currency(r.amount)}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEditReceipt(r); }}
+                          title="Edit receipt"
+                          style={{ border: '1px solid var(--line)', background: '#fff', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
+                          onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                        >
+                          <Pencil size={12.5} strokeWidth={2} />
+                        </button>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" style={{ flexShrink: 0, opacity: .5 }}><polyline points="9 18 15 12 9 6" /></svg>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1133,15 +1195,26 @@ export default function ReceiptHistory() {
       {editingReceipt && createPortal(
         <>
           <div className="modal-overlay" onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }} style={{ zIndex: 9999 }} />
-          <div className="modal" style={{ maxWidth: 520, width: '90%', maxHeight: '85vh', overflow: 'auto', zIndex: 10000 }}>
-            <div className="modal-header">
-              <h3>Edit Receipt — {editingReceipt.receipt_no}</h3>
+          <div className="modal" style={{ maxWidth: 620, width: '94%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 16, zIndex: 10000 }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fff', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                <span style={{ width: 38, height: 38, borderRadius: 11, background: '#eff6ff', color: '#2563eb', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Pencil size={17} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)' }}>Edit Receipt</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    Receipt <b>{editingReceipt.receipt_no}</b>{editingReceipt.donor_name ? ` · ${editingReceipt.donor_name}` : ''}
+                  </div>
+                </div>
+              </div>
               <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
-                style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                aria-label="Close"
+                style={{ border: 'none', background: 'transparent', color: 'var(--ink-soft)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
-            <div className="modal-body" style={{ padding: 20 }}>
+            <div className="modal-body" style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {editingReceipt.verify_type === 'cross_fro' && (
                 <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
                   <div style={{ fontWeight: 700, marginBottom: 4 }}>Cross-FRO Receipt</div>
@@ -1161,7 +1234,11 @@ export default function ReceiptHistory() {
                   {editingReceipt.audit_payer_name && <div>Payer as per audit: <strong>{editingReceipt.audit_payer_name}</strong></div>}
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', background: '#f8fafc', fontSize: 10, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>
+                  Receipt details
+                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, padding: 16 }}>
                 {[
                   { label: 'Donor Name', key: 'donor_name', colSpan: 2 },
                   { label: 'Amount', key: 'amount', colSpan: 2, type: 'number' },
@@ -1178,7 +1255,7 @@ export default function ReceiptHistory() {
                   { label: 'Receipt Date', key: 'receipt_date', type: 'date' },
                   { label: 'Receipt Time', key: 'receipt_time', type: 'time' },
                 ].map(({ label, key, colSpan, type }) => (
-                  <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 10, color: 'var(--ink-soft)', fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', display: 'flex', flexDirection: 'column', gap: 5 }}>
                     {label}
                     {type === 'select' ? (
                       (() => {
@@ -1192,7 +1269,7 @@ export default function ReceiptHistory() {
                           <select
                             value={cur}
                             onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                            style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                            style={editInputStyle}
                           >
                             <option value="">Not assigned</option>
                             {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -1204,7 +1281,7 @@ export default function ReceiptHistory() {
                       <select
                         value={editForm[key] || ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                        style={editInputStyle}
                       >
                         <option value="">—</option>
                         {editSources.map(s => (
@@ -1224,7 +1301,7 @@ export default function ReceiptHistory() {
                           <select
                             value={cur}
                             onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                            style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                            style={editInputStyle}
                           >
                             <option value="">—</option>
                             {modeList.map(m => <option key={m} value={m}>{m}</option>)}
@@ -1237,14 +1314,14 @@ export default function ReceiptHistory() {
                         value={editForm[key] || ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
                         rows={2}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, resize: 'vertical' }}
+                        style={{ ...editInputStyle, resize: 'vertical', minHeight: 62 }}
                       />
                     ) : type === 'date' ? (
                       <input
                         type="date"
                         value={editForm[key] ? String(editForm[key]).slice(0, 10) : ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                        style={editInputStyle}
                       />
                     ) : type === 'time' ? (
                       <input
@@ -1252,7 +1329,7 @@ export default function ReceiptHistory() {
                         placeholder="HH:MM"
                         value={editForm[key] || ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                        style={editInputStyle}
                       />
                     ) : type === 'number' ? (
                       <input
@@ -1261,29 +1338,30 @@ export default function ReceiptHistory() {
                         step="0.01"
                         value={editForm[key] || ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                        style={editInputStyle}
                       />
                     ) : (
                       <input
                         type={key === 'email' ? 'email' : 'text'}
                         value={editForm[key] || ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                        style={editInputStyle}
                       />
                     )}
                   </label>
                 ))}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-                <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
-                  style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                  Cancel
-                </button>
-                <button onClick={handleSaveEdit} disabled={editSaving}
-                  style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: confirmFroChange ? '#f59e0b' : '#059669', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: editSaving ? 0.6 : 1 }}>
-                  {editSaving ? 'Saving...' : confirmFroChange ? 'Confirm & Save' : 'Save'}
-                </button>
               </div>
+            </div>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8, background: '#fff', flexShrink: 0 }}>
+              <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--line)', background: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+              <button onClick={handleSaveEdit} disabled={editSaving}
+                style={{ padding: '8px 18px', borderRadius: 9, border: 'none', background: confirmFroChange ? '#f59e0b' : '#059669', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: editSaving ? 0.6 : 1 }}>
+                {editSaving ? 'Saving…' : confirmFroChange ? 'Confirm & Save' : 'Save changes'}
+              </button>
             </div>
           </div>
         </>,
