@@ -44,6 +44,13 @@ const IconPlus = () => (
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
+const IconUsers = () => (
+  <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
 
 export default function TeamsManageModal({ onClose }) {
   const { teams, saveTeams } = useTeams();
@@ -116,10 +123,6 @@ export default function TeamsManageModal({ onClose }) {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
-  const tfTag = {
-    display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid var(--line, #e5e7eb)',
-    borderRadius: 10, padding: '6px 8px 6px 12px', fontSize: 13, fontWeight: 600, background: '#fff',
-  };
   const tfBtn = {
     border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af',
     padding: '4px 6px', borderRadius: 6, lineHeight: 1, display: 'inline-flex',
@@ -128,67 +131,99 @@ export default function TeamsManageModal({ onClose }) {
   return (
     <div
       onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(17,24,39,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      style={{ position: 'fixed', inset: 0, zIndex: 5000, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
     >
       <div role="dialog" aria-modal="true" aria-label="Manage Teams"
-        style={{ background: 'var(--card-bg, #fff)', borderRadius: 12, width: '100%', maxWidth: 480, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 45px rgba(0,0,0,.22)', overflow: 'hidden' }}>
+        style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(15,23,42,.28)', overflow: 'hidden' }}>
 
-        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--line, #f3f4f6)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink, #111827)' }}>Manage Teams</div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-soft, #6b7280)', marginTop: 2 }}>
-              {teams.length} team{teams.length === 1 ? '' : 's'} · {activeFros.length} active FRO{activeFros.length === 1 ? '' : 's'} · renaming keeps FRO assignments
+        {/* Header */}
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--line, #e5e7eb)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', color: '#4338ca', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <IconUsers />
+          </span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 15.5, fontWeight: 800, color: 'var(--ink, #111827)' }}>Manage Teams</div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft, #6b7280)', marginTop: 2 }}>
+              {teams.length} team{teams.length === 1 ? '' : 's'} · {activeFros.length} active FRO{activeFros.length === 1 ? '' : 's'} — renaming keeps FRO assignments
             </div>
           </div>
-          <button className="tf-btn" onClick={onClose} disabled={busy} title="Close"
-            style={{ ...tfBtn, color: '#6b7280', flexShrink: 0 }}><IconX /></button>
+          <button type="button" onClick={onClose} disabled={busy} title="Close" aria-label="Close"
+            style={{ ...tfBtn, color: '#6b7280', flexShrink: 0, border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, width: 30, height: 30, justifyContent: 'center' }}>
+            <IconX />
+          </button>
         </div>
 
-        <div style={{ padding: '14px 20px', overflowY: 'auto' }}>
-          {toast && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 8, background: '#B9EFCE', color: '#1B7A3D', fontSize: 13, fontWeight: 600 }}>{toast}</div>}
-          {err && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 8, background: '#FBDBD6', color: '#B3392B', fontSize: 13 }}>{err}</div>}
+        {/* Body */}
+        <div style={{ padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {toast && <div style={{ padding: '9px 13px', borderRadius: 8, background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', fontSize: 12.5, fontWeight: 600 }}>{toast}</div>}
+          {err && <div style={{ padding: '9px 13px', borderRadius: 8, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: 12.5 }}>{err}</div>}
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16, minHeight: 34 }}>
-            {teams.map(t => {
-              const st = teamTs(t);
-              return renaming === t ? (
-                <span key={t} style={{ ...tfTag, borderColor: 'var(--sage, #5B6B4E)' }}>
-                  <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') renameTeam(); if (e.key === 'Escape') setRenaming(null); }}
-                    placeholder="Team name"
-                    style={{ width: 90, font: 'inherit', fontWeight: 700, border: 'none', outline: 'none', padding: 0, background: 'transparent', color: 'var(--ink, #111827)' }} />
-                  <button className="tf-btn" onClick={renameTeam} disabled={busy} title="Save rename" style={{ ...tfBtn, color: '#1B7A3D' }}><IconCheck /></button>
-                  <button className="tf-btn" onClick={() => setRenaming(null)} disabled={busy} title="Cancel" style={tfBtn}><IconX /></button>
-                </span>
-              ) : (
-                <span key={t} style={tfTag}>
-                  <span className="pill" style={{ background: st.bg, color: st.fg, fontWeight: 700, padding: '3px 10px' }}>{t}</span>
-                  <small style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft, #6b7280)', whiteSpace: 'nowrap' }}>
-                    {fros === null ? '…' : `${counts[t] || 0} FRO`}
-                  </small>
-                  <button className="tf-btn" onClick={() => { setRenaming(t); setRenameVal(t); }} disabled={busy} title="Rename team" style={tfBtn}><IconPencil /></button>
-                  <button className="tf-btn" onClick={() => removeTeam(t)} disabled={busy} title="Remove team" style={{ ...tfBtn, color: '#dc2626' }}><IconTrash /></button>
-                </span>
-              );
-            })}
-            {teams.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft, #6b7280)' }}>No teams yet — add the first one below.</span>}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft, #6b7280)' }}>Teams</span>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft, #6b7280)' }}>
+                {fros === null ? 'Loading FRO counts…' : `${activeFros.length} FROs assigned`}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+              {teams.map(t => {
+                const st = teamTs(t);
+                if (renaming === t) {
+                  return (
+                    <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1.5px solid #93c5fd', borderRadius: 10, padding: '8px 10px', background: '#eff6ff', minWidth: 0 }}>
+                      <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') renameTeam(); if (e.key === 'Escape') setRenaming(null); }}
+                        placeholder="Team name"
+                        style={{ flex: 1, minWidth: 0, font: 'inherit', fontWeight: 800, fontSize: 12.5, border: 'none', outline: 'none', padding: 0, background: 'transparent', color: 'var(--ink, #111827)' }} />
+                      <button type="button" onClick={renameTeam} disabled={busy} title="Save rename" style={{ ...tfBtn, color: '#1B7A3D' }}><IconCheck /></button>
+                      <button type="button" onClick={() => setRenaming(null)} disabled={busy} title="Cancel" style={tfBtn}><IconX /></button>
+                    </div>
+                  );
+                }
+                const count = counts[t] || 0;
+                return (
+                  <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--line, #e5e7eb)', borderRadius: 10, padding: '8px 10px', background: '#fff', minWidth: 0 }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 8, background: st.bg, color: st.fg, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                      {t.slice(-1)}
+                    </span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div title={t} style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink, #111827)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #6b7280)' }}>
+                        {fros === null ? '…' : `${count} FRO${count === 1 ? '' : 's'}`}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => { setRenaming(t); setRenameVal(t); }} disabled={busy} title="Rename team" style={tfBtn}><IconPencil /></button>
+                    <button type="button" onClick={() => removeTeam(t)} disabled={busy} title="Remove team" style={{ ...tfBtn, color: '#dc2626' }}><IconTrash /></button>
+                  </div>
+                );
+              })}
+            </div>
+            {teams.length === 0 && (
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft, #6b7280)', padding: '10px 0' }}>No teams yet — add the first one below.</div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={newTeam}
-              onChange={e => { setNewTeam(e.target.value); setErr(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') addTeam(); }}
-              placeholder="New team name e.g. UCS5"
-              style={{ flex: 1, minWidth: 180, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--line, #e5e7eb)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', color: 'var(--ink, #111827)' }} />
-            <button className="btn btn-primary" onClick={addTeam} disabled={busy}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <IconPlus /> {busy ? 'Saving…' : 'Add Team'}
-            </button>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft, #6b7280)', marginBottom: 6 }}>Add a team</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input value={newTeam}
+                onChange={e => { setNewTeam(e.target.value); setErr(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') addTeam(); }}
+                placeholder="New team name e.g. UCS5"
+                style={{ flex: 1, minWidth: 180, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--line, #e5e7eb)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', color: 'var(--ink, #111827)', outline: 'none' }} />
+              <button className="btn btn-primary" onClick={addTeam} disabled={busy}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <IconPlus /> {busy ? 'Saving…' : 'Add Team'}
+              </button>
+            </div>
           </div>
         </div>
 
-        <div style={{ padding: '11px 20px', background: 'var(--bg, #f9fafb)', borderTop: '1px solid var(--line, #f3f4f6)', display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="btn btn-sm btn-outline" onClick={onClose} disabled={busy}>Done</button>
+        {/* Footer */}
+        <div style={{ padding: '10px 16px', background: '#f8fafc', borderTop: '1px solid var(--line, #e5e7eb)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontSize: 11, color: 'var(--ink-soft, #6b7280)' }}>Changes apply immediately across salary and targets.</span>
+          <button className="btn btn-sm btn-primary" onClick={onClose} disabled={busy}>Done</button>
         </div>
       </div>
     </div>

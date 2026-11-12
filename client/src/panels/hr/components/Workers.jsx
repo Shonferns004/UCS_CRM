@@ -994,6 +994,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
   return (
     <>
+      {!salaryMode && (
       <div className="card" style={{ marginBottom:20 }}>
         <div className="card-head">
           <h3 style={{ width:'100%' }}>{showAddForm ? 'Add a volunteer' : 'Volunteers by NGO'}</h3>
@@ -1073,6 +1074,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         </div>
         )}
       </div>
+      )}
 
       {salaryMode && (
         <>
@@ -1167,7 +1169,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           <div className="search-input-wrap">
             {!salaryMode && <span className="sub">{filtered.length} total</span>}
             <input className="search-input" value={search} onChange={e=>setSearch(e.target.value)}
-              placeholder="Search by name, email, or team…"
+              placeholder="Search"
               style={{ marginTop:0, maxWidth:200 }} />
 
             {/* Filters collapse behind the funnel: the header stays short while

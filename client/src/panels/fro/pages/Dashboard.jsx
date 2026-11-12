@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { getMyDashboard, getMyCollections, getMonthlyDonors, getFroDonorList } from '../api/donors'
+import { getMyDashboard, getMyCollections, getMonthlyDonors, getFroDonorList, getMyLeadLoans } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
@@ -141,6 +141,17 @@ export default function Dashboard() {
   // split; default monthly.
   const [donorView, setDonorView] = useState('1')
   const [donorStatus, setDonorStatus] = useState('active')
+  // Live lead loans (in = borrowed work from another station, out = this
+  // station's leads currently with someone else). Shown here on the Dashboard
+  // only; the working lists stay focused on donor rows.
+  const [myLoans, setMyLoans] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    getMyLeadLoans()
+      .then(list => { if (!cancelled) setMyLoans(Array.isArray(list) ? list : []) })
+      .catch(() => { if (!cancelled) setMyLoans([]) })
+    return () => { cancelled = true }
+  }, [])
   // Fresh only for the window it was stored with — monthly counts differ
   // from quarterly/yearly ones, so a cached yearly payload cannot back the
   // monthly view (or vice versa).
@@ -387,6 +398,29 @@ export default function Dashboard() {
 
 return (
     <div>
+      {myLoans.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          {myLoans.filter(l => l.direction === 'in').map(l => (
+            <div key={`in-${l.id}`} style={{ padding: '8px 12px', borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', fontSize: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, flexShrink: 0 }}>swap_horiz</span>
+              <span>
+                <b>{l.item_count} lead{l.item_count === 1 ? '' : 's'}</b> lent from <b>{l.source_station}</b>
+                {l.counterpart_name ? ` (${l.counterpart_name})` : ''} until {new Date(l.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}. Your calls are credited to you.
+              </span>
+            </div>
+          ))}
+          {myLoans.filter(l => l.direction === 'out').map(l => (
+            <div key={`out-${l.id}`} style={{ padding: '8px 12px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, flexShrink: 0 }}>swap_horiz</span>
+              <span>
+                <b>{l.item_count} lead{l.item_count === 1 ? '' : 's'}</b> are temporarily with <b>{l.target_station}</b>
+                {l.counterpart_name ? ` (${l.counterpart_name})` : ''} until {new Date(l.expires_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}. They return automatically.
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))',

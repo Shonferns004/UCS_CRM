@@ -168,6 +168,11 @@ export async function getMyLeadLoans() {
   return api('/fro/lead-loans', { _prefix: 'ucs' })
 }
 
+// Donor-level borrowed rows for the Follow Ups / Overdue lists.
+export async function getMyLeadLoanItems() {
+  return api('/fro/lead-loans/items', { _prefix: 'ucs' })
+}
+
 export async function markDonorSeen(donorId, ngoId) {
   const body = ngoId ? JSON.stringify({ ngo_id: ngoId }) : '{}'
   return api(`/fro/donors/${donorId}/mark-seen`, { method: 'PUT', body, _prefix: 'ucs' })

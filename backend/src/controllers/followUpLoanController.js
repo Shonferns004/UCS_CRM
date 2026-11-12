@@ -27,6 +27,12 @@ import {
 const REASON_CODES = new Set(['STAFF_ABSENCE', 'WORKLOAD_SUPPORT', 'SPECIAL_ASSIGNMENT', 'OTHER']);
 const SCOPES = new Set(['BOTH', 'FOLLOW_UP', 'CALLBACK']);
 const SELECTIONS = new Set(['ALL_OPEN', 'UPCOMING_ONLY', 'OVERDUE_ONLY', 'FIXED_COUNT']);
+// The admin picks work categories, not a packed scope string: Follow up,
+// Promise, Callback and an Overdue lens. Each becomes a bucket (or the overdue
+// flag) and the union of the checked chips is exactly what gets lent.
+const BUCKETS = ['follow_up', 'promise', 'callback'];
+const BUCKET_SET = new Set(BUCKETS);
+const DEFAULT_BUCKETS = ['follow_up', 'promise', 'callback'];
 const MAX_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ITEMS = 5000;
 
@@ -58,10 +64,37 @@ function leadBucket(status) {
   return 'follow_up';
 }
 
-function scopeAllowsBucket(scope, bucket) {
-  if (scope === 'CALLBACK') return bucket === 'callback';
-  if (scope === 'FOLLOW_UP') return bucket === 'follow_up' || bucket === 'promise';
-  return true;
+// `buckets` is the new client contract (comma separated bucket names). `scope`
+// is still accepted so an older client keeps working unchanged.
+function parseBuckets(raw, scope = 'BOTH') {
+  if (raw !== undefined && raw !== null) {
+    const list = String(raw).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (list.some(b => !BUCKET_SET.has(b))) return null;
+    return [...new Set(list)]; // an empty list is valid: nothing ticked
+  }
+  if (scope === 'CALLBACK') return ['callback'];
+  if (scope === 'FOLLOW_UP') return ['follow_up', 'promise'];
+  if (scope === 'BOTH') return [...DEFAULT_BUCKETS];
+  return null;
+}
+
+function wantsOverdue(raw) {
+  const v = String(raw ?? '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+// Union of the selected chips. A lead that is not overdue matches its own
+// bucket; an overdue lead only matches when the Overdue chip is on, so the
+// admin can lend "Follow up + Promise" without dragging overdue work along.
+function filterLeads(leads, buckets, overdue) {
+  const set = new Set(buckets);
+  return leads.filter(l => (l.is_overdue ? overdue : set.has(l.bucket)));
+}
+
+// Stored for display only. Ordering is stable so two identical picks always
+// produce the same string.
+function scopeForBuckets(buckets) {
+  return BUCKETS.filter(b => buckets.includes(b)).join(',') || 'follow_up';
 }
 
 function leadDueMs(row) {
@@ -73,7 +106,7 @@ function leadDueMs(row) {
 
 // Single source of truth for preview() and create() so the number shown in the
 // modal is exactly the number of assignments snapshotted.
-export async function loadEligibleLeads({ ngoId, station, scope }) {
+export async function loadEligibleLeads({ ngoId, station }) {
   const { rows } = await db._pool.query(
     `WITH open_sched AS (
        SELECT s.assignment_id, MIN(s.scheduled_at) AS first_at
@@ -147,7 +180,6 @@ export async function loadEligibleLeads({ ngoId, station, scope }) {
   for (const row of rows) {
     if (isCollected(row)) continue;
     const bucket = leadBucket(row.status);
-    if (!scopeAllowsBucket(scope, bucket)) continue;
     // The FRO UI shows one card per donor+NGO; keep the most urgent assignment.
     const key = `${row.donor_id}|${row.ngo_id}`;
     if (seen.has(key)) continue;
@@ -162,13 +194,6 @@ export async function loadEligibleLeads({ ngoId, station, scope }) {
       is_overdue: dueMs !== null && dueMs < nowMs && !workedToday,
     });
   }
-  return leads;
-}
-
-function selectLeads(leads, selection, fixedCount) {
-  if (selection === 'OVERDUE_ONLY') return leads.filter(l => l.is_overdue);
-  if (selection === 'UPCOMING_ONLY') return leads.filter(l => !l.is_overdue);
-  if (selection === 'FIXED_COUNT') return leads.slice(0, fixedCount || 0);
   return leads;
 }
 
@@ -304,14 +329,17 @@ export async function previewFollowUpLoan(req, res) {
     }
     const {
       ngo_id, source_station, target_station, target_fro_worker_id,
-      scope = 'BOTH', selection = 'ALL_OPEN', count,
+      scope = 'BOTH', buckets, overdue, selection = 'ALL_OPEN', count, include_items,
     } = req.query;
 
     if (!ngo_id || !source_station) {
       return badRequest(res, 'ngo_id and source_station are required');
     }
+    const pickedBuckets = parseBuckets(buckets, scope);
+    if (!pickedBuckets) return badRequest(res, 'Invalid buckets');
     if (!SCOPES.has(scope)) return badRequest(res, 'Invalid scope');
     if (!SELECTIONS.has(selection)) return badRequest(res, 'Invalid selection');
+    const includeOverdue = wantsOverdue(overdue);
 
     const ngoIds = await getUserNgoIds(req.user);
     if (!ngoIds.some(n => String(n) === String(ngo_id))) {
@@ -319,8 +347,11 @@ export async function previewFollowUpLoan(req, res) {
     }
 
     const requested = selection === 'FIXED_COUNT' ? Math.max(0, parseInt(count, 10) || 0) : null;
-    const leads = await loadEligibleLeads({ ngoId: ngo_id, station: source_station, scope });
-    const selected = selectLeads(leads, selection, requested);
+    // Count every bucket so each chip can show its own number, then narrow to
+    // the chips the admin actually ticked for `selected_count`.
+    const leads = await loadEligibleLeads({ ngoId: ngo_id, station: source_station });
+    let selected = filterLeads(leads, pickedBuckets, includeOverdue);
+    if (selection === 'FIXED_COUNT') selected = selected.slice(0, requested || 0);
     const upcoming = leads.filter(l => !l.is_overdue);
     const overdueLeads = leads.filter(l => l.is_overdue);
 
@@ -410,30 +441,37 @@ export async function previewFollowUpLoan(req, res) {
       });
     }
 
+    const withItems = String(include_items || '') === '1';
+    const leadRow = (l) => ({
+      assignment_id: l.assignment_id,
+      donor_id: l.donor_id,
+      station: String(source_station).trim(),
+      status: l.status,
+      next_follow_up: l.next_follow_up,
+      scheduled_at: l.scheduled_at,
+      bucket: l.bucket,
+      is_overdue: l.is_overdue,
+      donor_name: l.donor_name,
+      mobile_number: l.mobile_number,
+    });
+
     return res.json({
       // Upcoming buckets mirror the FRO's Follow Ups tab (fresh follow-ups +
       // promises); overdue is shown separately because it is what the FRO sees
       // in Overdue. Buckets overlap, so total is the unique lead count.
       follow_up: upcoming.filter(l => l.bucket === 'follow_up').length,
       promise: upcoming.filter(l => l.bucket === 'promise').length,
-      callback: leads.filter(l => l.bucket === 'callback').length,
+      callback: upcoming.filter(l => l.bucket === 'callback').length,
       overdue: overdueLeads.length,
       upcoming: upcoming.length,
       total: leads.length,
       selected_count: selected.length,
       requested_count: requested,
       already_loaned: already?.[0]?.n || 0,
-      sample: selected.slice(0, 20).map(l => ({
-        assignment_id: l.assignment_id,
-        donor_id: l.donor_id,
-        status: l.status,
-        next_follow_up: l.next_follow_up,
-        scheduled_at: l.scheduled_at,
-        bucket: l.bucket,
-        is_overdue: l.is_overdue,
-        donor_name: l.donor_name,
-        mobile_number: l.mobile_number,
-      })),
+      sample: selected.slice(0, 20).map(leadRow),
+      // Only populated on demand (`include_items=1`) so the debounced preview
+      // stays small; the Excel button uses this to list every lead to be lent.
+      ...(withItems ? { items: selected.map(leadRow) } : {}),
       conflicts,
     });
   } catch (error) {
@@ -510,13 +548,16 @@ export async function createFollowUpLoan(req, res) {
     }
     const {
       ngo_id, source_station, target_station, target_fro_worker_id,
-      scope = 'BOTH', selection = 'ALL_OPEN', count,
+      scope = 'BOTH', buckets, overdue, selection = 'ALL_OPEN', count,
       starts_at, expires_at, reason_code, reason_note,
     } = req.body || {};
 
     if (!ngo_id || !source_station || !target_station || !target_fro_worker_id) {
       return badRequest(res, 'ngo_id, source_station, target_station and target_fro_worker_id are required');
     }
+    const pickedBuckets = parseBuckets(buckets, scope);
+    if (!pickedBuckets) return badRequest(res, 'buckets must contain follow_up, promise or callback');
+    const includeOverdue = wantsOverdue(overdue);
     if (!SCOPES.has(scope)) return badRequest(res, `scope must be one of: ${[...SCOPES].join(', ')}`);
     if (!SELECTIONS.has(selection)) return badRequest(res, `selection must be one of: ${[...SELECTIONS].join(', ')}`);
     if (!reason_code || !REASON_CODES.has(reason_code)) {
@@ -607,11 +648,18 @@ export async function createFollowUpLoan(req, res) {
     // block this grant.
     await closeExpiredLoans();
 
-    const leads = await loadEligibleLeads({ ngoId: ngo_id, station: src, scope });
-    const eligible = selectLeads(leads, selection, fixedCount);
+    const leads = await loadEligibleLeads({ ngoId: ngo_id, station: src });
+    const matched = filterLeads(leads, pickedBuckets, includeOverdue);
+    const eligible = selection === 'FIXED_COUNT' ? matched.slice(0, fixedCount || 0) : matched;
     if (eligible.length === 0) {
       return badRequest(res, 'No open follow-up, promise or callback leads matched this selection', 'NO_ELIGIBLE_LEADS');
     }
+
+    // Store the picked chips for display. `selection` cannot express "overdue +
+    // some upcoming", so the overdue lens lives in scope alongside the buckets.
+    const storedScope = includeOverdue
+      ? `${scopeForBuckets(pickedBuckets)},overdue`
+      : scopeForBuckets(pickedBuckets);
 
     const adminId = await resolveAdminId(req.user);
     const adminRole = req.user?.role || null;
@@ -627,7 +675,7 @@ export async function createFollowUpLoan(req, res) {
          RETURNING *`,
         [
           ngo_id, src, sourceRow.fro_worker_id || null, tgt, target_fro_worker_id,
-          scope, selection,
+          storedScope, selection,
           start.getTime() > Date.now() ? 'SCHEDULED' : 'ACTIVE',
           start.toISOString(), expiry.toISOString(),
           reason_code, note, eligible.length, adminId,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, EyeOff, Download, XCircle, Clock, UserPlus, Upload, Layers, ShieldCheck } from 'lucide-react';
-import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess, getHideOldDonors, setHideOldDonors, setHideOldDonorsSchedule } from '../api/auth';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown, Eye, EyeOff, Download, XCircle, Clock, UserPlus, Upload, Layers, ShieldCheck, ArrowRightLeft } from 'lucide-react';
+import { apiGet, apiPost, apiPut, apiDelete, listTemporaryAccess, revokeTemporaryAccess, getHideOldDonors, setHideOldDonors, setHideOldDonorsSchedule, listFollowUpLoans, revokeFollowUpLoan } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
@@ -9,6 +9,8 @@ import { dispositionGroupOf, dispositionLabelOf } from '../../../lib/disposition
 import TemporaryAccessModal from './TemporaryAccessModal';
 import DonorStacksModal from './DonorStacksModal';
 import StackSettingsModal from './StackSettingsModal';
+import FollowUpLoanModal from './FollowUpLoanModal';
+import BulkFollowUpLoanModal from './BulkFollowUpLoanModal';
 
 // IST (Asia/Kolkata) helpers for temporary-access badges: the grant stores
 // UTC timestamptz; admins read IST, so every display goes through the zone
@@ -85,7 +87,7 @@ function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, r
         const allNgoRows = base.filter(s => (s.ngos || []).some(n => groupOfNameLocal(n.ngo_name || n.name) === g));
         const totalDonors = allNgoRows.reduce((sum, s) => sum + (Number(s.donor_count?.[ngoId]) || 0) + (Number(s.high_tier_donor_count?.[ngoId]) || 0), 0);
         return (
-          <div key={g} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 0, overflow: 'hidden', background: '#fff' }}>
+          <div key={g} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 0, background: '#fff' }}>
             <div style={{ background: color, color: '#fff', padding: '8px 12px', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span>{label}</span>
               <span style={{ opacity: 0.85, fontSize: 11, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -94,7 +96,11 @@ function StationNgoColumns({ stations, froWorkers, allNgos, searchTerm, fresh, r
               </span>
             </div>
             <div className="sm-no-scrollbar" style={{ maxHeight: 'none', overflowY: 'visible' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: '48%' }} />
+                  <col style={{ width: '52%' }} />
+                </colgroup>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
                     <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: 'var(--ink-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px', position: 'sticky', top: 0, background: '#f8fafc', zIndex: 2 }}>Station</th>
@@ -1162,7 +1168,7 @@ const PAGE_MENU_ITEM = {
 // The two controls that used to sit as loose icons beside the FRO search box on
 // a station row ("grant temporary access" and the green S for stacks). One ⋮
 // menu replaces them; each item opens its own dialog.
-function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStacks, onSettings }) {
+function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStacks, onSettings, onLend }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1193,6 +1199,11 @@ function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStack
           <button role="menuitem" onClick={run(onTemp)} style={{ ...itemStyle, color: '#1d4ed8', fontWeight: 600 }}>
             <Clock size={14} /> Temp assignment
           </button>
+          {onLend && (
+            <button role="menuitem" onClick={run(onLend)} style={{ ...itemStyle, color: '#0f766e', fontWeight: 600 }}>
+              <ArrowRightLeft size={14} /> Lend leads
+            </button>
+          )}
           {stacksEnabled && (
             <button role="menuitem" onClick={run(onStacks)} style={{ ...itemStyle, color: '#166534', fontWeight: 600 }}>
               <Layers size={14} /> Stack assignments
@@ -1213,35 +1224,124 @@ function RowAssignmentsKebab({ hasStacks, stacksEnabled = false, onTemp, onStack
 // pushed long names (Dhanshree Ghodke, Mahima Redkar) out of the station cell.
 // The revoke action now lives INSIDE the chip and only appears on hover.
 function TempGrantChip({ name, title, onRevoke }) {
-  const [hover, setHover] = useState(false);
+  // Click the FRO name once to arm it, click again to revoke. No hover: the
+  // label used to swap on hover and a single click revoked immediately.
+  const [armed, setArmed] = useState(false);
   return (
     <button
       type="button"
-      onClick={onRevoke}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      title={hover ? 'Click to revoke this temporary access' : title}
-      aria-label={`Revoke temporary access${name ? ` for ${name}` : ''}`}
+      onClick={() => { if (armed) onRevoke(); else setArmed(true); }}
+      onBlur={() => setArmed(false)}
+      title={armed ? 'Click again to revoke this temporary access' : title}
+      aria-label={`${armed ? 'Click again to revoke' : 'Temporary access'}${name ? ` for ${name}` : ''}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%',
         fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6, fontFamily: 'inherit',
-        background: hover ? '#fef2f2' : '#eff6ff',
-        color: hover ? '#b91c1c' : '#1d4ed8',
-        border: `1px solid ${hover ? '#fecaca' : '#bfdbfe'}`,
+        background: armed ? '#fef2f2' : '#eff6ff',
+        color: armed ? '#b91c1c' : '#1d4ed8',
+        border: `1px solid ${armed ? '#fecaca' : '#bfdbfe'}`,
         cursor: 'pointer', overflow: 'hidden',
         transition: 'background .12s, color .12s, border-color .12s',
       }}
     >
-      {/* Both labels share one grid cell, so hover swaps the text without
-          changing the chip's width (which used to reflow the whole row). */}
+      {/* Both labels share one grid cell, so swapping the text never changes
+          the chip's width (which used to reflow the whole row). */}
       <span style={{ display: 'grid', minWidth: 0, overflow: 'hidden' }}>
-        <span style={{ gridArea: '1 / 1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', visibility: hover ? 'hidden' : 'visible' }}>
+        <span style={{ gridArea: '1 / 1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', visibility: armed ? 'hidden' : 'visible' }}>
           {name || 'FRO'}
         </span>
-        <span style={{ gridArea: '1 / 1', textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap', visibility: hover ? 'visible' : 'hidden' }}>
+        <span style={{ gridArea: '1 / 1', textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap', visibility: armed ? 'visible' : 'hidden' }}>
           Revoke
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// Loan chip on a station row. First click arms it (label swaps to Revoke in the
+// same grid cell so the row never jumps), second click revokes the loan.
+// Shows WHO received the leads (the FRO), with count/station in the tooltip.
+function LoanChip({ loan, onRevoke }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const targetName = loan.target_fro_name || loan.target_station;
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (busy) return;
+        if (!armed) { setArmed(true); return; }
+        setBusy(true);
+        try { await onRevoke(loan); } catch { /* parent surfaces the message */ }
+        setBusy(false);
+        setArmed(false);
+      }}
+      onBlur={() => setArmed(false)}
+      title={armed
+        ? 'Click again to revoke this loan'
+        : `${loan.item_count} lead(s) lent to ${loan.target_fro_name || 'the receiving FRO'}${loan.target_station ? ` at ${loan.target_station}` : ''} until ${fmtIstDateTime(loan.expires_at)} IST`}
+      style={{
+        marginTop: 0, maxWidth: '100%', minWidth: 0, flexShrink: 0, fontSize: 9.5, fontWeight: 700, padding: '0px 6px', borderRadius: 999,
+        fontFamily: 'inherit', cursor: busy ? 'wait' : 'pointer', overflow: 'hidden',
+        background: armed ? '#fef2f2' : '#f0fdfa',
+        color: armed ? '#b91c1c' : '#0f766e',
+        border: `1px solid ${armed ? '#fecaca' : '#99f6e4'}`,
+        display: 'inline-flex', alignItems: 'center', lineHeight: 1.5,
+        transition: 'background .12s, color .12s, border-color .12s',
+      }}
+    >
+      <span style={{ display: 'grid', minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ gridArea: '1 / 1', display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, visibility: armed ? 'hidden' : 'visible' }}>
+          <ArrowRightLeft size={9} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{targetName}</span>
+        </span>
+        <span style={{ gridArea: '1 / 1', textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap', visibility: armed ? 'visible' : 'hidden' }}>
+          {busy ? 'Revoking…' : 'Revoke'}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// Mirror chip shown on the RECEIVING station's row: where these leads came from,
+// including the source FRO's name. Same two-click revoke as the source chip, so
+// the admin can return the loan from either side.
+function IncomingLoanChip({ loan, onRevoke }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const from = [loan.source_station, loan.source_fro_name].filter(Boolean).join(' · ');
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (busy) return;
+        if (!armed) { setArmed(true); return; }
+        setBusy(true);
+        try { await onRevoke(loan); } catch { /* parent surfaces the message */ }
+        setBusy(false);
+        setArmed(false);
+      }}
+      onBlur={() => setArmed(false)}
+      title={armed
+        ? 'Click again to revoke this loan'
+        : `${loan.item_count} lead(s) lent from ${loan.source_station}${loan.source_fro_name ? ` (${loan.source_fro_name})` : ''} until ${fmtIstDateTime(loan.expires_at)} IST`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '0px 6px', borderRadius: 999,
+        fontSize: 9.5, fontWeight: 700, lineHeight: 1.5, minWidth: 0, maxWidth: '100%', flexShrink: 0,
+        cursor: busy ? 'wait' : 'pointer', overflow: 'hidden', fontFamily: 'inherit',
+        background: armed ? '#fef2f2' : '#eef2ff',
+        color: armed ? '#b91c1c' : '#4338ca',
+        border: `1px solid ${armed ? '#fecaca' : '#c7d2fe'}`,
+        transition: 'background .12s, color .12s, border-color .12s',
+      }}
+    >
+      <span style={{ display: 'grid', minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ gridArea: '1 / 1', display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, visibility: armed ? 'hidden' : 'visible' }}>
+          <span style={{ opacity: 0.55, flexShrink: 0 }}>←</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{from}</span>
+        </span>
+        <span style={{ gridArea: '1 / 1', textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap', visibility: armed ? 'visible' : 'hidden' }}>
+          {busy ? 'Revoking…' : 'Revoke'}
         </span>
       </span>
     </button>
@@ -3045,6 +3145,8 @@ export default function StationManagement() {
   // tab is 'temp' or 'stacks' and picks which of the two dialogs renders — they
   // stay separate; the ⋮ menu only chooses between them.
   const [assignmentsTarget, setAssignmentsTarget] = useState(null);
+  const [loanTarget, setLoanTarget] = useState(null);
+  const [bulkLoanOpen, setBulkLoanOpen] = useState(false);
   // Stack switch, one entry per (NGO, station): `{ "<ngoId>:<station>": true }`.
   // Missing = OFF (the default). The row ⋮ shows "Stack assignments" only for
   // stations in this map, and Settings edits exactly one key.
@@ -3052,6 +3154,10 @@ export default function StationManagement() {
   const [stackSettingsTarget, setStackSettingsTarget] = useState(null);
   const stackKey = (ngoId, station) => `${ngoId ?? ''}:${station ?? ''}`;
   const [allStacks, setAllStacks] = useState([]);
+  // Live lead loans sourced from this page's stations. A chip on the row shows
+  // "⇄ N → target" so the admin can see that leads were lent from here, without
+  // opening a dedicated board.
+  const [leadLoans, setLeadLoans] = useState([]);
   // Live grants for the whole table: rendered as a per-station badge so the
   // admin SEES who currently has temporary access without leaving this page,
   // and can revoke it inline. Refetched after every grant/revoke.
@@ -3133,6 +3239,24 @@ export default function StationManagement() {
     listTemporaryAccess()
       .then(rows => setTempGrants(Array.isArray(rows) ? rows : []))
       .catch(() => setTempGrants([])); // feature off (503) → simply no badges
+  };
+
+  const loadLeadLoans = () => {
+    listFollowUpLoans()
+      .then(rows => setLeadLoans(Array.isArray(rows) ? rows : []))
+      .catch(() => setLeadLoans([]));
+  };
+
+  // Quick revoke from the station row chip (second click on the chip).
+  const revokeLoan = async (loan) => {
+    try {
+      await revokeFollowUpLoan(loan.id, { reason: 'Revoked from Station Management' });
+      loadLeadLoans();
+      setMsg(`Loan ${loan.source_station} → ${loan.target_station} revoked.`);
+    } catch (e) {
+      setMsg(`Revoke failed: ${e?.message || 'unknown error'}`);
+      throw e;
+    }
   };
 
   // Live (ACTIVE or SCHEDULED) grants covering this station row's (station,
@@ -3259,6 +3383,7 @@ export default function StationManagement() {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('fetchData transfers error:', err));
     loadTempGrants();
+    loadLeadLoans();
     const stacksNgo = selectedNgoId !== 'all' ? selectedNgoId : (ngoIds[0] || '');
     if (stacksNgo) {
       apiGet('/ngo-admin/stacks?ngo_id=' + stacksNgo).then(s => {
@@ -3387,8 +3512,28 @@ export default function StationManagement() {
               />
             ))}
           </div>
-          <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 0, lineHeight: 1.2 }}>
-            {Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)).toLocaleString('en-IN')} donor{Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)) === 1 ? '' : 's'}
+          {/* The loan chip lives on the small donor line, not next to the
+              station code — beside the code it wrapped and pushed the donor
+              count down, which made the whole row jump. nowrap keeps the row
+              at two lines; a long FRO name ellipsises instead. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 2, flexWrap: 'wrap', fontSize: 10, color: 'var(--ink-soft)', marginTop: 1, lineHeight: 1.4, minWidth: 0 }}>
+            <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)).toLocaleString('en-IN')} donor{Number((s.donor_count?.[ngo?.id] || 0) + (s.high_tier_donor_count?.[ngo?.id] || 0)) === 1 ? '' : 's'}
+            </span>
+            {leadLoans
+              .filter(l => l.source_station === s.station
+                && (l.computed_status === 'ACTIVE' || l.computed_status === 'SCHEDULED')
+                && (!ngoScopeForRow(s) || !l.ngo_id || String(l.ngo_id) === String(ngoScopeForRow(s))))
+              .map(l => (
+                <LoanChip key={l.id} loan={l} onRevoke={revokeLoan} />
+              ))}
+            {leadLoans
+              .filter(l => l.target_station === s.station
+                && (l.computed_status === 'ACTIVE' || l.computed_status === 'SCHEDULED')
+                && (!ngoScopeForRow(s) || !l.ngo_id || String(l.ngo_id) === String(ngoScopeForRow(s))))
+              .map(l => (
+                <IncomingLoanChip key={`in-${l.id}`} loan={l} onRevoke={revokeLoan} />
+              ))}
           </div>
           {/* amount range removed per request */}
           {at && (
@@ -3419,6 +3564,7 @@ export default function StationManagement() {
               onTemp={() => openAssignments(s, 'temp')}
               onStacks={() => openAssignments(s, 'stacks')}
               onSettings={() => setStackSettingsTarget({ station: s.station, ngoId: ngoScopeForRow(s) })}
+              onLend={() => openLeadLoan(s)}
             />
           </div>
         </td>
@@ -3574,6 +3720,19 @@ export default function StationManagement() {
     donorCount: (ngoScopeForRow(s) && s.donor_count?.[ngoScopeForRow(s)]) || 0,
     tab,
   });
+
+  // Lead Loans — same source payload the lend modal builds, so lending from
+  // the station row behaves exactly like the board's Lend button.
+  const openLeadLoan = (s) => {
+    const ngoId = ngoScopeForRow(s);
+    const ngo = (s.ngos || []).find(n => String(n.ngo_id) === String(ngoId));
+    setLoanTarget({
+      station: s.station,
+      ngoId,
+      ngoName: ngo?.ngo_name || '',
+      permanentFroName: (froWorkers.find(w => w.id === s.fro_worker_id) || {}).name || null,
+    });
+  };
 
   const handleAddStation = async (tempFile) => {
     if (!newStation.trim()) return;
@@ -3827,6 +3986,9 @@ export default function StationManagement() {
                 }}>
                   <button role="menuitem" onClick={() => { setToolsOpen(false); setAddOpen(true); }} style={PAGE_MENU_ITEM}>
                     <span style={{ width: 16, textAlign: 'center', fontWeight: 800 }}>+</span> Add station
+                  </button>
+                  <button role="menuitem" onClick={() => { setToolsOpen(false); setBulkLoanOpen(true); }} style={PAGE_MENU_ITEM}>
+                    <ArrowRightLeft size={14} /> Bulk lend
                   </button>
                   <button role="menuitem" onClick={() => { setToolsOpen(false); setDownloadNgoOpen(true); }} style={PAGE_MENU_ITEM}>
                     <Download size={14} /> Download donor list
@@ -4093,6 +4255,33 @@ export default function StationManagement() {
             return next;
           })}
           onClose={() => setStackSettingsTarget(null)}
+        />
+      )}
+
+      {bulkLoanOpen && (
+        <BulkFollowUpLoanModal
+          stations={stations}
+          ngoOptions={allNgos}
+          initialNgoId={selectedNgoId}
+          onClose={() => setBulkLoanOpen(false)}
+          onCreated={(summary) => {
+            fetchData();
+            loadLeadLoans();
+            setMsg(`${summary?.lent ?? 0} lead(s) lent from ${summary?.stations ?? 0} station(s) to ${summary?.target || 'the receiving FRO'}.`);
+          }}
+        />
+      )}
+
+      {loanTarget && (
+        <FollowUpLoanModal
+          source={loanTarget}
+          stations={stations}
+          onClose={() => setLoanTarget(null)}
+          onCreated={() => {
+            fetchData();
+            loadLeadLoans();
+            setMsg(`Leads lent from ${loanTarget.station}.`);
+          }}
         />
       )}
 
