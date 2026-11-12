@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, ChevronDown } from 'lucide-react';
+import { RefreshCw, MessageSquareText, Phone, User, UserCheck, Tag, Inbox, Trash2, Search, ChevronDown } from 'lucide-react';
 import { api } from '../../../api/auth';
 
 const ACCOUNT_HUES = {
@@ -49,7 +49,7 @@ function formatTime(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-function FroSelect({ fros, disabled, onAssign }) {
+function FroSelect({ fros, disabled, onAssign, label = 'Select FRO' }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef(null);
@@ -76,7 +76,7 @@ function FroSelect({ fros, disabled, onAssign }) {
     <div ref={ref} style={{ position: 'relative', minWidth: 180 }}>
       <button type="button" disabled={disabled} onClick={() => setOpen((v) => !v)}
         style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%', padding: '7px 10px', borderRadius: 9, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, color: 'var(--ink, #0f172a)', cursor: disabled ? 'default' : 'pointer', outline: 'none' }}>
-        <span>{disabled ? 'Assigning…' : 'Select FRO'}</span>
+        <span>{disabled ? 'Assigning…' : label}</span>
         <ChevronDown size={14} style={{ opacity: .5 }} />
       </button>
       {open && (
@@ -112,6 +112,9 @@ export default function WhatsAppReplyLeads() {
   const [assigning, setAssigning] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [filter, setFilter] = useState('all');
+  // 'inbox' = reply leads waiting to be assigned, 'assigned' = already handed
+  // to an FRO. Assigning a lead moves it out of the inbox into the other tab.
+  const [tab, setTab] = useState('inbox');
 
   const load = async () => {
     setLoading(true);
@@ -137,7 +140,10 @@ export default function WhatsAppReplyLeads() {
     return ['all', ...Array.from(s)];
   }, [leads]);
 
-  const filtered = filter === 'all' ? leads : leads.filter((l) => ngoNameOf(parseNotes(l.notes).account) === filter);
+  const assignedLeads = leads.filter((l) => l.status === 'assigned');
+  const inboxLeads = leads.filter((l) => l.status !== 'assigned');
+  const tabLeads = tab === 'assigned' ? assignedLeads : inboxLeads;
+  const filtered = filter === 'all' ? tabLeads : tabLeads.filter((l) => ngoNameOf(parseNotes(l.notes).account) === filter);
 
   const assign = async (leadId, froId) => {
     if (!froId) return;
@@ -201,12 +207,31 @@ export default function WhatsAppReplyLeads() {
         </div>
       </div>
 
+      {/* Inbox / Assigned tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[
+          { key: 'inbox', label: 'Inbox', count: inboxLeads.length },
+          { key: 'assigned', label: 'Assigned', count: assignedLeads.length },
+        ].map((t) => {
+          const active = tab === t.key;
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
+              {t.key === 'inbox' && <Inbox size={13} style={{ opacity: .8 }} />}
+              {t.key === 'assigned' && <UserCheck size={13} style={{ opacity: .8 }} />}
+              {t.label}
+              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{t.count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* NGO filter pills */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         {ngoGroups.map((a) => {
           const active = filter === a;
           const hue = a === 'all' ? '#0f172a' : accountHue(a);
-          const count = a === 'all' ? leads.length : leads.filter((l) => ngoNameOf(parseNotes(l.notes).account) === a).length;
+          const count = a === 'all' ? tabLeads.length : tabLeads.filter((l) => ngoNameOf(parseNotes(l.notes).account) === a).length;
           return (
             <button key={a} onClick={() => setFilter(a)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? hue : 'var(--line, #e2e8f0)'}`, background: active ? hue : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
@@ -220,7 +245,7 @@ export default function WhatsAppReplyLeads() {
       {/* Table card */}
       <div className="card">
         <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3>Replies</h3>
+          <h3>{tab === 'assigned' ? 'Assigned' : 'Inbox'}</h3>
           <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{filtered.length} lead{filtered.length === 1 ? '' : 's'}</span>
         </div>
 
@@ -231,8 +256,8 @@ export default function WhatsAppReplyLeads() {
         {!loading && !error && filtered.length === 0 && (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
             <MessageSquareText size={32} style={{ opacity: .35, marginBottom: 8 }} />
-            <div style={{ fontSize: 13, fontWeight: 600 }}>No reply leads yet</div>
-            <div style={{ fontSize: 12 }}>Bulk template replies will show up here automatically.</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{tab === 'assigned' ? 'No assigned leads yet' : 'No reply leads yet'}</div>
+            <div style={{ fontSize: 12 }}>{tab === 'assigned' ? 'Leads you assign to an FRO will move here from the inbox.' : 'Bulk template replies will show up here automatically.'}</div>
           </div>
         )}
         {!loading && !error && filtered.length > 0 && (
@@ -245,7 +270,7 @@ export default function WhatsAppReplyLeads() {
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>Account</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>Received</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>Status</th>
-                  <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>Assign to FRO</th>
+                  <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>{tab === 'assigned' ? 'Assigned FRO' : 'Assign to FRO'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -253,6 +278,7 @@ export default function WhatsAppReplyLeads() {
                   const { message, template, account } = parseNotes(l.notes);
                   const hue = accountHue(account);
                   const assigned = l.status === 'assigned';
+                  const froName = (l.workers && l.workers.name) || (fros.find((f) => String(f.id) === String(l.recruiter_id)) || {}).name || '—';
                   return (
                     <tr key={l.id} style={{ borderBottom: '1px solid var(--line, #e2e8f0)', verticalAlign: 'top' }}>
                       <td style={{ padding: '12px 16px' }}>
@@ -287,7 +313,13 @@ export default function WhatsAppReplyLeads() {
                       <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           {assigned ? (
-                            <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>Assigned ✓</span>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>
+                                <UserCheck size={12} />
+                                {froName}
+                              </span>
+                              <FroSelect fros={fros} label="Reassign" disabled={assigning === l.id} onAssign={(froId) => assign(l.id, froId)} />
+                            </div>
                           ) : (
                             <FroSelect fros={fros} disabled={assigning === l.id} onAssign={(froId) => assign(l.id, froId)} />
                           )}

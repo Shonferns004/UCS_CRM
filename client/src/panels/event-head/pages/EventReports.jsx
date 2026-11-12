@@ -1335,10 +1335,19 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   // Planner view; the user can still switch to All NGOs or another NGO.
   useEffect(() => {
     if (plannerCardsNgo || !Array.isArray(ngos) || ngos.length === 0) return
-    const bsct = ngos.find((n) => /bsct|being\\s*sevak/i.test(String(n?.name || n?.ngo_name || n?.code || '')))
+    const bsct = ngos.find((n) => /bsct|being\s*sevak/i.test(String(n?.name || n?.ngo_name || n?.code || '')))
     const pick = bsct || ngos[0]
     const id = pick?.id ?? pick?.ngo_id
     if (id != null && id !== '') setPlannerCardsNgo(String(id))
+  }, [ngos, plannerCardsNgo])
+  // The NGO picked in the "Planner events" dropdown above. The Create / Edit
+  // Event form must use this same NGO, so a card under BSCT can never open the
+  // form on MANN/AFLF (the row may carry a different own NGO). Empty when "All
+  // NGOs" is selected, so the row's own NGO is used in that case.
+  const reportNgoId = useMemo(() => {
+    if (!plannerCardsNgo) return ''
+    const exists = ngos.some((n) => String(n.id ?? n.ngo_id) === String(plannerCardsNgo))
+    return exists ? String(plannerCardsNgo) : ''
   }, [ngos, plannerCardsNgo])
   // The order the programme cards were dragged into, per NGO. The saved order
   // lives in the database; this is only the arrangement the user has just
@@ -1479,7 +1488,12 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           _obs: true,
         })
       }
-      const merged = [...suggestions, ...mappedManual, ...obsCards]
+      const scopeNgo = String(plannerCardsNgo || '')
+      const merged = [...suggestions, ...mappedManual, ...obsCards].filter((s) => {
+        if (!scopeNgo) return true
+        const id = String(s?.ngo_id ?? '').trim()
+        return !id || id === scopeNgo
+      })
       // Resolve evId for each card using durable links first
       const resolveEvId = (s) => {
         const sDate = s.observance_date || s.date
@@ -1488,14 +1502,25 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           (String(l.festival || '').trim() === '' || String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase()) &&
           (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
         )
-        if (link && link.event_id) return link.event_id
+        if (link && link.event_id) {
+          const linkedEv = (events || []).find(e => String(e.id || e.id || '') === String(link.event_id))
+          if (linkedEv) {
+            const evName = String(linkedEv.name || '').split(' · ')[0].trim().toLowerCase()
+            const cardName = String(s.festival || s.title || '').trim().toLowerCase()
+            if (evName && cardName && evName === cardName) return link.event_id
+            // durably-linked row's NGO differs from this card's festival — ignore
+            // the link and fall through to name-match so each card resolves to its
+            // own event instead of sharing one event across festivals.
+          }
+        }
         if (s.suggested_event_id) return s.suggested_event_id
         const match = (events || []).find(e => {
           if (!e || !sDate) return false
           const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
           const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
-          const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
-            String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+          const evName = String(e.name || '').split(' · ')[0].trim().toLowerCase()
+          const cardName = String(s.festival || s.title || '').trim().toLowerCase()
+          const nameMatch = evName !== '' && cardName !== '' && evName === cardName
           return sameDate && sameNgo && nameMatch
         })
         return match ? match.id : null
@@ -1547,8 +1572,9 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           if (!e) return false
           const sameDate = String(e.date || '').slice(0, 10) === sDate
           const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
-          const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
-            String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+          const evName = String(e.name || '').split(' · ')[0].trim().toLowerCase()
+          const cardName = String(s.festival || s.title || '').trim().toLowerCase()
+          const nameMatch = evName !== '' && cardName !== '' && evName === cardName
           return sameDate && sameNgo && nameMatch
         })
         if (match) id = match.id
@@ -1652,13 +1678,13 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
 
   const submitCreateEvent = async () => {
     if (!createName.trim()) { setCreateError('Event name is required.'); return }
-    if (!createNgoId) { setCreateError('Choose an NGO.'); return }
-    if (!createDate) { setCreateError('Date is required.'); return }
+    const ng = createEntry?.ngoId || createNgoId || ''
+    if (!ng) { setCreateError('Choose an NGO.'); return }
     setCreateBusy(true); setCreateError('')
     try {
       const payload = {
         name: createName.trim(),
-        ngo_id: createNgoId,
+        ngo_id: ng,
         date: createDate,
         venue: createVenue.trim() || null,
       }
@@ -1992,8 +2018,9 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         if (!e || !sDate) return false
         const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
         const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
-        const nameMatch = String(e.name || '').toLowerCase().includes(String(s.festival || s.title || '').toLowerCase().slice(0, 6)) ||
-          String(s.festival || s.title || '').toLowerCase().includes(String(e.name || '').toLowerCase().slice(0, 6))
+        const evName = String(e.name || '').split(' · ')[0].trim().toLowerCase()
+        const cardName = String(s.festival || s.title || '').trim().toLowerCase()
+        const nameMatch = evName !== '' && cardName !== '' && evName === cardName
         return sameDate && sameNgo && nameMatch
       })
       return match ? match.id : null
@@ -2398,7 +2425,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                               setCreateEntry({
                                 key: null,
                                 date: linkedEv?.date || s.observance_date || s.date || '',
-                                ngoId: linkedEv?.ngo_id ? String(linkedEv.ngo_id) : (s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : '')),
+                                ngoId: reportNgoId || (linkedEv?.ngo_id ? String(linkedEv.ngo_id) : (s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : ''))),
                                 name: linkedEv?.name || s.festival || s.title || '',
                                 location: linkedEv?.venue || null,
                                 description: linkedEv?.description || null,
@@ -2422,7 +2449,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                             setCreateEntry({
                               key: null,
                               date: s.observance_date || s.date || '',
-                              ngoId: s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : ''),
+                              ngoId: reportNgoId || (s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : '')),
                               name: s.festival || s.title || '',
                               location: null,
                               description: null,

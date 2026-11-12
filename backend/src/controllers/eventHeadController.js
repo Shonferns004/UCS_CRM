@@ -1908,6 +1908,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
     }
 
     for (const mr of (Array.isArray(manualRows) ? manualRows : [])) {
+      // A manual row belongs to its row-level NGO (row_ngo_id), not to the page
+      // it was typed on. When the report is filtered to one NGO, drop rows whose
+      // effective NGO differs, so a BSCT-page row assigned to AFLF/MANN does not
+      // leak into the BSCT report (and vice versa).
+      const effectiveNgoId = (mr.row_ngo_id != null && mr.row_ngo_id !== '') ? mr.row_ngo_id : mr.ngo_id
+      if (ngo_id && String(effectiveNgoId) !== String(ngo_id)) continue
       const mk = `${mr.row_ngo_id != null && mr.row_ngo_id !== '' ? String(mr.row_ngo_id) : (mr.ngo_id != null ? String(mr.ngo_id) : 'unknown')}|${String(mr.observance_date || '').slice(0, 10)}|${String(mr.festival || mr.name || '').trim()}`;
       if (coveredKeys.has(mk)) continue;
       const prog = String(mr.body_text || mr.name || '').trim();
