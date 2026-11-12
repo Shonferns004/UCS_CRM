@@ -918,6 +918,7 @@ export default function ReceiptHistory() {
                 <th>Time</th>
                 <th>Amount</th>
                 <th>Delivery</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -932,11 +933,12 @@ export default function ReceiptHistory() {
                     <td><div className="sk" style={{ width: 45, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 40, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 48, height: 20, borderRadius: 6 }} /></td>
                   </tr>
                 ))
               ) : receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                     {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
                   </td>
                 </tr>
@@ -979,6 +981,15 @@ export default function ReceiptHistory() {
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <WhatsAppDeliveryBadge receipt={r} compact />
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEditReceipt(r) }}
+                          title="Edit receipt"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 28, padding: '0 10px', borderRadius: 7, border: '1px solid var(--line)', background: '#fff', color: '#475569', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
                       </td>
                     </tr>
                   );

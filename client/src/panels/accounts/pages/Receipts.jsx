@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth'
-import { X, MoreHorizontal, Search, SlidersHorizontal, Send, Undo2, SquarePen } from 'lucide-react'
+import { X, MoreHorizontal, Search, SlidersHorizontal, Send, Undo2, SquarePen, Eye } from 'lucide-react'
 
 import { useRealtime } from '../../../hooks/useRealtime'
 import { getSocket, onSocketConnect } from '../../../lib/socket'
@@ -1120,11 +1120,7 @@ const agentCell = useCallback((d) => {
                 const mobile = (d['Mobile No.'] || '').trim();
                 return (
                 <tr key={rowId || realIdx} className="rx-verified-row" style={{ background: selectedId != null && selectedId === rowId ? '#f0fdf4' : undefined, cursor:'pointer' }}
-                  onClick={() => {
-                    setSelectedId(rowId);
-                    if (d.receipt_id) setPreviewedIds(prev => new Set(prev).add(d.receipt_id));
-                    setPreviewRow(d);
-                  }}>
+                  onClick={() => setSelectedId(rowId)}>
                   <td style={{ fontWeight:500 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                       <span>{d['Donor Name']}</span>
@@ -1164,6 +1160,11 @@ const agentCell = useCallback((d) => {
                   </td>
                   <td style={{ whiteSpace:'nowrap', verticalAlign:'middle' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                      <button type="button" title="Preview receipt"
+                        onClick={() => { if (d.receipt_id) setPreviewedIds(prev => new Set(prev).add(d.receipt_id)); setPreviewRow(d) }}
+                        style={{ height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:4, padding:'0 10px', borderRadius:7, fontSize:11.5, fontWeight:700, fontFamily:'inherit', cursor:'pointer', border:'1px solid var(--line)', background:'#fff', color:'#475569', whiteSpace:'nowrap' }}>
+                        <Eye size={12} /> View
+                      </button>
                       <button type="button"
                         title="Send on WhatsApp"
                         onClick={() => handleSendSingle(d, rowId)}
