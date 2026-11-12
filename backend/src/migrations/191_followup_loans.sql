@@ -19,8 +19,7 @@ CREATE TABLE IF NOT EXISTS followup_loans (
   source_fro_worker_id  uuid,
   target_station        text NOT NULL,
   target_fro_worker_id  uuid NOT NULL,
-  scope                 text NOT NULL DEFAULT 'BOTH'
-                        CHECK (scope IN ('BOTH', 'FOLLOW_UP', 'CALLBACK')),
+  scope                 text NOT NULL DEFAULT 'BOTH',
   selection             text NOT NULL DEFAULT 'ALL_OPEN'
                         CHECK (selection IN ('ALL_OPEN', 'UPCOMING_ONLY', 'OVERDUE_ONLY', 'FIXED_COUNT')),
   status                text NOT NULL DEFAULT 'SCHEDULED'
@@ -41,6 +40,7 @@ CREATE TABLE IF NOT EXISTS followup_loans (
 );
 
 -- Widen the selection check on databases created before UPCOMING_ONLY.
+ALTER TABLE followup_loans DROP CONSTRAINT IF EXISTS followup_loans_scope_check;
 ALTER TABLE followup_loans DROP CONSTRAINT IF EXISTS followup_loans_selection_check;
 ALTER TABLE followup_loans ADD CONSTRAINT followup_loans_selection_check
   CHECK (selection IN ('ALL_OPEN', 'UPCOMING_ONLY', 'OVERDUE_ONLY', 'FIXED_COUNT'));
