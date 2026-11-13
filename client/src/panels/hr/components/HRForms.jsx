@@ -4,6 +4,7 @@ import { initials as initialsFn } from '../store';
 import { Plus, Trash, ArrowLeft, Pencil, Mail } from '../../../icons';
 import PrintForms from './forms/PrintForms';
 import { deptLabel } from '../../../lib/labels';
+import { api } from '../../../api/auth';
 
 const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
 
@@ -292,11 +293,20 @@ export default function HRForms() {
   const [activeSection, setActiveSection] = useState('personal');
   const contentRef = useRef(null);
   const sectionRefs = useRef({});
+  const [sigUploading, setSigUploading] = useState(false);
+  const sigInputRef = useRef(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoErr, setPhotoErr] = useState(false);
+  const photoInputRef = useRef(null);
 
   useEffect(() => {
     fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message)).finally(() => setLoading(false));
     fetchNGOs().then(setNgos).catch((err) => console.error('API error:', err.message));
   }, []);
+
+  // A stored photo_url can point at a file that no longer exists; fall back to
+  // initials instead of leaving a broken-image icon in the editor.
+  useEffect(() => { setPhotoErr(false); }, [previewData?.photo_url]);
 
   const filtered = workers.filter((w) => {
     const q = search.toLowerCase();
@@ -386,6 +396,95 @@ export default function HRForms() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // HR uploads a scanned/drawn signature on the volunteer's behalf. The admin
+  // endpoint bypasses the worker-side lock, stamps the record as signed and
+  // records source "admin". Both previewData (what this form renders) and the
+  // list row are patched so the status pill and completion % update immediately.
+  const uploadSignatureBase64 = async (base64, mime_type) => {
+    if (!previewData?.id) return;
+    setSigUploading(true);
+    setSaveMsg('');
+    try {
+      const res = await api(`/onboarding/admin/upload-signature/${previewData.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ signature_base64: base64, mime_type }),
+        _prefix: 'ucs',
+      });
+      const patch = {
+        signature_url: res.signature_url,
+        signature_status: res.signature_status || 'signed',
+        signature_signed_at: new Date().toISOString(),
+        signature_source: 'admin',
+      };
+      setPreviewData(prev => (prev ? { ...prev, ...patch } : prev));
+      setForm(prev => (prev ? { ...prev, ...patch } : prev));
+      setWorkers(list => list.map(w => (w.id === previewData.id ? { ...w, ...patch } : w)));
+      setSaveMsg('Signature uploaded successfully.');
+    } catch (e) {
+      console.error('Error uploading signature:', e.message);
+      setSaveMsg('Error: ' + e.message);
+    } finally {
+      setSigUploading(false);
+    }
+  };
+
+  const handleSigSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSaveMsg('Please choose an image file (PNG or JPG).');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => uploadSignatureBase64(String(reader.result).split(',')[1], file.type);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // HR uploads/replaces the volunteer's profile photo on their behalf. The
+  // endpoint stores the image and writes workers.photo_url immediately, so the
+  // form state (which save() posts back wholesale) is patched too — otherwise
+  // the next Save would put the old URL back.
+  const uploadPhotoBase64 = async (base64, mime_type) => {
+    if (!previewData?.id) return;
+    setPhotoUploading(true);
+    setSaveMsg('');
+    try {
+      const res = await api(`/onboarding/admin/upload-photo/${previewData.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ photo_base64: base64, mime_type }),
+        _prefix: 'ucs',
+      });
+      const url = res.photo_url;
+      if (url) {
+        setPreviewData(prev => (prev ? { ...prev, photo_url: url } : prev));
+        setForm(prev => (prev ? { ...prev, photo_url: url } : prev));
+        setWorkers(list => list.map(w => (w.id === previewData.id ? { ...w, photo_url: url } : w)));
+        setSaveMsg('Photo uploaded successfully.');
+      }
+    } catch (e) {
+      console.error('Error uploading photo:', e.message);
+      setSaveMsg('Error: ' + e.message);
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSaveMsg('Please choose an image file (PNG or JPG).');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => uploadPhotoBase64(String(reader.result).split(',')[1], file.type);
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const scrollToSection = (id) => {
@@ -667,6 +766,24 @@ export default function HRForms() {
                     <span className="hrf-section-icon"><IconUser /></span>
                     <h3>Personal Details</h3>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', background: 'var(--sand)' }}>
+                    <div style={{ width: 72, height: 72, borderRadius: 16, overflow: 'hidden', border: '1px solid var(--line)', background: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                      {d.photo_url && !photoErr ? (
+                        <img src={d.photo_url} alt={d.name || 'Volunteer'} onError={() => setPhotoErr(true)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink-soft)' }}>{initialsFn(d.name || '')}</span>
+                      )}
+                    </div>
+                    <div>
+                      <input ref={photoInputRef} type="file" accept="image/png,image/jpeg" style={{ display: 'none' }} onChange={handlePhotoSelect} />
+                      <button type="button" className="btn btn-sm" onClick={() => photoInputRef.current?.click()} disabled={photoUploading}>
+                        {photoUploading ? 'Uploading\u2026' : d.photo_url ? 'Replace photo' : 'Upload photo'}
+                      </button>
+                      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 6 }}>
+                        PNG or JPG. This photo is printed on the joining form.
+                      </div>
+                    </div>
+                  </div>
                   <div className="hrf-grid">
                     <EditableField label="Full Name" value={f.name} onChange={setField('name')} />
                     <EditableField label="Email" value={f.email} onChange={setField('email')} />
@@ -796,8 +913,10 @@ export default function HRForms() {
                 </section>
 
                 {/* HR used to have to open a print preview to discover whether a
-                    volunteer had signed at all. The signature is read-only here:
-                    it is captured by the volunteer, not edited by HR. */}
+                    volunteer had signed at all. The image itself stays captured
+                    by the volunteer; HR can only upload a replacement here on
+                    the volunteer's behalf (the admin endpoint records the
+                    "HR (on behalf)" source in the audit trail). */}
                 <section className="hrf-section" id="hrf-signature" ref={(el) => (sectionRefs.current['signature'] = el)}>
                   <div className="hrf-section-title">
                     <span className="hrf-section-icon"><Pencil /></span>
@@ -844,8 +963,28 @@ export default function HRForms() {
                       )}
                     </>
                   ) : (
-                    <div className="hrf-empty">No signature captured yet.</div>
+                    <div className="hrf-empty">No signature captured yet. Upload a signed image below.</div>
                   )}
+                  <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                      ref={sigInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      style={{ display: 'none' }}
+                      onChange={handleSigSelect}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => sigInputRef.current?.click()}
+                      disabled={sigUploading}
+                    >
+                      {sigUploading ? 'Uploading\u2026' : d.signature_url ? 'Replace signature' : 'Upload signature'}
+                    </button>
+                    <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                      PNG or JPG image of the signed signature
+                    </span>
+                  </div>
                 </section>
               </>
             ) : null}
