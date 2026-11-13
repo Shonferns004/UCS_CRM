@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import { apiGet, apiDelete } from '../api/auth'
-import { Search, UserX, ChevronDown, RefreshCw, Trash2, ShieldOff, UserRoundX } from 'lucide-react'
+import { Search, UserX, ChevronDown, RefreshCw, Trash2, ShieldOff, UserRoundX, Download } from 'lucide-react'
 import DonorTabs from '../components/DonorTabs'
 
 const PAGE_SIZE = 20
@@ -26,6 +27,7 @@ export default function DonorsDND() {
   const [deleting, setDeleting] = useState(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [view, setView] = useState('grid')
 
   const load = useCallback(async (pg, q, type, ngo, append = false) => {
@@ -70,6 +72,34 @@ export default function DonorsDND() {
     const next = page + 1
     setPage(next)
     load(next, search, bucket, ngoFilter, true)
+  }
+
+  // Downloads every donor matching the current category/NGO/search filters,
+  // not just the rows loaded so far.
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('type', bucket)
+      if (search) params.set('search', search)
+      if (ngoFilter) params.set('ngo', ngoFilter)
+      const res = await apiGet('/accounts/donors/dnd/export?' + params.toString())
+      const data = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
+      if (data.length === 0) {
+        alert('No donors to export.')
+        return
+      }
+      const ws = XLSX.utils.json_to_sheet(data)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'DND Donors')
+      const label = bucket === 'all' ? 'dnd-unassigned-donors' : `${bucket}-donors`
+      XLSX.writeFile(wb, `${label}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (e) {
+      alert('Export failed: ' + (e?.message || e))
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleDelete = async (id) => {
@@ -182,6 +212,22 @@ export default function DonorsDND() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={handleExport}
+          disabled={exporting}
+          title={exporting ? 'Preparing Excel…' : 'Download Excel'}
+          aria-label="Download Excel"
+          style={{
+            width: 38, height: 38, borderRadius: 9,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            border: '1px solid #BBF7D0', background: exporting ? '#f0fdf4' : '#fff',
+            color: '#15803d', cursor: exporting ? 'wait' : 'pointer',
+            opacity: exporting ? 0.7 : 1,
+          }}
+        >
+          <Download size={16} />
+        </button>
         <div style={{ position: 'relative' }}>
           <button
             type="button"
@@ -200,8 +246,16 @@ export default function DonorsDND() {
               <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 50, width: 210, background: '#fff', border: '1px solid #DCE6F1', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 5 }}>
                 <button
                   role="menuitem"
+                  onClick={() => { setActionsOpen(false); handleExport() }}
+                  disabled={exporting}
+                  style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: exporting ? 'wait' : 'pointer', color: '#15803d' }}
+                >
+                  <Download size={14} /> {exporting ? 'Exporting…' : 'Export Excel'}
+                </button>
+                <button
+                  role="menuitem"
                   onClick={() => { setActionsOpen(false); setSearchInput(''); setSearch(''); setPage(1); load(1, '', bucket, ngoFilter) }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#475569' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 10px', border: 'none', borderTop: '1px solid #eef2f6', borderRadius: 8, background: 'transparent', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, textAlign: 'left', cursor: 'pointer', color: '#475569' }}
                 >
                   <RefreshCw size={14} /> Clear search & refresh
                 </button>
