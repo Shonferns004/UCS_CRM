@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UCS Capture</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="brand">
+      <span class="mark" aria-hidden="true">U</span>
+      <span>UCS Capture</span>
+      <span class="version">auto-run</span>
+    </header>
+
+    <main>
+      <section class="card">
+        <div class="card-head">
+          <h2>Auto-run searches</h2>
+          <span class="pill" id="auto-pill">idle</span>
+        </div>
+        <p class="muted">
+          Queue up to 30 searches. For each one the extension opens the page, scrolls it,
+          captures the visible rows, then closes the tab. A page with no phones is reported
+          as such — never counted as a win.
+        </p>
+
+        <label for="auto-site">Source</label>
+        <select id="auto-site">
+          <option value="google_maps">Google Maps</option>
+          <option value="bing_search">Bing search</option>
+          <option value="custom">Custom URL</option>
+        </select>
+
+        <label for="auto-region">Region</label>
+        <input
+          id="auto-region"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          value="Mumbai"
+          placeholder="Mumbai, Pune, Delhi"
+        />
+        <p class="hint">
+          Several cities? Separate them with commas — every search runs once per city.
+        </p>
+
+        <label for="auto-queries">Searches, one per line</label>
+        <textarea
+          id="auto-queries"
+          rows="4"
+          spellcheck="false"
+          placeholder="dentist&#10;restaurant&#10;plumber | Pune"
+        ></textarea>
+        <button
+          type="button"
+          id="auto-load-keywords"
+          class="link-button"
+          title="Copies the AI keywords saved in Accounts > Extractor > AI &amp; Settings into this search list"
+        >
+          Use my AI keywords as searches
+        </button>
+        <p class="hint" id="auto-format">
+          Add <code>| area</code> to override the region on one line. Lines starting with
+          <code>#</code> are skipped.
+        </p>
+
+        <div class="grid-2">
+          <div>
+            <label for="auto-scrolls">Scroll steps (max 60)</label>
+            <input id="auto-scrolls" type="number" min="0" max="60" step="1" value="40" />
+          </div>
+          <div>
+            <label for="auto-gap">Gap between pages (s)</label>
+            <input id="auto-gap" type="number" min="4" max="60" step="1" value="8" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label for="auto-target">Minimum numbers to collect (0 = no target)</label>
+            <input id="auto-target" type="number" min="0" max="10000" step="50" value="300" />
+          </div>
+          <div>
+            <label for="auto-ai-batch">AI new searches per batch</label>
+            <input id="auto-ai-batch" type="number" min="1" max="10" step="1" value="5" disabled />
+          </div>
+        </div>
+
+        <label class="check">
+          <input id="auto-ai" type="checkbox" disabled />
+          <span>AI auto-generate next searches <em>(not available in this CRM build)</em></span>
+        </label>
+
+        <label class="check">
+          <input id="auto-deep" type="checkbox" checked />
+          <span>Open each Google Maps result to read its phone <em>(3 tabs at once, best results)</em></span>
+        </label>
+        <label class="check">
+          <input id="auto-focus" type="checkbox" />
+          <span>Focus each tab while it runs</span>
+        </label>
+
+        <div class="row">
+          <button id="auto-start" class="primary" type="button">Start auto-run</button>
+          <button id="auto-stop" class="danger" type="button" hidden>Stop</button>
+          <button id="auto-resume" type="button" hidden>Resume</button>
+        </div>
+
+        <p class="error" id="auto-error" hidden></p>
+        <p class="hint" id="auto-note"></p>
+
+        <div class="progress" id="auto-progress" hidden>
+          <div class="progress-head">
+            <strong id="auto-summary">0 pages</strong>
+            <span class="muted" id="auto-current"></span>
+          </div>
+          <ol class="jobs" id="auto-jobs"></ol>
+          <button id="auto-clear" class="link-button" type="button" hidden>Clear this run</button>
+        </div>
+      </section>
+
+      <div class="section-label">Or capture the tab you are on</div>
+
+      <section class="card">
+        <div class="status-row">
+          <span class="dot" id="status-dot" aria-hidden="true"></span>
+          <span id="status-text">Capture off</span>
+        </div>
+        <p class="muted" id="page-host">Checking the current page…</p>
+        <button id="toggle" class="primary" type="button">Start capture</button>
+        <p class="error" id="error-msg" hidden></p>
+      </section>
+
+      <section class="stats" aria-label="This session">
+        <div>
+          <span class="stat" id="stat-sent">0</span>
+          <span class="stat-label">Saved</span>
+        </div>
+        <div>
+          <span class="stat" id="stat-duplicates">0</span>
+          <span class="stat-label">Duplicates</span>
+        </div>
+        <div>
+          <span class="stat" id="stat-rejected">0</span>
+          <span class="stat-label">Rejected</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <label for="api-base">API base URL</label>
+        <input id="api-base" type="url" spellcheck="false" autocomplete="off" />
+        <div class="row">
+          <button id="save-api" type="button">Save</button>
+          <button id="test-api" type="button">Test connection</button>
+        </div>
+        <p class="hint" id="api-msg"></p>
+      </section>
+
+      <section class="card">
+        <label for="api-token">CRM token</label>
+        <input
+          id="api-token"
+          type="password"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="Paste the token from your downloaded package"
+        />
+        <div class="row">
+          <button id="save-token" type="button">Save token</button>
+        </div>
+        <p class="hint" id="token-msg"></p>
+      </section>
+
+      <section class="card note">
+        <strong>Extraction is heuristic</strong>
+        <p>
+          Rows are read from the page. Names and addresses can be misread, and phone numbers
+          are only checked for format — never for reachability. Review before contacting anyone.
+        </p>
+      </section>
+
+      <a class="link" href="http://localhost:5173/accounts/extractor" target="_blank" rel="noreferrer">
+        Open Extractor in UCS CRM
+      </a>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

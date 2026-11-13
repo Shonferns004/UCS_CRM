@@ -4262,6 +4262,41 @@ export const getDonorsList = async (req, res) => {
   }
 };
 
+// Two separate sets: donors marked DND, and donors with no live assignment.
+// A donor can be in both - the DND tab shows them as separate lists.
+const collectDndBuckets = async () => {
+  const dndIds = new Set();
+  const unassignedIds = new Set();
+
+  // 1. DND donors from the donor_dnd registry
+  try {
+    const { data: dndRows } = await db.from('donor_dnd').select('donor_id');
+    for (const r of dndRows || []) if (r?.donor_id) dndIds.add(r.donor_id);
+  } catch (e) {
+    console.warn('[getDndDonors] donor_dnd read skipped:', e?.message);
+  }
+
+  // 2. Donors with no live (non-reassigned) assignment
+  try {
+    const { data: allDonors } = await db.from('donor_profiles').select('id');
+    const { data: liveAssigns } = await db.from('fro_assignments').select('donor_id').or('status.is.null,status.neq.reassigned');
+    const assigned = new Set((liveAssigns || []).map(a => a.donor_id).filter(Boolean));
+    for (const d of allDonors || []) {
+      if (d?.id && !assigned.has(d.id)) unassignedIds.add(d.id);
+    }
+  } catch (e) {
+    console.warn('[getDndDonors] unassigned calc skipped:', e?.message);
+  }
+
+  return { dndIds, unassignedIds };
+};
+
+const pickDndBucketIds = (bucket, dndIds, unassignedIds) => {
+  if (bucket === 'dnd') return new Set(dndIds);
+  if (bucket === 'unassigned') return new Set(unassignedIds);
+  return new Set([...dndIds, ...unassignedIds]);
+};
+
 // DND tab: donors marked DND (donor_dnd registry) plus donors with no live
 // assignment (unassigned). Used by the Accounts "Master Data -> DND" tab.
 export const getDndDonors = async (req, res) => {
@@ -4271,30 +4306,7 @@ export const getDndDonors = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const bucket = String(type || 'all').toLowerCase();
 
-    // Two separate sets: donors marked DND, and donors with no live assignment.
-    // A donor can be in both - the DND tab shows them as separate lists.
-    const dndIds = new Set();
-    const unassignedIds = new Set();
-
-    // 1. DND donors from the donor_dnd registry
-    try {
-      const { data: dndRows } = await db.from('donor_dnd').select('donor_id');
-      for (const r of dndRows || []) if (r?.donor_id) dndIds.add(r.donor_id);
-    } catch (e) {
-      console.warn('[getDndDonors] donor_dnd read skipped:', e?.message);
-    }
-
-    // 2. Donors with no live (non-reassigned) assignment
-    try {
-      const { data: allDonors } = await db.from('donor_profiles').select('id');
-      const { data: liveAssigns } = await db.from('fro_assignments').select('donor_id').or('status.is.null,status.neq.reassigned');
-      const assigned = new Set((liveAssigns || []).map(a => a.donor_id).filter(Boolean));
-      for (const d of allDonors || []) {
-        if (d?.id && !assigned.has(d.id)) unassignedIds.add(d.id);
-      }
-    } catch (e) {
-      console.warn('[getDndDonors] unassigned calc skipped:', e?.message);
-    }
+    const { dndIds, unassignedIds } = await collectDndBuckets();
 
     // Counts for the two sub-tabs (donor_profiles rows that actually exist).
     const countExisting = async (idSet) => {
@@ -4308,10 +4320,7 @@ export const getDndDonors = async (req, res) => {
     const dndTotal = await countExisting(dndIds);
     const unassignedTotal = await countExisting(unassignedIds);
 
-    let ids = new Set();
-    if (bucket === 'dnd') ids = new Set(dndIds);
-    else if (bucket === 'unassigned') ids = new Set(unassignedIds);
-    else ids = new Set([...dndIds, ...unassignedIds]);
+    let ids = pickDndBucketIds(bucket, dndIds, unassignedIds);
 
     if (ids.size === 0) {
       return res.json({ data: [], total: 0, page: pageNum, limit: limitNum, dnd_total: dndTotal, unassigned_total: unassignedTotal });
@@ -4356,6 +4365,64 @@ export const getDndDonors = async (req, res) => {
       dnd_total: dndTotal,
       unassigned_total: unassignedTotal,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Excel export for the DND tab. Mirrors getDndDonors' bucket/filter rules but
+// returns every matching donor in one response so the client can build the
+// .xlsx locally (same approach as exportDonors).
+export const exportDndDonors = async (req, res) => {
+  try {
+    const { search, type = 'all', ngo } = req.query;
+    const bucket = String(type || 'all').toLowerCase();
+
+    const { dndIds, unassignedIds } = await collectDndBuckets();
+    const ids = [...pickDndBucketIds(bucket, dndIds, unassignedIds)];
+    if (ids.length === 0) return res.json({ data: [], total: 0 });
+
+    const donors = [];
+    const ID_BATCH = 300;
+    for (let i = 0; i < ids.length; i += ID_BATCH) {
+      let query = db.from('donor_profiles').select('*').in('id', ids.slice(i, i + ID_BATCH));
+      if (ngo) query = query.eq('ngo', String(ngo));
+      if (search && String(search).trim()) {
+        const q = String(search).trim();
+        query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+      }
+      const { data, error } = await query.order('name', { ascending: true });
+      if (error) throw error;
+      donors.push(...(data || []));
+    }
+
+    donors.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+    const listLabel = (d) => {
+      const isDnd = dndIds.has(d.id);
+      const isUnassigned = unassignedIds.has(d.id);
+      if (isDnd && isUnassigned) return 'DND + Unassigned';
+      if (isDnd) return 'DND';
+      return 'Unassigned';
+    };
+
+    const rows = donors.map(d => ({
+      'Donor Name': d.name || '',
+      'Mobile': d.mobile_number || '',
+      'NGO': d.ngo || '',
+      'List': listLabel(d),
+      'Email': d.email || '',
+      'Address': d.address_1 || '',
+      'Address 2': d.address_2 || '',
+      'City': d.city || '',
+      'Pin Code': d.pin_code || '',
+      'Project': d.project_supported || '',
+      'Total Amount': d.total_amount != null ? Number(d.total_amount) : 0,
+      'Donations': d.donation_count != null ? Number(d.donation_count) : 0,
+      'Last Donation': d.last_donation_date || '',
+    }));
+
+    return res.json({ data: rows, total: rows.length });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
