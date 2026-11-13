@@ -142,7 +142,7 @@ export default function Template6({ personal, declarationDate, place, signatureU
           <span className="line"></span>
         </div>
 
-        <div className="field">
+        <div className="field" style={{ alignItems: 'flex-end' }}>
           <span className="label">Signature:</span>
           <SignatureLine url={signatureUrl} className="line" />
         </div>
