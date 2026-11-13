@@ -2045,7 +2045,8 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
       date: event.date,
       description: event.description || '',
       venue: event.venue || '',
-      tagline: event.tagline || event.slogan || '',
+      tagline: event.tagline || '',
+      slogan: event.slogan || '',
       footerQuote: event.footer_quote || '',
       reportNo: event.report_no || '',
       brandName: bsct ? 'Being Sevak' : (theme.fullName || event.ngo_name || 'Report'),
@@ -2430,7 +2431,8 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
             date={ev.date}
             description={ev.description || ''}
             venue={ev.venue || ''}
-            tagline={ev.tagline || ev.slogan || ''}
+            tagline={ev.tagline || ''}
+            slogan={ev.slogan || ''}
             footerQuote={ev.footer_quote || ''}
             reportNo={ev.report_no || ''}
             brandName={isBsct ? 'Being Sevak' : (dailyTheme.fullName || dailyNgoName)}
