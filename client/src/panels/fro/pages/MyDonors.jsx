@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoans, getDataVisibility } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoans, getMyLeadLoanItems, getDataVisibility } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { openLeadWhatsApp } from '../utils/leadWhatsApp';
@@ -1950,7 +1950,44 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
     // Overdue tab: every past-due follow-up/callback/promise, most-overdue first,
     // fetched server-side from next_follow_up so it spans every past day/month.
     const isOverdueTab = listView === 'overdue';
-    const overdueList = overdueLeads.filter(d => inActiveBucket(d, dataTab));
+    // Borrowed (station-loaned) leads come straight from the loan-items table so
+    // they cannot fall through the status/schedule-driven Follow Ups and Overdue
+    // lists, and the row can show its SOURCE station + expiry while the window
+    // is live.
+    const borrowedItems = borrowedLeads
+      .filter(d => inActiveBucket(d, dataTab))
+      .map((b) => {
+        const due = b.next_follow_up || b.scheduled_at || null;
+        return {
+          id: b.donor_id,
+          ngo_id: b.ngo_id,
+          ngo_name: b.ngo_name,
+          donor_name: b.donor_name,
+          donor_mobile: b.donor_mobile,
+          station: b.source_station || null,
+          scheduled_at: b.scheduled_at || b.next_follow_up || null,
+          due_date: due,
+          type: b.scheduled_at ? 'scheduled' : 'callback',
+          is_loaned_in: true,
+          loan_id: b.loan_id,
+          loan_source_station: b.source_station,
+          loan_expires_at: b.expires_at,
+          is_overdue: !!due && new Date(due).getTime() < Date.now(),
+        };
+      });
+    const dedupeByDonor = (rows) => {
+      const seen = new Set();
+      return rows.filter((d) => {
+        const key = `${d.id || d.donor_id}|${d.ngo_id || ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+    const overdueList = dedupeByDonor([
+      ...borrowedItems.filter(d => d.is_overdue),
+      ...overdueLeads.filter(d => inActiveBucket(d, dataTab)),
+    ]);
     // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
     const searching = listView === 'leads' && searchQuery.trim().length >= 2 && dataTab !== 'high_tier';
     // High Tier holds the whole (already-worked + pending) batch in `donors`, so
@@ -1998,7 +2035,10 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
         || (d.disposition_detail || '').toLowerCase().includes(q)
         || (d.station || '').toLowerCase().includes(q);
     }) : [];
-    const followUpFiltered = isFollowUps ? followUps.filter(d => inActiveBucket(d, dataTab)).filter(d => {
+    const followUpFiltered = isFollowUps ? dedupeByDonor([
+      ...borrowedItems,
+      ...followUps.filter(d => inActiveBucket(d, dataTab)),
+    ]).filter(d => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
       return (d.donor_name || '').toLowerCase().includes(q)
