@@ -1318,7 +1318,7 @@ const pickFileToDataUrl = (file) => new Promise((resolve, reject) => {
    Event Reports produces. Extra fields the new template supports (tagline,
    footer quote, report no.) are not collected by the planner's create form, so
    they stay blank. */
-const posterPropsFromSheetArgs = ({ name, date, ngoLabel, activityName, venue, description, slogan, tagline, images, brand } = {}) => ({
+const posterPropsFromSheetArgs = ({ name, date, ngoLabel, activityName, venue, description, slogan, tagline, images, brand, template } = {}) => ({
   title: name || '',
   headline: name || '',
   date,
@@ -1335,6 +1335,7 @@ const posterPropsFromSheetArgs = ({ name, date, ngoLabel, activityName, venue, d
   logoUrl: brand?.logo || '',
   sevakBanoImage: '/logo/sevak-logo.png',
   brandImage: brand?.brandImage || '',
+  template: template || (/ashray|aflf/i.test(String(ngoLabel || '')) ? 'aflf' : 'bsct'),
 })
 
 /* Download the event poster (new EventPosterReport template) for the given
@@ -1483,9 +1484,10 @@ export function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose
         description: description.trim(),
         slogan: slogan.trim(),
         tagline: tagline.trim(),
-        images: images.map((im) => im.dataUrl || im.url),
-        brand: ngoBrandFor(ngo),
-      }
+         images: images.map((im) => im.dataUrl || im.url),
+         brand: ngoBrandFor(ngo),
+         template: /ashray|aflf/i.test(String(ngo?.name || '')) ? 'aflf' : 'bsct',
+       }
       try {
         await downloadEventPoster(pdfArgs)
       } catch (pdfErr) {
@@ -4236,10 +4238,11 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           beneficiary: sugg.map((s) => s.beneficiary).find(Boolean) || festBenef[key] || '',
           venue: p.venue || '',
           description: p.description || '',
-          slogan: p.slogan || '',
-          tagline: p.tagline || '',
-          images,
-          brand: ngoBrandFor(ngo),
+           slogan: p.slogan || '',
+           tagline: p.tagline || '',
+           images,
+           brand: ngoBrandFor(ngo),
+           template: /ashray|aflf/i.test(String(ngo?.name || '')) ? 'aflf' : 'bsct',
         }
       }
       if (!args) { showToast('Nothing to download yet.'); return }

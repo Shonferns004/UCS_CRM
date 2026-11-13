@@ -743,20 +743,22 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel, cardRef, onPatched })
    pixels from row to row in the artwork, hence one x per slot rather than a
    fixed pitch. More than 20 programmes continue on a second template page. */
 const BSCT_W = 1131
-const BSCT_H = 1600
+const BSCT_H = 2192
 const BSCT_SLOT_W = 203
 const BSCT_SLOT_H = 274
 const BSCT_SLOTS = [
-  [35, 250], [250, 250], [464, 250], [678, 250], [892, 250],
-  [31, 546], [245, 546], [459, 546], [674, 546], [888, 546],
-  [27, 841], [241, 841], [455, 841], [669, 841], [883, 841],
-  [22, 1136], [236, 1136], [450, 1136], [667, 1136], [883, 1136],
+  [35, 250], [250, 250], [464, 250], [677, 250], [892, 250],
+  [31, 546], [245, 546], [459, 546], [674, 546], [887, 546],
+  [26, 841], [241, 841], [455, 841], [669, 841], [883, 841],
+  [31, 1138], [245, 1138], [459, 1138], [674, 1138], [887, 1138],
+  [26, 1433], [241, 1433], [455, 1433], [669, 1433], [883, 1433],
+  [22, 1728], [236, 1728], [450, 1728], [667, 1728], [883, 1728],
 ]
 const BSCT_PER_PAGE = BSCT_SLOTS.length
 const BSCT_COLS = 5
-const BSCT_ROWS = 4
+const BSCT_ROWS = 6
 const BSCT_ROW_PITCH = 295.33 // distance between two slot rows in the artwork
-const BSCT_FOOT_H = 180       // the footer band of the artwork (image rows 1420-1600)
+const BSCT_FOOT_H = 190       // the footer band of the artwork (image rows 2002-2192)
 // Inside a slot (relative to the slot's top-left): 6px yellow border, photo
 // window down to y=159, navy text panel from y=160 to the bottom border.
 const BSCT_BORDER = 6
@@ -2055,7 +2057,8 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
       photos,
       logoUrl: event.ngo_logo || theme.logo || '',
       sevakBanoImage: '/logo/sevak-logo.png',
-      brandImage: bsct ? '/logo/bsct-logo.png' : '',
+       brandImage: bsct ? '/logo/bsct-logo.png' : '',
+       template: String(theme.name || '').toUpperCase() === 'AFLF' ? 'aflf' : 'bsct',
     }
   }
 
@@ -2184,7 +2187,8 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
 
   const posterTeam = (Array.isArray(reportData?.volunteers) ? reportData.volunteers : Array.isArray(ev.volunteers) ? ev.volunteers : [])
     .map(v => (typeof v === 'string' ? v : v?.name)).filter(Boolean)
-  const isBsct = String(dailyTheme.name || '').toUpperCase() === 'BSCT'
+   const isBsct = String(dailyTheme.name || '').toUpperCase() === 'BSCT'
+   const isAflf = String(dailyTheme.name || '').toUpperCase() === 'AFLF'
 
   const downloadPosterPdf = async () => {
     if (pdfBusy) return
@@ -2442,6 +2446,7 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
             logoUrl={dailyLogo || ''}
             sevakBanoImage="/logo/sevak-logo.png"
             brandImage={isBsct ? '/logo/bsct-logo.png' : ''}
+            template={isAflf ? 'aflf' : 'bsct'}
           />
         </div>
       )}
