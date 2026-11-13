@@ -93,4 +93,16 @@ export const openwaAssignmentsApi = {
 
   mine: () =>
     api('/openwa-assignments/mine', { cache: 'no-store' }) as Promise<{ assignments: MyAssignment[] }>,
+
+  // Session notes: free text per gateway session, keyed by session id.
+  notes: () =>
+    api('/openwa-assignments/notes', { cache: 'no-store' }) as Promise<{
+      notes: Record<string, { notes: string; updated_at?: string | null; updated_by?: string | null }>;
+    }>,
+
+  saveNote: (sessionId: string, notes: string, sessionName?: string) =>
+    api(`/openwa-assignments/notes/${encodeURIComponent(sessionId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ notes, sessionName }),
+    }) as Promise<{ sessionId: string; notes: { notes: string } }>,
 };

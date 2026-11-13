@@ -132,6 +132,19 @@ export function voiceEncodeArgs(): string[] {
 }
 
 /**
+ * Encoder arguments for a PLAIN AUDIO MESSAGE (not the mic bubble).
+ *
+ * This exists because Android refuses some Ogg/Opus PTT profiles that Web and Desktop play: the
+ * message is delivered, shows the waveform, and then fails to open with "something went wrong with
+ * the audio file". MP3 is the one audio format every WhatsApp client plays, so a recording that has
+ * to arrive on Android is converted here and sent with `ptt: false` — it renders as an audio
+ * message with a player and the file name, at the cost of the mic bubble.
+ */
+export function audioFileEncodeArgs(): string[] {
+  return ['-vn', '-c:a', 'libmp3lame', '-b:a', '64k', '-ar', '44100', '-ac', '1'];
+}
+
+/**
  * Encoder arguments for a video WhatsApp will accept and preview.
  *
  * Baseline H.264 with yuv420p is the combination that plays on every WhatsApp client, including the

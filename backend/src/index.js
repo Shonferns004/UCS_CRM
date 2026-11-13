@@ -126,6 +126,7 @@ import { ensureTicketSchema } from './bootstrap/ensureTicketSchema.js';
 import { ensureWhatsAppSessionAssignmentSchema } from './bootstrap/ensureWhatsAppSessionAssignmentSchema.js';
 import { ensureWhatsAppReplySchema } from './bootstrap/ensureWhatsAppReplySchema.js';
 import { ensureOpenwaTemplateSchema } from './bootstrap/ensureOpenwaTemplateSchema.js';
+import { ensureSessionNotesSchema } from './bootstrap/ensureSessionNotesSchema.js';
 import { ensureBugsSchema } from './bootstrap/ensureBugsSchema.js';
 import { ensureLoanDeductionSchema } from './bootstrap/ensureLoanDeductionSchema.js';
 import { ensureSpecialIncentiveSchema } from './bootstrap/ensureSpecialIncentiveSchema.js';
@@ -1367,6 +1368,7 @@ if (!process.env.VERCEL) {
     await ensureWhatsAppSessionAssignmentSchema().catch(e => console.error('ensureWhatsAppSessionAssignmentSchema failed:', e?.message || e));
   await ensureWhatsAppReplySchema().catch(e => console.error('ensureWhatsAppReplySchema failed:', e?.message || e));
     await ensureOpenwaTemplateSchema().catch(e => console.error('ensureOpenwaTemplateSchema failed:', e?.message || e));
+    await ensureSessionNotesSchema().catch(e => console.error('ensureSessionNotesSchema failed:', e?.message || e));
 await ensureBugsSchema().catch(e => console.error('ensureBugsSchema failed:', e?.message || e));
     await ensureLoanDeductionSchema().catch(e => console.error('ensureLoanDeductionSchema failed:', e?.message || e));
     await ensureSpecialIncentiveSchema().catch(e => console.error('ensureSpecialIncentiveSchema failed:', e?.message || e));

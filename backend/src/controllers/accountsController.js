@@ -4092,9 +4092,28 @@ export const getDonorsList = async (req, res) => {
 
     if (search) {
       const q = search.trim();
-      // mobile_2 is searchable too: a donor's working number often lives there,
-      // and leaving it out made a number that IS in Master Data look missing.
-      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,mobile_2.ilike.%${q}%,city.ilike.%${q}%`);
+      const digits = q.replace(/\D/g, '');
+      if (digits.length >= 4) {
+        // Number search: compare DIGITS only, so a stored number with spaces,
+        // dashes or +91 still matches what the admin types. Done in raw SQL
+        // because mobile_number/mobile_2 may be non-text columns and the
+        // PostgREST `ilike` filter then fails (which used to return the full
+        // unfiltered list, i.e. "every number").
+        const { rows: matchRows, error: mErr } = await db._pool.query(
+          `SELECT id FROM donor_profiles
+            WHERE regexp_replace(coalesce(mobile_number::text, ''), '\\D', '', 'g') LIKE $1
+               OR regexp_replace(coalesce(mobile_2::text, ''), '\\D', '', 'g') LIKE $1
+               OR name ILIKE $2
+            LIMIT 1000`,
+          [`%${digits}%`, `%${q}%`],
+        );
+        if (mErr) throw new Error(mErr.message);
+        const ids = (matchRows || []).map(r => r.id).filter(Boolean);
+        if (ids.length === 0) return res.json({ data: [], total: 0, page: pageNum, limit: limitNum });
+        query = query.in('id', ids);
+      } else {
+        query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,mobile_2.ilike.%${q}%,city.ilike.%${q}%`);
+      }
     }
 
     // "Missing station" narrowing: donors with at least one live assignment
@@ -4321,7 +4340,23 @@ export const getDndDonors = async (req, res) => {
     if (ngo) query = query.eq('ngo', String(ngo));
     if (search) {
       const q = String(search).trim();
-      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+      const digits = q.replace(/\D/g, '');
+      if (digits.length >= 4) {
+        const { rows: matchRows, error: mErr } = await db._pool.query(
+          `SELECT id FROM donor_profiles
+            WHERE regexp_replace(coalesce(mobile_number::text, ''), '\\D', '', 'g') LIKE $1
+               OR regexp_replace(coalesce(mobile_2::text, ''), '\\D', '', 'g') LIKE $1
+               OR name ILIKE $2
+            LIMIT 1000`,
+          [`%${digits}%`, `%${q}%`],
+        );
+        if (mErr) throw new Error(mErr.message);
+        const matchIds = (matchRows || []).map(r => r.id).filter(Boolean);
+        if (matchIds.length === 0) return res.json({ data: [], total: 0, page: pageNum, limit: limitNum, dnd_total: dndTotal, unassigned_total: unassignedTotal });
+        query = query.in('id', matchIds);
+      } else {
+        query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+      }
     }
     const from = (pageNum - 1) * limitNum;
     const to = from + limitNum - 1;
@@ -4710,6 +4745,70 @@ export const getDonorDetail = async (req, res) => {
 
 // Permanently remove a donor and operational FRO data as one transaction.
 // Financial receipts remain in place but are detached from the deleted profile.
+// Mark a donor DND from Master Data: every live assignment is released
+// (status -> reassigned, history kept) and a donor_dnd registry row is written,
+// so the donor moves to the DND tab instead of disappearing.
+export const markDonorDnd = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const { data: donor, error: donorErr } = await db
+      .from('donor_profiles')
+      .select('id, name, mobile_number, ngo')
+      .eq('id', donorId)
+      .maybeSingle();
+    if (donorErr) throw donorErr;
+    if (!donor) return res.status(404).json({ message: 'Donor not found' });
+
+    const { data: assignments, error: assignmentErr } = await db
+      .from('fro_assignments')
+      .select('id, ngo_id, station, fro_worker_id')
+      .eq('donor_id', donorId)
+      .or('status.is.null,status.neq.reassigned');
+    if (assignmentErr) throw assignmentErr;
+
+    const live = assignments || [];
+    const ngoIds = [...new Set(live.map(a => a.ngo_id).filter(Boolean))];
+    if (ngoIds.length === 0 && donor.ngo) {
+      const { data: ngoRow } = await db.from('ngos').select('id').ilike('name', donor.ngo).maybeSingle();
+      if (ngoRow?.id) ngoIds.push(ngoRow.id);
+    }
+
+    const assignmentIds = live.map(a => a.id).filter(Boolean);
+    if (assignmentIds.length > 0) {
+      const { error: releaseErr } = await db
+        .from('fro_assignments')
+        .update({ status: 'reassigned' })
+        .in('id', assignmentIds);
+      if (releaseErr) throw releaseErr;
+    }
+
+    let marked = 0;
+    for (const ngoId of ngoIds) {
+      const { rows, error } = await db._pool.query(
+        `INSERT INTO public.donor_dnd (donor_id, ngo_id, station, reason, note, marked_by, source)
+         VALUES ($1, $2, $3, 'dnd', $4, $5, 'accounts')
+         ON CONFLICT (donor_id, ngo_id) WHERE released_at IS NULL
+         DO UPDATE SET marked_at = now(), note = COALESCE(EXCLUDED.note, donor_dnd.note)
+         RETURNING id`,
+        [donorId, ngoId, live.find(a => a.ngo_id === ngoId)?.station || null, 'Marked DND from Master Data', req.user?.id || null],
+      );
+      if (error) throw new Error(error.message);
+      if (rows && rows.length) marked += 1;
+    }
+
+    // The donor no longer belongs to a live station/NGO in Master Data.
+    const { error: clearErr } = await db
+      .from('donor_profiles')
+      .update({ ngo: null, station: null })
+      .eq('id', donorId);
+    if (clearErr) throw clearErr;
+
+    return res.json({ dnd: true, assignments_released: assignmentIds.length, marked });
+  } catch (error) {
+    return res.status(500).json({ message: `Could not mark DND: ${error.message}` });
+  }
+};
+
 export const deleteDonor = async (req, res) => {
   try {
     const { id: donorId } = req.params;

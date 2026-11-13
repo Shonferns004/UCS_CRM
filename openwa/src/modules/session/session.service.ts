@@ -59,6 +59,7 @@ import {
   IWhatsAppEngine,
   ChatSummary,
   ChatState,
+  type Contact,
   type StoredChatMessageLookup,
 } from '../../engine/interfaces/whatsapp-engine.interface';
 import { createLogger } from '../../common/services/logger.service';
@@ -1491,9 +1492,130 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
 
     // Most-recent first. Sorting before the cap means a capped response is the N newest chats (what
     // clients show first) rather than an arbitrary slice.
-    return this.chatListings.read(id, offset, async () =>
-      [...(await engine.getChats())].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
-    );
+    return this.chatListings.read(id, offset, async () => {
+      const live = await engine.getChats();
+      // Saved contact names live only in the engine's contact list: it is rebuilt from WhatsApp's
+      // app-state sync and is not persisted anywhere, so a chat the engine no longer knows (see
+      // below) still has its name here. Reading them costs no network call — they are already in
+      // memory — and the memo above means this runs once per list window, not once per poll.
+      const contacts = await engine.getContacts().catch(() => []);
+      // A Baileys session's chat list is in-memory only: it is built from `chats.upsert`/`update`
+      // and the initial history sync, so after a restart it holds nothing but the chats that have
+      // received an event since boot. WhatsApp does not re-send history on reconnect, so a 1:1 chat
+      // from yesterday stays invisible until somebody writes into it again (searching the number
+      // still works, because that path resolves the contact instead of listing chats).
+      //
+      // The messages themselves are persisted, so the stored rows are enough to list the rest of
+      // the conversations with a preview. Live entries win on every field they carry (unread, mute,
+      // pin, archive); a stored entry only fills a chat the engine does not know, or a preview the
+      // live entry lost.
+      const stored = await this.storedChats(id, contacts);
+      const byId = new Map<string, ChatSummary>();
+      for (const chat of stored) byId.set(chat.id, chat);
+      for (const chat of live) {
+        const fallback = byId.get(chat.id);
+        if (!fallback) {
+          byId.set(chat.id, chat);
+          continue;
+        }
+        const merged = {
+          ...fallback,
+          ...chat,
+          lastMessage: chat.lastMessage ?? fallback.lastMessage,
+          lastMessageType: chat.lastMessageType ?? fallback.lastMessageType,
+        };
+        // A live Baileys chat whose title is just its own user-part is a chat with no saved name: the
+        // engine could only fall back to the raw id, and for a @lid chat that is the opaque lid. The
+        // stored row resolved the phone, so keep it rather than overwrite a number with a lid.
+        const bareName = chat.name === chat.id.split('@')[0] || chat.name === chat.id;
+        if (bareName && fallback.name && fallback.name !== chat.id.split('@')[0]) {
+          merged.name = fallback.name;
+        }
+        byId.set(chat.id, merged);
+      }
+      return [...byId.values()].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    });
+  }
+
+  /**
+   * One summary per chat this session has stored a message for, carrying that chat's newest message
+   * as the preview. Fills the gap `listChats` documents: the engine's own list does not survive a
+   * restart, the persisted rows do.
+   *
+   * The last message is found with a correlated MAX rather than a window function so the same query
+   * runs on both supported data-databases (Postgres and SQLite). A timestamp tie yields more than
+   * one row per chat; the first wins, and the preview is the same either way.
+   */
+  private async storedChats(sessionId: string, contacts: Contact[] = []): Promise<ChatSummary[]> {
+    const rows = await this.messageRepository
+      .createQueryBuilder('m')
+      .where('m.sessionId = :sessionId', { sessionId })
+      .andWhere(qb => {
+        const newest = qb
+          .subQuery()
+          .select('MAX(x.timestamp)')
+          .from(Message, 'x')
+          .where('x.sessionId = m.sessionId')
+          .andWhere('x.chatId = m.chatId')
+          .getQuery();
+        return `m.timestamp = ${newest}`;
+      })
+      .getMany();
+
+    // A @lid chat has no title when nobody saved the contact, and a lid is an opaque id an operator
+    // cannot dial. Resolve the phones in ONE batched table read: the in-memory mapping cache holds
+    // only the newest LID_MAPPING_CACHE_MAX entries, and a deployment with more mappings than that
+    // (12k here against a 5k cap) would otherwise label most chats with the lid.
+    const lids = [
+      ...new Set(
+        rows.filter(m => m.chatId?.endsWith('@lid')).map(m => m.chatId.split('@')[0]),
+      ),
+    ];
+    const phones = lids.length ? await this.lidMappingStore.phonesForLidsPersisted(lids) : {};
+
+    // Saved names, keyed the two ways a chat can be addressed: by the contact's own id (a chat id or
+    // its <phone>@c.us twin) and by phone digits (a @lid chat resolved through the mapping above).
+    const nameById = new Map<string, string>();
+    const nameByPhone = new Map<string, string>();
+    for (const c of contacts) {
+      const label = c.name || c.pushName;
+      if (!label) continue;
+      nameById.set(c.id, label);
+      const digits = (c.number || '').replace(/\D/g, '');
+      if (digits) nameByPhone.set(digits, label);
+    }
+
+    const seen = new Map<string, ChatSummary>();
+    for (const m of rows) {
+      if (!m.chatId || seen.has(m.chatId)) continue;
+      const userPart = m.chatId.split('@')[0];
+      const phone = phones[userPart];
+      // Name priority: the title WhatsApp stored with the message, then the saved contact (by chat
+      // id, then by its phone), then the phone itself, and only then the raw id. A lid is the last
+      // resort because it is an opaque identifier an operator cannot dial or recognise.
+      const name =
+        m.chatName ||
+        nameById.get(m.chatId) ||
+        (phone ? nameById.get(`${phone}@c.us`) ?? nameByPhone.get(phone) : undefined) ||
+        phone ||
+        userPart;
+      seen.set(m.chatId, {
+        id: m.chatId,
+        name,
+        isGroup: m.chatId.endsWith('@g.us'),
+        kind: chatKind(m.chatId),
+        // Unread is a live-engine fact: a stored row cannot say whether the chat is still unread.
+        // Reporting 0 keeps the list honest instead of inventing a badge.
+        unreadCount: 0,
+        timestamp: m.timestamp,
+        ...(m.body ? { lastMessage: m.body } : {}),
+        ...(m.type ? { lastMessageType: m.type as ChatSummary['lastMessageType'] } : {}),
+        archived: false,
+        pinned: false,
+        muted: false,
+      });
+    }
+    return [...seen.values()];
   }
 
   async getChats(id: string, opts: ListOptions = {}): Promise<ChatSummary[]> {

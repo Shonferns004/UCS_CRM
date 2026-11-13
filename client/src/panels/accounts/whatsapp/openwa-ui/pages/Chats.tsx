@@ -103,6 +103,12 @@ import './Chats.css';
 
 // Quiet window for coalescing mark-as-read RPCs (see markReadCoalescer below).
 const MARK_READ_DEBOUNCE_MS = 750;
+
+// Poll cadence for the chat list while the page is open. The gateway's live socket is not wired in
+// this build (useWebSocket is a stub so the API key stays server-side), so responsiveness comes from
+// this interval alone. 3s keeps new-message previews and unread badges feeling live without flooding
+// the gateway as the 15s default did.
+const CHAT_LIST_POLL_MS = 3000;
 // Most messages the gateway takes in one read (MarkChatReadDto).
 const MARK_READ_MESSAGE_IDS_MAX = 100;
 const readKey = (sessionId: string, chatId: string) => `${sessionId}\u0000${chatId}`;
@@ -571,6 +577,7 @@ export function Chats({
     }
   }, [draftMode, draftModeBusy, isAdmin, showErrorToast, showSuccessToast]);
 
+
   useEffect(() => {
     if (!draftMode || !pendingInbound || !activeChat || !selectedSessionId) return;
     const threadKey = `${selectedSessionId}\u0000${activeChat.id}`;
@@ -970,7 +977,7 @@ export function Chats({
     if (!selectedSessionId) return undefined;
     const timer = setInterval(() => {
       void loadChats(selectedSessionId, { background: true });
-    }, 15000);
+    }, CHAT_LIST_POLL_MS);
     return () => clearInterval(timer);
   }, [selectedSessionId, loadChats]);
 
@@ -2967,3 +2974,6 @@ export function Chats({
     </div>
   );
 }
+
+
+
