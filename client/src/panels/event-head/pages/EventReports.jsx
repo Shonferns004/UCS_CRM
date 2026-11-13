@@ -890,7 +890,7 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
               <div style={{ position: 'absolute', left: px(10), right: px(10), top: px(BSCT_TEXT_TOP), bottom: px(6), overflow: 'hidden', color: '#fff' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: px(6), marginBottom: px(4) }}>
                   <span style={{ background: '#FFC72C', color: '#16365f', borderRadius: px(6), padding: `${px(1)}px ${px(8)}px`, fontSize: px(13), lineHeight: 1.35, fontWeight: 800, whiteSpace: 'nowrap' }}>{dateTxt}</span>
-                  <span style={{ fontSize: px(12), lineHeight: 1.3, color: '#dbe7f7', whiteSpace: 'nowrap' }}>{ev.day || ''}</span>
+                  {/* <span style={{ fontSize: px(12), lineHeight: 1.3, color: '#dbe7f7', whiteSpace: 'nowrap' }}>{ev.day || ''}</span> */}
                 </div>
                 <div style={{ fontSize: px(15), lineHeight: `${px(18)}px`, fontWeight: 700, maxHeight: px(54), overflow: 'hidden', overflowWrap: 'anywhere' }}>
                   {ev.event_name || ev.festival || '—'}
@@ -968,8 +968,6 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
       onDrop={dropAtEnd}
     >
-      {/* Footer band of the artwork (contact strip), pinned to the bottom so it
-          follows the last used row. */}
       {trimmed && (
         <>
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(MANN_BAND_H / Hp) * 100}%`, backgroundImage: "url('/Monthly-Report-Card-Mann.jpg')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(MANN_H / MANN_BAND_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
@@ -1056,6 +1054,7 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
    photo). The order is not kept in the browser - it is handed to the parent,
    which saves it in the database, so it survives a reload and is the same for
    everyone who opens the report. */
+   
 function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, cardRef, onReorder }) {
   // Every programme of the month is listed, not only the photographed ones: a
   // programme that was planned and run but has no photo uploaded yet is still
@@ -1354,7 +1353,7 @@ async function exportElementToPdf(el, filename) {
   pdf.save(filename)
 }
 
-export default function EventReports({ initialMode = 'daily' } = {}) {
+export default function EventReports({ initialMode = 'daily', accent = '#2036bd', accent2 = '#6b38d4' } = {}) {
   // Deep link from an event's "Report" button: /event-head/reports?event=<id>.
   // The id is consumed once, right after the events list loads, so the event is
   // selected and its report generated without the user picking it again.
@@ -2372,29 +2371,32 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
 
   const selectStyle = { padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }
   const labelStyle = { display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: '#6b7280', marginBottom: 4 }
-  const tabStyle = (active) => ({
-    padding: '9px 18px', borderRadius: 999, fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
-    border: `1px solid ${active ? '#2036bd' : 'var(--line)'}`,
-    background: active ? '#2036bd' : '#fff', color: active ? '#fff' : '#374151',
-  })
 
   return (
-    <>
+    <div className="eh-ra" style={{ '--ra-accent': accent, '--ra-accent-2': accent2 }}>
       {toast && (
         <div className="no-print" style={{ position: 'fixed', top: 20, right: 20, zIndex: 3000, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderRadius: 12, background: '#065f46', color: '#fff', fontSize: 13.5, fontWeight: 600, boxShadow: '0 12px 34px rgba(0,0,0,0.22)' }}>
           <span>✓</span>{toast}
         </div>
       )}
       {/* ── Reports & Analytics: daily and monthly reporting ── */}
-      <div className="eh-report-tabs no-print" style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Reports &amp; Analytics</h3>
-        <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 3 }}>
-          View daily event reports or review the complete monthly performance, grouped by NGO.
+      <div className="eh-ra-hero no-print">
+        <div className="eh-ra-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="12" width="3" height="6" rx="1" /><rect x="12" y="8" width="3" height="10" rx="1" /><rect x="17" y="5" width="3" height="13" rx="1" /></svg>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-          <button type="button" onClick={() => setMode('daily')} style={tabStyle(mode === 'daily')}>📅 Daily Report</button>
-          <button type="button" onClick={() => setMode('monthly')} style={tabStyle(mode === 'monthly')}>🗓 Monthly Report</button>
-          {/* <button type="button" onClick={() => { setEditingEventId(null); setCreateEntry({ key: null, date: '', ngoId: ngos[0]?.id ? String(ngos[0].id) : '', name: '', location: null, description: null, slogan: null, tagline: null, images: [], activityId: null, suggestion: null, editing: false, eventId: null }); setCreateOpen(true) }}>＋ Create Event</button> */}
+        <div className="eh-ra-heading">
+          <h3 className="eh-ra-title">Reports &amp; Analytics</h3>
+          <div className="eh-ra-sub">View daily event reports or review the complete monthly performance, grouped by NGO.</div>
+        </div>
+        <div className="eh-ra-seg" role="tablist" aria-label="Report type">
+          <button type="button" role="tab" aria-selected={mode === 'daily'} className={mode === 'daily' ? 'on' : ''} onClick={() => setMode('daily')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+            Daily Report
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'monthly'} className={mode === 'monthly' ? 'on' : ''} onClick={() => setMode('monthly')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="11" width="3" height="7" rx="1" /><rect x="12" y="7" width="3" height="11" rx="1" /><rect x="17" y="4" width="3" height="14" rx="1" /></svg>
+            Monthly Report
+          </button>
         </div>
       </div>
 
@@ -2608,7 +2610,8 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
               <label style={labelStyle}>Happy Family count (BSCT)</label>
               <input value={happyFamily} onChange={e => setHappyFamily(e.target.value)} placeholder="e.g. 4290" inputMode="numeric" maxLength={12} style={{ ...selectStyle, width: 150 }} />
             </div>
-            <button className="btn btn-primary btn-sm" onClick={generateMonthly} disabled={monthlyLoading}>
+            <button className="eh-ra-generate" onClick={generateMonthly} disabled={monthlyLoading}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><rect x="7" y="11" width="3" height="7" rx="1" /><rect x="12" y="7" width="3" height="11" rx="1" /><rect x="17" y="4" width="3" height="14" rx="1" /></svg>
               {monthlyLoading ? 'Loading…' : 'Generate Monthly Report'}
             </button>
             {monthlyData && <>
@@ -2634,14 +2637,44 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
             )}
             {!monthlyLoading && monthlyData && (
               <div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-                  <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
-                    {monthlyMonthLabel} {monthlyYearLabel}
-                  </span>
-                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} completed programme{monthlyData.summary.totalEvents === 1 ? '' : 's'}</span>
-                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.ngos.length} NGO{monthlyData.ngos.length === 1 ? '' : 's'}</span>
-                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Beneficiaries: {monthlyData.summary.totalBeneficiaries.toLocaleString('en-IN')}</span>
-                  <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>Budget: {money(monthlyData.summary.totalBudget)}</span>
+                <div className="eh-ra-stats">
+                  <div className="eh-ra-stat">
+                    <div className="eh-ra-stat-ic" style={{ background: `${accent}1a`, color: accent }}>
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                    </div>
+                    <div>
+                      <div className="eh-ra-stat-val">{monthlyMonthLabel} {monthlyYearLabel}</div>
+                      <div className="eh-ra-stat-lbl">Report period</div>
+                    </div>
+                  </div>
+                  <div className="eh-ra-stat">
+                    <div className="eh-ra-stat-ic" style={{ background: '#e6f6ec', color: '#12a150' }}>
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                    </div>
+                    <div>
+                      <div className="eh-ra-stat-val">{monthlyData.summary.totalEvents}</div>
+                      <div className="eh-ra-stat-lbl">Completed programme{monthlyData.summary.totalEvents === 1 ? '' : 's'}</div>
+                    </div>
+                  </div>
+                  <div className="eh-ra-stat">
+                    <div className="eh-ra-stat-ic" style={{ background: '#eef2ff', color: '#4f46e5' }}>
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 21v-6h6v6" /></svg>
+                    </div>
+                    <div>
+                      <div className="eh-ra-stat-val">{monthlyData.ngos.length}</div>
+                      <div className="eh-ra-stat-lbl">NGO{monthlyData.ngos.length === 1 ? '' : 's'} covered</div>
+                    </div>
+                  </div>
+                  
+                  <div className="eh-ra-stat">
+                    <div className="eh-ra-stat-ic" style={{ background: '#fdeaee', color: '#d92d4a' }}>
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12M6 8h12M6 13l6 8 6-8M6 13h12" /></svg>
+                    </div>
+                    <div>
+                      <div className="eh-ra-stat-val">{money(monthlyData.summary.totalBudget)}</div>
+                      <div className="eh-ra-stat-lbl">Budget</div>
+                    </div>
+                  </div>
                 </div>
 
                 {monthlyData.summary.totalEvents === 0 && (
@@ -2793,6 +2826,6 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           .eh-ngo-card > *:last-child { page-break-before: avoid; break-before: avoid; }
         }
       `}</style>
-    </>
+    </div>
   )
 }
