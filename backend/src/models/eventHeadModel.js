@@ -1048,7 +1048,7 @@ export const setFestivalSuggestionSelected = async (id, is_selected, suggested_e
 
 export const getPlannerEventLinks = async ({ start, end, ngo_id } = {}) => {
   let query = db.from('event_head_planner_event_links')
-    .select('observance_date, festival, ngo_id, event_id');
+    .select('id, created_at, observance_date, festival, ngo_id, event_id');
   if (start) query = query.gte('observance_date', String(start).slice(0, 10));
   if (end) query = query.lt('observance_date', String(end).slice(0, 10));
   if (ngo_id != null && ngo_id !== '') query = query.eq('ngo_id', String(ngo_id));

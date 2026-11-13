@@ -41,6 +41,7 @@ import {
   searchDonors,
   getMyDisposedLeads,
   getWhatsAppLeads,
+  deleteSsLead,
   updateLiveStatus,
   getLiveStatuses,
   getPresentToday,
@@ -134,6 +135,7 @@ router.get('/queue/current', (req, res, next) => {
 });
 router.get('/transferred-leads', getTransferredLeads);
 router.get('/whatsapp-leads', getWhatsAppLeads);
+router.delete('/ss-leads/:id', deleteSsLead);
 router.put('/donors/:id/status', updateDonorStatus);
 router.put('/donors/:id/donor-type', updateDonorType);
 router.put('/donors/:id/mark-seen', async (req, res) => {
