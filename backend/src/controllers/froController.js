@@ -543,6 +543,36 @@ async function getFroAssignment(donorId, workerId, ngoId) {
   return covered || null;
 }
 
+// READ-ONLY history access. A lead the FRO's station once worked stays part of
+// that station's history even after its assignment was reassigned elsewhere —
+// the History list is built from exactly those rows. Opening such a row must
+// resolve the historical assignment instead of denying: denying made the panel
+// announce "temporary access to <other station> was revoked" for a lead the FRO
+// was legitimately looking at in her own station's history. The returned row is
+// flagged read_only and is never accepted by a write path (those keep using
+// getFroAssignment / findOrCreateAssignment).
+async function getHistoryReadAssignment(donorId, workerId, ngoId, restrictPairs = null) {
+  const { scope } = await getMyStationScope(workerId, restrictPairs);
+  const pairs = (scope || []).filter(r => r.ngo_id && r.station);
+  if (pairs.length === 0) return null;
+  const allowed = new Set(pairs.map(r => `${r.station}|${r.ngo_id}`));
+  // Deliberately NOT filtering by ngoId in SQL: a History row can carry one
+  // NGO while the assignment that makes the donor visible sits under another
+  // (the lead was worked for NGO A at this station, and the detail panel later
+  // asks with NGO B). The donor is visible either way, so resolve it and prefer
+  // the requested NGO when it exists.
+  const { data } = await db
+    .from('fro_assignments')
+    .select('id, ngo_id, station, fro_worker_id, batch_type, status')
+    .eq('donor_id', donorId)
+    .in('station', [...new Set(pairs.map(r => r.station))])
+    .limit(20);
+  const rows = (data || []).filter(r => allowed.has(`${r.station}|${r.ngo_id}`));
+  if (rows.length === 0) return null;
+  const preferred = ngoId ? rows.find(r => String(r.ngo_id) === String(ngoId)) : null;
+  return { ...(preferred || rows[0]), read_only: true };
+}
+
 // Turns a plain deny into an EXPLAINABLE one. When this worker once held a
 // temporary grant on the donor's station, the client deserves to know access
 // ENDED (revoked / expired) rather than a generic "access denied" — the panel
@@ -552,6 +582,14 @@ async function getFroAssignment(donorId, workerId, ngoId) {
 // denials keep their exact existing shape.
 async function denyWithTempAccessCode(res, workerId, donorId, fallbackStatus, fallbackMessage) {
   try {
+    // If the donor is visible in this worker's CURRENT station scope, this
+    // denial is not about a lost temporary grant — it is a history lead that
+    // moved elsewhere, or a row under another NGO. Return the plain denial so
+    // the panel never announces "temporary access to <other station> was
+    // revoked" while the FRO is looking at her own station's history.
+    const readable = await getHistoryReadAssignment(donorId, workerId, null);
+    if (readable) return res.status(fallbackStatus).json({ message: fallbackMessage });
+
     const { rows: donorRows } = await db._pool.query(
       `SELECT station, ngo_id FROM fro_assignments
         WHERE donor_id = $1 AND (status IS NULL OR (status IS NULL OR status <> 'reassigned'))
@@ -3156,6 +3194,12 @@ export const getMyDonors = async (req, res) => {
         }
       }
       assignments = data || [];
+    // SS stations have their own tab ("SS Leads"). Keeping them in the normal
+    // New/Old queue would show the same lead twice, so drop them here unless the
+    // caller explicitly asked for an SS station.
+    if (!allStatuses && !(req.query.station && String(req.query.station).toUpperCase().startsWith('SS-'))) {
+      assignments = assignments.filter(a => !/^SS-/i.test(String(a.station || '')));
+    }
     // Temporary Data Access: if a station was added via a tier-scoped grant
     // (high-tier only or normal only), filter out donors that don't match
     // the grant's scope so the FRO only sees what she's authorized for.
@@ -4197,6 +4241,32 @@ export const getDonorLogs = async (req, res) => {
       assignment = data;
     }
 
+    // SS station owner: a reply is materialised with fro_worker_id NULL until
+    // someone works it. The station's FRO must still get the donor timeline,
+    // otherwise opening an SS lead shows an empty panel even though the lead is
+    // sitting in her queue.
+    if (!assignment) {
+      const { data: myStations } = await db
+        .from('fro_station_assignments')
+        .select('station, ngo_id')
+        .eq('fro_worker_id', workerId);
+      const myKeys = new Set((myStations || [])
+        .filter((s) => s.station && s.ngo_id)
+        .map((s) => `${s.station}|${s.ngo_id}`));
+      if (myKeys.size > 0) {
+        let unassigned = db
+          .from('fro_assignments')
+          .select(ASSIGN_COLS)
+          .eq('donor_id', donorId)
+          .is('fro_worker_id', null)
+          .or('status.is.null,status.neq.reassigned')
+          .limit(20);
+        if (ngo_id) unassigned = unassigned.eq('ngo_id', ngo_id);
+        const { data: rows } = await unassigned;
+        assignment = (rows || []).find((r) => myKeys.has(`${r.station}|${r.ngo_id}`)) || null;
+      }
+    }
+
     // Temporary fallback: the donor belongs to another FRO (owner) but a LIVE
     // admin grant may cover its current station — then this worker is allowed
     // to READ the same timeline she is allowed to write logs to. Row returned
@@ -4226,6 +4296,23 @@ export const getDonorLogs = async (req, res) => {
           if (scope === 'STATION_NORMAL') return !isHighTier;
           return false;
         }) || null;
+      }
+    }
+
+    // History rows: this station worked the lead before its assignment was
+    // reassigned to another station. The timeline is still this station's own
+    // record, so resolve that historical row read-only instead of showing an
+    // empty panel (and instead of a bogus temp-access denial).
+    if (!assignment) {
+      const hist = await getHistoryReadAssignment(donorId, workerId, ngo_id, froActPairs(req));
+      if (hist) {
+        assignment = {
+          id: hist.id,
+          ngo_id: hist.ngo_id,
+          station: hist.station,
+          rollover_from_status: null,
+          rollover_at: null,
+        };
       }
     }
 
@@ -5800,6 +5887,16 @@ export const getMyLeadLoans = async (req, res) => {
 export const getMyHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
+    // History must follow the FRO's CURRENT station scope. Temporary access is a
+    // permission window, not ownership: once it is revoked or expires the station
+    // leaves getMyStationScope, so its rows must leave every history surface too.
+    const { scope: historyScope } = await getMyStationScope(workerId, froActPairs(req));
+    const historyScopePairs = new Set(
+      (historyScope || [])
+        .filter((r) => r.ngo_id && r.station)
+        .map((r) => `${r.station}|${r.ngo_id}`),
+    );
+    if (historyScopePairs.size === 0) return res.json([]);
     // History is attributed to the OWNER of the assignment: a "work as" session
     // writes logs on the impersonated FRO's assignment, so those actions appear
     // in the owner's history (and never come back to the real operator's own
@@ -5858,6 +5955,51 @@ export const getMyHistory = async (req, res) => {
     if (await isOldDonorsHidden()) {
       visibleLogs = visibleLogs.filter(l => isFreshStation(l.fro_assignments?.station));
     }
+
+    // Drop own work that now sits outside the current scope (an expired/revoked
+    // temporary station, or a station that was handed to another FRO). Borrowed
+    // rows are left alone: their assignment owner is someone else and the loan
+    // itself is the explicit grant.
+    visibleLogs = visibleLogs.filter((l) => {
+      const fa = l.fro_assignments;
+      if (!fa) return false;
+      if (fa.fro_worker_id && String(fa.fro_worker_id) !== String(workerId)) return true;
+      if (!fa.station || !fa.ngo_id) return false;
+      return historyScopePairs.has(`${fa.station}|${fa.ngo_id}`);
+    });
+
+    // A lead that has since moved to a station where this FRO's temporary
+    // access was revoked/expired is not this station's work anymore, so it must
+    // not linger in its history (otherwise the FRO sees a donor that actually
+    // belongs to a station they can no longer reach).
+    try {
+      const donorIds = [...new Set(visibleLogs.map(l => l.donor_id).filter(Boolean))];
+      if (donorIds.length > 0) {
+        const { rows: liveRows } = await db._pool.query(
+          `SELECT DISTINCT ON (donor_id) donor_id, station, ngo_id
+             FROM fro_assignments
+            WHERE donor_id = ANY($1::int[])
+              AND (status IS NULL OR status <> 'reassigned')
+            ORDER BY donor_id, id DESC`,
+          [donorIds],
+        );
+        const liveByDonor = new Map((liveRows || []).map(r => [r.donor_id, r]));
+        const { rows: deadGrants } = await db._pool.query(
+          `SELECT DISTINCT station FROM temporary_data_assignments
+            WHERE working_fro_worker_id = $1 AND status IN ('REVOKED','EXPIRED')`,
+          [workerId],
+        );
+        const deadStations = new Set((deadGrants || []).map(r => r.station));
+        visibleLogs = visibleLogs.filter((l) => {
+          const fa = l.fro_assignments;
+          if (!fa || !fa.fro_worker_id || String(fa.fro_worker_id) !== String(workerId)) return true;
+          const live = liveByDonor.get(l.donor_id);
+          if (!live || !live.station) return true;
+          if (!deadStations.has(live.station)) return true;
+          return false;
+        });
+      }
+    } catch (e) { console.warn('[history] live-scope filter skipped:', e?.message); }
 
     const donorIds = [...new Set(visibleLogs.map(l => l.donor_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
@@ -6330,13 +6472,16 @@ export const getDonorHistory = async (req, res) => {
       startDate = istMonthBounds(now).month;
     }
 
+    // Scope check by (station, ngo) pair. Reassigned rows are deliberately
+    // INCLUDED: a history row keeps pointing at the assignment it was logged
+    // on, so requiring a live row here made the FRO's own station history deny
+    // itself (and surface a misleading temporary-access banner).
     const { data: checkAccess } = await withStationNgoPairs(
       db
         .from('fro_assignments')
         .select('id, ngo_id, ngos(name)')
         .eq('donor_id', donorId)
-        .in('station', stationNames)
-        .or('status.is.null,status.neq.reassigned'),
+        .in('station', stationNames),
       myScope
     );
     if (!checkAccess || checkAccess.length === 0) {
@@ -7958,35 +8103,101 @@ export const searchDonors = async (req, res) => {
 
 export const getWhatsAppLeads = async (req, res) => {
   try {
-    const { data, error } = await db
-      .from('leads')
-      .select('*')
-      .eq('recruiter_id', req.user.id)
-      .eq('source', 'WhatsApp Bulk Reply')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    const leads = data || [];
-    const result = [];
-    for (const l of leads) {
-      const mobile = String(l.phone || '').replace(/[^0-9]/g, '');
-      const mobile10 = mobile.length >= 10 ? mobile.slice(-10) : mobile;
-      let donorId = null;
-      let ngoId = null;
-      let station = 'WhatsApp Replies';
-      try {
-        const { rows: d } = await db._pool.query('SELECT id FROM donor_profiles WHERE mobile_number = $1 LIMIT 1', [mobile10]);
-        if (d[0]) {
-          donorId = d[0].id;
-          const { rows: a } = await db._pool.query(
-            'SELECT ngo_id, station FROM fro_assignments WHERE donor_id = $1 AND fro_worker_id = $2 LIMIT 1',
-            [donorId, req.user.id],
-          );
-          if (a[0]) { ngoId = a[0].ngo_id; station = a[0].station || station; }
-        }
-      } catch (e) { /* ignore */ }
-      result.push({ ...l, donor_id: donorId, ngo_id: ngoId, station });
+    const workerId = req.user.id;
+    // The SS Leads tab is a STATION view now: WhatsApp replies are materialised
+    // into SS-BSCT / SS-AFLF / SS-MANN as real donor_profiles + fro_assignments,
+    // so the card opens a real donor and a disposition is persisted. A lead is
+    // visible when it is assigned to this worker, or when the worker owns the
+    // SS station it sits on.
+    const { rows } = await db._pool.query(
+      `select a.id, a.donor_id, a.ngo_id, a.station, a.status, a.notes,
+              a.assigned_at, a.fro_worker_id, a.batch_type,
+              dp.name, dp.mobile_number as phone,
+              n.name as ngo_name
+         from fro_assignments a
+         join donor_profiles dp on dp.id = a.donor_id
+         left join ngos n on n.id = a.ngo_id
+        where a.station like 'SS-%'
+          and (a.status is null or a.status <> 'reassigned')
+          and (
+            a.fro_worker_id = $1
+            or exists (
+              select 1 from fro_station_assignments sa
+               where sa.fro_worker_id = $1
+                 and sa.station = a.station
+                 and sa.ngo_id = a.ngo_id
+            )
+          )
+        order by a.assigned_at desc nulls last`,
+      [workerId],
+    );
+    return res.json((rows || []).map((r) => ({
+      id: r.id, // assignment id — what the delete button removes
+      lead_id: (String(r.notes || '').match(/\[Lead:([^\]]+)\]/) || [])[1] || null,
+      donor_id: r.donor_id,
+      ngo_id: r.ngo_id,
+      ngo_name: r.ngo_name || '',
+      name: r.name || r.phone || '—',
+      phone: r.phone,
+      station: r.station,
+      status: r.fro_worker_id ? 'assigned' : 'new',
+      notes: r.notes,
+      assigned_at: r.assigned_at,
+      batch_type: r.batch_type,
+    })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Remove an SS lead from the FRO's queue. Soft-delete only: the assignment is
+// parked as 'reassigned' so the donor, its history and the admin's audit stay
+// intact, and the backfill script knows this reply was deliberately dropped.
+export const deleteSsLead = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const assignmentId = parseInt(req.params.id, 10);
+    if (Number.isNaN(assignmentId)) {
+      return res.status(400).json({ message: 'Invalid assignment id' });
     }
-    return res.json(result);
+
+    const { rows } = await db._pool.query(
+      `select a.id, a.station, a.ngo_id, a.fro_worker_id, a.notes
+         from fro_assignments a
+        where a.id = $1
+          and a.station like 'SS-%'
+          and (a.status is null or a.status <> 'reassigned')
+        limit 1`,
+      [assignmentId],
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ message: 'SS lead not found' });
+
+    let allowed = String(row.fro_worker_id || '') === String(workerId);
+    if (!allowed) {
+      const { rows: own } = await db._pool.query(
+        `select 1 from fro_station_assignments
+          where fro_worker_id = $1 and station = $2 and ngo_id = $3 limit 1`,
+        [workerId, row.station, row.ngo_id],
+      );
+      allowed = own.length > 0;
+    }
+    if (!allowed) return res.status(403).json({ message: 'This lead is not in your queue' });
+
+    await db._pool.query(
+      `update fro_assignments set status = 'reassigned', updated_at = now() where id = $1`,
+      [assignmentId],
+    );
+    // Put the inbox row back so the admin sees the reply again and can decide
+    // whether to re-route it or delete it for good.
+    const leadId = (String(row.notes || '').match(/\[Lead:([^\]]+)\]/) || [])[1] || null;
+    if (leadId) {
+      await db._pool.query(
+        `update leads set status = 'new', recruiter_id = null, updated_at = now() where id = $1`,
+        [leadId],
+      );
+    }
+    return res.json({ message: 'Lead removed from your queue', id: assignmentId, lead_id: leadId });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -8018,6 +8229,18 @@ export const getMyDisposedLeads = async (req, res) => {
     const scopeRows = myScope.filter(r => r.ngo_id && r.station);
     const scopeStations = scopeRows.map(r => r.station);
     const scopeNgos = scopeRows.map(r => r.ngo_id);
+
+    // Defense in depth: a station filter that is not in the FRO's current scope
+    // must return nothing. The station-wide SQL below deliberately reads the
+    // whole station book, so gate it here before the query runs — a revoked or
+    // expired temporary station can never surface its history.
+    if (stationFilter && stationFilter !== 'all') {
+      const stationInScope = scopeRows.some(
+        (r) => r.station === stationFilter
+          && (!ngoFilter || String(r.ngo_id) === String(ngoFilter)),
+      );
+      if (!stationInScope) return res.json([]);
+    }
 
     let disposedLogs = [];
     let logErr = null;
@@ -8252,6 +8475,40 @@ export const getMyDisposedLeads = async (req, res) => {
         disposed_at: disp?.created_at || null,
       });
     }
+    // HISTORY = THIS FRO'S OWN WORK ONLY. A row survives only when the donor
+    // still has a live assignment this FRO can actually open: owned by her
+    // (fro_worker_id) or covered by one of her LIVE temporary grants. A bare
+    // permanent station seat is NOT enough — after a data reshuffle the donor
+    // rows under that station can still belong to another FRO, and showing them
+    // produced dead rows plus "temporary access revoked" / "donor not found"
+    // errors the moment they were clicked.
+    try {
+      const resultDonorIds = [...new Set(result.map(r => r.donor_id).filter(Boolean))];
+      if (resultDonorIds.length > 0) {
+        const liveGrants = await getActiveGrants(workerId).catch(() => []);
+        const grantStations = (liveGrants || []).map(g => String(g.station ?? '').trim()).filter(Boolean);
+        const grantNgos = (liveGrants || []).map(g => String(g.ngo_id ?? ''));
+        const { rows: workableRows } = await db._pool.query(
+          `SELECT DISTINCT fa.donor_id
+             FROM fro_assignments fa
+            WHERE fa.donor_id = ANY($1::int[])
+              AND (fa.status IS NULL OR fa.status <> 'reassigned')
+              AND (
+                fa.fro_worker_id = $2
+                OR EXISTS (
+                  SELECT 1 FROM unnest($3::text[], $4::text[]) AS sc(station, ngo_id)
+                   WHERE sc.station = fa.station AND sc.ngo_id = fa.ngo_id::text
+                )
+              )`,
+          [resultDonorIds, workerId, grantStations, grantNgos],
+        );
+        const workable = new Set((workableRows || []).map(r => r.donor_id));
+        const filtered = result.filter(r => workable.has(r.donor_id));
+        result.length = 0;
+        result.push(...filtered);
+      }
+    } catch (e) { console.warn('[disposed] workable-lead filter skipped:', e?.message); }
+
     // Oldest disposition first, with every DND lead at the very end. DND is a
     // terminal "do not contact" outcome; keeping those interleaved buried the
     // leads the FRO can actually still work under a wall of DND rows.
@@ -8385,7 +8642,14 @@ export const getDonorDonations = async (req, res) => {
     // Owned-row lookup with the temporary-access fallback (getFroAssignment)
     // — a live admin grant covering the donor's current station authorizes
     // this read without touching ownership. Same 403 shape as before otherwise.
-    const assignment = await getFroAssignment(donorId, workerId, ngo_id);
+    let assignment = await getFroAssignment(donorId, workerId, ngo_id);
+    // A lead opened from this station's History may already be reassigned to
+    // another station; its donations are still part of the record the FRO is
+    // looking at, so read the historical row instead of denying with a
+    // temporary-access banner about a different station.
+    if (!assignment) {
+      assignment = await getHistoryReadAssignment(donorId, workerId, ngo_id, froActPairs(req));
+    }
     if (!assignment) {
       return denyWithTempAccessCode(res, workerId, donorId, 403, 'Access denied');
     }
@@ -8542,7 +8806,12 @@ export const getDonorReceipts = async (req, res) => {
     const ngoId = req.query.ngo_id;
     if (!ngoId) return res.status(400).json({ message: 'ngo_id is required' });
 
-    const assignment = await getFroAssignment(donorId, req.user.id, ngoId);
+    let assignment = await getFroAssignment(donorId, req.user.id, ngoId);
+    // History rows may be reassigned elsewhere; the receipts are still part of
+    // this station's record. Read them instead of firing a temp-access denial.
+    if (!assignment) {
+      assignment = await getHistoryReadAssignment(donorId, req.user.id, ngoId, froActPairs(req));
+    }
     if (!assignment) return denyWithTempAccessCode(res, req.user.id, donorId, 403, 'Access denied');
 
     const { data: ngo } = await db

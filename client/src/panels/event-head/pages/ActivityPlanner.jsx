@@ -478,7 +478,7 @@ function FestivalLocationSelect({ value, list, disabled, title, onChange, onDraf
   const selectValue = isCustom || showOther ? OTHER_LOCATION : (value || '')
   const showingInput = selectValue === OTHER_LOCATION
   const lastValue = useRef(value)
-   useEffect(() => {
+  useEffect(() => {
     // React only to an actual change of `value`. `list` can be a new array on
     // any parent render ("All NGOs" used to be), and resetting on that wiped a
     // half-typed location mid-keystroke.
@@ -1328,7 +1328,7 @@ export function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose
     // Create must capture a full photo set (4–6). An edit only has to keep what
     // the event already has, so a name/venue correction is never blocked by a
     // photo count the user is not changing.
-    if (images.length < (isEdit ? 1 : 4)) return setError(isEdit ? 'Keep at least 1 photo.' : 'Please upload at least 4 images (4–6).')
+    if (images.length < 1) return setError('Please upload at least 1 image (1–6).')
     if (images.length > 6) return setError('Please upload at most 6 images.')
     setBusy(true); setError('')
     try {
@@ -1465,15 +1465,15 @@ export function CreateEventFromProgrammeModal({ entry, ngos, activities, onClose
             placeholder="e.g. Serving Selfless Service"
           />
         </Field>
-        <Field label="Photos" hint={isEdit ? 'Keep or change the photos — stored on S3, printed on the Event Detail Sheet. The ★ one is the cover shown on the Monthly Report.' : 'Upload 4 to 6 images — stored on S3, printed on the Event Detail Sheet. The ★ one is the cover shown on the Monthly Report.'}>
+        <Field label="Photos" hint={isEdit ? 'Keep or change the photos — stored on S3, printed on the Event Detail Sheet. The ★ one is the cover shown on the Monthly Report.' : 'Upload 1 to 6 images — stored on S3, printed on the Event Detail Sheet. The ★ one is the cover shown on the Monthly Report.'}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <label className="eh-btn eh-btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: (images.length >= 6 || uploadingImages) ? 'not-allowed' : 'pointer', opacity: (images.length >= 6 || uploadingImages) ? 0.5 : 1 }}>
                 {uploadingImages ? 'Uploading…' : '+ Add images'}
                 <input type="file" accept="image/*" multiple disabled={images.length >= 6 || uploadingImages} onChange={onPickImages} style={{ display: 'none' }} />
               </label>
-              <span style={{ fontSize: 12, color: images.length >= 4 ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)' }}>
-                {uploadingImages ? 'Uploading images to S3…' : `${images.length} / 6 selected ${images.length < (isEdit ? 1 : 4) ? (isEdit ? '(min 1)' : '(min 4)') : ''}`}
+              <span style={{ fontSize: 12, color: images.length >= 1 ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)' }}>
+                {uploadingImages ? 'Uploading images to S3…' : `${images.length} / 6 selected ${images.length < 1 ? '(min 1)' : ''}`}
               </span>
             </div>
             {images.length > 0 && (
@@ -1940,23 +1940,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           map[k] = l
           const fest = String(l?.festival ?? '')
           const dt = String(l?.observance_date || '').slice(0, 10)
-           // Deliberately NOT setting festNgo here: a durable link's NGO is the
-           // event's NGO, not an explicit per-row pick. The row should inherit
-           // the current tab's NGO unless the user explicitly chose otherwise.
+          // Deliberately NOT setting festNgo here: a durable link's NGO is the
+          // event's NGO, not an explicit per-row pick. The row should inherit
+          // the current tab's NGO unless the user explicitly chose otherwise.
         }
         setPlannerLinkMap(map)
       })
-       .catch(() => setPlannerLinkMap({}))
-   }, [month])
+      .catch(() => setPlannerLinkMap({}))
+  }, [month])
 
-   /* Re-read the month's events and durable planner links when the tab regains
-      focus, so an event created elsewhere (e.g. the Monthly Report) shows its
-      Download button here without a manual month change. */
-   useEffect(() => {
-     const onFocus = () => { loadMonthEvents(); loadPlannerLinks() }
-     window.addEventListener('focus', onFocus)
-     return () => window.removeEventListener('focus', onFocus)
-   }, [loadMonthEvents, loadPlannerLinks])
+  /* Re-read the month's events and durable planner links when the tab regains
+     focus, so an event created elsewhere (e.g. the Monthly Report) shows its
+     Download button here without a manual month change. */
+  useEffect(() => {
+    const onFocus = () => { loadMonthEvents(); loadPlannerLinks() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [loadMonthEvents, loadPlannerLinks])
 
   /* Monthly target "Done" is counted from the month's own event feed (see
      eventsByNgo below), not from the monthly report endpoint. That endpoint's
@@ -2066,21 +2066,21 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   useEffect(() => {
     const [y, m] = month.split('-').map(Number)
     let cancelled = false
-     manualLoadedRef.current = false
-     getPlannerManualRows({ month: m, year: y, ngo_id: 'all' })
+    manualLoadedRef.current = false
+    getPlannerManualRows({ month: m, year: y, ngo_id: 'all' })
       .then((rows) => {
-         if (cancelled) return
-         manualLoadedRef.current = true
+        if (cancelled) return
+        manualLoadedRef.current = true
         setFestManual((cur) => {
           const next = { ...cur }
-           for (const r of rows) {
-             // Manual text is scoped by the page NGO (matches updateFestivalManual),
-             // not by the row's own NGO dropdown value.
-             const scopeNgo = String(r?.ngo_id || '')
-             const prefix = `${scopeNgo || 'all'}|${month}|`
-             const date = String(r?.observance_date || '').slice(0, 10)
-             const festival = String(r?.festival ?? '')
-             next[`${prefix}${date}::${festival}`] = {
+          for (const r of rows) {
+            // Manual text is scoped by the page NGO (matches updateFestivalManual),
+            // not by the row's own NGO dropdown value.
+            const scopeNgo = String(r?.ngo_id || '')
+            const prefix = `${scopeNgo || 'all'}|${month}|`
+            const date = String(r?.observance_date || '').slice(0, 10)
+            const festival = String(r?.festival ?? '')
+            next[`${prefix}${date}::${festival}`] = {
               text: String(r?.body_text || ''),
               selected: Boolean(r?.is_selected),
               ...(r?.mode ? { mode: r.mode } : {}),
@@ -2091,16 +2091,16 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         })
         setFestExtra((cur) => {
           const next = { ...cur }
-           for (const r of rows) {
-             const festival = String(r?.festival ?? '')
-             if (!festival.startsWith('+')) continue
-             // Only the current tab's (scope) extra rows belong here: rows from
-             // other scopes must not leak into this tab's grid.
-             if (String(r?.ngo_id || '') !== String(ngoId || '')) continue
-             const date = String(r?.observance_date || '').slice(0, 10)
-             const list = next[date] || []
-             if (!list.includes(festival)) next[date] = [...list, festival]
-           }
+          for (const r of rows) {
+            const festival = String(r?.festival ?? '')
+            if (!festival.startsWith('+')) continue
+            // Only the current tab's (scope) extra rows belong here: rows from
+            // other scopes must not leak into this tab's grid.
+            if (String(r?.ngo_id || '') !== String(ngoId || '')) continue
+            const date = String(r?.observance_date || '').slice(0, 10)
+            const list = next[date] || []
+            if (!list.includes(festival)) next[date] = [...list, festival]
+          }
           return next
         })
         setFestNgo(() => {
@@ -2139,8 +2139,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           return next
         })
       })
-       .catch(() => {})
-      if (!cancelled) setDirtyRows(new Set())
+      .catch(() => { })
+    if (!cancelled) setDirtyRows(new Set())
     return () => { cancelled = true }
   }, [month, ngoId])
 
@@ -2183,7 +2183,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       if (k.startsWith(scopedManualPrefix)) out[k.slice(scopedManualPrefix.length)] = festManual[k]
     }
     return out
-   }, [festManual, scopedManualPrefix])
+  }, [festManual, scopedManualPrefix])
 
   /* The manual row's export value in one place: selected AND actually typed,
      so an emptied textarea can never claim a slot in the download. */
@@ -2223,9 +2223,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         return ''
       }
     }
-     // Option 2: no per-row NGO override — the row inherits the tab's NGO.
-     const rowNgo = ''
-     const isExtra = festival.startsWith('+')
+    // Option 2: no per-row NGO override — the row inherits the tab's NGO.
+    const rowNgo = ''
+    const isExtra = festival.startsWith('+')
     const name = String(override.name !== undefined ? override.name : (entry.name || ''))
     const body = String(override.text !== undefined ? override.text : (entry.text || ''))
     const selected = override.selected !== undefined ? Boolean(override.selected) : Boolean(entry.selected)
@@ -2236,40 +2236,40 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     const location = override.location !== undefined
       ? override.location
       : (entry.location !== undefined ? entry.location : (key in festLoc ? festLoc[key] : null))
-     // A normal festival row with nothing typed and no tick needs no stored row.
-     // An extra row is kept even while empty: its existence IS the row.
-     // A row that carries a custom NGO assignment (row_ngo_id different from the
-     // page scope) is also kept: deleting it would lose the NGO pick on refresh.
-     // A non-empty row_ngo_id now always means a custom (different-from-scope)
-     // assignment, so keep the row even when everything else is empty.
-     const rowHasCustomNgo = Boolean(rowNgo) && rowNgo !== ''
-      if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location && !rowHasCustomNgo) {
-          return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }, opts)
-         .then((res) => { dirtyLocRef.current.delete(key); setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n }); return res })
-         .catch((e) => { console.error('deleteManualRow failed', e); return null })
-     }
-      return savePlannerManualRow({
-       month: m,
-       year: y,
-       observance_date: date,
-       festival,
-       ngo_id: scopeNgo || rowNgo || '',
-       row_ngo_id: rowNgo,
-       name,
-       body_text: body,
-       is_selected: selected,
-       mode,
-       beneficiary,
-       location,
-     }, opts).then((res) => {
-       console.log('[manual] save result', res)
-       if (res) {
-         dirtyLocRef.current.delete(key)
-         setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n })
-       }
-       if (!res) showToast('Could not save programme. Please try again.')
-       return res
-     }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
+    // A normal festival row with nothing typed and no tick needs no stored row.
+    // An extra row is kept even while empty: its existence IS the row.
+    // A row that carries a custom NGO assignment (row_ngo_id different from the
+    // page scope) is also kept: deleting it would lose the NGO pick on refresh.
+    // A non-empty row_ngo_id now always means a custom (different-from-scope)
+    // assignment, so keep the row even when everything else is empty.
+    const rowHasCustomNgo = Boolean(rowNgo) && rowNgo !== ''
+    if (!isExtra && !name && !body && !selected && !mode && !beneficiary && !location && !rowHasCustomNgo) {
+      return deletePlannerManualRow({ observance_date: date, festival, ngo_id: scopeNgo }, opts)
+        .then((res) => { dirtyLocRef.current.delete(key); setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n }); return res })
+        .catch((e) => { console.error('deleteManualRow failed', e); return null })
+    }
+    return savePlannerManualRow({
+      month: m,
+      year: y,
+      observance_date: date,
+      festival,
+      ngo_id: scopeNgo || rowNgo || '',
+      row_ngo_id: rowNgo,
+      name,
+      body_text: body,
+      is_selected: selected,
+      mode,
+      beneficiary,
+      location,
+    }, opts).then((res) => {
+      console.log('[manual] save result', res)
+      if (res) {
+        dirtyLocRef.current.delete(key)
+        setDirtyRows((prev) => { const n = new Set(prev); n.delete(key); return n })
+      }
+      if (!res) showToast('Could not save programme. Please try again.')
+      return res
+    }).catch((e) => { console.error('saveManualRow failed', e); showToast('Could not save programme. ' + (e?.message || '')); return null })
   }, [month, ngoId, scopedManual, festNgo, festBenef, festLoc, manualKeyParts])
 
   /* Explicit per-row save used by the "Save" buttons. Awaits the write so the
@@ -2334,7 +2334,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     if (!manualLoadedRef.current) return
     const t = setTimeout(() => {
       for (const k of Object.keys(scopedManual || {})) {
-        persistManualRow(k).catch(() => {})
+        persistManualRow(k).catch(() => { })
       }
     }, 800)
     return () => clearTimeout(t)
@@ -2355,7 +2355,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
         // right after the debounce still gets a keepalive retry on unload.
         persistManualRow(k, { location: festLoc[k] })
           .then(() => { dirtyLocRef.current.delete(k) })
-          .catch(() => {})
+          .catch(() => { })
       }
     }, 700)
     return () => clearTimeout(t)
@@ -2441,7 +2441,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      stored suggestions already belong to. Rows read only their own NGO's stored
      ideas, so BSCT, MANN and AFLF never mix in one block. */
   // With Option 2, every row inherits the current tab's NGO for display.
-   const rowNgoId = useCallback(() => String(ngoId || ''), [ngoId]) /* SYNTAX_ERROR_TEST */
+  const rowNgoId = useCallback(() => String(ngoId || ''), [ngoId]) /* SYNTAX_ERROR_TEST */
 
   const rowNgo = useCallback(
     (key) => ngos.find((n) => String(n.id) === rowNgoId(key)) || null,
@@ -3191,8 +3191,8 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       /* The "No important day" rows are keyed "date::" (no festival), so the
          Festival column reads the user's typed event name — or the row's own
          "No important day" label when they never named it. */
-      const festival = (k.includes('::') ? k.slice(k.indexOf('::') + 2) : '')
-        || e?.name || 'No important day'
+      const suffix = k.includes('::') ? k.slice(k.indexOf('::') + 2) : ''
+      const festival = (suffix && !suffix.startsWith('+') ? suffix : '') || e?.name || 'No important day'
       rows.push({
         date: d,
         dateLabel: shortDate(d),
@@ -3708,6 +3708,10 @@ export default function ActivityPlanner({ taskAssignment = false }) {
       const evDate = String(p.date || '').slice(0, 10)
       const evNgo = String(p.ngoId || '')
       if (evName !== name || evDate !== d) return false
+      // Never hand this row an event that another row already owns by link —
+      // the name+date match must not become a second path to the same event.
+      const owner = ownerLinkForEvent(ev)
+      if (owner && String(owner?.festival || '').trim().toLowerCase() !== name) return false
       if (ngo) {
         // Never credit another NGO's event to this row. An event that carries
         // no NGO of its own only counts when the month's feed was already
@@ -3722,6 +3726,47 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     return found.sort((a, b) => ((b?.extendedProps?.images?.length || 0) - (a?.extendedProps?.images?.length || 0)))[0]
   }
 
+  /* One event belongs to exactly ONE planner row. An older build could write two
+     durable links for the same event (e.g. "Vidhya Potli - Jogeshwari" and
+     "Vidhya Potli - Nalasopara" both pointing at the Jogeshwari event), which
+     made Download / Edit / Delete act on a sibling row's programme. The owner is
+     decided from the event itself: its own name, then its venue ("... -
+     Jogeshwari"), then the oldest link. Every other row then sees no event, so
+     the two rows can never share one event again. */
+  const ownerLinkForEvent = (linkedEv) => {
+    if (!linkedEv) return null
+    const same = Object.values(plannerLinkMap || {}).filter((l) => String(l?.event_id ?? '') === String(linkedEv?.id ?? ''))
+    if (!same.length) return null
+    const evName = String(linkedEv?.title || '').split(' · ')[0].trim().toLowerCase()
+    const evVenue = String(linkedEv?.extendedProps?.venue ?? linkedEv?.venue ?? '').trim().toLowerCase()
+    if (evName) {
+      const byName = same.find((l) => String(l?.festival || '').trim().toLowerCase() === evName)
+      if (byName) return byName
+    }
+    if (evVenue) {
+      const byVenue = same.find((l) => {
+        const f = String(l?.festival || '').trim().toLowerCase()
+        return Boolean(f) && (f === evVenue || f.includes(evVenue) || evVenue.includes(f))
+      })
+      if (byVenue) return byVenue
+    }
+    return same.slice().sort((a, b) => {
+      const ac = String(a?.created_at || '')
+      const bc = String(b?.created_at || '')
+      if (ac && bc && ac !== bc) return ac < bc ? -1 : 1
+      if (ac && !bc) return -1
+      if (!ac && bc) return 1
+      return String(a?.festival || '').localeCompare(String(b?.festival || ''))
+    })[0]
+  }
+  const linkOwnsItsEvent = (link, linkedEv) => {
+    if (!link || !linkedEv) return false
+    const owner = ownerLinkForEvent(linkedEv)
+    if (!owner) return true
+    const keyOf = (l) => `${String(l?.event_id ?? '')}|${String(l?.observance_date ?? '').slice(0, 10)}|${String(l?.festival ?? '').trim().toLowerCase()}|${String(l?.ngo_id ?? '')}`
+    return keyOf(owner) === keyOf(link)
+  }
+
   /* The event a planner row already produced. Found through the durable row link
      recorded when the event was created (survives a refresh and other devices),
      falling back to the older suggestion-level link (suggested_event_id), and
@@ -3731,10 +3776,14 @@ export default function ActivityPlanner({ taskAssignment = false }) {
      name or NGO. */
   const findScheduledEvent = (key, date, label) => {
     const link = findDurableLink(key)
-    const linkedId = link
-      ? link.event_id
-      : (key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null)
-    if (linkedId) return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+    if (link) {
+      const linkedEv = monthEvents.find((ev) => String(ev?.id) === String(link.event_id)) || null
+      // A link owned by a sibling row resolves to nothing, so this row keeps its
+      // own Create state instead of borrowing the other programme's event.
+      return linkedEv && linkOwnsItsEvent(link, linkedEv) ? linkedEv : null
+    }
+    const suggId = key ? rowSuggestionsFor(key).find((s) => Number(s.suggested_event_id) > 0)?.suggested_event_id : null
+    if (suggId) return monthEvents.find((ev) => String(ev?.id) === String(suggId)) || null
     return findExistingPlannedEvent(key, date, label)
   }
 
@@ -3769,9 +3818,9 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   const findLinkedScheduledEvent = (key, date, label) => {
     if (!key) return null
     const link = findDurableLink(key)
-    const linkedId = link ? link.event_id : null
-    if (!linkedId) return null
-    return monthEvents.find((ev) => String(ev?.id) === String(linkedId)) || null
+    if (!link?.event_id) return null
+    const linkedEv = monthEvents.find((ev) => String(ev?.id) === String(link.event_id)) || null
+    return linkedEv && linkOwnsItsEvent(link, linkedEv) ? linkedEv : null
   }
   const deleteScheduledProgramme = async (key, date, label) => {
     const ev = findScheduledEvent(key, date, label)
@@ -3779,23 +3828,23 @@ export default function ActivityPlanner({ taskAssignment = false }) {
     if (!window.confirm(`Delete event "${ev.title || label}"? This cannot be undone.`)) return
     try {
       await deleteEvent(ev.id)
-       setMonthEvents((prev) => prev.filter((e) => String(e?.id) !== String(ev.id)))
-       const lk = linkMapKey(key, rowNgoId(key))
-       setCreatedKeys((cur) => { const next = new Set(cur); next.delete(lk); return next })
-       setRowEventNames((cur) => { const next = { ...cur }; delete next[lk]; return next })
-       setPdfCache((cur) => { const next = new Map(cur); next.delete(lk); return next })
-       setPlannerLinkMap((cur) => { const next = { ...cur }; delete next[lk]; return next })
-       // Remove the durable row → event link on the server too, otherwise the
-       // Monthly Report keeps showing this event as an "extra" card.
-       const delObs = String(key || '').slice(0, (key || '').indexOf('::') >= 0 ? (key || '').indexOf('::') : (key || '').length).slice(0, 10)
-       const delFest = (key || '').includes('::') ? String(key).slice(String(key).indexOf('::') + 2) : ''
-       deletePlannerEventLink({ observance_date: delObs || String(ev?.extendedProps?.date || '').slice(0, 10), festival: delFest, ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || ev?.extendedProps?.ngo_id }).catch(() => {})
-       // Drop the programme from the Monthly Report too: unselect any suggestion
-       // that pointed at this event so the report no longer lists it.
-       const linkedSuggs = (key ? rowSuggestionsFor(key) : []).filter((s) =>
-         Number(s?.suggested_event_id) === Number(ev.id) || Boolean(s?.is_selected)
-       )
-       linkedSuggs.forEach((s) => { if (s?.id) setFestivalSuggestionSelected(Number(s.id), false).catch(() => {}) })
+      setMonthEvents((prev) => prev.filter((e) => String(e?.id) !== String(ev.id)))
+      const lk = linkMapKey(key, rowNgoId(key))
+      setCreatedKeys((cur) => { const next = new Set(cur); next.delete(lk); return next })
+      setRowEventNames((cur) => { const next = { ...cur }; delete next[lk]; return next })
+      setPdfCache((cur) => { const next = new Map(cur); next.delete(lk); return next })
+      setPlannerLinkMap((cur) => { const next = { ...cur }; delete next[lk]; return next })
+      // Remove the durable row → event link on the server too, otherwise the
+      // Monthly Report keeps showing this event as an "extra" card.
+      const delObs = String(key || '').slice(0, (key || '').indexOf('::') >= 0 ? (key || '').indexOf('::') : (key || '').length).slice(0, 10)
+      const delFest = (key || '').includes('::') ? String(key).slice(String(key).indexOf('::') + 2) : ''
+      deletePlannerEventLink({ observance_date: delObs || String(ev?.extendedProps?.date || '').slice(0, 10), festival: delFest, ngo_id: rowNgoId(key) || ev?.extendedProps?.ngoId || ev?.extendedProps?.ngo_id }).catch(() => { })
+      // Drop the programme from the Monthly Report too: unselect any suggestion
+      // that pointed at this event so the report no longer lists it.
+      const linkedSuggs = (key ? rowSuggestionsFor(key) : []).filter((s) =>
+        Number(s?.suggested_event_id) === Number(ev.id) || Boolean(s?.is_selected)
+      )
+      linkedSuggs.forEach((s) => { if (s?.id) setFestivalSuggestionSelected(Number(s.id), false).catch(() => { }) })
       showToast('Event deleted.')
     } catch (e) {
       showToast(e?.message || 'Could not delete event.')
@@ -4028,12 +4077,12 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           ngo_id: linkNgo || null,
           event_id: event.id,
         }
-          setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
-          // Do not override festNgo here: the row inherits the current tab's NGO
-          // unless the user explicitly chose a different one.
-          setPlannerEventLink(link).catch(() => {
-           // The event exists either way; only the cross-device link is missing.
-         })
+        setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
+        // Do not override festNgo here: the row inherits the current tab's NGO
+        // unless the user explicitly chose a different one.
+        setPlannerEventLink(link).catch(() => {
+          // The event exists either way; only the cross-device link is missing.
+        })
       }
     }
     if (suggestion?.id && event?.id) {
@@ -4068,7 +4117,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
           event_id: ev.id,
         }
         setPlannerLinkMap((cur) => ({ ...cur, [rowKey]: link }))
-        setPlannerEventLink(link).catch(() => {})
+        setPlannerEventLink(link).catch(() => { })
       }
       if (!args) {
         const p = ev?.extendedProps || {}
@@ -4114,143 +4163,143 @@ export default function ActivityPlanner({ taskAssignment = false }) {
   }
 
   const taskCell = (date, label, rowSpan, key) => {
-  if (!taskAssignment) return null
-  // Green only when the Social head accepted that member's report for the day
-  // the WORK was done — a member's own "done" never turns the planner green. A
-  // programme can be done on a day other than its own, so the completion day is
-  // matched too.
-  const deliverableDone = (row) => {
-    if (!row) return false
-    const doneDay = String(row.completed_date || '').slice(0, 10)
-    return acceptedDays.has(`${row.assignee_id}::${date}`) ||
-      (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
-  }
-  // All five deliverables green means the programme is ready, but the event is
-  // created only from the Daily Report. Until an event exists for this row, the
-  // cell must not show the Done / Download state.
-  const TEST_LABELS = new Set(['demo', 'dem0', 'test', 'werwer'])
-  const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
-  const allDone = !TEST_LABELS.has(String(label || '').trim().toLowerCase()) &&
-    deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
-  const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) ||
-    Boolean(findLinkedScheduledEvent(key, date, label)) ||
-    (allDone && Boolean(findExistingPlannedEvent(key, date, label)))
-  return (
-    <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {/* Once all five are done the green Done rows are dropped — the cell
+    if (!taskAssignment) return null
+    // Green only when the Social head accepted that member's report for the day
+    // the WORK was done — a member's own "done" never turns the planner green. A
+    // programme can be done on a day other than its own, so the completion day is
+    // matched too.
+    const deliverableDone = (row) => {
+      if (!row) return false
+      const doneDay = String(row.completed_date || '').slice(0, 10)
+      return acceptedDays.has(`${row.assignee_id}::${date}`) ||
+        (doneDay && acceptedDays.has(`${row.assignee_id}::${doneDay}`))
+    }
+    // All five deliverables green means the programme is ready, but the event is
+    // created only from the Daily Report. Until an event exists for this row, the
+    // cell must not show the Done / Download state.
+    const TEST_LABELS = new Set(['demo', 'dem0', 'test', 'werwer'])
+    const deliverableRows = CONTENT_TYPES.map((ct) => taskMap[`${date}::${label}::${ct.value}`])
+    const allDone = !TEST_LABELS.has(String(label || '').trim().toLowerCase()) &&
+      deliverableRows.length === CONTENT_TYPES.length && deliverableRows.every(deliverableDone)
+    const alreadyScheduled = Boolean(key && createdKeys.has(linkMapKey(key, rowNgoId(key)))) ||
+      Boolean(findLinkedScheduledEvent(key, date, label)) ||
+      (allDone && Boolean(findExistingPlannedEvent(key, date, label)))
+    return (
+      <td key="tm" className="divider" rowSpan={rowSpan} style={{ verticalAlign: 'top', padding: '8px 10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {/* Once all five are done the green Done rows are dropped — the cell
             carries just the action: create the event, or download its sheet
             again if the file is needed later. */}
-        {!alreadyScheduled && !allDone && CONTENT_TYPES.map((ct) => {
-          const row = taskMap[`${date}::${label}::${ct.value}`]
-          const value = row ? String(row.assignee_id) : ''
-          const done = deliverableDone(row)
-          // The work is finished but the head has not accepted the report for the
-          // completion day yet — say so, otherwise the cell just looks stuck.
-          const doneDay = String(row?.completed_date || '').slice(0, 10)
-          const awaiting = !done && doneDay ? ` · awaiting approval of ${doneDay}` : ''
-          return (
-            <label
-              key={ct.value}
-              title={row ? `${ct.label} · ${row.assignee_name}${done ? ' · Done' : awaiting}` : `Assign ${ct.label}`}
-              style={{
-                position: 'relative', display: 'flex', alignItems: 'center', gap: 7,
-                padding: '5px 8px', borderRadius: 8, cursor: done ? 'default' : 'pointer',
-                border: `1px solid ${done ? 'var(--eh-success, #16a34a)' : awaiting ? '#f2c14e' : row ? 'var(--eh-line-strong, #ddd9f0)' : '#EEF0F7'}`,
-                background: done ? 'var(--eh-success-soft, #e7f6ec)' : row ? 'var(--eh-tint-1, #f0eefb)' : '#fff',
-              }}
-            >
-              <span
+          {!alreadyScheduled && !allDone && CONTENT_TYPES.map((ct) => {
+            const row = taskMap[`${date}::${label}::${ct.value}`]
+            const value = row ? String(row.assignee_id) : ''
+            const done = deliverableDone(row)
+            // The work is finished but the head has not accepted the report for the
+            // completion day yet — say so, otherwise the cell just looks stuck.
+            const doneDay = String(row?.completed_date || '').slice(0, 10)
+            const awaiting = !done && doneDay ? ` · awaiting approval of ${doneDay}` : ''
+            return (
+              <label
+                key={ct.value}
+                title={row ? `${ct.label} · ${row.assignee_name}${done ? ' · Done' : awaiting}` : `Assign ${ct.label}`}
                 style={{
-                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                  background: done ? 'var(--eh-success, #16a34a)' : awaiting ? '#f59e0b' : row ? 'var(--eh-primary, #6c5ce7)' : '#d5d8e6',
-                }}
-              />
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: done ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)', whiteSpace: 'nowrap' }}>
-                {ct.label}
-              </span>
-              <span
-                style={{
-                  marginLeft: 'auto', fontSize: 12, minWidth: 0, textAlign: 'right',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  fontWeight: row ? 700 : 400,
-                  color: done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-ink)' : 'var(--eh-ink-faint)',
+                  position: 'relative', display: 'flex', alignItems: 'center', gap: 7,
+                  padding: '5px 8px', borderRadius: 8, cursor: done ? 'default' : 'pointer',
+                  border: `1px solid ${done ? 'var(--eh-success, #16a34a)' : awaiting ? '#f2c14e' : row ? 'var(--eh-line-strong, #ddd9f0)' : '#EEF0F7'}`,
+                  background: done ? 'var(--eh-success-soft, #e7f6ec)' : row ? 'var(--eh-tint-1, #f0eefb)' : '#fff',
                 }}
               >
-                {done ? '✓ Done' : row ? row.assignee_name : '+ Assign'}
-              </span>
-              {/* Once the head has accepted the member's report for this day the
+                <span
+                  style={{
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: done ? 'var(--eh-success, #16a34a)' : awaiting ? '#f59e0b' : row ? 'var(--eh-primary, #6c5ce7)' : '#d5d8e6',
+                  }}
+                />
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: done ? 'var(--eh-success, #16a34a)' : 'var(--eh-ink-soft)', whiteSpace: 'nowrap' }}>
+                  {ct.label}
+                </span>
+                <span
+                  style={{
+                    marginLeft: 'auto', fontSize: 12, minWidth: 0, textAlign: 'right',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    fontWeight: row ? 700 : 400,
+                    color: done ? 'var(--eh-success, #16a34a)' : row ? 'var(--eh-ink)' : 'var(--eh-ink-faint)',
+                  }}
+                >
+                  {done ? '✓ Done' : row ? row.assignee_name : '+ Assign'}
+                </span>
+                {/* Once the head has accepted the member's report for this day the
                   deliverable is Done, so the dropdown is replaced by the green
                   Done state — there is nothing left to reassign. */}
-              {!done && (
-                <select
-                  value={value}
-                  disabled={festBusy || (!team.length && !row)}
-                  onChange={(e) => assignRow(date, label, ct.value, e.target.value)}
-                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
-                >
-                  <option value="">Unassigned</option>
-                  {team.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
-                </select>
-              )}
-            </label>
-          )
-        })}
-        {!alreadyScheduled && allDone && (
-          <div
-            style={{ marginTop: 6, padding: '8px 10px', borderRadius: 10, background: '#f8fafc', color: 'var(--eh-ink-soft)', fontSize: 11.5, lineHeight: 1.45 }}
-            title="Events are created from the Daily Report once all five deliverables are done"
-          >
-            Event not created yet. Create it from the Daily Report.
-          </div>
-        )}
-        {alreadyScheduled && (
-          /* Both actions share one line — stacked full-width buttons pushed the
-             Edit below the cell's edge on narrow columns. */
-          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-            <button
-              className="eh-btn"
-              style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#e5e7eb', color: '#374151', border: 'none', cursor: sheetBusy === key ? 'wait' : 'pointer', opacity: sheetBusy === key ? 0.75 : 1 }}
-              title="Download this event's detail sheet (photos included)"
-              disabled={sheetBusy === key}
-              onClick={() => downloadEventSheet(key, date, label)}
+                {!done && (
+                  <select
+                    value={value}
+                    disabled={festBusy || (!team.length && !row)}
+                    onChange={(e) => assignRow(date, label, ct.value, e.target.value)}
+                    style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }}
+                  >
+                    <option value="">Unassigned</option>
+                    {team.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
+                  </select>
+                )}
+              </label>
+            )
+          })}
+          {!alreadyScheduled && allDone && (
+            <div
+              style={{ marginTop: 6, padding: '8px 10px', borderRadius: 10, background: '#f8fafc', color: 'var(--eh-ink-soft)', fontSize: 11.5, lineHeight: 1.45 }}
+              title="Events are created from the Daily Report once all five deliverables are done"
             >
-              {sheetBusy === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-            </button>
-            <button
-              className="eh-btn"
-              style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#dbeafe', color: '#1e40af', border: 'none', cursor: editLoadingKey === key ? 'wait' : 'pointer', opacity: editLoadingKey === key ? 0.75 : 1 }}
-              title="Edit this event in the same form it was created with"
-              disabled={editLoadingKey === key}
-              onClick={() => {
-                if (editLoadingKey === key) return
-                setEditLoadingKey(key)
-                openEditEvent(key, date, label).finally(() => setEditLoadingKey(''))
-              }}
-            >
-              {editLoadingKey === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
-            </button>
-            <button
-              className="eh-btn"
-              style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#fee2e2', color: '#991b1b', border: 'none', cursor: 'pointer' }}
-              title="Delete this event"
-              onClick={() => deleteScheduledProgramme(key, date, label)}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-            </button>
-          </div>
-        )}
-      </div>
-    </td>
-  )
-}
+              Event not created yet. Create it from the Daily Report.
+            </div>
+          )}
+          {alreadyScheduled && (
+            /* Both actions share one line — stacked full-width buttons pushed the
+               Edit below the cell's edge on narrow columns. */
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button
+                className="eh-btn"
+                style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#e5e7eb', color: '#374151', border: 'none', cursor: sheetBusy === key ? 'wait' : 'pointer', opacity: sheetBusy === key ? 0.75 : 1 }}
+                title="Download this event's detail sheet (photos included)"
+                disabled={sheetBusy === key}
+                onClick={() => downloadEventSheet(key, date, label)}
+              >
+                {sheetBusy === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>}
+              </button>
+              <button
+                className="eh-btn"
+                style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#dbeafe', color: '#1e40af', border: 'none', cursor: editLoadingKey === key ? 'wait' : 'pointer', opacity: editLoadingKey === key ? 0.75 : 1 }}
+                title="Edit this event in the same form it was created with"
+                disabled={editLoadingKey === key}
+                onClick={() => {
+                  if (editLoadingKey === key) return
+                  setEditLoadingKey(key)
+                  openEditEvent(key, date, label).finally(() => setEditLoadingKey(''))
+                }}
+              >
+                {editLoadingKey === key ? '…' : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>}
+              </button>
+              <button
+                className="eh-btn"
+                style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', padding: '8px 6px', borderRadius: 10, fontSize: 12.5, background: '#fee2e2', color: '#991b1b', border: 'none', cursor: 'pointer' }}
+                title="Delete this event"
+                onClick={() => deleteScheduledProgramme(key, date, label)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+    )
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{SCROLLBAR_CSS}</style>
       <PageHeader
         title="Monthly Planner"
         subtitle={`Plan activities NGO-wise, month-wise · ${monthLabel(month)}`}
-         actions={
+        actions={
           <>
             {taskAssignment && (
               <button
@@ -4697,7 +4746,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                             value={festivalBeneficiaryFor(key)}
                             disabled={festBusy || festGenerating !== null}
                             title="Who the AI should aim this festival's programmes at"
-        onChange={(v) => { handleFestivalBeneficiary(key, v) }}
+                            onChange={(v) => { handleFestivalBeneficiary(key, v) }}
                           />
                         </td>
                         <td className="ai divider">
@@ -4718,15 +4767,15 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                           </div>
                         </td>
                         <td className="lc divider">
-                            <FestivalLocationSelect
-                              key={`loc-${key}`}
-                              value={festivalLocationFor(key)}
-                              list={ngoLocationList(rowNgo(key))}
-                              disabled={festBusy || festGenerating !== null}
-                              title={`Where ${o.name}’s programme happens — one place per festival`}
-        onChange={(v) => { handleFestivalLocation(key, v) }}
-        onDraftChange={(v) => markFestivalLocationDraft(key, v)}
-                            />
+                          <FestivalLocationSelect
+                            key={`loc-${key}`}
+                            value={festivalLocationFor(key)}
+                            list={ngoLocationList(rowNgo(key))}
+                            disabled={festBusy || festGenerating !== null}
+                            title={`Where ${o.name}’s programme happens — one place per festival`}
+                            onChange={(v) => { handleFestivalLocation(key, v) }}
+                            onDraftChange={(v) => markFestivalLocationDraft(key, v)}
+                          />
                         </td>
                         <td className="sel divider" />
                         {taskCell(date, o.name, 1, key)}
@@ -4987,7 +5036,7 @@ export default function ActivityPlanner({ taskAssignment = false }) {
                 for (const suffix of (extraRowsByDate[date] || [])) {
                   rows.push(festExtraRow(date, `${date}::${suffix}`))
                 }
-                
+
                 return rows
               })}
             </tbody>

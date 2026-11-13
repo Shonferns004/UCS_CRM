@@ -208,6 +208,50 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
     uploadPhotoBase64(base64, mime);
   });
 
+  // Admin signature upload. HR uses this when the volunteer cannot sign again
+  // (or hands over a scanned image): the endpoint deliberately bypasses the
+  // worker-side lock and stamps the record as signed, source "admin".
+  const [sigUploading, setSigUploading] = useState(false);
+  const sigInputRef = useRef(null);
+
+  const uploadSignatureBase64 = async (base64, mime_type) => {
+    setSigUploading(true);
+    try {
+      const res = await api(`/onboarding/admin/upload-signature/${worker.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ signature_base64: base64, mime_type }),
+        _prefix: 'ucs',
+      });
+      if (res.signature_url) {
+        setData(prev => prev ? {
+          ...prev,
+          signature_url: res.signature_url,
+          signature_status: res.signature_status || 'signed',
+          signature_signed_at: new Date().toISOString(),
+          signature_source: 'admin',
+        } : prev);
+      }
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSigUploading(false);
+    }
+  };
+
+  const handleSigSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file (PNG or JPG).');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => uploadSignatureBase64(String(reader.result).split(',')[1], file.type);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   useEffect(() => {
     setLoading(true);
     let cancelled = false;
@@ -1156,9 +1200,29 @@ export default function EmployeeDetail({ worker, onBack, onOffboard, accountsMod
                     </>
                   ) : (
                     <div className="empty" style={{ padding: 20 }}>
-                      No signature captured yet. Ask the volunteer to sign in the HR Form or the Online Form.
+                      No signature captured yet. Ask the volunteer to sign in the HR Form or the Online Form, or upload an image below.
                     </div>
                   )}
+                  <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                      ref={sigInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      style={{ display: 'none' }}
+                      onChange={handleSigSelect}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => sigInputRef.current?.click()}
+                      disabled={sigUploading}
+                    >
+                      {sigUploading ? 'Uploading\u2026' : data.signature_url ? 'Replace signature' : 'Upload signature'}
+                    </button>
+                    <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                      PNG or JPG image of the signed signature
+                    </span>
+                  </div>
                 </div>
               </div>
               </>

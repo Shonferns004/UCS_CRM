@@ -5,6 +5,8 @@ import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 import { normalizeDonorPhone, phoneVariantsFor } from '../services/whatsappScope.js';
 import { createLead } from '../models/leadModel.js';
+import { qualifySsReply, shouldAiCheckSsReply, materializeReplyLead } from '../services/ssLeadService.js';
+import { aiScoreSsReply, SS_AI_VERSION } from '../services/ssLeadAiService.js';
 
 // Read at request time, not module load: this module is imported before
 // dotenv.config() runs in index.js, so a module-level read would capture
@@ -267,34 +269,155 @@ export async function whatsappWebhookEntry(req, res) {
           })
           .eq('id', activeConversation.id);
 
-        // If this inbound reply is from a number we sent a bulk template to, turn
-        // it into a lead so the admin panel can follow up. Best-effort: never
-        // break the webhook flow on a lead-insert failure.
+        // Turn a reply into a lead, then place clear-interest replies into the
+        // NGO's SS station. Two fixes over the old block:
+        //   1. bulk recipients are matched on the last 10 digits, because the
+        //      table stores some numbers as 91XXXXXXXXXX and some as 10 digits;
+        //      an exact `.eq('phone', fromPhone)` silently dropped those replies
+        //   2. a reply from a number that is NOT in the bulk list still becomes
+        //      a lead when the conversation carries a project — the SS desk was
+        //      invisible for exactly those numbers
+        // Best-effort: never break the webhook flow on a lead failure.
         try {
-          const { data: bulkRecipient } = await db
-            .from('whatsapp_bulk_recipients')
-            .select('recipient_name, template_name, account_id')
-            .eq('phone', fromPhone)
-            .limit(1)
-            .maybeSingle();
-          if (bulkRecipient) {
-            const { data: existingLead } = await db
-              .from('leads')
-              .select('id')
-              .eq('phone', fromPhone)
-              .eq('source', 'WhatsApp Bulk Reply')
-              .limit(1)
-              .maybeSingle();
+          const mobile10 = String(fromPhone || '').replace(/[^0-9]/g, '').slice(-10);
+          let bulkRecipient = null;
+          if (mobile10) {
+            const { rows } = await db._pool.query(
+              `select recipient_name, template_name, account_id
+                 from whatsapp_bulk_recipients
+                where right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 10) = $1
+                order by created_at desc nulls last
+                limit 1`,
+              [mobile10],
+            );
+            bulkRecipient = rows[0] || null;
+          }
+
+          const project = accountProject !== 'unknown'
+            ? accountProject
+            : (contact?.project || activeConversation.project || null);
+
+          if (bulkRecipient || project) {
+            // Serialise concurrent webhooks for the same number. Two button taps
+            // in the same millisecond both saw "no lead" and inserted two rows.
+            // The advisory lock makes the second request take the update path.
+            const leadLock = mobile10 ? await db._pool.connect() : null;
+            try {
+              if (leadLock && mobile10) {
+                await leadLock.query('select pg_advisory_lock(hashtext($1)::bigint)', [mobile10]);
+              }
+            // Format-insensitive dedupe: the same number may be stored with or
+            // without the 91 prefix.
+            const { rows: existingRows } = mobile10
+              ? await db._pool.query(
+                `select id, name, phone, notes
+                   from leads
+                  where source = 'WhatsApp Bulk Reply'
+                    and right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 10) = $1
+                  limit 1`,
+                [mobile10],
+              )
+              : { rows: [] };
+            const existingLead = existingRows[0] || null;
+
             if (!existingLead) {
-              await createLead({
-                name: bulkRecipient.recipient_name || contact?.wa_profile_name || fromPhone,
+              const created = await createLead({
+                name: bulkRecipient?.recipient_name || contact?.wa_profile_name || fromPhone,
                 phone: fromPhone,
                 source: 'WhatsApp Bulk Reply',
                 status: 'new',
-                notes: `${bodyText || ''}\n[Template: ${bulkRecipient.template_name || '-'}]\n[Account: ${accountProject !== 'unknown' ? accountProject : (bulkRecipient.account_id || '-')}]`,
+                notes: `${bodyText || ''}\n[Template: ${bulkRecipient?.template_name || '-'}]\n[Account: ${project || '-'}]`,
                 created_by: null,
                 created_by_name: 'WhatsApp Bulk Reply',
               });
+              // Explicit interest → straight into SS-<NGO>. Junk/auto-replies
+              // stay in the admin inbox for a human decision.
+              if (created && qualifySsReply(bodyText || '')) {
+                const placed = await materializeReplyLead(created, {});
+                if (!placed.ok) console.warn('SS auto-place skipped:', placed.reason);
+              } else if (created && shouldAiCheckSsReply(bodyText || '')) {
+                // Rules could not classify free text ("I wanted to donate now,
+                // how should I"). Ask the model in the background and place the
+                // lead if it is clearly interested. Not awaited: Meta must get
+                // its webhook response fast.
+                void (async () => {
+                  try {
+                    const ai = await aiScoreSsReply({
+                      message: bodyText || '',
+                      template: bulkRecipient?.template_name || '',
+                    });
+                    await db.from('leads').update({
+                      ai_label: ai.label,
+                      ai_score: ai.score,
+                      ai_reason: ai.reasons?.[0] || null,
+                      ai_model: ai.model || null,
+                      ai_version: SS_AI_VERSION,
+                      ai_at: new Date().toISOString(),
+                    }).eq('id', created.id);
+
+                    if (ai.label === 'interested' && ai.score >= 70) {
+                      const placed = await materializeReplyLead(created, {});
+                      if (!placed.ok) console.warn('SS AI place skipped:', placed.reason);
+                    }
+                  } catch (e) {
+                    console.error('SS AI fallback failed:', e?.message || e);
+                  }
+                })();
+              }
+            } else {
+              // Repeat reply on the same number: keep the inbox row current and
+              // run the SAME placement decision as a first reply. The old code
+              // only appended to an existing SS row, so a number that had a lead
+              // from before (even a "[Image]" one) never reached a station when
+              // it later said "I want to donate".
+              const stamp = new Date().toISOString();
+              const line = `[${stamp}] ${bodyText || ''}`.trim();
+              await db.from('leads').update({
+                notes: `${existingLead.notes || ''}${existingLead.notes ? '\n' : ''}${line}`,
+                updated_at: stamp,
+              }).eq('id', existingLead.id);
+
+              const freshReply = {
+                ...existingLead,
+                notes: `${bodyText || ''}\n[Template: ${bulkRecipient?.template_name || '-'}]\n[Account: ${project || '-'}]`,
+              };
+
+              if (qualifySsReply(bodyText || '')) {
+                const placed = await materializeReplyLead(freshReply, {});
+                if (!placed.ok) console.warn('SS repeat-reply place skipped:', placed.reason);
+              } else if (shouldAiCheckSsReply(bodyText || '')) {
+                void (async () => {
+                  try {
+                    const ai = await aiScoreSsReply({
+                      message: bodyText || '',
+                      template: bulkRecipient?.template_name || '',
+                    });
+                    await db.from('leads').update({
+                      ai_label: ai.label,
+                      ai_score: ai.score,
+                      ai_reason: ai.reasons?.[0] || null,
+                      ai_model: ai.model || null,
+                      ai_version: SS_AI_VERSION,
+                      ai_at: new Date().toISOString(),
+                    }).eq('id', existingLead.id);
+
+                    if (ai.label === 'interested' && ai.score >= 70) {
+                      const placed = await materializeReplyLead(freshReply, {});
+                      if (!placed.ok) console.warn('SS AI repeat place skipped:', placed.reason);
+                    }
+                  } catch (e) {
+                    console.error('SS AI repeat fallback failed:', e?.message || e);
+                  }
+                })();
+              }
+            }
+            } finally {
+              if (leadLock) {
+                if (mobile10) {
+                  await leadLock.query('select pg_advisory_unlock(hashtext($1)::bigint)', [mobile10]).catch(() => {});
+                }
+                leadLock.release();
+              }
             }
           }
         } catch (leadErr) {

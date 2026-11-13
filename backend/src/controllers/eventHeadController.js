@@ -1730,16 +1730,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const k = `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.date || '').slice(0, 10)}|${String(e.name || '').trim().toLowerCase()}`;
       if (!eventByNameDate.has(k)) eventByNameDate.set(k, e);
     }
-    // The month's events per NGO + day, and the events a row has already
-    // claimed. A row that no link points at can still find the event that was
-    // made for it on that day (a typed programme is never saved as a row, and
-    // an older event can lose its link), and two rows never share one event.
-    const eventsByNgoDate = new Map();
-    for (const e of events) {
-      const k = `${e.ngo_id != null ? String(e.ngo_id) : ''}|${String(e.date || '').slice(0, 10)}`;
-      if (!eventsByNgoDate.has(k)) eventsByNgoDate.set(k, []);
-      eventsByNgoDate.get(k).push(e);
-    }
+    // The events a row has already claimed, so two rows never share one event.
     const claimedEventIds = new Set();
     const includedEventIds = new Set();
     const eventBannerMap = {};
@@ -1782,34 +1773,91 @@ export const generateNgoMonthlyReport = async (req, res) => {
       l.event_id,
     ]));
     const linkedEventIds = new Set([...linkMap.values()].map(v => String(v)));
-    // The event a planner row was turned into. Resolved in the same order the
-    // photo is: the suggestion's own link, then the durable planner link
-    // (date + festival + NGO), then a name+date+NGO match for events that
-    // predate the link feature, and finally the one event the NGO has on that
-    // day that no other row has claimed — a programme typed into the planner
-    // is never saved as a row, so it has no link of its own. Every step is
-    // scoped to the row's own NGO, so a row is never credited with another
-    // NGO's event, and an event is only ever credited to one row.
-    const linkedEventFor = (ngoId, date, festival, suggestedId, programme) => {
+    // One event belongs to exactly ONE planner row. An older build could write
+    // two durable links for the same event (e.g. two location-specific Vidhya
+    // Potli rows pointing at one event), which made editing/downloading one
+    // programme act on the other. The owner is decided from the event itself:
+    // its own name, then its venue, then the oldest link. All other rows see no
+    // event, so they can never share one again.
+    const linkKeyOf = (l) => `${String(l?.observance_date ?? '').slice(0, 10)}|${String(l?.festival ?? '').trim().toLowerCase()}|${String(l?.ngo_id ?? '')}`;
+    const eventNameKey = (ev) => String(ev?.name || '').split(' · ')[0].trim().toLowerCase();
+    const eventVenueKey = (ev) => String(ev?.venue || '').trim().toLowerCase();
+    // The single link that owns an event. Mirrors the Daily Report's
+    // ownerLinkOfEvent so both reports resolve a programme to the same event.
+    const ownerLinkOfEvent = (ev) => {
+      if (!ev) return null;
+      const evId = String(ev?.id ?? '');
+      const same = cleanLinks.filter(l => String(l?.event_id ?? '') === evId);
+      if (!same.length) return null;
+      const evName = eventNameKey(ev);
+      if (evName) {
+        const byName = same.find(l => String(l?.festival || '').trim().toLowerCase() === evName);
+        if (byName) return byName;
+      }
+      const evVenue = eventVenueKey(ev);
+      if (evVenue) {
+        const byVenue = same.find(l => {
+          const f = String(l?.festival || '').trim().toLowerCase();
+          return Boolean(f) && (f === evVenue || f.includes(evVenue) || evVenue.includes(f));
+        });
+        if (byVenue) return byVenue;
+      }
+      return same.slice().sort((a, b) => {
+        const ac = String(a?.created_at || '');
+        const bc = String(b?.created_at || '');
+        if (ac && bc && ac !== bc) return ac < bc ? -1 : 1;
+        if (ac && !bc) return -1;
+        if (!ac && bc) return 1;
+        return String(a?.festival || '').localeCompare(String(b?.festival || ''));
+      })[0];
+    };
+    const linkOwnsEvent = (eventId, ngoKey, date, festival) => {
+      const ev = eventById.get(String(eventId));
+      if (!ev) return false;
+      // No durable link points at this event: it is not shared, so it can match.
+      if (!cleanLinks.some(l => String(l?.event_id ?? '') === String(eventId))) return true;
+      const owner = ownerLinkOfEvent(ev);
+      if (!owner) return true;
+      return linkKeyOf(owner) === linkKeyOf({ observance_date: date, festival, ngo_id: ngoKey });
+    };
+    // A row without a durable link of its own must never fall back onto an event
+    // that another planner row already owns. This is the same rule the Daily
+    // Report applies, so a programme resolves to exactly one event everywhere.
+    const eventOwnedByOtherFestival = (ev, festival) => {
+      const owner = ownerLinkOfEvent(ev);
+      if (!owner) return false;
+      return String(owner?.festival || '').trim().toLowerCase() !== String(festival || '').trim().toLowerCase();
+    };
+    // The event a planner row was turned into, resolved exactly like the Daily
+    // Report: the durable planner link (date + festival + NGO), then the
+    // suggestion's own event, then a name+date+NGO match for events that predate
+    // the link feature. Every step is scoped to the row's own NGO and guarded by
+    // the single-owner rule, so a row is never credited with another row's event.
+    const linkedEventFor = (ngoId, date, festival, suggestedId, nameKey) => {
       const f = String(festival || '').trim();
       const ngoKey = ngoId != null && ngoId !== '' ? String(ngoId) : '';
-      const evId = suggestedId != null ? suggestedId : linkMap.get(`${ngoKey}|${date}|${f}`);
-      let linked = evId != null ? eventById.get(String(evId)) : null;
-      if (!linked) linked = eventByNameDate.get(`${ngoKey}|${date}|${f.toLowerCase()}`);
-      if (!linked) {
-        const sameDay = (eventsByNgoDate.get(`${ngoKey}|${date}`) || [])
-          .filter(e => !claimedEventIds.has(String(e.id)));
-        if (sameDay.length === 1) {
-          linked = sameDay[0];
-        } else if (sameDay.length > 1) {
-          // More than one event that day: the one whose name speaks of the
-          // festival or of the planned programme wins, else the newest.
-          const prog = String(programme || '').trim().toLowerCase();
-          const fl = f.toLowerCase();
-          linked = sameDay.find(e => {
-            const n = String(e.name || '').trim().toLowerCase();
-            return (fl && n.includes(fl)) || (prog && n.includes(prog));
-          }) || sameDay.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+      const matchName = String(nameKey || f).trim().toLowerCase();
+      let linked = null;
+      // 1) The row's own durable link. A link shared onto a sibling row's event
+      // is ignored, so a programme can never borrow another row's event.
+      const linkId = linkMap.get(`${ngoKey}|${date}|${f}`);
+      if (linkId != null) {
+        const linkEv = eventById.get(String(linkId));
+        if (linkEv && linkOwnsEvent(linkId, ngoKey, date, f)) linked = linkEv;
+      }
+      // 2) The event the suggestion was turned into, again only when it owns it.
+      if (!linked && suggestedId != null) {
+        const sugEv = eventById.get(String(suggestedId));
+        if (sugEv && linkOwnsEvent(suggestedId, ngoKey, date, f)) linked = sugEv;
+      }
+      // 3) Name+date match for events that predate the link feature, unless
+      // another row owns it by link or it was already credited above. This is
+      // exactly what the Daily Report does — there is no "any event that day"
+      // fallback, because that attached an unrelated programme's event.
+      if (!linked && matchName) {
+        const byName = eventByNameDate.get(`${ngoKey}|${date}|${matchName}`);
+        if (byName && !claimedEventIds.has(String(byName.id)) && !eventOwnedByOtherFestival(byName, f)) {
+          linked = byName;
         }
       }
       if (linked) claimedEventIds.add(String(linked.id));
@@ -1925,6 +1973,7 @@ export const generateNgoMonthlyReport = async (req, res) => {
         ngo_id: mr.row_ngo_id != null && mr.row_ngo_id !== '' ? mr.row_ngo_id : mr.ngo_id,
         observance_date: mr.observance_date,
         festival: mr.festival || mr.name || null,
+        name: mr.name || null,
         title: prog,
         activity_name: null,
         sector_name: null,
@@ -1976,7 +2025,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
       const d = f.observance_date ? String(f.observance_date).slice(0, 10) : null;
       // The event this row was turned into, resolved ONCE so the card's title
       // and its photo can never come from two different events.
-      const linked = linkedEventFor(f.ngo_id, d, f.festival, f.suggested_event_id, f.title || f.activity_name);
+      // Mirror the Daily Report: a manual row is matched on the name the event
+      // was saved under; a planner row on its festival.
+      const nameKey = f.source === 'manual'
+        ? (f.name || f.festival)
+        : (f.festival || f.title || f.activity_name);
+      const linked = linkedEventFor(f.ngo_id, d, f.festival, f.suggested_event_id, nameKey);
       // A planned row reaches the report only when the programme was actually
       // FINISHED, and nothing about it is still waiting:
       //   - the event it became is approved / completed (the head signed the
@@ -1995,6 +2049,9 @@ export const generateNgoMonthlyReport = async (req, res) => {
       // event matches it (name+date+NGO). Keep the two in sync here.
       const fromLink = f.source === 'link';
       if (!fromLink && !(cellDone && linked)) continue;
+      // A link row that no longer owns its event (a stale share) has nothing of
+      // its own to show; keep it only when the planner marks the cell done.
+      if (fromLink && !linked && !cellDone) continue;
       const img = imageForEvent(linked);
       const eventName = String(linked?.name || '').trim();
       row.events_count += 1;
@@ -2010,7 +2067,9 @@ export const generateNgoMonthlyReport = async (req, res) => {
         day: d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
         sector_name: f.sector_name || null,
         activity_name: f.activity_name || null,
-        venue: f.location || null,
+        // A link row only shows a venue when it actually owns the event; a stale
+        // share must not print the sibling event's venue on its own card.
+        venue: (f.source === 'link' ? (linked?.venue || null) : (f.location || null)),
         tagline: linked?.tagline || null,
         status: isComplete(linked) ? (linked?.status || null) : 'completed',
         budget: null,

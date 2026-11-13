@@ -2516,16 +2516,16 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
             </div>
           ) : (
             <div className="sm-no-scrollbar" style={{ maxHeight: 400, overflowY: 'auto', borderRadius: 8, background: '#fff' }}>
-              <table className="nga-st" style={{ fontSize: 12 }}>
+              <table className="nga-st" style={{ fontSize: 12, tableLayout: 'fixed', width: '100%' }}>
                 <thead>
                   <tr>
 
                     {/* NGO column only in the combined view: when scoped to one
                         NGO every row shares it, and when combined it is the only
                         thing that tells two same-named stations apart. */}
-                    {scopeIsUnion && <th style={{ width: '8%' }}>NGO</th>}
-                    <th style={{ width: '20%' }}>Donor</th>
-                    <th style={{ width: '13%' }}>Mobile</th>
+                    {scopeIsUnion && <th style={{ width: '10%' }}>NGO</th>}
+                    <th style={{ width: scopeIsUnion ? '48%' : '62%' }}>Donor</th>
+                    <th style={{ width: scopeIsUnion ? '26%' : '30%' }}>Mobile</th>
                     <th style={{ width: 40 }}></th>
                   </tr>
                 </thead>
@@ -2540,8 +2540,11 @@ function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged
                             <span className="pill" style={{ fontSize: 10 }}>{d.ngo_name || '—'}</span>
                           </td>
                         )}
-                        <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{d.donor_name || '—'}</td>
-                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {/* The donor name can be a full NGO title; without
+                            ellipsis it pushes the Mobile column out of the
+                            modal, which is why the number looked missing. */}
+                        <td title={d.donor_name || ''} style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.donor_name || '—'}</td>
+                        <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                           {d.donor_mobile || '—'}
                           {d.donor_mobile_2 ? <div style={{ fontSize: 10.5, opacity: .7 }}>{d.donor_mobile_2}</div> : null}
                         </td>

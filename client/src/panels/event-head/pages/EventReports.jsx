@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 const CreateEventFromProgrammeModal = lazy(() => import('./ActivityPlanner').then(m => ({ default: m.CreateEventFromProgrammeModal })))
-import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, createEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl, getFestivalSuggestions, getPlannerEventLinks, setPlannerEventLink, getPlannerManualRows, fetchActivities, fetchImportantDays } from '../store'
+import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, setMonthlyReportCardOrder, fetchWorkspaceNgos, uploadEventBanner, updateEvent, createEvent, deleteEvent, fetchEventBannerObjectUrl, fetchEventImageDataUrl, fetchMediaViewObjectUrl, getFestivalSuggestions, getPlannerEventLinks, setPlannerEventLink, deletePlannerEventLink, getPlannerManualRows, fetchActivities, fetchImportantDays } from '../store'
 import EventPosterReport from '../components/EventPosterReport'
 import { exportPosterToPdf, renderPosterCanvas, renderPosterToPdf } from '../components/eventPosterPdf.jsx'
 
@@ -96,6 +96,60 @@ const codeForName = (name) => {
 const ngoTheme = (n) => {
   const code = String(n.code || '').toLowerCase()
   return NGO_THEMES[code] || NGO_THEMES[codeForName(code)] || DEFAULT_THEME
+}
+// A planner card and the event it produced are matched on the event's own name
+// (the part before " · ", which the calendar feed appends for the NGO). This is
+// what keeps two same-day programmes apart: "Anna Potli - Rajasthan" must never
+// resolve onto the event of "Anna Potli - Haryana", or editing one would change
+// the other.
+const eventNameKey = (e) => String(e?.name || '').split(' · ')[0].trim().toLowerCase()
+const eventVenueKey = (e) => String(e?.venue ?? e?.extendedProps?.venue ?? '').trim().toLowerCase()
+const linkOwnerKey = (l) => `${String(l?.event_id ?? '')}|${String(l?.observance_date ?? '').slice(0, 10)}|${String(l?.festival ?? '').trim().toLowerCase()}|${String(l?.ngo_id ?? '')}`
+// One event belongs to exactly ONE planner row. An older build could write two
+// durable links for the same event (e.g. "Vidhya Potli - Jogeshwari" and
+// "Vidhya Potli - Nalasopara" both pointing at the Jogeshwari event), which made
+// editing one programme overwrite the other. The owner is decided from the
+// event itself: its own name, then its venue ("... - Jogeshwari"), then the
+// oldest link. Every other row sees no event (Create), so they can never share.
+const ownerLinkOfEvent = (linkedEv, allLinks) => {
+  if (!linkedEv) return null
+  const evId = String(linkedEv?.id ?? '')
+  const same = (Array.isArray(allLinks) ? allLinks : []).filter(l => String(l?.event_id ?? '') === evId)
+  if (!same.length) return null
+  const evName = eventNameKey(linkedEv)
+  if (evName) {
+    const byName = same.find(l => String(l?.festival || '').trim().toLowerCase() === evName)
+    if (byName) return byName
+  }
+  const evVenue = eventVenueKey(linkedEv)
+  if (evVenue) {
+    const byVenue = same.find(l => {
+      const f = String(l?.festival || '').trim().toLowerCase()
+      return Boolean(f) && (f === evVenue || f.includes(evVenue) || evVenue.includes(f))
+    })
+    if (byVenue) return byVenue
+  }
+  return same.slice().sort((a, b) => {
+    const ac = String(a?.created_at || '')
+    const bc = String(b?.created_at || '')
+    if (ac && bc && ac !== bc) return ac < bc ? -1 : 1
+    if (ac && !bc) return -1
+    if (!ac && bc) return 1
+    return String(a?.festival || '').localeCompare(String(b?.festival || ''))
+  })[0]
+}
+const linkOwnsEvent = (link, linkedEv, allLinks) => {
+  const owner = ownerLinkOfEvent(linkedEv, allLinks)
+  if (!owner) return true
+  return linkOwnerKey(owner) === linkOwnerKey(link)
+}
+// A card without a durable link must not fall back onto an event that another
+// row already owns by link, or the same event would be shared again through the
+// name+date match.
+const eventOwnedByOtherFestival = (linkedEv, festival, allLinks) => {
+  const owner = ownerLinkOfEvent(linkedEv, allLinks)
+  if (!owner) return false
+  return String(owner?.festival || '').trim().toLowerCase() !== String(festival || '').trim().toLowerCase()
 }
 
 // Shown on an event card when the event has no photo (or its photo fails to
@@ -190,7 +244,9 @@ function ReportBanner({ src, alt }) {
       src={src}
       alt={alt || 'banner'}
       onError={() => setFailed(true)}
-      style={{ width: '100%', maxHeight: 320, objectFit: 'cover', display: 'block' }}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      style={{ width: '100%', maxHeight: 320, objectFit: 'cover', display: 'block', userSelect: 'none', WebkitUserDrag: 'none' }}
     />
   )
 }
@@ -203,7 +259,9 @@ function SafeImg({ src, alt, height, radius = 8, fallback, fit = 'cover' }) {
       <img
         src={fallback}
         alt={alt || ''}
-        style={{ width: '100%', height, objectFit: fit, display: 'block', borderRadius: radius }}
+        draggable={false}
+        onDragStart={(e) => e.preventDefault()}
+        style={{ width: '100%', height, objectFit: fit, display: 'block', borderRadius: radius, userSelect: 'none', WebkitUserDrag: 'none' }}
       />
     )
   }
@@ -223,7 +281,9 @@ function SafeImg({ src, alt, height, radius = 8, fallback, fit = 'cover' }) {
       src={src}
       alt={alt || ''}
       onError={() => setFailed(true)}
-      style={{ width: '100%', height, objectFit: fit, display: 'block', borderRadius: radius }}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      style={{ width: '100%', height, objectFit: fit, display: 'block', borderRadius: radius, userSelect: 'none', WebkitUserDrag: 'none' }}
     />
   )
 }
@@ -808,6 +868,9 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
               backgroundPosition: `${(sx / (BSCT_W - BSCT_SLOT_W)) * 100}% ${(sy / (BSCT_H - BSCT_SLOT_H)) * 100}%`,
               borderRadius: px(30),
             }}
+            draggable
+            onDragStart={startDrag(key)}
+            onDragEnd={endDrag}
             onDragOver={(e) => dragOverCard(key)(e)}
             onDrop={(e) => dropOnCard(key)(e)}
           >
@@ -819,11 +882,8 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
                 <span
                   className="eh-drag-handle no-print"
                   data-html2canvas-ignore="true"
-                  draggable
-                  onDragStart={startDrag(key)}
-                  onDragEnd={endDrag}
                   title="Drag to reorder"
-                  aria-label="Drag to reorder"
+                  aria-label="Drag to reorder" style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, cursor: 'grab', pointerEvents: 'auto' }}
                 >⠿</span>
               </div>
               {/* Text sits on the navy panel that is already part of the artwork */}
@@ -857,25 +917,27 @@ function BsctTemplatePage({ monthLabel, yearLabel, happyCount, rows, dragKey, ov
    fewer than 3 rows the footer band moves up so no empty card row is left. */
 const MANN_W = 1414
 const MANN_H = 2000
-const MANN_CARD_W = 396
-const MANN_CARD_H = 360
+const MANN_CARD_W = 312
+const MANN_CARD_H = 393
+// 4 columns x 3 rows; the last row has only 2 cards (the text block sits beside them)
 const MANN_SLOTS = [
-  [64, 236], [512, 236], [964, 236],
-  [64, 668], [516, 668], [964, 668],
-  [72, 1100], [520, 1100], [968, 1100],
+  [35, 235], [379, 235], [723, 235], [1067, 235],
+  [35, 830], [379, 830], [723, 830], [1067, 830],
+  [35, 1430], [379, 1430],
 ]
 const MANN_PER_PAGE = MANN_SLOTS.length
-const MANN_COLS = 3
+const MANN_COLS = 4
 const MANN_ROWS = 3
-const MANN_ROW_PITCH = 432 // distance between two card rows in the artwork
-const MANN_TOP = 236       // first row's top edge in the artwork
-const MANN_GRID_BOTTOM = MANN_TOP + (MANN_ROWS - 1) * MANN_ROW_PITCH + MANN_CARD_H // 1460
-const MANN_FOOT_H = MANN_H - MANN_GRID_BOTTOM // footer band of the artwork (rows 1460-2000)
+const MANN_ROW_BOTTOMS = [628, 1223, 1823] // bottom edge of each card row
+// Bottom block of the artwork (tagline + thank you + contact strip). When the
+// last row is not needed it moves up and the leftover card art is whited out.
+const MANN_BAND_TOP = 1600
+const MANN_BAND_H = MANN_H - MANN_BAND_TOP
+const MANN_BAND_PATCH = { x: 22, w: 710, h: 323, bottom: 77 }
 // Sub-regions inside a card, in artwork pixels (relative to the card's top-left).
-const MANN_TITLE = { x: 14, y: 8, w: MANN_CARD_W - 28, h: 90 }
-const MANN_ITEM = { x: 16, y: 106, w: MANN_CARD_W - 32, h: 46 }
-const MANN_PHOTO = { x: -10, y: 160, w: MANN_CARD_W - 7, h: 220 }
-// const MANN_VENUE = { x: 16, y: 324, w: MANN_CARD_W - 32, h: 32 }
+const MANN_TITLE = { x: 20, y: 8, w: 278, h: 76 }
+const MANN_ITEM = { x: 27, y: 90, w: 268, h: 42 }
+const MANN_PHOTO = { x: 4, y: 153, w: 286, h: 230 }
 const MANN_FONT = "'Poppins', 'Segoe UI', Arial, sans-serif"
 
 function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, startDrag, endDrag, dragOverCard, dropOnCard, dropAtEnd }) {
@@ -888,8 +950,10 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
   // Only as tall as the rows that are really used: the footer band moves up to
   // sit right under the last row, so no empty card row is left behind.
   const nRows = rows.length === 0 ? MANN_ROWS : Math.max(1, Math.min(MANN_ROWS, Math.ceil(rows.length / MANN_COLS)))
-  const cut = (MANN_ROWS - nRows) * MANN_ROW_PITCH
-  const Hp = MANN_H - cut
+  const trimmed = nRows < MANN_ROWS
+  const Hp = trimmed ? MANN_ROW_BOTTOMS[nRows - 1] + 30 + MANN_BAND_H : MANN_H
+  const slotsShown = trimmed ? nRows * MANN_COLS : MANN_SLOTS.length
+  const emptySlots = rows.length === 0 ? [] : MANN_SLOTS.slice(rows.length, slotsShown)
   const titleTxt = `${monthLabel || ''} Monthly Stories of Impact`.trim()
   const titleFs = Math.min(60, 1100 / Math.max(0.1, textEm(titleTxt, MANN_FONT)))
   return (
@@ -906,7 +970,16 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
     >
       {/* Footer band of the artwork (contact strip), pinned to the bottom so it
           follows the last used row. */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(MANN_FOOT_H / Hp) * 100}%`, backgroundImage: "url('/Monthly-Report-Card-Mann.jpg')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(MANN_H / MANN_FOOT_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+      {trimmed && (
+        <>
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${(MANN_BAND_H / Hp) * 100}%`, backgroundImage: "url('/Monthly-Report-Card-Mann.jpg')", backgroundRepeat: 'no-repeat', backgroundSize: `100% ${(MANN_H / MANN_BAND_H) * 100}%`, backgroundPosition: '0 100%', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', left: `${(MANN_BAND_PATCH.x / MANN_W) * 100}%`, width: `${(MANN_BAND_PATCH.w / MANN_W) * 100}%`, bottom: `${(MANN_BAND_PATCH.bottom / Hp) * 100}%`, height: `${(MANN_BAND_PATCH.h / Hp) * 100}%`, background: '#fff', pointerEvents: 'none' }} />
+        </>
+      )}
+      {/* unused slots: hide the placeholder card art */}
+      {emptySlots.map(([ex, ey], j) => (
+        <div key={`empty-${j}`} style={{ position: 'absolute', left: `${((ex - 8) / MANN_W) * 100}%`, top: `${((ey - 8) / Hp) * 100}%`, width: `${((MANN_CARD_W + 22) / MANN_W) * 100}%`, height: `${((MANN_CARD_H + 22) / Hp) * 100}%`, background: '#fff', pointerEvents: 'none' }} />
+      ))}
       {/* Month + year on the blank pink ribbon at the top. */}
       <div style={{ position: 'absolute', left: `${(96 / MANN_W) * 100}%`, width: `${(1228 / MANN_W) * 100}%`, top: `${(68 / Hp) * 100}%`, height: `${(120 / Hp) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
         <span style={{ fontFamily: MANN_FONT, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', letterSpacing: px(1), fontSize: px(titleFs), lineHeight: 1.1, textShadow: `0 ${px(2)}px ${px(4)}px rgba(0,0,0,0.25)` }}>{titleTxt}</span>
@@ -927,6 +1000,9 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
               left: `${(sx / MANN_W) * 100}%`, top: `${(sy / Hp) * 100}%`,
               width: `${(MANN_CARD_W / MANN_W) * 100}%`, height: `${(MANN_CARD_H / Hp) * 100}%`,
             }}
+            draggable
+            onDragStart={startDrag(key)}
+            onDragEnd={endDrag}
             onDragOver={(e) => dragOverCard(key)(e)}
             onDrop={(e) => dropOnCard(key)(e)}
           >
@@ -934,7 +1010,7 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
             <div style={{ position: 'absolute', left: px(MANN_TITLE.x), top: px(MANN_TITLE.y), width: px(MANN_TITLE.w), height: px(MANN_TITLE.h), display: 'flex', flexDirection: 'column', padding: `${px(4)}px ${px(6)}px`, boxSizing: 'border-box', color: '#fff', fontFamily: MANN_FONT, overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: px(6), fontSize: px(20), fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
                 <span>{dateTxt}</span>
-                {ev.day && <span style={{ opacity: 0.85, fontSize: px(20), fontWeight: 600 }}>• {ev.day}</span>}
+                {/* {ev.day && <span style={{ opacity: 0.85, fontSize: px(20), fontWeight: 600 }}>• {ev.day}</span>} */}
               </div>
               <div style={{ marginTop: px(3), fontSize: px(20), fontWeight: 800, lineHeight: 1.15, overflow: 'hidden', overflowWrap: 'anywhere' }}>
                 {ev.event_name || ev.festival || '—'}
@@ -948,16 +1024,13 @@ function MannTemplatePage({ monthLabel, yearLabel, rows, dragKey, overKey, start
             </div>
             {/* Photo in the light-blue window */}
             <div style={{ position: 'absolute', left: px(MANN_PHOTO.x), top: px(MANN_PHOTO.y), width: px(MANN_PHOTO.w), height: px(MANN_PHOTO.h), background: '#e5eef7', overflow: 'hidden', borderRadius: px(6) }}>
-              <ReportCardImage ev={ev} height={px(MANN_PHOTO.h)} radius={0} fit="cover" />
+              <ReportCardImage ev={ev} height={px(MANN_PHOTO.h)} radius={0} fit="fill" />
               <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: px(8), right: px(10), fontSize: px(11), lineHeight: 1.2, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: `${px(2)}px ${px(8)}px`, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{badge.text}</span>
               <span
                 className="eh-drag-handle no-print"
                 data-html2canvas-ignore="true"
-                draggable
-                onDragStart={startDrag(key)}
-                onDragEnd={endDrag}
                 title="Drag to reorder"
-                aria-label="Drag to reorder"
+                aria-label="Drag to reorder" style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, cursor: 'grab', pointerEvents: 'auto' }}
               >⠿</span>
             </div>
             {/* Venue on the olive footer band */}
@@ -1001,6 +1074,14 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
     setDragKey(key)
     e.dataTransfer.effectAllowed = 'move'
     try { e.dataTransfer.setData('text/plain', '') } catch { /* some browsers throw */ }
+    // Suppress the browser's default drag ghost (a snapshot of the dragged
+    // element / its containing block), which otherwise shows as a "copy of
+    // the card image" while dragging.
+    try {
+      const c = document.createElement('canvas')
+      c.width = 1; c.height = 1
+      e.dataTransfer.setDragImage(c, 0, 0)
+    } catch { /* setDragImage unsupported */ }
   }
   const endDrag = () => { setDragKey(null); setOverKey(null) }
   const dragOverCard = (key) => (e) => {
@@ -1040,7 +1121,7 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
     next.push(next.splice(a, 1)[0])
     onReorder?.(next)
   }
-  // MANN: the programmes are laid straight onto the report-card artwork, 9 per
+  // MANN: the programmes are laid straight onto the report-card artwork, 12 per
   // template page, instead of the generic 5-column grid. The template is shown
   // even for a month with no programmes (blank card), so the MANN report never
   // falls back to the old letterhead layout.
@@ -1122,21 +1203,21 @@ function FestivalProgrammeCard({ n, theme, monthLabel, yearLabel, happyCount, ca
                   key={ev.id ?? i}
                   className={`eh-activity-card eh-report-card${dragKey === key ? ' dragging' : ''}${overKey === key ? ' drag-over' : ''}`}
                   style={{ border: `2px solid ${theme.accent || theme.colorLight}`, borderRadius: rounded ? 12 : 10, background: '#fff', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+                  draggable
+                  onDragStart={startDrag(key)}
+                  onDragEnd={endDrag}
                   onDragOver={(e) => dragOverCard(key)(e)}
                   onDrop={(e) => dropOnCard(key)(e)}
                 >
                   <div style={{ position: 'relative', height: 110, background: '#f1f5f9', borderRadius: rounded ? 10 : 0, overflow: 'hidden' }}>
-                    <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} fit="cover" />
+                    <ReportCardImage ev={ev} height={130} radius={rounded ? 10 : 0} fit="contain" />
                     <span data-html2canvas-ignore={badge.text === 'COMPLETED' ? 'true' : undefined} style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: badge.color, borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{badge.text}</span>
 
                     <span
                       className="eh-drag-handle no-print"
                       data-html2canvas-ignore="true"
-                      draggable
-                      onDragStart={startDrag(key)}
-                      onDragEnd={endDrag}
                       title="Drag to reorder"
-                      aria-label="Drag to reorder"
+                      aria-label="Drag to reorder" style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, cursor: 'grab', pointerEvents: 'auto' }}
                     >⠿</span>
                   </div>
                   <div style={{ padding: '10px 12px' }}>
@@ -1324,6 +1405,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
   const [plannerCardsNgo, setPlannerCardsNgo] = useState('')
   const [plannerCardsWarning, setPlannerCardsWarning] = useState('')
   const [plannerLinks, setPlannerLinks] = useState([])
+  const [deletingPlannerEventId, setDeletingPlannerEventId] = useState(null)
   // The number shown after "HAPPY FAMILY" on the BSCT report card. Typed by the
   // user and remembered in this browser; 4290 is the figure the artwork had.
   const [happyFamily, setHappyFamily] = useState(() => {
@@ -1341,9 +1423,11 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     if (id != null && id !== '') setPlannerCardsNgo(String(id))
   }, [ngos, plannerCardsNgo])
   // The NGO picked in the "Planner events" dropdown above. The Create / Edit
-  // Event form must use this same NGO, so a card under BSCT can never open the
-  // form on MANN/AFLF (the row may carry a different own NGO). Empty when "All
-  // NGOs" is selected, so the row's own NGO is used in that case.
+  // Fallback NGO for the event form when a card carries no NGO of its own (e.g.
+  // an important-day card). Empty when "All NGOs" is selected. A card that does
+  // carry its own NGO always wins, so the event is created under the same NGO as
+  // its planner row / suggestion — never a different one just because the report
+  // filter says so.
   const reportNgoId = useMemo(() => {
     if (!plannerCardsNgo) return ''
     const exists = ngos.some((n) => String(n.id ?? n.ngo_id) === String(plannerCardsNgo))
@@ -1503,15 +1587,10 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
         )
         if (link && link.event_id) {
-          const linkedEv = (events || []).find(e => String(e.id || e.id || '') === String(link.event_id))
-          if (linkedEv) {
-            const evName = String(linkedEv.name || '').split(' · ')[0].trim().toLowerCase()
-            const cardName = String(s.festival || s.title || '').trim().toLowerCase()
-            if (evName && cardName && evName === cardName) return link.event_id
-            // durably-linked row's NGO differs from this card's festival — ignore
-            // the link and fall through to name-match so each card resolves to its
-            // own event instead of sharing one event across festivals.
-          }
+          const linkedEv = (events || []).find(e => String(e.id ?? '') === String(link.event_id))
+          // Trust the link only if it truly owns that event; a link shared onto a
+          // sibling row's event is ignored so each card resolves to its own event.
+          if (linkedEv && linkOwnsEvent(link, linkedEv, links)) return link.event_id
         }
         if (s.suggested_event_id) return s.suggested_event_id
         const match = (events || []).find(e => {
@@ -1521,7 +1600,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           const evName = String(e.name || '').split(' · ')[0].trim().toLowerCase()
           const cardName = String(s.festival || s.title || '').trim().toLowerCase()
           const nameMatch = evName !== '' && cardName !== '' && evName === cardName
-          return sameDate && sameNgo && nameMatch
+          return sameDate && sameNgo && nameMatch && !eventOwnedByOtherFestival(e, s.festival || s.title, links)
         })
         return match ? match.id : null
       }
@@ -1564,7 +1643,14 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase() &&
           (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
         )
-        if (link && link.event_id) id = link.event_id
+        if (link && link.event_id) {
+          // A durable link may point at an event that was later renamed or, worse,
+          // shared with another row. Only trust it when the linked event is really
+          // this card's programme; otherwise fall through so this row gets its OWN
+          // event (Create) instead of editing a sibling row's event.
+          const linkedEv = eventById.get(String(link.event_id))
+          if (linkedEv && linkOwnsEvent(link, linkedEv, plannerLinks)) id = link.event_id
+        }
       }
       if (id == null && s.suggested_event_id) id = s.suggested_event_id
       if (id == null && sDate) {
@@ -1575,7 +1661,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
           const evName = String(e.name || '').split(' · ')[0].trim().toLowerCase()
           const cardName = String(s.festival || s.title || '').trim().toLowerCase()
           const nameMatch = evName !== '' && cardName !== '' && evName === cardName
-          return sameDate && sameNgo && nameMatch
+          return sameDate && sameNgo && nameMatch && !eventOwnedByOtherFestival(e, s.festival || s.title, plannerLinks)
         })
         if (match) id = match.id
       }
@@ -1763,44 +1849,13 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     if (mode === 'monthly') generateMonthly() /* eslint-disable-line react-hooks/exhaustive-deps */
   }, [mode])
 
-  const exportMonthlyCSV = () => {
-    const rows = orderedNgos.flatMap(n => n.events.map(e => ({
-      ngo: n.ngo_name, date: e.date, festival: e.festival, programme: e.programme, beneficiary: e.beneficiary, location: e.venue,
-    })))
-    const cols = [
-      { key: 'ngo', label: 'NGO' },
-      { key: 'date', label: 'Date' },
-      { key: 'festival', label: 'Festival / Day' },
-      { key: 'programme', label: 'Programme' },
-      { key: 'beneficiary', label: 'Beneficiary' },
-      { key: 'location', label: 'Location' },
-    ]
-    exportCSV(cols, rows, `monthly-report-${monthlyYear}-${monthlyMonth}.csv`)
-  }
+
 
   const monthlyMonthLabel = monthlyData
     ? new Date(Number(monthlyData.year), Number(monthlyData.month) - 1, 1).toLocaleString('en-IN', { month: 'long' })
     : new Date(Number(monthlyYear), Number(monthlyMonth) - 1, 1).toLocaleString('en-IN', { month: 'long' })
   const monthlyYearLabel = monthlyData ? String(monthlyData.year) : String(monthlyYear)
 
-  const exportMonthlyExcel = async () => {
-    const XLSX = await import('xlsx-js-style')
-    const rows = orderedNgos.flatMap(n => n.events.map(e => ({
-      ngo: n.ngo_name, date: e.date || '', festival: e.festival || '', programme: e.programme || '',
-      beneficiary: e.beneficiary || '', location: e.venue || '',
-    })))
-    const headers = ['NGO', 'Date', 'Festival / Day', 'Programme', 'Beneficiary', 'Location']
-    const aoa = [headers, ...rows.map(r => [
-      r.ngo, r.date, r.festival, r.programme, r.beneficiary, r.location,
-    ])]
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 20 }, { wch: 28 }]
-    if (!ws['!rows']) ws['!rows'] = []
-    ws['!rows'][0] = { hpt: 22 }
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Monthly Report')
-    XLSX.writeFile(wb, `monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.xlsx`)
-  }
 
   const monthlyReportElRef = useRef(null)
   const ngoCardRefs = useRef({})
@@ -1841,12 +1896,32 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
         const templatePages = [...el.querySelectorAll('.bsct-page, .mann-page')]
         if (templatePages.length) {
           for (const pg of templatePages) {
-            const pageCanvas = await html2canvas(pg, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
+            const pageCanvas = await html2canvas(pg, {
+              scale: 2,
+              useCORS: true,
+              backgroundColor: '#ffffff',
+              logging: false,
+              imageTimeout: 15000,
+              scrollX: 0,
+              scrollY: -window.scrollY,
+              windowWidth: document.documentElement.clientWidth,
+              windowHeight: Math.max(document.documentElement.scrollHeight, pg.scrollHeight + 200),
+              onclone: (doc, node) => {
+                // saare scroll/clip karne wale parents ko khol do, taaki poora page paint ho
+                let p = node.parentElement
+                while (p) {
+                  p.style.overflow = 'visible'
+                  p.style.maxHeight = 'none'
+                  p.style.height = 'auto'
+                  p = p.parentElement
+                }
+              },
+            })
             // The page is as tall as its used rows, so the PDF page is cut to
             // the same height (210mm wide) instead of leaving white space.
             const pgMm = Math.round(pageW * (pageCanvas.height / pageCanvas.width) * 100) / 100
             if (firstPage) deleteInitialPage = true
-            pdf.addPage([pageW, pgMm], 'p')
+            pdf.addPage([pageW, pgMm], pgMm > pageW ? 'p' : 'l')
             firstPage = false
             pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, pageW, pgMm)
           }
@@ -2002,29 +2077,52 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
     } finally { setPdfBusy('') }
   }
 
+  const deleteDailyPlannerEvent = async (card, evId) => {
+    if (!evId || deletingPlannerEventId) return
+    if (!window.confirm('Delete this event? The card will stay, but the created event and its download will be removed.')) return
+    setDeletingPlannerEventId(evId)
+    try {
+      await deleteEvent(evId)
+      const sDate = String(card?.observance_date || card?.date || '').slice(0, 10)
+      const cardName = String(card?.festival || card?.title || '').trim().toLowerCase()
+      const link = (plannerLinks || []).find(l =>
+        String(l?.observance_date || '').slice(0, 10) === sDate &&
+        String(l?.festival || '').trim().toLowerCase() === cardName &&
+        (!l?.ngo_id || !card?.ngo_id || String(l.ngo_id) === String(card.ngo_id))
+      )
+      if (link) {
+        await deletePlannerEventLink({
+          observance_date: sDate,
+          festival: link.festival || card?.festival || card?.title || '',
+          ngo_id: link.ngo_id || card?.ngo_id || null,
+        }).catch(() => { })
+      }
+      setPlannerLinks(prev => (prev || []).filter(l =>
+        !(String(l?.observance_date || '').slice(0, 10) === sDate &&
+          String(l?.festival || '').trim().toLowerCase() === cardName &&
+          (!l?.ngo_id || !card?.ngo_id || String(l.ngo_id) === String(card.ngo_id)))
+      ))
+      setEvents(prev => (prev || []).filter(e => String(e?.id) !== String(evId)))
+      setPlannerCards(prev => (prev || []).map(c => c.id === card.id ? { ...c, suggested_event_id: null } : c))
+      if (String(selectedEvent) === String(evId)) {
+        setSelectedEvent('')
+        setReportData(null)
+      }
+    } catch (e) {
+      alert('Could not delete the event: ' + (e?.message || 'Unknown error'))
+    } finally {
+      setDeletingPlannerEventId(null)
+    }
+  }
+
   // ── Download ALL planner-event reports into one combined PDF ──
   const downloadAllPlannerPdf = async () => {
     if (pdfBusy) return
-    const ids = plannerCards.map(s => {
-      const sDate = s.observance_date || s.date
-      const link = (plannerLinks || []).find(l =>
-        String(l.observance_date || '').slice(0, 10) === String(sDate || '').slice(0, 10) &&
-        (String(l.festival || '').trim() === '' || String(l.festival || '').trim().toLowerCase() === String(s.festival || s.title || '').trim().toLowerCase()) &&
-        (!l.ngo_id || !s.ngo_id || String(l.ngo_id) === String(s.ngo_id))
-      )
-      if (link && link.event_id) return link.event_id
-      if (s.suggested_event_id) return s.suggested_event_id
-      const match = (events || []).find(e => {
-        if (!e || !sDate) return false
-        const sameDate = String(e.date || '').slice(0, 10) === String(sDate).slice(0, 10)
-        const sameNgo = !s.ngo_id || String(e.ngo_id) === String(s.ngo_id)
-        const evName = String(e.name || '').split(' · ')[0].trim().toLowerCase()
-        const cardName = String(s.festival || s.title || '').trim().toLowerCase()
-        const nameMatch = evName !== '' && cardName !== '' && evName === cardName
-        return sameDate && sameNgo && nameMatch
-      })
-      return match ? match.id : null
-    }).filter(Boolean)
+    // Use the same resolver the cards use, so a "All PDF" download can never
+    // pull in a sibling row's event (the bug behind two rows editing together).
+    const ids = plannerCards
+      .map(s => plannerEventIndex.get(s.id)?.id)
+      .filter(Boolean)
     if (!ids.length) { alert('No created events to download.'); return }
     setPdfBusy('all')
     try {
@@ -2388,88 +2486,91 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
                       {group.cards.map((s, i) => {
-                  // Resolution is shared with the Show filter (plannerEventIndex),
-                  // so a card and the filter can never disagree about its event.
-                  const linked = plannerEventIndex.get(s.id)
-                  const evId = linked?.id ?? null
-                  const linkedEv = linked?.event ?? null
-                  const isDone = Boolean(evId)
-                  return (
-                    <div key={s.id || i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: '#fff' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{s.festival || s.title || 'Event'}</div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 2 }}>{(s.observance_date || s.date) ? fmtDate(s.observance_date || s.date) : ''}</div>
-                      {s.ngo_name && <div style={{ fontSize: 11.5, color: '#6b7280' }}>{s.ngo_name}</div>}
-                      <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                        {isDone ? (
-                          <>
-                          <button className="btn btn-sm" onClick={() => downloadPlannerPoster(evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#6b7280', color: '#fff', borderColor: '#6b7280' }}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            Download
-                          </button>
-                            <button className="btn btn-sm btn-outline" onClick={() => showPlannerPoster(evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
-                              Show
-                            </button>
-                            <button className="btn btn-sm" onClick={async () => {
-                              const rawImages = Array.isArray(linkedEv?.images) ? linkedEv.images : []
-                              const images = []
-                              for (let i = 0; i < rawImages.length; i++) {
-                                const u = String(rawImages[i] || '')
-                                if (!u) continue
-                                let dataUrl = ''
-                                if (u.startsWith('data:')) dataUrl = u
-                                else { try { dataUrl = await fetchEventImageDataUrl(evId, i, true) } catch { /* preview falls back to the URL */ } }
-                                images.push({ name: `photo-${i + 1}`, url: u, dataUrl })
-                              }
-                              setEditingEventId(evId)
-                              setCreateEntry({
-                                key: null,
-                                date: linkedEv?.date || s.observance_date || s.date || '',
-                                ngoId: reportNgoId || (linkedEv?.ngo_id ? String(linkedEv.ngo_id) : (s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : ''))),
-                                name: linkedEv?.name || s.festival || s.title || '',
-                                location: linkedEv?.venue || null,
-                                description: linkedEv?.description || null,
-                                slogan: linkedEv?.slogan || null,
-                                tagline: linkedEv?.tagline || null,
-                                images,
-                                activityId: linkedEv?.activity_id || s.activity_id || null,
-                                suggestion: s,
-                                editing: true,
-                                eventId: evId,
-                              })
-                              setCreateOpen(true)
-                            }} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                              Edit
-                            </button>
-                          </>
-                        ) : (
-                          <button className="btn btn-sm btn-primary" onClick={() => {
-                            setEditingEventId(null)
-                            setCreateEntry({
-                              key: null,
-                              date: s.observance_date || s.date || '',
-                              ngoId: reportNgoId || (s.ngo_id ? String(s.ngo_id) : (ngos[0]?.id ? String(ngos[0].id) : '')),
-                              name: s.festival || s.title || '',
-                              location: null,
-                              description: null,
-                              slogan: null,
-                              tagline: null,
-                              images: [],
-                              activityId: s.activity_id || null,
-                              suggestion: s,
-                              editing: false,
-                              eventId: null,
-                            })
-                            setCreateOpen(true)
-                          }}>
-                            Create Event
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+                        // Resolution is shared with the Show filter (plannerEventIndex),
+                        // so a card and the filter can never disagree about its event.
+                        const linked = plannerEventIndex.get(s.id)
+                        const evId = linked?.id ?? null
+                        const linkedEv = linked?.event ?? null
+                        const isDone = Boolean(evId)
+                        return (
+                          <div key={s.id || i} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: '#fff' }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{s.festival || s.title || 'Event'}</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 2 }}>{(s.observance_date || s.date) ? fmtDate(s.observance_date || s.date) : ''}</div>
+                            {s.ngo_name && <div style={{ fontSize: 11.5, color: '#6b7280' }}>{s.ngo_name}</div>}
+                            <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                              {isDone ? (
+                                <>
+                                  <button className="btn btn-sm" onClick={() => downloadPlannerPoster(evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#6b7280', color: '#fff', borderColor: '#6b7280' }}>
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                                    Download
+                                  </button>
+                                  <button className="btn btn-sm btn-outline" onClick={() => showPlannerPoster(evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+                                    Show
+                                  </button>
+                                  <button className="btn btn-sm" disabled={deletingPlannerEventId === evId} onClick={() => deleteDailyPlannerEvent(s, evId)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#dc2626', color: '#fff', borderColor: '#dc2626' }} title="Delete this event">
+                                    {deletingPlannerEventId === evId ? 'Deleting…' : 'Delete'}
+                                  </button>
+                                  <button className="btn btn-sm" onClick={async () => {
+                                    const rawImages = Array.isArray(linkedEv?.images) ? linkedEv.images : []
+                                    const images = []
+                                    for (let i = 0; i < rawImages.length; i++) {
+                                      const u = String(rawImages[i] || '')
+                                      if (!u) continue
+                                      let dataUrl = ''
+                                      if (u.startsWith('data:')) dataUrl = u
+                                      else { try { dataUrl = await fetchEventImageDataUrl(evId, i, true) } catch { /* preview falls back to the URL */ } }
+                                      images.push({ name: `photo-${i + 1}`, url: u, dataUrl })
+                                    }
+                                    setEditingEventId(evId)
+                                    setCreateEntry({
+                                      key: null,
+                                      date: linkedEv?.date || s.observance_date || s.date || '',
+                                      ngoId: linkedEv?.ngo_id ? String(linkedEv.ngo_id) : (s.ngo_id ? String(s.ngo_id) : (reportNgoId || (ngos[0]?.id ? String(ngos[0].id) : ''))),
+                                      name: linkedEv?.name || s.festival || s.title || '',
+                                      location: linkedEv?.venue || null,
+                                      description: linkedEv?.description || null,
+                                      slogan: linkedEv?.slogan || null,
+                                      tagline: linkedEv?.tagline || null,
+                                      images,
+                                      activityId: linkedEv?.activity_id || s.activity_id || null,
+                                      suggestion: s,
+                                      editing: true,
+                                      eventId: evId,
+                                    })
+                                    setCreateOpen(true)
+                                  }} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                    Edit
+                                  </button>
+                                </>
+                              ) : (
+                                <button className="btn btn-sm btn-primary" onClick={() => {
+                                  setEditingEventId(null)
+                                  setCreateEntry({
+                                    key: null,
+                                    date: s.observance_date || s.date || '',
+                                    ngoId: s.ngo_id ? String(s.ngo_id) : (reportNgoId || (ngos[0]?.id ? String(ngos[0].id) : '')),
+                                    name: s.festival || s.title || '',
+                                    location: null,
+                                    description: null,
+                                    slogan: null,
+                                    tagline: null,
+                                    images: [],
+                                    activityId: s.activity_id || null,
+                                    suggestion: s,
+                                    editing: false,
+                                    eventId: null,
+                                  })
+                                  setCreateOpen(true)
+                                }}>
+                                  Create Event
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
@@ -2477,9 +2578,9 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
             )}
           </div>
         </div>
-       )}
+      )}
 
-    
+
       {/* ── MONTHLY controls ── */}
       {mode === 'monthly' && (
         <div className="card no-print" style={{ marginBottom: 16 }}>
@@ -2511,9 +2612,8 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
               {monthlyLoading ? 'Loading…' : 'Generate Monthly Report'}
             </button>
             {monthlyData && <>
-              <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none' }} onClick={exportMonthlyPDF}>Download PDF</button>
-              <button className="btn btn-sm" style={{ background: '#16a34a', color: '#fff', border: 'none' }} onClick={exportMonthlyExcel}>Download Excel</button>
-              <button className="btn btn-sm" onClick={exportMonthlyCSV}>Download CSV</button>
+              <button className="btn btn-sm" style={{ background: '#16a34a', color: '#fff', border: 'none' }} onClick={exportMonthlyPDF}>Download PDF</button>
+              {/* <button className="btn btn-sm" style={{ background: '#16a34a', color: '#fff', border: 'none' }} onClick={exportMonthlyExcel}>Download Excel</button> */}
             </>}
           </div>
         </div>
@@ -2596,7 +2696,7 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
                   festival,
                   ngo_id: ngoId || null,
                   event_id: event.id,
-                }).catch(() => {})
+                }).catch(() => { })
               }
               loadEvents()
               setPlannerCardsReload((n) => n + 1)
@@ -2606,23 +2706,23 @@ export default function EventReports({ initialMode = 'daily' } = {}) {
             }}
           />
         </Suspense>
-       )}
+      )}
 
-       {showPosterImage && (
-         <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowPosterImage(null)}>
-           <div className="modal" style={{ maxWidth: 820, width: '95%', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-             <div className="modal-header"><h3>Report Preview</h3></div>
-             <div className="modal-body" style={{ padding: 12, textAlign: 'center' }}>
-               <img src={showPosterImage} alt="report" style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }} />
-             </div>
-             <div className="modal-footer" style={{ padding: 12, display: 'flex', justifyContent: 'flex-end' }}>
-               <button className="btn btn-sm" onClick={() => setShowPosterImage(null)}>Close</button>
-             </div>
-           </div>
-         </div>
-       )}
+      {showPosterImage && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowPosterImage(null)}>
+          <div className="modal" style={{ maxWidth: 820, width: '95%', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><h3>Report Preview</h3></div>
+            <div className="modal-body" style={{ padding: 12, textAlign: 'center' }}>
+              <img src={showPosterImage} alt="report" style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }} />
+            </div>
+            <div className="modal-footer" style={{ padding: 12, display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-sm" onClick={() => setShowPosterImage(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-       <style>{`
+      <style>{`
         @page { margin: 10mm; }
         @media screen {
           .eh-print-brand { border-bottom: 3px solid #2036bd; padding-bottom: 10px; margin-bottom: 16px; }

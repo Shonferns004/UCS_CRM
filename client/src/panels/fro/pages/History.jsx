@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getMyHistory } from '../api/donors';
 import { SkeletonTable } from '../../../components/Skeleton';
 
@@ -23,10 +23,32 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    setLoading(true);
-    getMyHistory().then(data => setLogs(Array.isArray(data) ? data : [])).catch(() => setLogs([])).finally(() => setLoading(false));
+  const firstLoadRef = useRef(true);
+  const load = useCallback(() => {
+    if (firstLoadRef.current) setLoading(true);
+    getMyHistory()
+      .then(data => setLogs(Array.isArray(data) ? data : []))
+      .catch(() => setLogs([]))
+      .finally(() => { firstLoadRef.current = false; setLoading(false); });
   }, []);
+
+  useEffect(() => {
+    load();
+    // Scope can shrink mid-session (temporary access revoked/expired). Re-read so
+    // the station's rows disappear instead of lingering in an open tab.
+    const onFocus = () => load();
+    const onVisible = () => { if (!document.hidden) load(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('temp-access-denied', onFocus);
+    const t = setInterval(load, 60 * 1000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('temp-access-denied', onFocus);
+      clearInterval(t);
+    };
+  }, [load]);
 
   const sorted = [...logs].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
   const filtered = sorted
