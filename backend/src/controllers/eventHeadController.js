@@ -1731,9 +1731,10 @@ export const generateNgoMonthlyReport = async (req, res) => {
       if (!eventByNameDate.has(k)) eventByNameDate.set(k, e);
     }
     // The events a row has already claimed, so two rows never share one event.
-    const claimedEventIds = new Set();
-    const includedEventIds = new Set();
-    const eventBannerMap = {};
+     const claimedEventIds = new Set();
+     const includedEventIds = new Set();
+     const creditedRowKeys = new Set();
+     const eventBannerMap = {};
     try {
       const bannerRows = await EventHead.getBannerMediaByEvents(events.map(e => e.id).filter(Boolean));
       for (const row of bannerRows) {
@@ -2080,8 +2081,9 @@ export const generateNgoMonthlyReport = async (req, res) => {
         image_index: img.index || 0,
          banner: null,
        });
-        if (linked?.id != null) includedEventIds.add(String(linked.id));
-      }
+         if (linked?.id != null) includedEventIds.add(String(linked.id));
+         creditedRowKeys.add(`${id}|${String(d || '').trim()}|${String(eventName || f.festival || '').trim().toLowerCase()}`);
+       }
 
       // Final pass: any event for this month/NGO that has not yet been credited
       // to a row (no planner link / no selected suggestion pointed at it) still
@@ -2090,8 +2092,10 @@ export const generateNgoMonthlyReport = async (req, res) => {
       // This keeps the report in step with the Monthly Planner's Download buttons.
       for (const ev of (Array.isArray(events) ? events : [])) {
         if (includedEventIds.has(String(ev.id))) continue;
-        if (String(ev?.name || '').toLowerCase().includes('demo')) continue;
-        const evDate = String(ev?.date || '').slice(0, 10);
+         if (String(ev?.name || '').toLowerCase().includes('demo')) continue;
+         const evDate = String(ev?.date || '').slice(0, 10);
+         const evKey = `${ev.ngo_id != null ? String(ev.ngo_id) : 'unknown'}|${evDate}|${String(ev?.name || '').trim().toLowerCase()}`;
+         if (creditedRowKeys.has(evKey)) continue;
         const cellDone = plannerDoneCell(evDate, ev?.name);
         if (!isComplete(ev) && !cellDone) continue;
         const id = ev.ngo_id != null ? String(ev.ngo_id) : 'unknown';

@@ -1,6 +1,7 @@
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import EventPosterReport from './EventPosterReport.jsx'
+import EventPosterReportAflf from './EventPosterReportAflf.jsx'
 
 /* Preload every image the poster will paint, so no collage slot is captured
    blank. Failures resolve too: a missing logo must not block the download. */
@@ -21,21 +22,27 @@ async function capturePoster(el, photoUrls = []) {
   return await html2canvas(el, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false, imageTimeout: 15000 })
 }
 
-/* One-page A4 PDF of the event poster (EventPosterReport). The poster is a fixed
-   794×1123 px node, so it is captured whole and placed edge to edge — no page
-   slicing. Photos are preloaded first so no collage slot is captured blank. */
-export async function exportPosterToPdf(el, filename, photoUrls = []) {
+/* One-page PDF: width is always A4 (210mm); height follows the poster's
+   aspect ratio (a normal A4 poster still comes out 297mm). */
+async function canvasToPdf(canvas, filename) {
   const { default: jsPDF } = await import('jspdf')
-  const canvas = await capturePoster(el, photoUrls)
-  const pdf = new jsPDF('p', 'mm', 'a4')
-  pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, 210, 297)
+  const pageW = 210
+  const pageH = +(pageW * canvas.height / canvas.width).toFixed(2)
+  const pdf = new jsPDF({
+    orientation: pageH >= pageW ? 'p' : 'l',
+    unit: 'mm',
+    format: [pageW, pageH],
+  })
+  pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, pageW, pageH)
   pdf.save(filename)
 }
 
-/* Render the poster from props off-screen and return its canvas. Used by screens
-   that hold the event data but have no poster in the DOM (the Monthly Planner's
-   create/download actions, and the planner-event cards in Reports). The host is
-   mounted off-screen, captured, then unmounted so nothing is left behind. */
+export async function exportPosterToPdf(el, filename, photoUrls = []) {
+  const canvas = await capturePoster(el, photoUrls)
+  await canvasToPdf(canvas, filename)
+}
+
+/* Render the poster from props off-screen and return its canvas. */
 export async function renderPosterCanvas(props) {
   const host = document.createElement('div')
   host.setAttribute('aria-hidden', 'true')
@@ -47,8 +54,9 @@ export async function renderPosterCanvas(props) {
   let node = null
   const root = createRoot(host)
   try {
+    const ReportComponent = props?.template === 'aflf' ? EventPosterReportAflf : EventPosterReport
     flushSync(() => {
-      root.render(<EventPosterReport {...props} ref={(el) => { node = el }} />)
+      root.render(<ReportComponent {...props} ref={(el) => { node = el }} />)
     })
     return await capturePoster(node || host.firstElementChild, [
       ...(props.photos || []), props.logoUrl, props.sevakBanoImage, props.brandImage,
@@ -61,9 +69,6 @@ export async function renderPosterCanvas(props) {
 
 /* Render the poster from props off-screen and download it as a one-page PDF. */
 export async function renderPosterToPdf(props, filename) {
-  const { default: jsPDF } = await import('jspdf')
   const canvas = await renderPosterCanvas(props)
-  const pdf = new jsPDF('p', 'mm', 'a4')
-  pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, 210, 297)
-  pdf.save(filename)
+  await canvasToPdf(canvas, filename)
 }

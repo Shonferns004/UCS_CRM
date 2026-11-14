@@ -4019,6 +4019,75 @@
   .panel-event-head .eh-search { min-width: 0; }
 }
 
+/* ── Reports & Analytics (shared by Event Head + Social) ─────────────────────
+   A lighter chrome over the daily/monthly reports: a hero with a segmented
+   switch and stat cards for the monthly summary. Brand colours come from
+   --ra-accent / --ra-accent-2, set inline by EventReports so each panel keeps
+   its own identity (Event Head blue, Social pink/purple). */
+.panel-event-head .eh-ra { --ra-accent: #2036bd; --ra-accent-2: #6b38d4; }
+.panel-event-head .eh-ra-hero {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 18px 20px; margin-bottom: 16px; border-radius: 16px;
+  background: var(--card-bg, #fff); border: 1px solid var(--line, #e5e7eb);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+}
+.panel-event-head .eh-ra-icon {
+  width: 46px; height: 46px; border-radius: 13px; flex-shrink: 0;
+  display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, var(--ra-accent), var(--ra-accent-2));
+  box-shadow: 0 10px 22px -10px var(--ra-accent);
+}
+.panel-event-head .eh-ra-heading { min-width: 0; }
+.panel-event-head .eh-ra-title { font-size: 17px; font-weight: 700; color: var(--ink, #1a1a2e); margin: 0; }
+.panel-event-head .eh-ra-sub { font-size: 12.5px; color: var(--ink-soft, #6b7280); margin-top: 3px; }
+.panel-event-head .eh-ra-seg {
+  display: inline-flex; gap: 4px; padding: 4px; margin-left: auto;
+  background: var(--bg, #f5f6fa); border: 1px solid var(--line, #e5e7eb); border-radius: 999px;
+}
+.panel-event-head .eh-ra-seg button {
+  display: inline-flex; align-items: center; gap: 7px; border: none; background: transparent;
+  padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; font-family: inherit;
+  color: var(--ink-soft, #6b7280); cursor: pointer;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.panel-event-head .eh-ra-seg button:hover { color: var(--ink, #1a1a2e); }
+.panel-event-head .eh-ra-seg button.on {
+  background: var(--card-bg, #fff); color: var(--ra-accent);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .14);
+}
+.panel-event-head .eh-ra-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.panel-event-head .eh-ra-stat {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  border-radius: 12px; background: var(--card-bg, #fff); border: 1px solid var(--line, #e5e7eb);
+}
+.panel-event-head .eh-ra-stat-ic {
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+  display: grid; place-items: center;
+}
+.panel-event-head .eh-ra-stat-val { font-size: 18px; font-weight: 700; color: var(--ink, #1a1a2e); line-height: 1.1; }
+.panel-event-head .eh-ra-stat-lbl { font-size: 11px; color: var(--ink-soft, #6b7280); margin-top: 2px; }
+.panel-event-head .eh-ra-generate {
+  display: inline-flex; align-items: center; gap: 7px; border: none; color: #fff;
+  padding: 9px 18px; border-radius: 9px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+  background: linear-gradient(135deg, var(--ra-accent), var(--ra-accent-2));
+  box-shadow: 0 8px 18px -10px var(--ra-accent);
+}
+.panel-event-head .eh-ra-generate:hover:not(:disabled) { filter: brightness(1.06); }
+.panel-event-head .eh-ra-generate:disabled { opacity: .55; cursor: not-allowed; }
+
+@media (max-width:620px) {
+  .panel-event-head .eh-ra-hero { padding: 14px; gap: 12px; }
+  .panel-event-head .eh-ra-seg { margin-left: 0; width: 100%; }
+  .panel-event-head .eh-ra-seg button { flex: 1; justify-content: center; }
+  .panel-event-head .eh-ra-stats { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width:380px) {
+  .panel-event-head .eh-ra-stats { grid-template-columns: 1fr; }
+}
+
 @media (max-width:620px) {
   .panel-event-head .content-body { padding: 14px 12px 72px; }
   .panel-event-head .eh-section-body,

@@ -182,7 +182,7 @@ export default function SocialPanel() {
             <Route path="monthly-report" element={
               <div className="panel-event-head">
                 <Suspense fallback={<div style={{ padding: 8, color: 'var(--ink-soft)', fontSize: 13 }}>Loading report…</div>}>
-                  <EventReports initialMode="monthly" />
+                  <EventReports initialMode="monthly" accent="#ec4899" accent2="#8b5cf6" />
                 </Suspense>
               </div>
             } />
