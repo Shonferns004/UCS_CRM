@@ -64,6 +64,7 @@ import SevakPanel from '../sevak-library/SevakPanel'
 import MetropadPage from './metropad/MetropadPage'
 import GoogleMapApi from './pages/GoogleMapApi'
 import BusinessFinder from './pages/BusinessFinder'
+import Extractor from './pages/Extractor'
 import GooglePlacesSearch from './pages/GooglePlacesSearch'
 import OsmPlacesSearch from './pages/OsmPlacesSearch'
 
@@ -210,6 +211,10 @@ const MODULES_NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> },
   { id: 'whatsapp-dashboard', path: '/accounts/whatsapp-dashboard', label: 'WhatsApp',
     icon: <Smartphone size={18} /> },
+  // Extractor sits directly below WhatsApp: the extension feeds this page.
+  { id: 'extractor', path: '/accounts/extractor', label: 'Extractor',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4h18l-7 8v6l-4 2v-8L3 4z"/></svg>,
+    match: (p) => p.startsWith('/accounts/extractor') },
   { ...BENEFICIARY_NAV[0], match: (p) => p.startsWith('/accounts/beneficiaries') },
   SIM_NAV_ITEM,
 ]
@@ -644,6 +649,7 @@ export default function AccountsPanel() {
                 its own (the standalone build in metropad/App.jsx owns those). */}
             <Route path="metropad" element={<MetropadPage />} />
             <Route path="business-finder" element={<BusinessFinder />} />
+            <Route path="extractor" element={<Extractor />} />
             <Route path="google-map-api" element={<GoogleMapApi />} />
             <Route path="google-places-search" element={<GooglePlacesSearch />} />
             <Route path="osm-places-search" element={<OsmPlacesSearch />} />
