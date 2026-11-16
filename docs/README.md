@@ -31,7 +31,7 @@
 | Social | [PANEL](03-Panel-Documentation/Social/PANEL.md) | `/social` |
 | Super Admin | [PANEL](03-Panel-Documentation/Super-Admin/PANEL.md) | `/sa` |
 | WhatsApp | [PANEL](03-Panel-Documentation/WhatsApp/PANEL.md) | `/wa` |
-| Embedded — Beneficiaries | [PANEL](03-Panel-Documentation/Embedded-Beneficiaries/PANEL.md) | embedded in Accounts/Super-Admin |
+| Embedded — Beneficiaries | [PANEL](03-Panel-Documentation/Embedded-Beneficiaries/PANEL.md) · [APP (JOD)](03-Panel-Documentation/Embedded-Beneficiaries/APP.md) | embedded in Accounts/Super-Admin |
 | Embedded — Sevak Library | [PANEL](03-Panel-Documentation/Embedded-Sevak-Library/PANEL.md) | `/api/sevak-library` |
 
 Each PANEL.md: Overview (Verified) · Screens & UI · Features · Technical Implementation · Business Logic · API Endpoints · Panel Summary.

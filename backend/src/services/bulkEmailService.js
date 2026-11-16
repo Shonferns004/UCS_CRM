@@ -503,6 +503,64 @@ export async function getBulkEmailLog(id) {
   return rows[0] || null;
 }
 
+// Reply text saved before the body column existed only lives in the lead's
+// notes; pull the last "--- Reply received ... ---" block out of it.
+function replyBodyFromNotes(notes) {
+  const text = String(notes || '');
+  const marker = '--- Reply received ';
+  const at = text.lastIndexOf(marker);
+  if (at === -1) return '';
+  const block = text.slice(at);
+  const lineEnd = block.indexOf('---\n');
+  const body = lineEnd === -1 ? block.replace(/^---[^\n]*---\n?/, '') : block.slice(lineEnd + 4);
+  return body.trim();
+}
+
+/**
+ * Replies captured from the bulk-email inbox, one row per lead (the latest
+ * reply) so the Email Leads view stays a lead list rather than a message log.
+ */
+export async function listBulkEmailReplies({ search = '', limit = 500 } = {}) {
+  const term = String(search || '').trim();
+  const limitNum = Math.min(500, Math.max(1, Number(limit) || 500));
+  const params = [];
+  let where = '';
+  if (term) {
+    params.push(`%${term}%`);
+    where = `WHERE (
+      r.from_email ILIKE $1 OR r.from_name ILIKE $1
+      OR l.name ILIKE $1 OR l.email ILIKE $1
+      OR c.subject ILIKE $1 OR r.subject ILIKE $1
+    )`;
+  }
+  params.push(limitNum);
+
+  const { rows } = await db._pool.query(
+    `SELECT * FROM (
+       SELECT DISTINCT ON (r.lead_id)
+              r.message_id, r.campaign_id, r.lead_id, r.from_email, r.from_name,
+              r.subject, r.received_at, r.body,
+              l.name AS lead_name, l.email, l.phone, l.status AS lead_status,
+              l.notes AS lead_notes,
+              c.subject AS campaign_subject,
+              (SELECT COUNT(*)::int FROM bulk_email_replies r2 WHERE r2.lead_id = r.lead_id) AS reply_count
+         FROM bulk_email_replies r
+         LEFT JOIN leads l ON l.id = r.lead_id
+         LEFT JOIN bulk_email_logs c ON c.id = r.campaign_id
+         ${where}
+        ORDER BY r.lead_id, r.received_at DESC NULLS LAST
+     ) t
+     ORDER BY t.received_at DESC NULLS LAST
+     LIMIT $${params.length}`,
+    params,
+  );
+
+  return rows.map((row) => {
+    const { lead_notes, ...rest } = row;
+    return { ...rest, body: row.body || replyBodyFromNotes(lead_notes) };
+  });
+}
+
 export async function listBulkEmailTemplates() {
   const { rows } = await db._pool.query(
     `SELECT t.id, t.name, t.subject, t.body, t.created_by, t.created_at, t.updated_at,

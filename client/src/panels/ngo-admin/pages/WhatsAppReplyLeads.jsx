@@ -18,8 +18,6 @@ function parseNotes(notes) {
   const text = String(notes || '');
   const message = text
     .split('\n')
-    // Keep [Button: ...] / [Reply: ...]: that is the actual answer. Only
-    // bookkeeping tags are hidden.
     .filter((l) => !/^\[(Template|Account|Lead|Meta Lead|Platform|Campaign|Form):/i.test(l.trim()))
     .join('\n')
     .trim();
@@ -41,13 +39,10 @@ const platformOf = (lead) => {
   return isMetaLead(lead) ? 'meta' : 'whatsapp';
 };
 
-const platformMeta = (platform, sourceKey) => {
+const platformMeta = (platform) => {
   const p = String(platform || '').toLowerCase();
-  if (sourceKey === 'email' || p.includes('email')) return { label: 'Email', color: '#7c3aed', bg: '#ede9fe' };
-  if (p.includes('instagram') || p === 'ig') return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
-  if (sourceKey === 'meta' || p.includes('facebook') || p === 'fb' || p === 'meta') {
-    return { label: 'Facebook', color: '#0866FF', bg: '#e7f0ff' };
-  }
+  if (p.includes('instagram')) return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
+  if (p.includes('facebook') || p === 'meta') return { label: 'Meta', color: '#0866FF', bg: '#e7f0ff' };
   return { label: 'WhatsApp', color: '#128C7E', bg: '#dcfce7' };
 };
 
@@ -74,8 +69,6 @@ function formatTime(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-// Bulk-email campaign contacts carry their own free-form status, so give it the
-// same pill palette the station queues use instead of inventing a second one.
 function emailStatusStyle(status) {
   const k = String(status || '').toLowerCase();
   if (k === 'new') return { color: '#1d4ed8', bg: '#e7efff' };
@@ -110,6 +103,7 @@ export default function WhatsAppReplyLeads() {
   const [crmLeads, setCrmLeads] = useState([]);
   const [crmLoading, setCrmLoading] = useState(false);
   const [crmError, setCrmError] = useState('');
+  const [crmMode, setCrmMode] = useState('replies'); // 'replies' | 'sent'
   const [crmQuery, setCrmQuery] = useState('');
   const [pollingReplies, setPollingReplies] = useState(false);
   const [pollNotice, setPollNotice] = useState('');
@@ -119,11 +113,12 @@ export default function WhatsAppReplyLeads() {
     setCrmError('');
     try {
       const params = new URLSearchParams();
-      params.set('source', 'Bulk Email');
       if (crmQuery.trim()) params.set('search', crmQuery.trim());
       params.set('limit', '200');
-      const qs = params.toString();
-      const data = await api(`/leads${qs ? '?' + qs : ''}`, { _prefix: 'ucs' });
+      const path = crmMode === 'replies'
+        ? `/accounts/bulk-email/replies?${params.toString()}`
+        : `/leads?source=Bulk%20Email&${params.toString()}`;
+      const data = await api(path, { _prefix: 'ucs' });
       setCrmLeads(Array.isArray(data) ? data : (data?.data || []));
     } catch (e) {
       setCrmError(e?.message || 'Failed to load leads');
@@ -133,7 +128,7 @@ export default function WhatsAppReplyLeads() {
     }
   };
 
-  useEffect(() => { if (source === 'email') loadCrm(); }, [source]);
+  useEffect(() => { if (source === 'email') loadCrm(); }, [source, crmMode]);
 
   const pollReplies = async () => {
     setPollingReplies(true);
@@ -153,7 +148,7 @@ export default function WhatsAppReplyLeads() {
     setLoading(true);
     setError('');
     try {
-      const data = await api('/ngo-admin/leads');
+      const data = await api('/ngo-admin/ss-leads');
       setLeads(Array.isArray(data) ? data : (data?.data || []));
     } catch (e) {
       setError(e?.message || 'Failed to load');
@@ -165,32 +160,35 @@ export default function WhatsAppReplyLeads() {
   useEffect(() => { load(); }, []);
 
   const sourceKeyOf = (lead) => {
-    if (lead?.source_key) return lead.source_key;
-    if (isMetaLead(lead)) return 'meta';
-    return String(lead?.source || '').toLowerCase().includes('email') ? 'email' : 'whatsapp';
+    const src = String(lead?.lead_source || '').toLowerCase();
+    if (src === 'meta' || src === 'whatsapp' || src === 'email') return src;
+    return platformOf(lead) === 'whatsapp' ? 'whatsapp' : 'meta';
   };
 
   const ngoOfLead = (lead) => ngoNameOf(lead.account_ngo || parseNotes(lead.notes).account);
 
-  const counts = useMemo(() => {
-    const bySource = { whatsapp: 0, meta: 0, email: 0 };
-    const byNgo = { whatsapp: {}, meta: {}, email: {} };
-    for (const lead of leads) {
-      const key = sourceKeyOf(lead);
-      bySource[key] += 1;
-      const ngo = ngoOfLead(lead);
-      byNgo[key][ngo] = (byNgo[key][ngo] || 0) + 1;
-    }
-    return { bySource, byNgo };
-  }, [leads]);
+  const sourceLeads = useMemo(() => leads.filter((lead) => sourceKeyOf(lead) === source), [leads, source]);
+  const ngoLeads = useMemo(
+    () => (ngoFilter === 'all' ? sourceLeads : sourceLeads.filter((lead) => ngoOfLead(lead) === ngoFilter)),
+    [sourceLeads, ngoFilter],
+  );
+  const inboxLeads = ngoLeads.filter((lead) => !lead.in_station);
+  const queueLeads = ngoLeads.filter((lead) => lead.in_station);
+  const aiPending = leads.filter((lead) => !lead.in_station && !lead.ai_at).length;
 
-  const sourceLeads = leads.filter((lead) => sourceKeyOf(lead) === source);
-  const inboxLeads = sourceLeads.filter((lead) => !lead.in_station);
-  const queueLeads = sourceLeads.filter((lead) => lead.in_station);
-  const aiPending = sourceLeads.filter((lead) => !lead.in_station && !lead.ai_at).length;
+  const counts = useMemo(() => {
+    const bySource = { whatsapp: 0, meta: 0, email: crmLeads.length };
+    const byNgo = { whatsapp: { BSCT: 0, AFLF: 0, MANN: 0 }, meta: { BSCT: 0, AFLF: 0, MANN: 0 }, email: { BSCT: 0, AFLF: 0, MANN: 0 } };
+    leads.forEach((lead) => {
+      const s = sourceKeyOf(lead);
+      const n = ngoOfLead(lead);
+      bySource[s] = (bySource[s] || 0) + 1;
+      if (byNgo[s] && byNgo[s][n] != null) byNgo[s][n] += 1;
+    });
+    return { bySource, byNgo };
+  }, [leads, crmLeads.length]);
 
   const shown = (tab === 'queue' ? queueLeads : inboxLeads).filter((lead) => {
-    if (ngoFilter !== 'all' && ngoOfLead(lead) !== ngoFilter) return false;
     const q = query.trim().toLowerCase();
     if (!q) return true;
     return String(lead.name || '').toLowerCase().includes(q) || String(lead.phone || '').includes(q);
@@ -198,9 +196,10 @@ export default function WhatsAppReplyLeads() {
 
   const addToStation = async (lead) => {
     setAdding(lead.id);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
-      const res = await api(`/ngo-admin/leads/${lead.id}/add`, { method: 'POST', body: JSON.stringify({}) });
+      const res = await api(`/ngo-admin/ss-leads/${lead.id}/add`, { method: 'POST', body: JSON.stringify({}) });
       setLeads((prev) => prev.map((item) => (
         item.id === lead.id
           ? {
@@ -221,19 +220,15 @@ export default function WhatsAppReplyLeads() {
   };
 
   const addAllShown = async () => {
-    if (bulkBusy || !shown.length) return;
+    const ids = shown.filter((lead) => !lead.in_station).slice(0, 50).map((lead) => lead.id);
+    if (!ids.length) return;
     setBulkBusy(true);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
-      const ids = shown.slice(0, 50).map((lead) => lead.id);
-      const res = await api('/ngo-admin/leads/bulk-station', {
-        method: 'POST',
-        body: JSON.stringify({ ids }),
-      });
+      const res = await api('/ngo-admin/ss-leads/add-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
       await load();
-      setNotice(`Added ${res.placed || 0} lead(s) to station`
-        + (res.already ? ` · ${res.already} already placed` : '')
-        + (res.failed ? ` · ${res.failed} failed` : ''));
+      setNotice(res.message || 'Leads added to stations');
     } catch (e) {
       setError(e?.message || 'Bulk add failed');
     } finally {
@@ -244,17 +239,15 @@ export default function WhatsAppReplyLeads() {
   const runAi = async () => {
     if (aiBusy) return;
     setAiBusy(true);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
-      const res = await api('/ngo-admin/leads/ai-batch', {
-        method: 'POST',
-        body: JSON.stringify({ limit: 12 }),
-      });
+      const res = await api('/ngo-admin/ss-leads/ai-batch', { method: 'POST', body: JSON.stringify({ limit: 12 }) });
       await load();
       setNotice(
         `AI scored ${res.scored || 0} lead(s)`
-        + (res.failed ? ` · ${res.failed} failed` : '')
-        + (res.remaining ? ` · ${res.remaining} left — run again` : ' · all scored'),
+        + (res.failed ? ` • ${res.failed} failed` : '')
+        + (res.remaining ? ` • ${res.remaining} left — run again` : ' • all scored'),
       );
     } catch (e) {
       setError(e?.message || 'AI scoring failed');
@@ -264,9 +257,10 @@ export default function WhatsAppReplyLeads() {
   };
 
   const remove = async (leadId) => {
-    if (!window.confirm('Delete this lead? It will also be removed from its station queue.')) return;
+    if (!window.confirm('Delete this lead? It will also be removed from its SS station queue.')) return;
     setDeleting(leadId);
-    setError(''); setNotice('');
+    setError('');
+    setNotice('');
     try {
       await api(`/leads/${leadId}`, { method: 'DELETE' });
       setLeads((prev) => prev.filter((lead) => lead.id !== leadId));
@@ -283,7 +277,7 @@ export default function WhatsAppReplyLeads() {
     const isAi = s?.source === 'ai';
     return (
       <span
-        title={Array.isArray(s?.reasons) && s.reasons.length ? s.reasons.join(' · ') : undefined}
+        title={Array.isArray(s?.reasons) && s.reasons.length ? s.reasons.join(' • ') : undefined}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, color: meta.color, background: meta.bg, border: `1px solid ${meta.border}`, whiteSpace: 'nowrap' }}
       >
         <Sparkles size={11} />
@@ -306,14 +300,16 @@ export default function WhatsAppReplyLeads() {
   ];
   const NGOS = [
     { key: 'all', label: 'All NGOs' },
-    { key: 'BSCT', label: 'B · BSCT', color: '#2563eb' },
-    { key: 'AFLF', label: 'A · AFLF', color: '#16a34a' },
-    { key: 'MANN', label: 'M · MANN', color: '#ec4899' },
+    { key: 'BSCT', label: 'B • BSCT', color: '#2563eb' },
+    { key: 'AFLF', label: 'A • AFLF', color: '#16a34a' },
+    { key: 'MANN', label: 'M • MANN', color: '#ec4899' },
   ];
 
   const activeSource = SOURCES.find((item) => item.key === source) || SOURCES[0];
   const isEmail = source === 'email';
+  const isReplies = crmMode === 'replies';
   const withEmail = crmLeads.filter((l) => l.email).length;
+  const totalReplies = crmLeads.reduce((n, r) => n + (Number(r.reply_count) || 1), 0);
 
   return (
     <div style={{ padding: '20px 24px', maxWidth: 1280 }}>
@@ -398,7 +394,6 @@ export default function WhatsAppReplyLeads() {
       {isEmail ? (
         <>
           {crmError && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>{crmError}</div>}
-
           {pollNotice && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', fontSize: 12.5, fontWeight: 600 }}>{pollNotice}</div>}
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -407,14 +402,27 @@ export default function WhatsAppReplyLeads() {
               <input value={crmQuery} onChange={(e) => setCrmQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') loadCrm(); }} placeholder="Search name / email / phone…"
                 style={{ border: 'none', outline: 'none', fontSize: 12.5, background: 'transparent', minWidth: 200, color: 'var(--ink, #0f172a)' }} />
             </div>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-              Contacts created by bulk email campaigns.
+            <span style={{ width: 1, height: 22, background: 'var(--line, #e2e8f0)' }} />
+            {[
+              { key: 'replies', label: 'Replies' },
+              { key: 'sent', label: 'All sent' },
+            ].map((t) => {
+              const active = crmMode === t.key;
+              return (
+                <button key={t.key} onClick={() => setCrmMode(t.key)}
+                  style={{ padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? '#0f172a' : 'var(--line, #e2e8f0)'}`, background: active ? '#0f172a' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  {t.label}
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)', marginLeft: 4 }}>
+              {isReplies ? 'Replies received from bulk email campaigns.' : 'All contacts created from bulk email campaigns.'}
             </span>
           </div>
 
           {crmLoading && (
             <div className="card" style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
-              <RefreshCw size={22} style={{ opacity: .5, marginBottom: 8 }} /> Loading email leads…
+              <RefreshCw size={22} style={{ opacity: .5, marginBottom: 8 }} /> {isReplies ? 'Loading email replies…' : 'Loading email leads…'}
             </div>
           )}
 
@@ -423,8 +431,12 @@ export default function WhatsAppReplyLeads() {
               <div style={{ width: 52, height: 52, borderRadius: 14, display: 'grid', placeItems: 'center', background: '#eef2f7', margin: '0 auto 12px' }}>
                 <Mail size={24} style={{ color: '#94a3b8' }} />
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink, #0f172a)' }}>No email leads yet</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>Leads captured from bulk email campaigns will appear here.</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{isReplies ? 'No email replies yet' : 'No email leads yet'}</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                {isReplies
+                  ? 'Replies to bulk email campaigns will appear here. Use Poll replies to check the inbox.'
+                  : 'Leads captured from bulk email campaigns will appear here.'}
+              </div>
             </div>
           )}
 
@@ -434,13 +446,59 @@ export default function WhatsAppReplyLeads() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--line, #e2e8f0)', background: '#f8fafc' }}>
-                      {['Lead', 'Email', 'Phone', 'Source', 'Status', 'Reply / Notes', 'Created'].map((h) => (
+                      {(isReplies
+                        ? ['Lead', 'Email', 'Campaign', 'Reply', 'Received', 'Status']
+                        : ['Lead', 'Email', 'Phone', 'Source', 'Status', 'Reply / Notes', 'Created']
+                      ).map((h) => (
                         <th key={h} style={{ textAlign: 'left', padding: '11px 14px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: .5, color: '#64748b', fontWeight: 800 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {crmLeads.map((l, i) => {
+                    {isReplies ? crmLeads.map((r, i) => {
+                      const st = emailStatusStyle(r.lead_status);
+                      const email = r.from_email || r.email || '';
+                      const replyText = String(r.body || '').replace(/\s+/g, ' ').trim();
+                      const campaignName = r.campaign_subject || r.subject || '';
+                      return (
+                        <tr key={r.message_id || r.lead_id || i} style={{ borderBottom: '1px solid var(--line, #f1f5f9)', background: i % 2 ? '#fbfcfd' : '#fff' }}>
+                          <td style={{ padding: '11px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', background: '#e7efff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                                {initialsOf(r.lead_name, email)}
+                              </div>
+                              <span style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{r.lead_name || r.from_name || '—'}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            {email ? <a href={`mailto:${email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{email}</a> : '—'}
+                          </td>
+                          <td style={{ padding: '11px 14px', maxWidth: 220 }}>
+                            {campaignName ? (
+                              <span title={campaignName} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>
+                                {campaignName.length > 45 ? `${campaignName.slice(0, 45)}…` : campaignName}
+                              </span>
+                            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                          </td>
+                          <td style={{ padding: '11px 14px', maxWidth: 320 }}>
+                            {replyText ? (
+                              <span title={replyText} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>
+                                {replyText.length > 110 ? `${replyText.slice(0, 110)}…` : replyText}
+                              </span>
+                            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                            {Number(r.reply_count) > 1 && (
+                              <span style={{ display: 'inline-block', marginTop: 4, padding: '2px 8px', borderRadius: 999, background: '#eef2f7', color: '#475569', fontSize: 10, fontWeight: 800 }}>
+                                {r.reply_count} replies
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '11px 14px', whiteSpace: 'nowrap', color: '#475569' }}>{formatTime(r.received_at)}</td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, color: st.color, background: st.bg, textTransform: 'capitalize' }}>{r.lead_status || 'replied'}</span>
+                          </td>
+                        </tr>
+                      );
+                    }) : crmLeads.map((l, i) => {
                       const st = emailStatusStyle(l.status);
                       const noteText = String(l.notes || '')
                         .replace(/^Bulk email campaign #\d+:[^\n]*\n*/i, '')
@@ -482,7 +540,7 @@ export default function WhatsAppReplyLeads() {
               </div>
               <div style={{ padding: '10px 14px', borderTop: '1px solid var(--line, #e2e8f0)', fontSize: 11.5, color: '#64748b', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                 <span>{crmLeads.length} lead{crmLeads.length === 1 ? '' : 's'}</span>
-                <span>{withEmail} with email</span>
+                <span>{isReplies ? `${totalReplies} replies` : `${withEmail} with email`}</span>
               </div>
             </div>
           )}
@@ -580,7 +638,7 @@ export default function WhatsAppReplyLeads() {
                               <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{lead.name || formatPhone(lead.phone) || '—'}</div>
                               <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 <Phone size={11} /> {formatPhone(lead.phone) || '—'}
-                                <span style={{ opacity: .45 }}>·</span>
+                                <span style={{ opacity: .45 }}>•</span>
                                 {formatTime(lead.created_at)}
                               </div>
                             </div>
@@ -650,7 +708,7 @@ export default function WhatsAppReplyLeads() {
               </table>
             </div>
             <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line, #f1f5f9)', background: '#f8fafc', fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-              <span>{shown.length} shown · {tab === 'inbox' ? inboxLeads.length : queueLeads.length} in this queue</span>
+              <span>{shown.length} shown • {tab === 'inbox' ? inboxLeads.length : queueLeads.length} in this queue</span>
               <span>Stations: {activeSource.label} → B/A/M-{activeSource.label}-Leads</span>
             </div>
           </div>

@@ -12,6 +12,7 @@ import {
   getBulkEmailTemplateAttachments,
   listBulkEmailLogs,
   listBulkEmailRecipients,
+  listBulkEmailReplies,
   listBulkEmailTemplates,
   runBulkEmailCampaign,
   updateBulkEmailTemplate,
@@ -401,6 +402,18 @@ export async function pollReplies(req, res) {
   try {
     const result = await pollBulkEmailReplies();
     return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function listReplies(req, res) {
+  try {
+    const replies = await listBulkEmailReplies({
+      search: req.query.search,
+      limit: req.query.limit,
+    });
+    return res.json(replies);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

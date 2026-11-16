@@ -139,6 +139,10 @@ export async function ensureBulkEmailSchema() {
     );
   `);
   await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_email_replies_campaign ON bulk_email_replies(campaign_id);`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_email_replies_lead ON bulk_email_replies(lead_id);`);
+  // The fresh reply text (quoted thread stripped) is stored with the message so
+  // the Email Leads view can show it without re-parsing the lead's notes.
+  await db._pool.query(`ALTER TABLE bulk_email_replies ADD COLUMN IF NOT EXISTS body TEXT;`);
 
   await db._pool.query(`
     INSERT INTO bulk_email_templates (name, subject, body, created_by)

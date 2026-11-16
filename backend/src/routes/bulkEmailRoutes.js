@@ -11,6 +11,7 @@ import {
   listTemplateAttachments,
   listLogs,
   listRecipients,
+  listReplies,
   listTemplates,
   pollReplies,
   previewTemplate,
@@ -59,6 +60,7 @@ router.put('/templates/:id', roles, handleUpload, updateTemplate);
 router.delete('/templates/:id', roles, deleteTemplate);
 router.post('/assets', roles, handleImageUpload, uploadAsset);
 router.get('/logs', roles, listLogs);
+router.get('/replies', roles, listReplies);
 router.post('/replies/poll', roles, pollReplies);
 router.post('/logs/:id/resume', roles, resumeCampaign);
 router.post('/logs/:id/cancel', roles, cancelCampaign);
