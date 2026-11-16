@@ -134,6 +134,8 @@ const AUTO_JOB_TIMEOUT_MS = 45_000;
  * third of the sequential time.
  */
 const MAPS_READ_CONCURRENCY = 3;
+/** Hard ceiling on one Maps phone walk, so one bad page cannot stall a run. */
+const AUTO_MAPS_WALK_MAX_MS = 20 * 60_000;
 
 const sessions = new Map<number, TabSession>();
 const lastCounts = new Map<number, CountSnapshot>();
@@ -148,6 +150,8 @@ let authToken = DEFAULT_TOKEN;
 
 let autoState: AutoRunState | null = null;
 let autoLoopToken = 0;
+/** Automatic retries after a paused run, so a transient crash does not need a click. */
+let pauseRetries = 0;
 let autoWake: (() => void) | null = null;
 let keepAliveTimer: number | null = null;
 
@@ -188,6 +192,44 @@ setInterval(() => {
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
+  });
+}
+
+/** Short human duration for the live progress line: 45s, 2m 10s. */
+function fmtElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+/**
+ * A chrome.tabs message can stay pending forever if the receiving document
+ * never answers (frozen tab, crashed renderer, extension reload race). Without
+ * a bound, one such call stalls the whole auto-run with the status stuck on
+ * "running". Every tab message goes through this.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(fallback);
+    }, ms);
+    promise
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(fallback);
+      });
   });
 }
 
@@ -300,6 +342,7 @@ async function postBatch(payload: {
   const response = await fetch(`${apiBaseUrl}/api/accounts/extractor/captures/batch`, {
     method: 'POST',
     headers,
+    signal: AbortSignal.timeout(60_000),
     body: JSON.stringify({ country: 'IN', ...payload })
   });
 
@@ -481,11 +524,15 @@ async function handleStart(tabId: number, auto = false): Promise<PublicState> {
     throw new Error('Open a normal http(s) page first. Chrome system pages cannot be captured.');
   }
 
-  const session = ensureSession(tabId, url, hostOf(url));
+  ensureSession(tabId, url, hostOf(url));
 
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto });
-  } catch {
+  const started = await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto }),
+    5000,
+    null
+  );
+
+  if (!started) {
     sessions.delete(tabId);
     throw new Error(
       'The page script is not loaded on this tab yet. Reload the page, then start capture again.'
@@ -556,7 +603,8 @@ function normalizeSettings(raw: unknown): AutoRunSettings {
     activeTab: source.activeTab === true,
     targetPhones: clampNumber(source.targetPhones, 0, 10_000, 0),
     aiGenerate: source.aiGenerate === true,
-    aiBatchSize: clampNumber(source.aiBatchSize, 1, 10, 5)
+    aiBatchSize: clampNumber(source.aiBatchSize, 1, 10, 5),
+    autoResume: source.autoResume !== false
   };
 }
 
@@ -642,6 +690,22 @@ async function loadAutoRun(): Promise<void> {
 
 const autoReady = loadAutoRun();
 
+// A Chrome restart or extension reload leaves the stored run as "paused".
+// With auto-resume on, continue the queue instead of waiting for a click.
+void autoReady
+  .then(() => {
+    if (
+      autoState &&
+      autoState.status === 'paused' &&
+      autoState.settings.autoResume &&
+      autoState.index < autoState.jobs.length
+    ) {
+      pauseRetries = 0;
+      void resumeAutoRun().catch(() => {});
+    }
+  })
+  .catch(() => {});
+
 async function waitForTabComplete(
   tabId: number,
   timeoutMs: number,
@@ -700,14 +764,17 @@ async function startAutoCapture(tabId: number): Promise<void> {
   let lastError: string | null = null;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      await chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto: true });
+    const started = await withTimeout(
+      chrome.tabs.sendMessage(tabId, { type: 'UCS_START', auto: true }),
+      5000,
+      null
+    );
+    if (started) {
       broadcast(tabId);
       return;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Could not reach the page script.';
-      await delay(700);
     }
+    lastError = 'The page script did not answer within 5 seconds.';
+    await delay(700);
   }
 
   sessions.delete(tabId);
@@ -717,15 +784,12 @@ async function startAutoCapture(tabId: number): Promise<void> {
 }
 
 async function scrollTab(tabId: number): Promise<boolean> {
-  try {
-    const response = (await chrome.tabs.sendMessage(tabId, { type: 'UCS_SCROLL' })) as {
-      ok?: boolean;
-      scrolled?: boolean;
-    };
-    return Boolean(response?.ok && response.scrolled);
-  } catch {
-    return false;
-  }
+  const response = (await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: 'UCS_SCROLL' }),
+    5000,
+    null
+  )) as { ok?: boolean; scrolled?: boolean } | null;
+  return Boolean(response?.ok && response.scrolled);
 }
 
 async function closeAutoTab(tabId: number): Promise<void> {
@@ -746,9 +810,11 @@ async function collectMapsLinks(
   tabId: number,
   max: number
 ): Promise<Array<{ href: string; name: string }>> {
-  const response = (await chrome.tabs
-    .sendMessage(tabId, { type: 'UCS_MAPS_PLACES', max })
-    .catch(() => null)) as
+  const response = (await withTimeout(
+    chrome.tabs.sendMessage(tabId, { type: 'UCS_MAPS_PLACES', max }),
+    5000,
+    null
+  )) as
     | { ok?: boolean; places?: Array<{ href: string; name: string }> }
     | null;
   return response?.places ?? [];
@@ -799,13 +865,17 @@ async function readPlaceWithRetry(
     if (cancelled(token)) return { row: null, opened: false };
 
     try {
-      const response = (await chrome.tabs.sendMessage(tabId, {
-        type: 'UCS_READ_PLACE',
-        name: place.name,
-        placeId
-      })) as
+      const response = (await withTimeout(
+        chrome.tabs.sendMessage(tabId, {
+          type: 'UCS_READ_PLACE',
+          name: place.name,
+          placeId
+        }),
+        5000,
+        null
+      )) as
         | { ok?: boolean; ready?: boolean; row?: CapturedRow | null; opened?: boolean }
-        | undefined;
+        | null;
 
       // `ready: false` means an older document answered; the new page has not
       // committed yet. Never read a phone from the previous place.
@@ -880,7 +950,8 @@ function mergeMapsDetails(session: TabSession, details: CapturedRow[]): void {
 async function readMapsPhones(
   tabId: number,
   token: number,
-  collected: Array<{ href: string; name: string }> = []
+  collected: Array<{ href: string; name: string }> = [],
+  onProgress?: (done: number, total: number) => void
 ): Promise<{ links: number; visited: number; found: number; panelOpened: number }> {
   const places =
     collected.length > 0
@@ -892,6 +963,7 @@ async function readMapsPhones(
   const session = sessions.get(tabId) ?? null;
   const details: CapturedRow[] = [];
   const queue = [...places];
+  const walkDeadline = Date.now() + AUTO_MAPS_WALK_MAX_MS;
   let visited = 0;
   let found = 0;
   let panelOpened = 0;
@@ -916,6 +988,8 @@ async function readMapsPhones(
   const runWorker = async (workerTabId: number): Promise<void> => {
     for (;;) {
       if (cancelled(token)) return;
+      // Bound the walk: a single page cannot keep a run here all afternoon.
+      if (Date.now() > walkDeadline) return;
       const place = queue.shift();
       if (!place) return;
 
@@ -932,6 +1006,7 @@ async function readMapsPhones(
         details.push(result.row);
         if (result.row.phone) found += 1;
       }
+      onProgress?.(visited, places.length);
     }
   };
 
@@ -1152,24 +1227,67 @@ async function runAutoLoop(token: number): Promise<void> {
       } | null = null;
 
       if (mapsDeep) {
-        state.message = `Reading phone numbers from ${job.label}…`;
+        const placeCount = mapsPlaces.size;
+        const walkStartedAt = Date.now();
+        let lastDone = 0;
+        let lastTotal = placeCount;
+        state.message = `Reading phone numbers from ${job.label} (0/${placeCount})…`;
         broadcastAutoRun();
 
-        // Every step inside is bounded (8 short retries per place), and the
+        // The walk can run for several minutes. Report progress so a quiet
+        // panel is not mistaken for a stopped run, and keep a heartbeat so the
+        // elapsed time moves even while one slow place page is loading.
+        let lastProgressAt = 0;
+        const reportProgress = (done: number, total: number): void => {
+          lastDone = done;
+          lastTotal = total;
+          const now = Date.now();
+          if (done < total && now - lastProgressAt < 1200) return;
+          lastProgressAt = now;
+          state.message = `Reading phone numbers from ${job.label} (${done}/${total}, ${fmtElapsed(now - walkStartedAt)})…`;
+          broadcastAutoRun();
+        };
+
+        const heartbeat = setInterval(() => {
+          state.message = `Reading phone numbers from ${job.label} (${lastDone}/${lastTotal}, ${fmtElapsed(Date.now() - walkStartedAt)})…`;
+          broadcastAutoRun();
+        }, 2000);
+
+        // Every step inside is bounded (14 short attempts per place), and the
         // visit list is capped by AUTO_MAPS_DETAIL_MAX.
-        mapsResult = await readMapsPhones(tabId, token, [...mapsPlaces.values()]);
+        try {
+          mapsResult = await readMapsPhones(
+            tabId,
+            token,
+            [...mapsPlaces.values()],
+            reportProgress
+          );
+        } finally {
+          clearInterval(heartbeat);
+        }
         if (cancelled(token)) throw new AutoCancelled();
+
+        state.message = `Saving ${job.label} rows to the CRM…`;
+        broadcastAutoRun();
       }
 
       // Rows were held while the phone pass ran; release them so handleStop
       // sends one merged batch instead of a list row plus a duplicate detail row.
       holdFlushTabs.delete(tabId);
 
+      state.message = `Saving ${job.label} rows to the CRM…`;
+      broadcastAutoRun();
+
       const outcome = await handleStop(tabId);
       job.rows = outcome.sent;
       job.phones = outcome.withPhone;
       job.duplicates = outcome.duplicates;
-       totalPhones += outcome.withPhone;
+      totalPhones += outcome.withPhone;
+
+      state.message = `Saved ${outcome.sent} row${outcome.sent === 1 ? '' : 's'} from ${job.label}${
+        outcome.pending > 0 ? `, ${outcome.pending} held for retry` : ''
+      }.`;
+      broadcastAutoRun();
 
       if (outcome.pending > 0) {
         job.status = 'failed';
@@ -1195,6 +1313,8 @@ async function runAutoLoop(token: number): Promise<void> {
             'Saved rows, but the results list exposed no place links, so no phone numbers were read.';
         } else if (deepMapsRan && mapsVisited === 0) {
           job.error = `Found ${mapsLinks} place link(s), but none could be opened. Check that tabs are allowed to open.`;
+        } else if (deepMapsRan && mapsVisited < mapsLinks) {
+          job.error = `Read phones from ${mapsVisited} of ${mapsLinks} place page(s); stopped at the 20-minute limit for this search.`;
         } else if (deepMapsRan && mapsFound === 0) {
           job.error = `Visited ${mapsVisited} place page(s), but none showed a phone number.`;
         } else if (deepMapsRan && outcome.withPhone === 0) {
@@ -1298,6 +1418,7 @@ async function startAutoRun(input: {
   };
 
   const token = autoLoopToken;
+  pauseRetries = 0;
   await persistAutoRun();
   broadcastAutoRun();
   void runAutoLoop(token).catch(async (error: unknown) => {
@@ -1309,6 +1430,7 @@ async function startAutoRun(input: {
     stopKeepAlive();
     await persistAutoRun();
     broadcastAutoRun();
+    schedulePauseRetry();
   });
 
   return { ok: true, state: autoState, errors: parsed.errors };
@@ -1376,9 +1498,28 @@ async function resumeAutoRun(): Promise<{ ok: boolean; state?: AutoRunState; err
     stopKeepAlive();
     await persistAutoRun();
     broadcastAutoRun();
+    schedulePauseRetry();
   });
 
   return { ok: true, state: autoState };
+}
+
+/**
+ * A paused run is usually a transient failure (worker died, tab closed mid-read,
+ * a single bad page). Retry it on its own a few times before leaving it paused.
+ */
+function schedulePauseRetry(): void {
+  if (!autoState || autoState.status !== 'paused') return;
+  if (!autoState.settings.autoResume) return;
+  if (pauseRetries >= 3) return;
+
+  pauseRetries += 1;
+  const attempt = pauseRetries;
+  setTimeout(() => {
+    if (!autoState || autoState.status !== 'paused') return;
+    autoState.message = `Retrying the run automatically (attempt ${attempt}/3)…`;
+    void resumeAutoRun().catch(() => {});
+  }, 10_000);
 }
 
 async function clearAutoRun(): Promise<void> {
