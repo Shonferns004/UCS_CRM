@@ -4,6 +4,7 @@ import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt, isBlankSuspenseValue, canonicalProject, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { receiptsForDonor } from '../services/receiptLookup.js';
+import { ALL_LEAD_STATIONS } from '../services/ssLeadService.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -8117,7 +8118,7 @@ export const getWhatsAppLeads = async (req, res) => {
          from fro_assignments a
          join donor_profiles dp on dp.id = a.donor_id
          left join ngos n on n.id = a.ngo_id
-        where a.station like 'SS-%'
+        where a.station = any($2::text[])
           and (a.status is null or a.status <> 'reassigned')
           and (
             a.fro_worker_id = $1
@@ -8129,7 +8130,7 @@ export const getWhatsAppLeads = async (req, res) => {
             )
           )
         order by a.assigned_at desc nulls last`,
-      [workerId],
+      [workerId, ALL_LEAD_STATIONS],
     );
     return res.json((rows || []).map((r) => ({
       id: r.id, // assignment id — what the delete button removes
@@ -8165,10 +8166,10 @@ export const deleteSsLead = async (req, res) => {
       `select a.id, a.station, a.ngo_id, a.fro_worker_id, a.notes
          from fro_assignments a
         where a.id = $1
-          and a.station like 'SS-%'
+          and a.station = any($2::text[])
           and (a.status is null or a.status <> 'reassigned')
         limit 1`,
-      [assignmentId],
+      [assignmentId, ALL_LEAD_STATIONS],
     );
     const row = rows[0];
     if (!row) return res.status(404).json({ message: 'SS lead not found' });

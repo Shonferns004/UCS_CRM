@@ -43,6 +43,8 @@ export interface AutoRunSettings {
   aiGenerate: boolean;
   /** How many new queries to request per AI batch. */
   aiBatchSize: number;
+  /** Continue automatically after a Chrome restart or extension reload. */
+  autoResume: boolean;
 }
 
 export interface AutoRunState {

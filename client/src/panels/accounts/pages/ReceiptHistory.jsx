@@ -4,7 +4,8 @@ import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { Download, FileSpreadsheet, Pencil, Trash2, Search, X, MoreHorizontal, SlidersHorizontal } from 'lucide-react';
-import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
+import { apiGet, apiPost, apiDelete } from '../api/auth';
+import ReceiptEditModal from '../components/ReceiptEditModal';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
 import useAccessCode from '../components/AccessGate';
@@ -216,11 +217,6 @@ export default function ReceiptHistory() {
   const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [goBackLoading, setGoBackLoading] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState(null);
-  const [editForm, setEditForm] = useState({});
-  const [editSaving, setEditSaving] = useState(false);
-  const [froWorkers, setFroWorkers] = useState([]);
-  const [editSources, setEditSources] = useState([]);
-  const [confirmFroChange, setConfirmFroChange] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
@@ -434,16 +430,6 @@ export default function ReceiptHistory() {
     apiGet('/accounts/ngos').then(setNgoOptions).catch(() => { });
   }, []);
 
-  // Loaded up front so the edit modal's FRO picker is populated without a
-  // round trip on every row click.
-  useEffect(() => {
-    let cancelled = false;
-    apiGet('/accounts/receipts/fro-workers')
-      .then(data => { if (!cancelled) setFroWorkers(Array.isArray(data) ? data : []); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
   // Receipts record the FRO's name in agent_name, so the cell is just the
   // stored name. Kept as a helper so the table and the donor drawer read the
   // same way.
@@ -555,56 +541,8 @@ export default function ReceiptHistory() {
     }
   };
 
-  const handleEditReceipt = async (r) => {
+  const handleEditReceipt = (r) => {
     setEditingReceipt(r);
-    setEditForm({
-      donor_name: r.donor_name || '',
-      amount: r.amount || '',
-      donor_mobile: r.donor_mobile || '',
-      mobile_2: r.mobile_2 || '',
-      address: r.address || '',
-      address_2: r.address_2 || '',
-      pan_number: r.pan_number || '',
-      email: r.email || '',
-      agent_name: r.agent_name || '',
-      mode: r.mode || '',
-      payment_id: r.payment_id || '',
-      receipt_date: r.receipt_date || '',
-      receipt_time: r.receipt_time || '',
-      received_bank: r.received_bank || '',
-    });
-    setConfirmFroChange(false);
-    try {
-      const [workers, srcs] = await Promise.all([
-        apiGet('/accounts/receipts/fro-workers'),
-        apiGet('/accounts/bank-audit/sources'),
-      ]);
-      setFroWorkers(Array.isArray(workers) ? workers : []);
-      setEditSources(Array.isArray(srcs) ? srcs : []);
-    } catch (err) {
-      console.error('Failed to load edit data:', err.message);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingReceipt) return;
-    const oldFro = (editingReceipt.agent_name || '').trim();
-    const newFro = (editForm.agent_name || '').trim();
-    if (oldFro !== newFro && newFro !== '' && !confirmFroChange) {
-      setConfirmFroChange(true);
-      return;
-    }
-    setEditSaving(true);
-    try {
-      await apiPatch(`/accounts/receipts/${editingReceipt.id}`, editForm);
-      setEditingReceipt(null);
-      setConfirmFroChange(false);
-      load();
-    } catch (err) {
-      alert('Failed to update receipt: ' + err.message);
-    } finally {
-      setEditSaving(false);
-    }
   };
 
   const handleDeleteReceipt = async (r) => {
@@ -809,13 +747,6 @@ export default function ReceiptHistory() {
   }, [historyForDownload]);
 
   const activeFilterCount = [fromDate, toDate, receiptNgo, suspenseMode, pgMode, libraryMode].filter(Boolean).length;
-
-  // Shared input styling for the Edit Receipt modal.
-  const editInputStyle = {
-    width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 9,
-    border: '1px solid var(--line, #d1d5db)', fontSize: 12.5, fontFamily: 'inherit',
-    background: '#fff', outline: 'none', color: 'var(--ink)',
-  };
 
   return (
     <div>
@@ -1154,180 +1085,12 @@ export default function ReceiptHistory() {
         </>
       )}
 
-      {editingReceipt && createPortal(
-        <>
-          <div className="modal-overlay" onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }} style={{ zIndex: 9999 }} />
-          <div className="modal" style={{ maxWidth: 620, width: '94%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 16, zIndex: 10000 }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fff', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: '#eff6ff', color: '#2563eb', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Pencil size={17} />
-                </span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)' }}>Edit Receipt</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    Receipt <b>{editingReceipt.receipt_no}</b>{editingReceipt.donor_name ? ` · ${editingReceipt.donor_name}` : ''}
-                  </div>
-                </div>
-              </div>
-              <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
-                aria-label="Close"
-                style={{ border: 'none', background: 'transparent', color: 'var(--ink-soft)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
-              {editingReceipt.verify_type === 'cross_fro' && (
-                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
-                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Cross-FRO Receipt</div>
-                  <div>Credit went to <strong>{froWorkers.find(w => w.id === editingReceipt.verify_fro_worker_id)?.name || 'the verifier'}</strong>, not <strong>{editingReceipt.agent_name || 'the owner'}</strong>. Changing the FRO/Agent will update the receipt but credit stays with the verifier.</div>
-                </div>
-              )}
-              {confirmFroChange && (
-                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
-                  <strong>FRO Change Detected</strong><br />
-                  Credit of {currency(editingReceipt.amount)} will be reversed from <strong>{editingReceipt.agent_name || '—'}</strong> and applied to <strong>{editForm.agent_name}</strong>.
-                </div>
-              )}
-              {(editingReceipt.received_bank || editingReceipt.audit_payer_name) && (
-                <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#3730a3' }}>
-                  <div style={{ fontWeight: 700, marginBottom: 2 }}>Linked bank-audit entry</div>
-                  {editingReceipt.received_bank && <div>Source (Received Bank): <strong>{editingReceipt.received_bank}</strong></div>}
-                  {editingReceipt.audit_payer_name && <div>Payer as per audit: <strong>{editingReceipt.audit_payer_name}</strong></div>}
-                </div>
-              )}
-              <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', background: '#f8fafc', fontSize: 10, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>
-                  Receipt details
-                </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, padding: 16 }}>
-                {[
-                  { label: 'Donor Name', key: 'donor_name', colSpan: 2 },
-                  { label: 'Amount', key: 'amount', colSpan: 2, type: 'number' },
-                  { label: 'Mobile', key: 'donor_mobile' },
-                  { label: 'Mobile 2', key: 'mobile_2' },
-                  { label: 'Address', key: 'address', colSpan: 2, type: 'textarea' },
-                  { label: 'Address 2', key: 'address_2', colSpan: 2, type: 'textarea' },
-                  { label: 'PAN Number', key: 'pan_number' },
-                  { label: 'Email', key: 'email' },
-                  { label: 'FRO / Agent', key: 'agent_name', type: 'select' },
-                  { label: 'Mode of Payment', key: 'mode', type: 'mop' },
-                  { label: 'Payment ID', key: 'payment_id' },
-                  { label: 'Received Bank', key: 'received_bank', type: 'sources' },
-                  { label: 'Receipt Date', key: 'receipt_date', type: 'date' },
-                  { label: 'Receipt Time', key: 'receipt_time', type: 'time' },
-                ].map(({ label, key, colSpan, type }) => (
-                  <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 10, color: 'var(--ink-soft)', fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {label}
-                    {type === 'select' ? (
-                      (() => {
-                        // A receipt can name an FRO who is no longer in the active list (deactivated, or
-                        // entered by hand). Keep the stored value selectable so the
-                        // select never renders blank on an existing receipt.
-                        const cur = editForm[key] || '';
-                        const opts = froWorkers.map(w => ({ value: w.name, label: w.name }));
-                        const known = new Set(opts.map(o => o.value));
-                        return (
-                          <select
-                            value={cur}
-                            onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                            style={editInputStyle}
-                          >
-                            <option value="">Not assigned</option>
-                            {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            {cur && !known.has(cur) && <option value={cur}>{cur} (current)</option>}
-                          </select>
-                        );
-                      })()
-                    ) : type === 'sources' ? (
-                      <select
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={editInputStyle}
-                      >
-                        <option value="">—</option>
-                        {editSources.map(s => (
-                          <option key={s.id} value={s.name}>
-                            {s.name}
-                            {(s.kind || 'bank') === 'mop' ? ' (MOP)' : ''}
-                            {s.is_active === false ? ' (inactive)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    ) : type === 'mop' ? (
-                      (() => {
-                        const dbMops = editSources.filter(s => s.kind === 'mop' && s.is_active !== false).map(s => s.name).filter(Boolean);
-                        const modeList = [...new Set([...dbMops, 'UPI', 'Cash', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'])];
-                        const cur = editForm[key] || '';
-                        return (
-                          <select
-                            value={cur}
-                            onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                            style={editInputStyle}
-                          >
-                            <option value="">—</option>
-                            {modeList.map(m => <option key={m} value={m}>{m}</option>)}
-                            {cur && !modeList.includes(cur) && <option value={cur}>{cur} (current)</option>}
-                          </select>
-                        );
-                      })()
-                    ) : type === 'textarea' ? (
-                      <textarea
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        rows={2}
-                        style={{ ...editInputStyle, resize: 'vertical', minHeight: 62 }}
-                      />
-                    ) : type === 'date' ? (
-                      <input
-                        type="date"
-                        value={editForm[key] ? String(editForm[key]).slice(0, 10) : ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={editInputStyle}
-                      />
-                    ) : type === 'time' ? (
-                      <input
-                        type="text"
-                        placeholder="HH:MM"
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={editInputStyle}
-                      />
-                    ) : type === 'number' ? (
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={editInputStyle}
-                      />
-                    ) : (
-                      <input
-                        type={key === 'email' ? 'email' : 'text'}
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={editInputStyle}
-                      />
-                    )}
-                  </label>
-                ))}
-              </div>
-              </div>
-            </div>
-            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8, background: '#fff', flexShrink: 0 }}>
-              <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
-                style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--line)', background: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                Cancel
-              </button>
-              <button onClick={handleSaveEdit} disabled={editSaving}
-                style={{ padding: '8px 18px', borderRadius: 9, border: 'none', background: confirmFroChange ? '#f59e0b' : '#059669', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: editSaving ? 0.6 : 1 }}>
-                {editSaving ? 'Saving…' : confirmFroChange ? 'Confirm & Save' : 'Save changes'}
-              </button>
-            </div>
-          </div>
-        </>,
-        document.body
+      {editingReceipt && (
+        <ReceiptEditModal
+          receipt={editingReceipt}
+          onClose={() => setEditingReceipt(null)}
+          onSaved={() => { setEditingReceipt(null); load() }}
+        />
       )}
 
       {showCleanModal && (

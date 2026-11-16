@@ -76,6 +76,7 @@
   var autoGap = requireEl("auto-gap");
   var autoDeep = requireEl("auto-deep");
   var autoFocus = requireEl("auto-focus");
+  var autoResumeToggle = requireEl("auto-continue");
   var autoTarget = requireEl("auto-target");
   var autoAi = requireEl("auto-ai");
   var autoAiBatch = requireEl("auto-ai-batch");
@@ -212,6 +213,7 @@
       autoGap,
       autoDeep,
       autoFocus,
+      autoResumeToggle,
       autoTarget,
       autoAi,
       autoAiBatch
@@ -259,7 +261,8 @@
         activeTab: autoFocus.checked,
         targetPhones: Number(autoTarget.value),
         aiGenerate: autoAi.checked,
-        aiBatchSize: Number(autoAiBatch.value)
+        aiBatchSize: Number(autoAiBatch.value),
+        autoResume: autoResumeToggle.checked
       }
     };
   }
@@ -276,7 +279,8 @@
         focus: autoFocus.checked,
         target: Number(autoTarget.value),
         ai: autoAi.checked,
-        aiBatch: Number(autoAiBatch.value)
+        aiBatch: Number(autoAiBatch.value),
+        autoResume: autoResumeToggle.checked
       }
     }).catch(() => {
     });
@@ -298,6 +302,7 @@
       if (typeof form["target"] === "number") autoTarget.value = String(form["target"]);
       if (typeof form["ai"] === "boolean") autoAi.checked = form["ai"];
       if (typeof form["aiBatch"] === "number") autoAiBatch.value = String(form["aiBatch"]);
+      if (typeof form["autoResume"] === "boolean") autoResumeToggle.checked = form["autoResume"];
     } catch {
     } finally {
       updateFormatHint();

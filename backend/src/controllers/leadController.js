@@ -9,7 +9,7 @@ import {
   ownsLead,
 } from '../models/leadModel.js';
 import { notifyWorker } from '../services/fcmService.js';
-import { materializeReplyLead } from '../services/ssLeadService.js';
+import { materializeReplyLead, ALL_LEAD_STATIONS } from '../services/ssLeadService.js';
 import { emitRealtime } from '../socket.js';
 import db from '../config/db.js';
 
@@ -190,10 +190,10 @@ export const removeLead = async (req, res) => {
       await db._pool.query(
         `update fro_assignments
             set status = 'reassigned', updated_at = now()
-          where station like 'SS-%'
+          where station = any($2::text[])
             and status = 'pending'
             and notes like '%[Lead:' || $1 || ']%'`,
-        [existing.id],
+        [existing.id, ALL_LEAD_STATIONS],
       );
     } catch (e) {
       console.error('SS lead cleanup on delete failed:', e?.message || e);
