@@ -181,8 +181,8 @@ async function pollAccount(account, maps, stats) {
         });
 
         await db._pool.query(
-          `INSERT INTO bulk_email_replies (message_id, campaign_id, lead_id, from_email, from_name, subject, received_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO bulk_email_replies (message_id, campaign_id, lead_id, from_email, from_name, subject, received_at, body)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (message_id) DO NOTHING`,
           [
             messageId,
@@ -192,6 +192,7 @@ async function pollAccount(account, maps, stats) {
             from.name || match.recipientName || null,
             String(subjectRaw).slice(0, 500),
             new Date(receivedAt).toISOString(),
+            body || null,
           ],
         );
 

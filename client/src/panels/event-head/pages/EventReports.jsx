@@ -2039,6 +2039,7 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
     const code = event.ngo_code || codeForName(event.ngo_name) || (event.ngo_id != null ? String(event.ngo_id) : '')
     const theme = ngoTheme({ code })
     const bsct = String(theme.name || '').toUpperCase() === 'BSCT'
+    const isAflf = String(theme.name || '').toUpperCase() === 'AFLF'
     const teamMembers = (Array.isArray(data?.volunteers) ? data.volunteers : Array.isArray(event.volunteers) ? event.volunteers : [])
       .map(v => (typeof v === 'string' ? v : v?.name)).filter(Boolean)
     return {
@@ -2055,10 +2056,10 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
       brandSub: bsct ? 'Charitable Trust' : '',
       teamMembers,
       photos,
-      logoUrl: event.ngo_logo || theme.logo || '',
+      logoUrl: isAflf ? '/logo/AFLF(logo).png' : (event.ngo_logo || theme.logo || ''),
       sevakBanoImage: '/logo/sevak-logo.png',
        brandImage: bsct ? '/logo/bsct-logo.png' : '',
-       template: String(theme.name || '').toUpperCase() === 'AFLF' ? 'aflf' : 'bsct',
+       template: isAflf ? 'aflf' : 'bsct',
     }
   }
 
@@ -2118,7 +2119,30 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
     }
   }
 
-  // ── Download ALL planner-event reports into one combined PDF ──
+  // Download ALL planner-event reports into one combined PDF
+  const loadCoverImage = (src) => new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error(`Could not load image: ${src}`))
+    img.src = src
+  })
+
+  const addCoverPage = (pdf, img, pageW = 210, pageH = 297) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1240
+    canvas.height = 1754
+    const ctx = canvas.getContext('2d')
+    const scale = Math.max(canvas.width / img.width, canvas.height / img.height)
+    const w = img.width * scale
+    const h = img.height * scale
+    const x = (canvas.width - w) / 2
+    const y = (canvas.height - h) / 2
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, x, y, w, h)
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, pageW, pageH)
+  }
+
   const downloadAllPlannerPdf = async () => {
     if (pdfBusy) return
     // Use the same resolver the cards use, so a "All PDF" download can never
@@ -2127,21 +2151,38 @@ export default function EventReports({ initialMode = 'daily', accent = '#2036bd'
       .map(s => plannerEventIndex.get(s.id)?.id)
       .filter(Boolean)
     if (!ids.length) { alert('No created events to download.'); return }
+    // The combined PDF gets the cover/back of the NGO selected in the planner
+    // filter: AFLF has its own pair, every other NGO keeps the default pair.
+    const selectedNgo = (ngos || []).find(n => String(n.id ?? n.ngo_id) === String(plannerCardsNgo || ''))
+    const selectedRawCode = String(selectedNgo?.code || '').toLowerCase()
+    const selectedCode = ['aflf', 'bsct', 'mann'].includes(selectedRawCode)
+      ? selectedRawCode
+      : codeForName(selectedNgo?.name || selectedNgo?.ngo_name || '')
+    const [coverSrc, backSrc] = selectedCode === 'aflf'
+      ? ['/AFLF(cover).jpeg', '/AFLF(back).jpeg']
+      : ['/cover.jpeg', '/back.jpeg']
     setPdfBusy('all')
     try {
+      const [coverImg, backImg] = await Promise.all([
+        loadCoverImage(coverSrc),
+        loadCoverImage(backSrc),
+      ])
       const { default: jsPDF } = await import('jspdf')
       const pdf = new jsPDF('p', 'mm', 'a4')
-      let first = true
+      addCoverPage(pdf, coverImg)
+      let added = 0
       for (const id of ids) {
         const data = await generate(id)
         if (!data) continue
         const photos = await resolvePosterPhotos(data)
         const canvas = await renderPosterCanvas(posterPropsFor(data, photos))
-        if (!first) pdf.addPage()
-        first = false
+        pdf.addPage()
         pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, 210, 297)
+        added++
       }
-      if (first) { alert('No created events to download.'); return }
+      if (!added) { alert('No created events to download.'); return }
+      pdf.addPage()
+      addCoverPage(pdf, backImg)
       pdf.save(`all-planner-reports-${new Date().toISOString().slice(0, 10)}.pdf`)
     } catch (err) {
       console.error('all planner PDF:', err)

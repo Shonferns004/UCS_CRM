@@ -171,4 +171,4 @@ Adjacent routers used by the panel (Verified mounts; endpoints from their route 
 
 Known findings (Verified): (1) `isWithinThreeMonths` actually enforces a **1-month** window despite its name/comment; (2) six sub-resource **list** endpoints have no role middleware in the route file; (3) the batch `/:batchId/preview` handler currently returns a placeholder and does not re-read the uploaded file.
 
-Cross-links: `docs/03-Panel-Documentation/Accounts/PANEL.md` (host panel); `docs/03-Panel-Documentation/Embedded-Sevak-Library/PANEL.md` (sibling embedded panel).
+Cross-links: `docs/03-Panel-Documentation/Embedded-Beneficiaries/APP.md` (field-side Flutter JOD app); `docs/03-Panel-Documentation/Accounts/PANEL.md` (host panel); `docs/03-Panel-Documentation/Embedded-Sevak-Library/PANEL.md` (sibling embedded panel).
