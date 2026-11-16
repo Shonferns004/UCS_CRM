@@ -300,23 +300,34 @@ export const bulkAddSsReplyLeads = async (req, res) => {
     let placed = 0;
     let already = 0;
     const failed = [];
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const id of ids) {
-      const lead = await getLeadById(id);
-      if (!lead || !SS_INBOX_SOURCES.includes(lead.source)) {
-        failed.push({ id, reason: 'Not an inbox lead' });
+      // A malformed id must fail this one row, not the whole batch with a raw
+      // Postgres uuid cast error.
+      if (!UUID_RE.test(String(id))) {
+        failed.push({ id, reason: 'Invalid lead id' });
         continue;
       }
-      let placementLead = lead;
-      if (!ngoOf(lead.notes) && lead.meta_form_id) {
-        const account = await metaAccountForForm(lead.meta_form_id);
-        if (account) {
-          placementLead = { ...lead, notes: `${lead.notes || ''}\n[Account: ${account}]` };
+      try {
+        const lead = await getLeadById(id);
+        if (!lead || !SS_INBOX_SOURCES.includes(lead.source)) {
+          failed.push({ id, reason: 'Not an inbox lead' });
+          continue;
         }
+        let placementLead = lead;
+        if (!ngoOf(lead.notes) && lead.meta_form_id) {
+          const account = await metaAccountForForm(lead.meta_form_id);
+          if (account) {
+            placementLead = { ...lead, notes: `${lead.notes || ''}\n[Account: ${account}]` };
+          }
+        }
+        const result = await materializeReplyLead(placementLead, {});
+        if (!result.ok) failed.push({ id, reason: result.reason });
+        else if (result.merged) already += 1;
+        else placed += 1;
+      } catch (e) {
+        failed.push({ id, reason: e?.message || String(e) });
       }
-      const result = await materializeReplyLead(placementLead, {});
-      if (!result.ok) failed.push({ id, reason: result.reason });
-      else if (result.merged) already += 1;
-      else placed += 1;
     }
 
     return res.json({
