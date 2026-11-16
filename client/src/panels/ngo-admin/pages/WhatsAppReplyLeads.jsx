@@ -41,10 +41,13 @@ const platformOf = (lead) => {
   return isMetaLead(lead) ? 'meta' : 'whatsapp';
 };
 
-const platformMeta = (platform) => {
+const platformMeta = (platform, sourceKey) => {
   const p = String(platform || '').toLowerCase();
-  if (p.includes('instagram')) return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
-  if (p.includes('facebook') || p === 'meta') return { label: 'Meta', color: '#0866FF', bg: '#e7f0ff' };
+  if (sourceKey === 'email' || p.includes('email')) return { label: 'Email', color: '#7c3aed', bg: '#ede9fe' };
+  if (p.includes('instagram') || p === 'ig') return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
+  if (sourceKey === 'meta' || p.includes('facebook') || p === 'fb' || p === 'meta') {
+    return { label: 'Facebook', color: '#0866FF', bg: '#e7f0ff' };
+  }
   return { label: 'WhatsApp', color: '#128C7E', bg: '#dcfce7' };
 };
 
@@ -563,7 +566,8 @@ export default function WhatsAppReplyLeads() {
                 <tbody>
                   {shown.map((lead) => {
                     const ngo = ngoOfLead(lead);
-                    const platform = platformMeta(platformOf(lead));
+                    const leadSource = sourceKeyOf(lead);
+                    const platform = platformMeta(platformOf(lead), leadSource);
                     const station = lead.placed_station || lead.suggested_station;
                     const owner = lead.placed_fro_name || lead.station_owner_name;
                     const noOwner = tab === 'inbox' && lead.suggested_station && !lead.station_owner_name;
@@ -583,9 +587,9 @@ export default function WhatsAppReplyLeads() {
                           </div>
                         </td>
                         <td style={{ padding: '10px 14px' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: platform.color, background: platform.bg, padding: '2px 8px', borderRadius: 999 }}>
-                            {activeSource.key === 'whatsapp' ? <MessageSquareText size={11} /> : activeSource.key === 'meta' ? <Megaphone size={11} /> : <Mail size={11} />}
-                            {isMetaLead(lead) ? platform.label : 'WhatsApp'}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: platform.color, background: platform.bg, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                            {leadSource === 'whatsapp' ? <MessageSquareText size={11} /> : leadSource === 'meta' ? <Megaphone size={11} /> : <Mail size={11} />}
+                            {platform.label}
                           </span>
                         </td>
                         <td style={{ padding: '10px 14px', maxWidth: 300 }}>
@@ -604,7 +608,7 @@ export default function WhatsAppReplyLeads() {
                           </span>
                         </td>
                         <td style={{ padding: '10px 14px' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)', fontSize: 11.5 }}>{station || '—'}</div>
+                          <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)', fontSize: 11.5, whiteSpace: 'nowrap' }}>{station || '—'}</div>
                           {owner
                             ? <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)' }}><User size={10} /> {owner}</div>
                             : noOwner ? <div style={{ fontSize: 10.5, color: '#b45309', fontWeight: 700 }}>No owner assigned</div> : null}

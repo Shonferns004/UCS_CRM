@@ -23,6 +23,13 @@ function dedupeByPhone(rows) {
   });
 }
 
+function fmtDay(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
 const CAMPAIGN_STORAGE_KEY = 'wa_bulk_campaign_id';
 const ACTIVE_CAMPAIGN_STATUSES = new Set(['queued', 'processing']);
 const TERMINAL_CAMPAIGN_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled']);
@@ -36,6 +43,20 @@ export default function WhatsAppBulk() {
   const [stations, setStations] = useState([]);
   const [selectedStations, setSelectedStations] = useState([]);
   const [stationSearch, setStationSearch] = useState('');
+  const [extractorLeads, setExtractorLeads] = useState([]);
+  const [extractorCounts, setExtractorCounts] = useState({ total: 0, used: 0, available: 0 });
+  const [extractorFiltered, setExtractorFiltered] = useState(0);
+  const [extractorLoading, setExtractorLoading] = useState(false);
+  const [extractorSelected, setExtractorSelected] = useState([]);
+  const [extractorLimit, setExtractorLimit] = useState('500');
+  const [extractorUsage, setExtractorUsage] = useState('unused');
+  const [extractorSort, setExtractorSort] = useState('oldest');
+  const [extractorSearch, setExtractorSearch] = useState('');
+  const [extractorCategory, setExtractorCategory] = useState('');
+  const [extractorMinScore, setExtractorMinScore] = useState('');
+  const [extractorCity, setExtractorCity] = useState('');
+  const [extractorNgoId, setExtractorNgoId] = useState('');
+  const [extractorCategories, setExtractorCategories] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [templateLang, setTemplateLang] = useState('en');
@@ -151,6 +172,9 @@ export default function WhatsAppBulk() {
     } else {
       toast(failed || unknown ? 'warning' : 'success', `Bulk send ${campaign.status}. ${sent} sent, ${failed} failed${unknown ? `, ${unknown} need review` : ''}`);
     }
+    // Used rows were recorded as each message went out; refresh the picker now
+    // that the campaign is finished.
+    if (mode === 'extractor') void loadExtractorLeads();
   };
 
   const pollCampaign = (id) => {
@@ -327,8 +351,7 @@ export default function WhatsAppBulk() {
     await handleSheetFiles([file]);
   };
 
-  const fetchStationRecipients = async () => {
-    if (!selectedStations.length) return;
+  const fetchStationRecipients = async () => {    if (!selectedStations.length) return;
     setFetchingRecipients(true);
     try {
       const all = [];
@@ -357,6 +380,104 @@ export default function WhatsAppBulk() {
     }
   };
 
+  // ── Extractor Leads mode ────────────────────────────────────────────────
+  const loadExtractorLeads = async () => {
+    setExtractorLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (extractorSearch.trim()) params.set('q', extractorSearch.trim());
+      if (extractorCategory) params.set('category', extractorCategory);
+      if (extractorMinScore !== '') params.set('minScore', extractorMinScore);
+      if (extractorCity.trim()) params.set('city', extractorCity.trim());
+      params.set('onlyUnused', extractorUsage === 'unused' ? 'true' : 'false');
+      params.set('usage', extractorUsage);
+      params.set('sort', extractorSort);
+      const raw = Number(extractorLimit);
+      const limit = raw > 0 ? Math.min(2000, raw) : 2000;
+      params.set('limit', String(limit));
+
+      const data = await apiGet(`/whatsapp/bulk/extractor-leads?${params.toString()}`);
+      const list = Array.isArray(data?.leads) ? data.leads : [];
+      const fresh = list.filter((lead) => !lead.used);
+      setExtractorLeads(list);
+      setExtractorCounts(data?.counts || { total: 0, used: 0, available: 0 });
+      setExtractorFiltered(Number(data?.filtered) || list.length);
+      setExtractorCategories(Array.isArray(data?.categories) ? data.categories : []);
+      // Used rows are shown for review/manual fixes, not for sending, so only
+      // the unused list gets a default selection.
+      setExtractorSelected(
+        extractorUsage === 'used' ? [] : fresh.slice(0, limit).map((lead) => lead.id),
+      );
+    } catch (e) {
+      toast('error', e?.message || 'Failed to load extractor leads');
+    } finally {
+      setExtractorLoading(false);
+    }
+  };
+
+  const selectTopExtractor = (count) => {
+    const raw = count === undefined ? Number(extractorLimit) : Number(count);
+    if (count !== undefined) setExtractorLimit(String(count));
+    const limit = raw > 0 ? Math.min(2000, raw) : 2000;
+    const pool = extractorUsage === 'used'
+      ? extractorLeads
+      : extractorLeads.filter((lead) => !lead.used);
+    setExtractorSelected(pool.slice(0, limit).map((lead) => lead.id));
+  };
+
+  const fetchExtractorRecipients = () => {
+    const chosen = extractorLeads.filter(
+      (lead) => extractorSelected.includes(lead.id) && !lead.used,
+    );
+    if (chosen.length === 0) {
+      toast('error', 'Select at least one unused lead');
+      return;
+    }
+    const ngoName = ngos.find((n) => String(n.id) === String(extractorNgoId))?.name || '';
+    const rows = chosen.map((lead) => ({
+      name: lead.displayName,
+      phone: normalizePhone(lead.phone),
+      station: '',
+      ngo: ngoName,
+      source: 'extractor',
+      extractorLeadId: lead.id,
+      ngoId: extractorNgoId || '',
+      valid: true,
+    }));
+    setRecipients(dedupeByPhone(rows));
+    setSelectedRecipients([]);
+    toast('success', `${rows.length} extractor lead(s) added to recipients`);
+  };
+
+  const markExtractorSelected = async (used) => {
+    const phones = extractorLeads
+      .filter((lead) => extractorSelected.includes(lead.id))
+      .map((lead) => lead.phone);
+    if (phones.length === 0) {
+      toast('error', 'Select at least one lead');
+      return;
+    }
+    try {
+      await apiPost('/whatsapp/bulk/extractor-leads/mark', {
+        phones,
+        used,
+        ngoId: extractorNgoId || null,
+      });
+      toast('success', `${phones.length} number(s) marked ${used ? 'used' : 'unused'}`);
+      await loadExtractorLeads();
+    } catch (e) {
+      toast('error', e?.message || 'Could not update the used list');
+    }
+  };
+
+  useEffect(() => {
+    if (mode !== 'extractor') return;
+    void loadExtractorLeads();
+    // Filters are applied by the Load button; loading on every keystroke would
+    // hammer the endpoint for no benefit. The Unused/Used/All view does reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, extractorUsage]);
+
   const filteredStatuses = deliveryStatuses.filter(r => statusFilter === 'all' || String(r.status || '').toLowerCase() === statusFilter);
   const statusCounts = statusSummary;
   const statusTotal = Object.values(statusCounts).reduce((sum, value) => sum + (Number(value) || 0), 0);
@@ -366,6 +487,22 @@ export default function WhatsAppBulk() {
     const name = s.station || s.name || String(s);
     return name.toLowerCase().includes(stationSearch.trim().toLowerCase());
   });
+
+  const extractorSelectable = extractorLeads;
+  const extractorSelectedUnused = extractorLeads.filter(
+    lead => extractorSelected.includes(lead.id) && !lead.used,
+  ).length;
+  const allExtractorVisibleSelected =
+    extractorSelectable.length > 0 &&
+    extractorSelectable.every(lead => extractorSelected.includes(lead.id));
+  const toggleAllExtractorVisible = () => {
+    if (allExtractorVisibleSelected) {
+      const ids = new Set(extractorSelectable.map(lead => lead.id));
+      setExtractorSelected(prev => prev.filter(id => !ids.has(id)));
+      return;
+    }
+    setExtractorSelected(prev => [...new Set([...prev, ...extractorSelectable.map(lead => lead.id)])]);
+  };
 
   const handleSendAll = () => {
     if (validRecipients.length === 0) {
@@ -387,6 +524,8 @@ export default function WhatsAppBulk() {
       phone: r.phone,
       name: r.name,
       parameters: paramsArr.map(v => v === '{{name}}' ? r.name : v),
+      extractorLeadId: r.extractorLeadId || null,
+      ngoId: r.ngoId || null,
     }));
 
     try {
@@ -403,13 +542,17 @@ export default function WhatsAppBulk() {
         recipients: queuedRecipients,
       });
       if (!campaign?.id) throw new Error(campaign?.message || 'Could not start the campaign');
+      if (campaign.skippedUsed > 0) {
+        toast('warning', `${campaign.skippedUsed} number(s) were already messaged before and were skipped.`);
+      }
+      if (mode === 'extractor') void loadExtractorLeads();
 
       localStorage.setItem(CAMPAIGN_STORAGE_KEY, campaign.id);
       setProgressHidden(false);
       setBulkState({
         active: true,
         status: 'queued',
-        total: queuedRecipients.length,
+        total: campaign.total || queuedRecipients.length,
         sent: 0,
         failed: 0,
         unknown: 0,
@@ -487,7 +630,7 @@ export default function WhatsAppBulk() {
       )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        {['Select account', 'Choose template', 'Upload recipients', 'Review and send'].map((step, i) => (
+        {['Select account', 'Choose template', 'Choose recipients', 'Review and send'].map((step, i) => (
           <div key={step} style={{ padding: '6px 12px', borderRadius: 999, background: i === 0 ? '#0866FF' : '#f4f6fb', color: i === 0 ? '#fff' : '#5B6070', fontSize: 12, fontWeight: 600, border: '1px solid #cbd0dc' }}>
             {i + 1}. {step}
           </div>
@@ -561,6 +704,7 @@ export default function WhatsAppBulk() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <button className={`wa-btn ${mode === 'sheet' ? 'wa-btn-primary' : 'wa-btn-outline'}`} onClick={() => setMode('sheet')}>Sheet Upload</button>
         <button className={`wa-btn ${mode === 'station' ? 'wa-btn-primary' : 'wa-btn-outline'}`} onClick={() => setMode('station')}>Station / Donor</button>
+        <button className={`wa-btn ${mode === 'extractor' ? 'wa-btn-primary' : 'wa-btn-outline'}`} onClick={() => setMode('extractor')}>Extractor Leads</button>
       </div>
 
       {mode === 'sheet' && (
@@ -620,6 +764,229 @@ export default function WhatsAppBulk() {
               ) : 'Fetch Recipients'}
             </button>
             {loadingStations && <span style={{ fontSize: 12, color: '#5B6070' }}>Loading stations...</span>}
+          </div>
+        </section>
+      )}
+
+      {mode === 'extractor' && (
+        <section className="wa-form" style={{ marginBottom: 12, background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(20,30,60,.10)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', paddingBottom: 16, borderBottom: '1px solid #eef1f6' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>Extractor Leads</div>
+              <div style={{ fontSize: 12, color: '#5B6070', marginTop: 3 }}>
+                Pick unused leads from the Extractor. Numbers messaged before are marked used and cannot be selected.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {[
+                { label: 'Total', value: extractorCounts.total, color: '#111827', bg: '#f8fafc', border: '#e5e7eb' },
+                { label: 'Used', value: extractorCounts.used, color: '#9f1239', bg: '#fff1f2', border: '#fecdd3' },
+                { label: 'Available', value: extractorCounts.available, color: '#065f46', bg: '#ecfdf5', border: '#a7f3d0' },
+              ].map(stat => (
+                <div key={stat.label} style={{ minWidth: 96, padding: '8px 14px', borderRadius: 10, background: stat.bg, border: `1px solid ${stat.border}` }}>
+                  <div style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: '#6b7280', fontWeight: 700 }}>{stat.label}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: stat.color, lineHeight: 1.2 }}>{stat.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, alignItems: 'end', marginTop: 16 }}>
+            <label className="wa-f">
+              <span className="wa-f-label">NGO (optional, saved for the record)</span>
+              <select className="wa-select" value={extractorNgoId} onChange={e => setExtractorNgoId(e.target.value)}>
+                <option value="">No NGO</option>
+                {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+              </select>
+            </label>
+            <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                <span style={{ color: '#5B6070' }}>Show</span>
+                <div style={{ display: 'inline-flex', border: '1px solid #cbd0dc', borderRadius: 9, overflow: 'hidden' }}>
+                  {[['unused', 'Unused'], ['used', 'Used'], ['all', 'All']].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setExtractorUsage(value)}
+                      style={{
+                        padding: '6px 14px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        background: extractorUsage === value ? '#0866FF' : '#fff',
+                        color: extractorUsage === value ? '#fff' : '#374151',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+                <span style={{ color: '#5B6070' }}>Sort</span>
+                <select className="wa-select" value={extractorSort} onChange={e => setExtractorSort(e.target.value)} style={{ width: 170 }}>
+                  <option value="oldest">Oldest first</option>
+                  <option value="newest">Newest first</option>
+                  <option value="score">AI score high</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: 12, marginTop: 16 }}>
+            <label className="wa-f">
+              <span className="wa-f-label">Search</span>
+              <input className="wa-input" placeholder="Name, phone or address" value={extractorSearch} onChange={e => setExtractorSearch(e.target.value)} />
+            </label>
+            <label className="wa-f">
+              <span className="wa-f-label">Category</span>
+              <select className="wa-select" value={extractorCategory} onChange={e => setExtractorCategory(e.target.value)}>
+                <option value="">All categories</option>
+                {extractorCategories.map(c => <option key={c.id} value={c.id}>{c.label} ({c.count})</option>)}
+              </select>
+            </label>
+            <label className="wa-f">
+              <span className="wa-f-label">Min AI score</span>
+              <input className="wa-input" type="number" min="0" max="100" placeholder="0–100" value={extractorMinScore} onChange={e => setExtractorMinScore(e.target.value)} />
+            </label>
+            <label className="wa-f">
+              <span className="wa-f-label">City</span>
+              <input className="wa-input" placeholder="e.g. Mumbai" value={extractorCity} onChange={e => setExtractorCity(e.target.value)} />
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 14, padding: '10px 12px', background: '#f8fafc', border: '1px solid #eef1f6', borderRadius: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 700 }}>How many to send</span>
+              <input
+                className="wa-input"
+                type="number"
+                min="0"
+                max="2000"
+                value={extractorLimit}
+                onChange={e => setExtractorLimit(e.target.value)}
+                style={{ width: 90 }}
+              />
+              <span style={{ fontSize: 11, color: '#6b7280' }}>max {extractorCounts.available} · 0 = all</span>
+              <div style={{ display: 'flex', gap: 4, marginLeft: 4 }}>
+                {[100, 250, 500].map(n => (
+                  <button key={n} type="button" className="wa-btn wa-btn-outline" onClick={() => selectTopExtractor(n)} style={{ padding: '4px 9px', fontSize: 11 }}>{n}</button>
+                ))}
+                <button type="button" className="wa-btn wa-btn-outline" onClick={() => selectTopExtractor(0)} style={{ padding: '4px 9px', fontSize: 11 }}>All</button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={loadExtractorLeads} disabled={extractorLoading}>
+                {extractorLoading ? 'Loading…' : 'Load'}
+              </button>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => selectTopExtractor()} disabled={extractorLeads.length === 0}>
+                Select top {extractorLimit || 'all'}
+              </button>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => setExtractorSelected([])}>Clear</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 16, marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#374151', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={allExtractorVisibleSelected}
+                onChange={toggleAllExtractorVisible}
+                disabled={extractorSelectable.length === 0}
+              />
+              Select all shown ({extractorSelectable.length})
+            </label>
+            <span style={{ fontSize: 12, color: '#5B6070' }}>
+              {extractorSelected.length} selected · {extractorFiltered} matching · {extractorCounts.available} available
+            </span>
+          </div>
+
+          <div style={{ maxHeight: 380, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={{ width: 38, padding: '10px 10px', borderBottom: '1px solid #e5e7eb' }} />
+                  {['Business', 'Phone', 'City', 'AI score', 'Status'].map(h => (
+                    <th key={h} style={{ padding: '10px 10px', fontWeight: 700, color: '#374151', whiteSpace: 'nowrap', borderBottom: '1px solid #e5e7eb' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {extractorLeads.map(lead => {
+                  const checked = extractorSelected.includes(lead.id);
+                  return (
+                    <tr key={lead.id} style={{ borderBottom: '1px solid #f3f4f6', background: lead.used ? '#fafafa' : '#fff' }}>
+                      <td style={{ padding: '9px 10px' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setExtractorSelected(prev => checked ? prev.filter(id => id !== lead.id) : [...prev, lead.id])}
+                        />
+                      </td>
+                      <td style={{ padding: '9px 10px', fontWeight: 600, color: lead.used ? '#6b7280' : '#111827', minWidth: 240 }}>{lead.displayName}</td>
+                      <td style={{ padding: '9px 10px', fontFamily: 'monospace', whiteSpace: 'nowrap', color: '#374151' }}>{lead.phone}</td>
+                      <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', color: '#5B6070' }}>{lead.city || '—'}</td>
+                      <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            minWidth: 28,
+                            textAlign: 'center',
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: lead.aiScore >= 60 ? '#ecfdf5' : '#f3f4f6',
+                            color: lead.aiScore >= 60 ? '#065f46' : '#374151',
+                          }}>
+                            {lead.aiScore ?? '—'}
+                          </span>
+                          {(lead.aiTags || []).slice(0, 1).map(tag => (
+                            <span key={tag} style={{ fontSize: 10.5, color: '#4338ca' }}>{tag}</span>
+                          ))}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}>
+                        {lead.used ? (
+                          <span style={{ padding: '2px 9px', borderRadius: 999, background: '#fff1f2', color: '#9f1239', fontSize: 11, fontWeight: 700 }}>Used</span>
+                        ) : (
+                          <span style={{ padding: '2px 9px', borderRadius: 999, background: '#ecfdf5', color: '#065f46', fontSize: 11, fontWeight: 700 }}>Unused</span>
+                        )}
+                        {lead.used && lead.usedAt && (
+                          <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 2 }}>Sent {fmtDay(lead.usedAt)}</div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {extractorLeads.length === 0 && !extractorLoading && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: 24, textAlign: 'center', color: '#5B6070' }}>
+                      No leads match these filters. Try clearing the city or AI score.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 16, paddingTop: 14, borderTop: '1px solid #eef1f6' }}>
+            <div style={{ fontSize: 12, color: '#5B6070' }}>
+              <b style={{ color: '#111827' }}>{extractorSelected.length}</b> selected ·{' '}
+              <b style={{ color: '#065f46' }}>{extractorSelectedUnused}</b> usable ·{' '}
+              {extractorCounts.available} available globally
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => markExtractorSelected(true)} disabled={extractorSelected.length === 0}>
+                Mark used
+              </button>
+              <button type="button" className="wa-btn wa-btn-outline" onClick={() => markExtractorSelected(false)} disabled={extractorSelected.length === 0}>
+                Mark unused
+              </button>
+              <button type="button" className="wa-btn wa-btn-primary" onClick={fetchExtractorRecipients} disabled={extractorSelectedUnused === 0}>
+                Fetch recipients
+              </button>
+            </div>
           </div>
         </section>
       )}

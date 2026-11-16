@@ -8,6 +8,7 @@ import {
   templateComponentOf,
   templateParameterNames,
 } from './whatsappTemplateComponents.js';
+import { recordExtractorOutreach, usedPhoneSet } from './extractorOutreachService.js';
 
 function badRequest(message) {
   const error = new Error(message);
@@ -51,6 +52,10 @@ function normalizeQueueItem(item) {
     phone,
     name: item?.name ? String(item.name) : null,
     parameters: Array.isArray(item?.parameters) ? item.parameters.map((value) => String(value ?? '')) : [],
+    // Extractor-sourced rows keep their link so a successful send can be
+    // recorded against the global used list.
+    extractorLeadId: item?.extractorLeadId ? String(item.extractorLeadId) : null,
+    ngoId: item?.ngoId ? String(item.ngoId) : null,
     status,
     error: item?.error || null,
   };
@@ -139,6 +144,8 @@ export async function sendBulkTemplateToRecipient({
   headerImageUrl,
   headerFormat,
   recipientName,
+  extractorLeadId,
+  ngoId,
   campaignId,
 } = {}) {
   const phone = normalizePhone(to || '');
@@ -223,10 +230,20 @@ export async function sendBulkTemplateToRecipient({
     header_format: resolvedHeaderFormat,
     header_url: resolvedHeaderUrl,
     template_buttons: templateButtons,
+    extractor_lead_id: extractorLeadId || null,
+    ngo_id: ngoId || null,
   });
 
   if (insertErr) {
     console.error('Bulk recipient log insert failed:', insertErr.message);
+  }
+
+  // The message went out; record the global used rule. A failure here must not
+  // fail the send (the WhatsApp message already exists), so it is logged only.
+  try {
+    await recordExtractorOutreach({ phone, ngoId: ngoId || null, campaignId: campaignId || null });
+  } catch (outreachErr) {
+    console.error('Extractor outreach record failed:', outreachErr?.message || outreachErr);
   }
 
   return { messageId, status: 'accepted', result };
@@ -253,6 +270,15 @@ export async function createWhatsAppCampaign({
   if (!accountId) throw badRequest('WhatsApp account is required');
   if (!templateName) throw badRequest('Template name is required');
 
+  // Numbers that already received a bulk message are skipped, no matter which
+  // source they came from. This is the server-side half of the used/unused rule.
+  const alreadyUsed = await usedPhoneSet(queue.map((item) => item.phone));
+  const fresh = queue.filter((item) => !alreadyUsed.has(item.phone));
+  const skippedUsed = queue.length - fresh.length;
+  if (!fresh.length) {
+    throw badRequest('All selected numbers have already been messaged.');
+  }
+
   const batchSize = campaignBatchSize();
   const { rows } = await db._pool.query(
     `INSERT INTO campaigns
@@ -271,8 +297,8 @@ export async function createWhatsAppCampaign({
       headerImageUrl || null,
       headerFormat || null,
       parameterNames ? JSON.stringify(parameterNames) : null,
-      JSON.stringify(queue),
-      queue.length,
+      JSON.stringify(fresh),
+      fresh.length,
       batchSize,
       createdBy || null,
     ],
@@ -281,7 +307,8 @@ export async function createWhatsAppCampaign({
   return {
     id: rows[0].id,
     status: 'queued',
-    total: queue.length,
+    total: fresh.length,
+    skippedUsed,
     batchSize: rows[0].batch_size,
     created_at: rows[0].created_at,
   };
@@ -368,6 +395,8 @@ export async function runWhatsAppCampaign(id) {
         headerImageUrl: campaign.header_image_url,
         headerFormat: campaign.header_format,
         recipientName: queue[index].name,
+        extractorLeadId: queue[index].extractorLeadId,
+        ngoId: queue[index].ngoId,
         campaignId: campaign.id,
       })));
 
