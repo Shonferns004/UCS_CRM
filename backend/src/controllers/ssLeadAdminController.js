@@ -8,14 +8,14 @@
 // ---------------------------------------------------------------------------
 import db from '../config/db.js';
 import { getLeadById } from '../models/leadModel.js';
-import { materializeReplyLead, scoreSsReply, SS_STATIONS } from '../services/ssLeadService.js';
+import { materializeReplyLead, scoreSsReply, stationFor, SS_STATIONS, ALL_LEAD_STATIONS, sourceKeyOf } from '../services/ssLeadService.js';
 import { aiScoreSsReply, SS_AI_VERSION } from '../services/ssLeadAiService.js';
 import { META_LEAD_SOURCE, ngoToAccount } from '../services/metaAdsService.js';
 
 // Both inbox sources share the same triage screen: a WhatsApp template reply
 // and a Meta Lead Ad lead both carry a mobile + [Account:] tag and both are
 // placed with materializeReplyLead().
-const SS_INBOX_SOURCES = ['WhatsApp Bulk Reply', META_LEAD_SOURCE];
+const SS_INBOX_SOURCES = ['WhatsApp Bulk Reply', META_LEAD_SOURCE, 'Email Lead'];
 
 const parseReply = (notes) => {
   const text = String(notes || '');
@@ -87,7 +87,8 @@ export const listSsReplyLeads = async (req, res) => {
          from fro_station_assignments sa
          left join workers w on w.id = sa.fro_worker_id
          left join ngos n on n.id = sa.ngo_id
-        where sa.station like 'SS-%'`,
+        where sa.station = any($1::text[])`,
+      [ALL_LEAD_STATIONS],
     );
     const ownerBy = new Map(owners.map((o) => [`${o.ngo_name}|${o.station}`, o]));
 
@@ -107,9 +108,14 @@ export const listSsReplyLeads = async (req, res) => {
       }
     }
 
+    const sourceFilter = String(req.query.source || '').trim().toLowerCase();
+    const ngoFilter = normalizeNgo(req.query.ngo);
+
     const result = (leads || []).map((l) => {
       const ngo = ngoOf(l.notes) || normalizeNgo(formAccountBy.get(l.meta_form_id));
-      const suggestedStation = ngo ? SS_STATIONS[ngo] : null;
+      // Source decides the station: WhatsApp replies, Meta lead ads and email
+      // leads each have their own queue per NGO.
+      const suggestedStation = ngo ? (stationFor(ngo, l.source) || SS_STATIONS[ngo]) : null;
       const placed = placedBy.get(l.id) || null;
       const owner = suggestedStation ? ownerBy.get(`${ngo}|${suggestedStation}`) : null;
       const rule = scoreSsReply(l.notes);
@@ -126,7 +132,9 @@ export const listSsReplyLeads = async (req, res) => {
       return {
         ...l,
         account_ngo: ngo,
+        source_key: sourceKeyOf(l.source),
         suggested_station: suggestedStation,
+        station_owner_missing: Boolean(suggestedStation && !owner?.fro_worker_id),
         suggestion,
         in_station: !!placed && placed.status !== 'reassigned',
         placed_station: placed?.station || null,
@@ -136,7 +144,13 @@ export const listSsReplyLeads = async (req, res) => {
       };
     });
 
-    return res.json(result);
+    const filtered = result.filter((lead) => {
+      if (sourceFilter && lead.source_key !== sourceFilter) return false;
+      if (ngoFilter && lead.account_ngo !== ngoFilter) return false;
+      return true;
+    });
+
+    return res.json(filtered);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -249,6 +263,69 @@ export const aiScoreSsLeadsBatch = async (req, res) => {
       .is('ai_at', null);
 
     return res.json({ scored, failed, remaining: count ?? null, errors });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+// Per-source counts for the Leads Hub tabs. One query; the UI does not need to
+// download every lead just to show a badge.
+export const ssLeadStats = async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+    const { rows } = await db._pool.query(
+      `select source, count(*)::int as total
+         from leads
+        where source = any($1::text[])
+          and created_at >= now() - ($2::int || ' days')::interval
+        group by source`,
+      [SS_INBOX_SOURCES, days],
+    );
+    const bySource = { whatsapp: 0, meta: 0, email: 0 };
+    for (const row of rows) bySource[sourceKeyOf(row.source)] += Number(row.total) || 0;
+    return res.json({ days, by_source: bySource });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+// Bulk placement for the ids the operator can currently see. Bounded on
+// purpose: one bad lead must not abort the rest, and cross-NGO rows stay
+// untouched because each lead resolves its own station.
+export const bulkAddSsReplyLeads = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 50) : [];
+    if (!ids.length) return res.status(400).json({ message: 'ids is required (max 50)' });
+
+    let placed = 0;
+    let already = 0;
+    const failed = [];
+    for (const id of ids) {
+      const lead = await getLeadById(id);
+      if (!lead || !SS_INBOX_SOURCES.includes(lead.source)) {
+        failed.push({ id, reason: 'Not an inbox lead' });
+        continue;
+      }
+      let placementLead = lead;
+      if (!ngoOf(lead.notes) && lead.meta_form_id) {
+        const account = await metaAccountForForm(lead.meta_form_id);
+        if (account) {
+          placementLead = { ...lead, notes: `${lead.notes || ''}\n[Account: ${account}]` };
+        }
+      }
+      const result = await materializeReplyLead(placementLead, {});
+      if (!result.ok) failed.push({ id, reason: result.reason });
+      else if (result.merged) already += 1;
+      else placed += 1;
+    }
+
+    return res.json({
+      ok: placed > 0,
+      placed,
+      already,
+      failed: failed.length,
+      results: failed.slice(0, 10),
+    });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

@@ -4,7 +4,7 @@ import { API_BASE } from '../../../lib/apiBase';
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
 
 const NGOS = ['BSCT', 'AFLF', 'MANN'];
-const NETWORKS = { BSCT: 'SS-BSCT', AFLF: 'SS-AFLF', MANN: 'SS-MANN' };
+const NETWORKS = { BSCT: 'B-WhatsApp-Leads', AFLF: 'A-WhatsApp-Leads', MANN: 'M-WhatsApp-Leads' };
 
 const n = (v) => Number(v) || 0;
 const num = (v) => n(v).toLocaleString('en-IN');

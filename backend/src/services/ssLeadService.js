@@ -17,7 +17,44 @@
 import db from '../config/db.js';
 import crypto from 'crypto';
 
+// Legacy station names. Kept so an un-migrated row still resolves while the
+// rename is rolling out; new placements use LEAD_STATIONS only.
 export const SS_STATIONS = { BSCT: 'SS-BSCT', AFLF: 'SS-AFLF', MANN: 'SS-MANN' };
+
+// One station per (NGO, source). The source prefix is what tells a station owner
+// whether they are working WhatsApp replies, Meta lead ads or email leads.
+export const LEAD_STATIONS = {
+  BSCT: { whatsapp: 'B-WhatsApp-Leads', meta: 'B-Meta-Leads', email: 'B-Email-Leads' },
+  AFLF: { whatsapp: 'A-WhatsApp-Leads', meta: 'A-Meta-Leads', email: 'A-Email-Leads' },
+  MANN: { whatsapp: 'M-WhatsApp-Leads', meta: 'M-Meta-Leads', email: 'M-Email-Leads' },
+};
+
+// 'Meta Lead Ad' -> meta, 'Email Lead' -> email, everything else is a reply.
+export function sourceKeyOf(source) {
+  const value = String(source || '').toLowerCase();
+  if (value.includes('meta')) return 'meta';
+  if (value.includes('email')) return 'email';
+  return 'whatsapp';
+}
+
+export function stationFor(ngo, source) {
+  const key = String(ngo || '').toUpperCase();
+  return LEAD_STATIONS[key]?.[sourceKeyOf(source)] || null;
+}
+
+export const ALL_LEAD_STATIONS = [
+  ...new Set([
+    ...Object.values(LEAD_STATIONS).flatMap((bySource) => Object.values(bySource)),
+    ...Object.values(SS_STATIONS),
+  ]),
+];
+
+export const STATIONS_BY_SOURCE = {
+  whatsapp: Object.values(LEAD_STATIONS).map((s) => s.whatsapp),
+  meta: Object.values(LEAD_STATIONS).map((s) => s.meta),
+  email: Object.values(LEAD_STATIONS).map((s) => s.email),
+  legacy: Object.values(SS_STATIONS),
+};
 
 // Explicit "yes, I am interested" signals only. This is the auto-placement gate:
 // a reply that does not clear this stays in the admin inbox for a human to
@@ -148,7 +185,7 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
   const mobile = m10(lead.phone);
   if (mobile.length !== 10) return { ok: false, reason: 'Reply has no valid 10-digit mobile' };
 
-  const station = SS_STATIONS[ngoName];
+  const station = stationFor(ngoName, lead.source) || SS_STATIONS[ngoName];
   const { rows: ngoRows } = await run('select id from ngos where upper(name) = $1 limit 1', [ngoName]);
   if (!ngoRows[0]) return { ok: false, reason: `NGO ${ngoName} not found` };
   const ngoId = ngoRows[0].id;

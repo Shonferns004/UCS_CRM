@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles } from 'lucide-react';
+import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles, Mail, Megaphone } from 'lucide-react';
 import { api } from '../../../api/auth';
 
 const ACCOUNT_HUES = {
@@ -78,18 +78,18 @@ export default function WhatsAppReplyLeads() {
   const [notice, setNotice] = useState('');
   const [adding, setAdding] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const [filter, setFilter] = useState('all');
-  const [platformFilter, setPlatformFilter] = useState('all');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [source, setSource] = useState('whatsapp');
+  const [ngoFilter, setNgoFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
-  // inbox = reply not on a station yet · queue = already placed
   const [tab, setTab] = useState('inbox');
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await api('/ngo-admin/ss-leads');
+      const data = await api('/ngo-admin/leads');
       setLeads(Array.isArray(data) ? data : (data?.data || []));
     } catch (e) {
       setError(e?.message || 'Failed to load');
@@ -100,48 +100,53 @@ export default function WhatsAppReplyLeads() {
 
   useEffect(() => { load(); }, []);
 
-  const inboxLeads = leads.filter((l) => !l.in_station);
-  const queueLeads = leads.filter((l) => l.in_station);
-  const aiPending = leads.filter((l) => !l.in_station && !l.ai_at).length;
+  const sourceKeyOf = (lead) => {
+    if (lead?.source_key) return lead.source_key;
+    if (isMetaLead(lead)) return 'meta';
+    return String(lead?.source || '').toLowerCase().includes('email') ? 'email' : 'whatsapp';
+  };
 
-  const ngoGroups = useMemo(() => {
-    const s = new Set(leads.map((l) => ngoNameOf(l.account_ngo || parseNotes(l.notes).account)));
-    return ['all', ...Array.from(s)];
+  const ngoOfLead = (lead) => ngoNameOf(lead.account_ngo || parseNotes(lead.notes).account);
+
+  const counts = useMemo(() => {
+    const bySource = { whatsapp: 0, meta: 0, email: 0 };
+    const byNgo = { whatsapp: {}, meta: {}, email: {} };
+    for (const lead of leads) {
+      const key = sourceKeyOf(lead);
+      bySource[key] += 1;
+      const ngo = ngoOfLead(lead);
+      byNgo[key][ngo] = (byNgo[key][ngo] || 0) + 1;
+    }
+    return { bySource, byNgo };
   }, [leads]);
 
-  const tabLeads = tab === 'queue' ? queueLeads : inboxLeads;
-  const filtered = tabLeads.filter((l) => {
-    if (filter !== 'all' && ngoNameOf(l.account_ngo || parseNotes(l.notes).account) !== filter) return false;
-    if (platformFilter !== 'all') {
-      const platform = platformOf(l);
-      if (platformFilter === 'meta') {
-        if (!isMetaLead(l)) return false;
-      } else if (platformFilter === 'whatsapp') {
-        if (isMetaLead(l)) return false;
-      } else if (!platform.includes(platformFilter)) {
-        return false;
-      }
-    }
+  const sourceLeads = leads.filter((lead) => sourceKeyOf(lead) === source);
+  const inboxLeads = sourceLeads.filter((lead) => !lead.in_station);
+  const queueLeads = sourceLeads.filter((lead) => lead.in_station);
+  const aiPending = sourceLeads.filter((lead) => !lead.in_station && !lead.ai_at).length;
+
+  const shown = (tab === 'queue' ? queueLeads : inboxLeads).filter((lead) => {
+    if (ngoFilter !== 'all' && ngoOfLead(lead) !== ngoFilter) return false;
     const q = query.trim().toLowerCase();
     if (!q) return true;
-    return String(l.name || '').toLowerCase().includes(q) || String(l.phone || '').includes(q);
+    return String(lead.name || '').toLowerCase().includes(q) || String(lead.phone || '').includes(q);
   });
 
   const addToStation = async (lead) => {
     setAdding(lead.id);
     setError(''); setNotice('');
     try {
-      const res = await api(`/ngo-admin/ss-leads/${lead.id}/add`, { method: 'POST', body: JSON.stringify({}) });
-      setLeads((prev) => prev.map((l) => (
-        l.id === lead.id
+      const res = await api(`/ngo-admin/leads/${lead.id}/add`, { method: 'POST', body: JSON.stringify({}) });
+      setLeads((prev) => prev.map((item) => (
+        item.id === lead.id
           ? {
-            ...l,
+            ...item,
             in_station: true,
-            placed_station: res.station || l.suggested_station,
-            placed_fro_name: res.fro_name || l.station_owner_name || null,
+            placed_station: res.station || item.suggested_station,
+            placed_fro_name: res.fro_name || item.station_owner_name || null,
             placed_status: 'pending',
           }
-          : l
+          : item
       )));
       setNotice(res.message || 'Added to station');
     } catch (e) {
@@ -151,12 +156,33 @@ export default function WhatsAppReplyLeads() {
     }
   };
 
+  const addAllShown = async () => {
+    if (bulkBusy || !shown.length) return;
+    setBulkBusy(true);
+    setError(''); setNotice('');
+    try {
+      const ids = shown.slice(0, 50).map((lead) => lead.id);
+      const res = await api('/ngo-admin/leads/bulk-station', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+      await load();
+      setNotice(`Added ${res.placed || 0} lead(s) to station`
+        + (res.already ? ` · ${res.already} already placed` : '')
+        + (res.failed ? ` · ${res.failed} failed` : ''));
+    } catch (e) {
+      setError(e?.message || 'Bulk add failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const runAi = async () => {
     if (aiBusy) return;
     setAiBusy(true);
     setError(''); setNotice('');
     try {
-      const res = await api('/ngo-admin/ss-leads/ai-batch', {
+      const res = await api('/ngo-admin/leads/ai-batch', {
         method: 'POST',
         body: JSON.stringify({ limit: 12 }),
       });
@@ -174,12 +200,12 @@ export default function WhatsAppReplyLeads() {
   };
 
   const remove = async (leadId) => {
-    if (!window.confirm('Delete this lead? It will also be removed from its SS station queue.')) return;
+    if (!window.confirm('Delete this lead? It will also be removed from its station queue.')) return;
     setDeleting(leadId);
     setError(''); setNotice('');
     try {
       await api(`/leads/${leadId}`, { method: 'DELETE' });
-      setLeads((prev) => prev.filter((l) => l.id !== leadId));
+      setLeads((prev) => prev.filter((lead) => lead.id !== leadId));
       setNotice('Lead deleted');
     } catch (e) {
       setError(e?.message || 'Delete failed');
@@ -199,39 +225,60 @@ export default function WhatsAppReplyLeads() {
         <Sparkles size={11} />
         {meta.label}
         <span style={{ fontWeight: 700, opacity: .7 }}>{s?.score ?? 0}%</span>
-        <span title={isAi ? `Model: ${s?.model || 'AI'}` : 'Rule-based score (no model call)'}
-          style={{ fontSize: 8.5, fontWeight: 900, letterSpacing: .3, padding: '1px 4px', borderRadius: 4, background: isAi ? '#111827' : 'rgba(0,0,0,.07)', color: isAi ? '#fff' : meta.color }}>
+        <span
+          title={isAi ? `Model: ${s?.model || 'AI'}` : 'Rule-based score (no model call)'}
+          style={{ fontSize: 8.5, fontWeight: 900, letterSpacing: .3, padding: '1px 4px', borderRadius: 4, background: isAi ? '#111827' : 'rgba(0,0,0,.07)', color: isAi ? '#fff' : meta.color }}
+        >
           {isAi ? 'AI' : 'RULES'}
         </span>
       </span>
     );
   };
 
+  const SOURCES = [
+    { key: 'whatsapp', label: 'WhatsApp', icon: MessageSquareText, color: '#128C7E' },
+    { key: 'meta', label: 'Meta', icon: Megaphone, color: '#0866FF' },
+    { key: 'email', label: 'Email', icon: Mail, color: '#7c3aed' },
+  ];
+  const NGOS = [
+    { key: 'all', label: 'All NGOs' },
+    { key: 'BSCT', label: 'B · BSCT', color: '#2563eb' },
+    { key: 'AFLF', label: 'A · AFLF', color: '#16a34a' },
+    { key: 'MANN', label: 'M · MANN', color: '#ec4899' },
+  ];
+
+  const activeSource = SOURCES.find((item) => item.key === source) || SOURCES[0];
+
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 1200 }}>
-      {/* Header */}
-      <div className="card" style={{ padding: '18px 22px', marginBottom: 16 }}>
+    <div style={{ padding: '20px 24px', maxWidth: 1280 }}>
+      <div className="card" style={{ padding: '18px 22px', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 42, height: 42, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'var(--sage)', color: '#fff', flexShrink: 0 }}>
               <Inbox size={20} />
             </div>
             <div>
-              <h3 style={{ margin: '0 0 2px' }}>SS Leads</h3>
+              <h3 style={{ margin: '0 0 2px' }}>Leads Hub</h3>
               <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-                WhatsApp replies and Meta lead ads. <b>Add to station</b> puts the lead straight into SS-BSCT / SS-AFLF / SS-MANN — the station's FRO picks it up, no FRO picker needed.
+                WhatsApp, Meta and Email leads in one queue. Each source has its own station per NGO — the station's FRO picks the lead up.
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={runAi} disabled={aiBusy || aiPending === 0}
-              title={aiPending === 0 ? 'Every reply in the inbox is already scored' : 'Score the next 12 replies with the AI model'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: aiPending > 0 ? 'var(--sage)' : 'var(--bg, #fff)', color: aiPending > 0 ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: aiBusy || aiPending === 0 ? 'default' : 'pointer', opacity: aiBusy ? .7 : 1 }}>
+            <button
+              onClick={runAi}
+              disabled={aiBusy || aiPending === 0}
+              title={aiPending === 0 ? 'Every inbox lead is already scored' : 'Score the next 12 leads with the AI model'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: aiPending > 0 ? 'var(--sage)' : 'var(--bg, #fff)', color: aiPending > 0 ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: aiBusy || aiPending === 0 ? 'default' : 'pointer', opacity: aiBusy ? .7 : 1 }}
+            >
               <Sparkles size={14} />
               {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
             </button>
-            <button onClick={load} disabled={loading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--ink, #0f172a)' }}>
+            <button
+              onClick={load}
+              disabled={loading}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--ink, #0f172a)' }}
+            >
               <RefreshCw size={14} style={{ transform: loading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
               Refresh
             </button>
@@ -239,198 +286,200 @@ export default function WhatsAppReplyLeads() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        {SOURCES.map((item) => {
+          const Icon = item.icon;
+          const active = source === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => { setSource(item.key); setNgoFilter('all'); setTab('inbox'); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 12, border: `1px solid ${active ? item.color : 'var(--line, #e2e8f0)'}`, background: active ? item.color : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}
+            >
+              <Icon size={15} style={{ opacity: .9 }} />
+              {item.label}
+              <span style={{ minWidth: 20, padding: '0 6px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>
+                {counts.bySource[item.key] || 0}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        {NGOS.map((item) => {
+          const active = ngoFilter === item.key;
+          const count = item.key === 'all' ? sourceLeads.length : (counts.byNgo[source][item.key] || 0);
+          const color = item.color || 'var(--ink-soft, #64748b)';
+          return (
+            <button
+              key={item.key}
+              onClick={() => setNgoFilter(item.key)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: `1px solid ${active ? color : 'var(--line, #e2e8f0)'}`, background: active ? `${color}14` : 'transparent', color: active ? color : 'var(--ink-soft, #64748b)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+            >
+              {item.color && <span style={{ width: 7, height: 7, borderRadius: 999, background: color }} />}
+              {item.label}
+              <span style={{ fontWeight: 800, opacity: .75 }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
           { key: 'inbox', label: 'Inbox', count: inboxLeads.length },
-          { key: 'queue', label: 'In Queue', count: queueLeads.length },
-        ].map((t) => {
-          const active = tab === t.key;
+          { key: 'queue', label: 'On station', count: queueLeads.length },
+        ].map((item) => {
+          const active = tab === item.key;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
-              {t.key === 'inbox' && <Inbox size={13} style={{ opacity: .8 }} />}
-              {t.key === 'queue' && <CheckCircle2 size={13} style={{ opacity: .8 }} />}
-              {t.label}
-              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{t.count}</span>
+            <button
+              key={item.key}
+              onClick={() => setTab(item.key)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+            >
+              {item.key === 'inbox' ? <Inbox size={13} style={{ opacity: .8 }} /> : <CheckCircle2 size={13} style={{ opacity: .8 }} />}
+              {item.label}
+              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{item.count}</span>
             </button>
           );
         })}
-      </div>
 
-      {/* NGO filter + search */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-        {ngoGroups.map((a) => {
-          const active = filter === a;
-          const hue = a === 'all' ? '#0f172a' : accountHue(a);
-          const count = a === 'all' ? tabLeads.length : tabLeads.filter((l) => ngoNameOf(l.account_ngo || parseNotes(l.notes).account) === a).length;
-          return (
-            <button key={a} onClick={() => setFilter(a)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? hue : 'var(--line, #e2e8f0)'}`, background: active ? hue : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
-              {a === 'all' ? 'All NGOs' : a}
-              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{count}</span>
-            </button>
-          );
-        })}
-        {[
-          { key: 'all', label: 'All sources' },
-          { key: 'meta', label: 'Meta' },
-          { key: 'facebook', label: 'Facebook' },
-          { key: 'instagram', label: 'Instagram' },
-          { key: 'whatsapp', label: 'WhatsApp' },
-        ].map((s) => {
-          const active = platformFilter === s.key;
-          const count = s.key === 'all'
-            ? tabLeads.length
-            : tabLeads.filter((l) => {
-              if (s.key === 'meta') return isMetaLead(l);
-              if (s.key === 'whatsapp') return !isMetaLead(l);
-              return platformOf(l).includes(s.key);
-            }).length;
-          return (
-            <button key={s.key} onClick={() => setPlatformFilter(s.key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: `1px solid ${active ? '#0866FF' : 'var(--line, #e2e8f0)'}`, background: active ? '#0866FF' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>
-              {s.label}
-              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{count}</span>
-            </button>
-          );
-        })}
-        <div style={{ position: 'relative', marginLeft: 'auto', minWidth: 240 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: .5 }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or number…"
-            style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, outline: 'none', color: 'var(--ink, #0f172a)', boxSizing: 'border-box' }} />
-        </div>
-      </div>
-
-      {notice && (
-        <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', fontSize: 12.5, fontWeight: 600 }}>
-          {notice}
-        </div>
-      )}
-
-      {/* Table card */}
-      <div className="card">
-        <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3>{tab === 'queue' ? 'In Queue' : 'Inbox'}</h3>
-          <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{filtered.length} lead{filtered.length === 1 ? '' : 's'}</span>
-        </div>
-
-        {loading && <div style={{ padding: 28, fontSize: 13, color: 'var(--ink-soft, #64748b)', textAlign: 'center' }}>Loading leads…</div>}
-        {error && (
-          <div style={{ margin: '12px 16px', padding: '10px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>{error}</div>
-        )}
-        {!loading && !error && filtered.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
-            <MessageSquareText size={32} style={{ opacity: .35, marginBottom: 8 }} />
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{tab === 'queue' ? 'Nothing in a station yet' : 'No leads in the inbox'}</div>
-            <div style={{ fontSize: 12 }}>{tab === 'queue' ? 'Leads you add will show here with their station.' : 'WhatsApp replies and Meta lead ads will show up here automatically.'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)' }}>
+            <Search size={14} style={{ color: 'var(--ink-soft, #64748b)' }} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name or phone"
+              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: 190, color: 'var(--ink, #0f172a)' }}
+            />
           </div>
-        )}
+          {tab === 'inbox' && shown.length > 0 && (
+            <button
+              onClick={addAllShown}
+              disabled={bulkBusy}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: bulkBusy ? 'default' : 'pointer', opacity: bulkBusy ? .7 : 1 }}
+            >
+              <Plus size={14} />
+              {bulkBusy ? 'Adding…' : `Add all shown (${Math.min(shown.length, 50)})`}
+            </button>
+          )}
+        </div>
+      </div>
 
-        {!loading && !error && filtered.length > 0 && (
+      {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{error}</div>}
+      {notice && <div style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{notice}</div>}
+
+      {source === 'email' && !sourceLeads.length ? (
+        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+          <Mail size={28} style={{ color: '#7c3aed', marginBottom: 10 }} />
+          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink, #0f172a)' }}>Email leads are not connected yet</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)', marginTop: 4 }}>
+            Once the admin mailbox is wired up, those leads will appear here and route to B/A/M-Email-Leads.
+          </div>
+        </div>
+      ) : (
+        <div className="card" style={{ overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980, fontSize: 12 }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--line, #e2e8f0)' }}>
-                  {['Contact', 'Reply', 'Suggestion', 'Station', 'Received', ''].map((h) => (
-                    <th key={h} style={{ textAlign: h === '' ? 'right' : 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)' }}>{h}</th>
+                <tr style={{ background: '#f8fafc' }}>
+                  {['Lead', 'Source', 'Reply / answers', 'NGO', 'Station', 'AI', 'Actions'].map((heading) => (
+                    <th key={heading} style={{ textAlign: 'left', padding: '9px 14px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)', borderBottom: '1px solid var(--line, #e2e8f0)' }}>{heading}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((l) => {
-                  const { message, template, account, campaign, form } = parseNotes(l.notes);
-                  const ngo = ngoNameOf(l.account_ngo || account);
-                  const hue = accountHue(ngo);
-                  const platform = platformMeta(platformOf(l));
-                  const metaLead = isMetaLead(l);
-                  const ngoLabel = ngo;
+                {shown.map((lead) => {
+                  const ngo = ngoOfLead(lead);
+                  const platform = platformMeta(platformOf(lead));
+                  const station = lead.placed_station || lead.suggested_station;
+                  const owner = lead.placed_fro_name || lead.station_owner_name;
+                  const noOwner = tab === 'inbox' && lead.suggested_station && !lead.station_owner_name;
                   return (
-                    <tr key={l.id} style={{ borderBottom: '1px solid var(--line, #e2e8f0)', verticalAlign: 'top' }}>
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--ink, #0f172a)' }}>
-                          <User size={13} style={{ opacity: .5 }} />
-                          {l.name || '—'}
+                    <tr key={lead.id} style={{ borderTop: '1px solid var(--line, #f1f5f9)' }}>
+                      <td style={{ padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: accountHue(ngo) }} />
+                          <div>
+                            <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{lead.name || formatPhone(lead.phone) || '—'}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Phone size={11} /> {formatPhone(lead.phone) || '—'}
+                              <span style={{ opacity: .45 }}>·</span>
+                              {formatTime(lead.created_at)}
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft, #64748b)', marginTop: 3 }}>
-                          <Phone size={11} style={{ opacity: .5 }} />
-                          {formatPhone(l.phone)}
-                          <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, color: hue, background: `${hue}1a` }}>{ngoLabel}</span>
-                          {metaLead && (
-                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, color: platform.color, background: platform.bg }}>{platform.label}</span>
-                          )}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: platform.color, background: platform.bg, padding: '2px 8px', borderRadius: 999 }}>
+                          {activeSource.key === 'whatsapp' ? <MessageSquareText size={11} /> : activeSource.key === 'meta' ? <Megaphone size={11} /> : <Mail size={11} />}
+                          {isMetaLead(lead) ? platform.label : 'WhatsApp'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', maxWidth: 300 }}>
+                        <div style={{ color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {parseNotes(lead.notes).message || '—'}
                         </div>
-                      </td>
-                      <td style={{ padding: '12px 16px', maxWidth: 300 }}>
-                        <div style={{ fontSize: 12.5, color: 'var(--ink, #0f172a)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message || '—'}</div>
-                        {template && (
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, padding: '2px 8px', borderRadius: 6, background: 'var(--line, #f1f5f9)', fontSize: 10.5, color: 'var(--ink-soft, #64748b)', maxWidth: '100%' }}>
-                            <Tag size={10} />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{template}</span>
-                          </div>
-                        )}
-                        {metaLead && (campaign || form) && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                            {campaign && (
-                              <span title="Meta campaign" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, background: '#e7f0ff', color: '#0866FF', fontSize: 10.5, fontWeight: 700, maxWidth: 260 }}>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{campaign}</span>
-                              </span>
-                            )}
-                            {form && (
-                              <span title="Lead form" style={{ padding: '2px 8px', borderRadius: 6, background: 'var(--line, #f1f5f9)', color: 'var(--ink-soft, #64748b)', fontSize: 10.5, fontWeight: 700 }}>Form: {form}</span>
-                            )}
+                        {parseNotes(lead.notes).campaign && (
+                          <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)', marginTop: 2 }}>
+                            <Tag size={10} /> {parseNotes(lead.notes).campaign.slice(0, 28)}
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: '12px 16px' }}>{suggestionPill(l.suggestion)}</td>
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-                        {l.in_station ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontWeight: 800, color: '#15803d' }}>✓ {l.placed_station}</span>
-                            <span style={{ fontSize: 11 }}>{l.placed_fro_name || 'No FRO owner yet'}</span>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontWeight: 700 }}>{l.suggested_station || '—'}</span>
-                            <span style={{ fontSize: 11 }}>{l.station_owner_name || 'No FRO owner yet'}</span>
-                          </div>
-                        )}
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 800, color: accountHue(ngo), background: `${accountHue(ngo)}14`, border: `1px solid ${accountHue(ngo)}33`, padding: '2px 8px', borderRadius: 999 }}>
+                          {ngo}
+                        </span>
                       </td>
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)', whiteSpace: 'nowrap' }}>{formatTime(l.created_at)}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          {l.in_station ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 800, color: '#15803d', whiteSpace: 'nowrap' }}>
-                              <CheckCircle2 size={13} /> Already in station
-                            </span>
-                          ) : !l.suggested_station && metaLead ? (
-                            <span title="Map this Meta lead form to an NGO in Accounts → WhatsApp Center → Meta Ads"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 9, background: '#fff7ed', color: '#c2410c', fontSize: 11.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                              Map form first
-                            </span>
-                          ) : (
-                            <button onClick={() => addToStation(l)} disabled={adding === l.id}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 9, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 800, cursor: adding === l.id ? 'default' : 'pointer', opacity: adding === l.id ? .6 : 1, whiteSpace: 'nowrap' }}>
-                              <Plus size={13} />
-                              {adding === l.id ? 'Adding…' : `Add to ${l.suggested_station || 'station'}`}
-                            </button>
-                          )}
-                          <button onClick={() => remove(l.id)} disabled={deleting === l.id}
-                            title="Delete lead (also removes it from the SS station)"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 9, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, opacity: deleting === l.id ? .5 : 1 }}>
-                            <Trash2 size={13} />
-                            Delete
+                      <td style={{ padding: '10px 14px' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)', fontSize: 11.5 }}>{station || '—'}</div>
+                        {owner
+                          ? <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)' }}><User size={10} /> {owner}</div>
+                          : noOwner ? <div style={{ fontSize: 10.5, color: '#b45309', fontWeight: 700 }}>No owner assigned</div> : null}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>{suggestionPill(lead.suggestion)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {tab === 'inbox' ? (
+                          <button
+                            onClick={() => addToStation(lead)}
+                            disabled={adding === lead.id}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--sage)', background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 700, cursor: adding === lead.id ? 'default' : 'pointer', opacity: adding === lead.id ? .7 : 1 }}
+                          >
+                            <Plus size={12} />
+                            {adding === lead.id ? 'Adding…' : 'Add to station'}
                           </button>
-                        </div>
+                        ) : (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>On station</span>
+                        )}
+                        <button
+                          onClick={() => remove(lead.id)}
+                          disabled={deleting === lead.id}
+                          title="Delete lead"
+                          style={{ marginLeft: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#b91c1c', cursor: deleting === lead.id ? 'default' : 'pointer' }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </td>
                     </tr>
                   );
                 })}
+                {!shown.length && (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
+                      {loading ? 'Loading leads…' : tab === 'inbox' ? 'Inbox is clear for this filter.' : 'Nothing on station for this filter yet.'}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line, #f1f5f9)', background: '#f8fafc', fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <span>{shown.length} shown · {tab === 'inbox' ? inboxLeads.length : queueLeads.length} in this queue</span>
+            <span>Stations: {activeSource.label} → B/A/M-{activeSource.label}-Leads</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
