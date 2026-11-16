@@ -436,6 +436,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [waLeads, setWaLeads] = useState([]);
   const [showWaLeads, setShowWaLeads] = useState(false);
+  const [waSource, setWaSource] = useState('whatsapp');
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   // Leads-tab fallback: when (and only when) the whole pending queue is empty,
@@ -2207,7 +2208,7 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 </button>
                 <button onClick={() => { setShowWaLeads(true); api('/fro/whatsapp-leads', { _prefix: 'ucs' }).then((d) => setWaLeads(Array.isArray(d) ? d : (d?.data || []))).catch(() => {}); }}
                   style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: showWaLeads ? 'var(--sage)' : 'transparent', color: showWaLeads ? '#fff' : 'var(--ink-soft)', boxShadow: showWaLeads ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
-                  SS Leads
+                  Lead Queues
                   {waLeads.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: showWaLeads ? 'rgba(255,255,255,.22)' : 'var(--line)', color: showWaLeads ? '#fff' : 'var(--ink-soft)' }}>{waLeads.length}</span> : null}
                 </button>
                 {/* High Tier tab removed — high-tier data now accessed via station selection (temp access / stacks). */}
@@ -2296,15 +2297,35 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
             </div>
           )}
-          {showWaLeads && (
+          {showWaLeads && (() => {
+            const bySource = { whatsapp: 0, meta: 0, email: 0 };
+            for (const lead of waLeads) bySource[lead.source || 'whatsapp'] += 1;
+            const shown = waLeads.filter((lead) => (lead.source || 'whatsapp') === waSource);
+            const TABS = [['whatsapp', 'WhatsApp'], ['meta', 'Meta'], ['email', 'Email']];
+            return (
             <div style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {waLeads.length === 0 ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {TABS.map(([key, label]) => {
+                  const active = waSource === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setWaSource(key)}
+                      style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line)'}`, background: active ? 'var(--sage)' : 'var(--card-bg)', color: active ? '#fff' : 'var(--ink-soft)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {label}
+                      <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, opacity: .8 }}>{bySource[key]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {shown.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No SS leads yet</div>
-                  <div style={{ fontSize: 12 }}>Admin jab reply ko aapke SS station par add karega, lead yahan aa jayegi.</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No {waSource === 'meta' ? 'Meta' : waSource === 'email' ? 'Email' : 'WhatsApp'} leads yet</div>
+                  <div style={{ fontSize: 12 }}>When the admin places a lead on your {waSource === 'meta' ? 'Meta' : waSource === 'email' ? 'Email' : 'WhatsApp'} station it appears here.</div>
                 </div>
-              ) : waLeads.map((l) => {
+              ) : shown.map((l) => {
                 const raw = String(l.notes || '');
                 const replyLines = raw.split('\n')
                   .filter((x) => !x.startsWith('[Template:') && !x.startsWith('[Account:') && !x.startsWith('[Lead:'))
@@ -2378,7 +2399,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                 );
               })}
             </div>
-          )}
+            );
+          })()}
           {/* The normal queue must not render underneath the SS list: without
               this the SS tab showed the SS cards AND the station's regular
               leads (MFD-4 etc.), which read like SS leads that were not there. */}
