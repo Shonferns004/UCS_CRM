@@ -27,6 +27,12 @@ export async function ensureWhatsAppBulkSchema() {
   await db._pool.query(`ALTER TABLE whatsapp_bulk_recipients ADD COLUMN IF NOT EXISTS header_format TEXT;`);
   await db._pool.query(`ALTER TABLE whatsapp_bulk_recipients ADD COLUMN IF NOT EXISTS header_url TEXT;`);
   await db._pool.query(`ALTER TABLE whatsapp_bulk_recipients ADD COLUMN IF NOT EXISTS template_buttons JSONB;`);
+
+  // Links a bulk recipient back to the Extractor lead it came from, so a send
+  // can be audited and the global used/unused rule can be applied.
+  await db._pool.query(`ALTER TABLE whatsapp_bulk_recipients ADD COLUMN IF NOT EXISTS extractor_lead_id UUID;`);
+  await db._pool.query(`ALTER TABLE whatsapp_bulk_recipients ADD COLUMN IF NOT EXISTS ngo_id TEXT;`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_whatsapp_bulk_recipients_extractor_lead ON whatsapp_bulk_recipients(extractor_lead_id);`);
 }
 
 export default ensureWhatsAppBulkSchema;

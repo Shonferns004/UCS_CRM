@@ -99,6 +99,44 @@ counts, **Tag pending**, **Retry failed** and **Re-tag all**. Leads can be
 filtered by AI keyword, minimum score and AI status, and both export shapes
 carry the tags and score.
 
+## Bulk WhatsApp source (global used/unused)
+
+`Accounts > WhatsApp Bulk > Extractor Leads` is a third recipient source next to
+Sheet Upload and Station / Donor.
+
+- One row per phone, oldest capture first
+- `Extractor total / Used / Available` counts at the top
+- Filters: search, category, min AI score, city
+- **Kitne bhejne hain** (send limit) + Select top N (default 500)
+- Used rows are disabled; **Only unused** is on by default
+- Manual **Mark used / Mark unused** for numbers sent outside the CRM
+- On send, the campaign carries `extractorLeadId` + `ngoId`; a successful send
+  upserts the phone into `extractor_lead_outreach`
+- Failed sends are not marked used and can be retried
+- Campaign create also skips already-used numbers server-side and reports
+  `skippedUsed`
+
+The rule is **global**: once a number has received a bulk message (any NGO), it
+is used everywhere. Usage is keyed by phone, not lead id.
+
+### Backfilling old sends
+
+```bash
+node backend/scripts/extractor-backfill-outreach.mjs           # dry run
+node backend/scripts/extractor-backfill-outreach.mjs --apply   # write
+```
+
+Sources: `whatsapp_bulk_recipients` (any status except `failed`) plus
+`campaigns.recipients` entries with `status = 'sent'`. Failed-only numbers are
+deliberately left unused. The script snapshots the table first and is idempotent.
+
+Endpoints (WhatsApp guard):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/whatsapp/bulk/extractor-leads` | candidates + counts + categories |
+| POST | `/api/whatsapp/bulk/extractor-leads/mark` | manual used/unused |
+
 ## Extension
 
 Build:

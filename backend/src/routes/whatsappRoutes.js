@@ -25,6 +25,10 @@ import {
   sendMedia,
 } from '../controllers/whatsappController.js';
 import { getStations, getDonorsByStation, getAccessibleNgos } from '../controllers/ngoAdminController.js';
+import {
+  listExtractorBulkLeads,
+  markExtractorBulkLeads,
+} from '../controllers/extractorBulkController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -55,6 +59,9 @@ router.get('/bulk/statuses', whatsappUser, listBulkRecipientStatuses);
 router.get('/bulk/stations', whatsappUser, getStations);
 router.get('/bulk/ngos', whatsappUser, getAccessibleNgos);
 router.get('/bulk/donors-by-station', whatsappUser, getDonorsByStation);
+// Extractor Leads mode: global used/unused tracking.
+router.get('/bulk/extractor-leads', whatsappUser, listExtractorBulkLeads);
+router.post('/bulk/extractor-leads/mark', whatsappUser, markExtractorBulkLeads);
 
 router.post('/campaigns', whatsappUser, createCampaign);
 router.get('/campaigns', whatsappUser, listCampaigns);
