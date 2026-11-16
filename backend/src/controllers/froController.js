@@ -8132,7 +8132,20 @@ export const getWhatsAppLeads = async (req, res) => {
         order by a.assigned_at desc nulls last`,
       [workerId, ALL_LEAD_STATIONS],
     );
-    return res.json((rows || []).map((r) => ({
+    // A station name is the cheapest reliable source marker: B-Meta-Leads is a
+    // Meta queue, M-Email-Leads is an email queue. Legacy SS rows fall back to
+    // the [Meta Lead:] tag baked into the notes at ingest time.
+    const sourceOf = (station, notes) => {
+      const value = String(station || '').toLowerCase();
+      if (value.includes('-meta-leads')) return 'meta';
+      if (value.includes('-email-leads')) return 'email';
+      if (value.includes('-whatsapp-leads')) return 'whatsapp';
+      if (String(notes || '').includes('[Meta Lead:')) return 'meta';
+      return 'whatsapp';
+    };
+
+    const requestedSource = String(req.query.source || '').trim().toLowerCase();
+    const payload = (rows || []).map((r) => ({
       id: r.id, // assignment id — what the delete button removes
       lead_id: (String(r.notes || '').match(/\[Lead:([^\]]+)\]/) || [])[1] || null,
       donor_id: r.donor_id,
@@ -8145,7 +8158,12 @@ export const getWhatsAppLeads = async (req, res) => {
       notes: r.notes,
       assigned_at: r.assigned_at,
       batch_type: r.batch_type,
-    })));
+      source: sourceOf(r.station, r.notes),
+    }));
+
+    return res.json(requestedSource
+      ? payload.filter((row) => row.source === requestedSource)
+      : payload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
