@@ -12,6 +12,7 @@ import {
   listLogs,
   listRecipients,
   listTemplates,
+  pollReplies,
   previewTemplate,
   resumeCampaign,
   send,
@@ -58,6 +59,7 @@ router.put('/templates/:id', roles, handleUpload, updateTemplate);
 router.delete('/templates/:id', roles, deleteTemplate);
 router.post('/assets', roles, handleImageUpload, uploadAsset);
 router.get('/logs', roles, listLogs);
+router.post('/replies/poll', roles, pollReplies);
 router.post('/logs/:id/resume', roles, resumeCampaign);
 router.post('/logs/:id/cancel', roles, cancelCampaign);
 router.get('/logs/:id', roles, getLog);

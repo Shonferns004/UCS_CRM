@@ -452,6 +452,9 @@
 .wa-chip-default { background: #dff5ee; color: #0b6b52; }
 
 .wa-chip-quality { background: #fdece8; color: #a5361f; }
+.wa-chip-quality-green { background: #dff5ee; color: #0b6b52; }
+.wa-chip-quality-yellow { background: #fef3c7; color: #a16207; }
+.wa-chip-quality-red { background: #fdece8; color: #a5361f; }
 
 .wa-status {
   flex-shrink: 0;

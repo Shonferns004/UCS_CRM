@@ -6,14 +6,16 @@ import StatCard from './StatCard.jsx';
 import AccountCard from './AccountCard.jsx';
 import './whatsappAccounts.css';
 
-const PROJECT_OPTIONS = [
+const PROJECT_OPTIONS  = [
   { value: 'bsct', label: 'Being Sevak' },
   { value: 'bsct2', label: 'Being Sevak 2' },
   { value: 'bsct3', label: 'Being Sevak 3' },
   { value: 'mann', label: 'Mann Care' },
   { value: 'aflf', label: 'Ashray' },
   { value: 'aflf2', label: 'Ashray 2' },
+  { value: 'aflf3', label: 'Ashray-03' },
   { value: 'mann 2', label: 'Mann Care 2' },
+  { value: 'mann3', label: 'mann-03' },
 ];
 
 const CUSTOM_PROJECTS_KEY = 'wa_custom_projects';
