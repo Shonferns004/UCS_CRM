@@ -71,6 +71,24 @@ function formatTime(iso) {
   return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+// Bulk-email campaign contacts carry their own free-form status, so give it the
+// same pill palette the station queues use instead of inventing a second one.
+function emailStatusStyle(status) {
+  const k = String(status || '').toLowerCase();
+  if (k === 'new') return { color: '#1d4ed8', bg: '#e7efff' };
+  if (k === 'replied') return { color: '#0d9488', bg: '#ccfbf1' };
+  if (k === 'contacted' || k === 'in progress') return { color: '#b45309', bg: '#fef3c7' };
+  if (k === 'converted' || k === 'won') return { color: '#15803d', bg: '#dcfce7' };
+  if (k === 'lost' || k === 'closed') return { color: '#be123c', bg: '#ffe4e6' };
+  return { color: '#475569', bg: '#eef2f7' };
+}
+
+function initialsOf(name, email) {
+  const src = String(name || email || '?').trim();
+  const parts = src.split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : src.slice(0, 2)).toUpperCase();
+}
+
 export default function WhatsAppReplyLeads() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -84,6 +102,49 @@ export default function WhatsAppReplyLeads() {
   const [query, setQuery] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [tab, setTab] = useState('inbox');
+  // Bulk-email campaigns live in the normal leads table, not the station queue,
+  // so that tab has its own loader, search and reply poll.
+  const [crmLeads, setCrmLeads] = useState([]);
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [crmError, setCrmError] = useState('');
+  const [crmQuery, setCrmQuery] = useState('');
+  const [pollingReplies, setPollingReplies] = useState(false);
+  const [pollNotice, setPollNotice] = useState('');
+
+  const loadCrm = async () => {
+    setCrmLoading(true);
+    setCrmError('');
+    try {
+      const params = new URLSearchParams();
+      params.set('source', 'Bulk Email');
+      if (crmQuery.trim()) params.set('search', crmQuery.trim());
+      params.set('limit', '200');
+      const qs = params.toString();
+      const data = await api(`/leads${qs ? '?' + qs : ''}`, { _prefix: 'ucs' });
+      setCrmLeads(Array.isArray(data) ? data : (data?.data || []));
+    } catch (e) {
+      setCrmError(e?.message || 'Failed to load leads');
+      setCrmLeads([]);
+    } finally {
+      setCrmLoading(false);
+    }
+  };
+
+  useEffect(() => { if (source === 'email') loadCrm(); }, [source]);
+
+  const pollReplies = async () => {
+    setPollingReplies(true);
+    setPollNotice('');
+    try {
+      const res = await api('/accounts/bulk-email/replies/poll', { method: 'POST', body: JSON.stringify({}), timeout: 120000 });
+      setPollNotice(res?.message || 'Replies checked.');
+      await loadCrm();
+    } catch (e) {
+      setPollNotice(e?.message || 'Could not check replies.');
+    } finally {
+      setPollingReplies(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -248,6 +309,8 @@ export default function WhatsAppReplyLeads() {
   ];
 
   const activeSource = SOURCES.find((item) => item.key === source) || SOURCES[0];
+  const isEmail = source === 'email';
+  const withEmail = crmLeads.filter((l) => l.email).length;
 
   return (
     <div style={{ padding: '20px 24px', maxWidth: 1280 }}>
@@ -265,23 +328,46 @@ export default function WhatsAppReplyLeads() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              onClick={runAi}
-              disabled={aiBusy || aiPending === 0}
-              title={aiPending === 0 ? 'Every inbox lead is already scored' : 'Score the next 12 leads with the AI model'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: aiPending > 0 ? 'var(--sage)' : 'var(--bg, #fff)', color: aiPending > 0 ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: aiBusy || aiPending === 0 ? 'default' : 'pointer', opacity: aiBusy ? .7 : 1 }}
-            >
-              <Sparkles size={14} />
-              {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
-            </button>
-            <button
-              onClick={load}
-              disabled={loading}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--ink, #0f172a)' }}
-            >
-              <RefreshCw size={14} style={{ transform: loading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
-              Refresh
-            </button>
+            {isEmail ? (
+              <>
+                <button
+                  onClick={pollReplies}
+                  disabled={pollingReplies}
+                  title="Check the sender inbox for replies to bulk email campaigns"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: pollingReplies ? 'var(--bg, #fff)' : 'var(--sage)', color: pollingReplies ? 'var(--ink-soft, #64748b)' : '#fff', fontSize: 12, fontWeight: 700, cursor: pollingReplies ? 'default' : 'pointer', opacity: pollingReplies ? .8 : 1 }}
+                >
+                  <Mail size={14} /> {pollingReplies ? 'Checking…' : 'Poll replies'}
+                </button>
+                <button
+                  onClick={loadCrm}
+                  disabled={crmLoading}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: crmLoading ? 'default' : 'pointer', color: 'var(--ink, #0f172a)', opacity: crmLoading ? .7 : 1 }}
+                >
+                  <RefreshCw size={14} style={{ transform: crmLoading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
+                  Refresh
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={runAi}
+                  disabled={aiBusy || aiPending === 0}
+                  title={aiPending === 0 ? 'Every inbox lead is already scored' : 'Score the next 12 leads with the AI model'}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--sage)', background: aiPending > 0 ? 'var(--sage)' : 'var(--bg, #fff)', color: aiPending > 0 ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: aiBusy || aiPending === 0 ? 'default' : 'pointer', opacity: aiBusy ? .7 : 1 }}
+                >
+                  <Sparkles size={14} />
+                  {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
+                </button>
+                <button
+                  onClick={load}
+                  disabled={loading}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--ink, #0f172a)' }}
+                >
+                  <RefreshCw size={14} style={{ transform: loading ? 'rotate(360deg)' : 'none', transition: 'transform .8s linear' }} />
+                  Refresh
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -306,179 +392,265 @@ export default function WhatsAppReplyLeads() {
         })}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        {NGOS.map((item) => {
-          const active = ngoFilter === item.key;
-          const count = item.key === 'all' ? sourceLeads.length : (counts.byNgo[source][item.key] || 0);
-          const color = item.color || 'var(--ink-soft, #64748b)';
-          return (
-            <button
-              key={item.key}
-              onClick={() => setNgoFilter(item.key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: `1px solid ${active ? color : 'var(--line, #e2e8f0)'}`, background: active ? `${color}14` : 'transparent', color: active ? color : 'var(--ink-soft, #64748b)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
-            >
-              {item.color && <span style={{ width: 7, height: 7, borderRadius: 999, background: color }} />}
-              {item.label}
-              <span style={{ fontWeight: 800, opacity: .75 }}>{count}</span>
-            </button>
-          );
-        })}
-      </div>
+      {isEmail ? (
+        <>
+          {crmError && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>{crmError}</div>}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        {[
-          { key: 'inbox', label: 'Inbox', count: inboxLeads.length },
-          { key: 'queue', label: 'On station', count: queueLeads.length },
-        ].map((item) => {
-          const active = tab === item.key;
-          return (
-            <button
-              key={item.key}
-              onClick={() => setTab(item.key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-            >
-              {item.key === 'inbox' ? <Inbox size={13} style={{ opacity: .8 }} /> : <CheckCircle2 size={13} style={{ opacity: .8 }} />}
-              {item.label}
-              <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{item.count}</span>
-            </button>
-          );
-        })}
+          {pollNotice && <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', fontSize: 12.5, fontWeight: 600 }}>{pollNotice}</div>}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)' }}>
-            <Search size={14} style={{ color: 'var(--ink-soft, #64748b)' }} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name or phone"
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: 190, color: 'var(--ink, #0f172a)' }}
-            />
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)' }}>
+              <Search size={14} style={{ color: '#94a3b8' }} />
+              <input value={crmQuery} onChange={(e) => setCrmQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') loadCrm(); }} placeholder="Search name / email / phone…"
+                style={{ border: 'none', outline: 'none', fontSize: 12.5, background: 'transparent', minWidth: 200, color: 'var(--ink, #0f172a)' }} />
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
+              Contacts created by bulk email campaigns.
+            </span>
           </div>
-          {tab === 'inbox' && shown.length > 0 && (
-            <button
-              onClick={addAllShown}
-              disabled={bulkBusy}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: bulkBusy ? 'default' : 'pointer', opacity: bulkBusy ? .7 : 1 }}
-            >
-              <Plus size={14} />
-              {bulkBusy ? 'Adding…' : `Add all shown (${Math.min(shown.length, 50)})`}
-            </button>
+
+          {crmLoading && (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+              <RefreshCw size={22} style={{ opacity: .5, marginBottom: 8 }} /> Loading email leads…
+            </div>
           )}
-        </div>
-      </div>
 
-      {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{error}</div>}
-      {notice && <div style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{notice}</div>}
+          {!crmLoading && crmLeads.length === 0 && (
+            <div className="card" style={{ padding: 48, textAlign: 'center', color: '#64748b' }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, display: 'grid', placeItems: 'center', background: '#eef2f7', margin: '0 auto 12px' }}>
+                <Mail size={24} style={{ color: '#94a3b8' }} />
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink, #0f172a)' }}>No email leads yet</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Leads captured from bulk email campaigns will appear here.</div>
+            </div>
+          )}
 
-      {source === 'email' && !sourceLeads.length ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-          <Mail size={28} style={{ color: '#7c3aed', marginBottom: 10 }} />
-          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink, #0f172a)' }}>Email leads are not connected yet</div>
-          <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)', marginTop: 4 }}>
-            Once the admin mailbox is wired up, those leads will appear here and route to B/A/M-Email-Leads.
-          </div>
-        </div>
+          {!crmLoading && crmLeads.length > 0 && (
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--line, #e2e8f0)', background: '#f8fafc' }}>
+                      {['Lead', 'Email', 'Phone', 'Source', 'Status', 'Reply / Notes', 'Created'].map((h) => (
+                        <th key={h} style={{ textAlign: 'left', padding: '11px 14px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: .5, color: '#64748b', fontWeight: 800 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crmLeads.map((l, i) => {
+                      const st = emailStatusStyle(l.status);
+                      const noteText = String(l.notes || '')
+                        .replace(/^Bulk email campaign #\d+:[^\n]*\n*/i, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                      return (
+                        <tr key={l.id} style={{ borderBottom: '1px solid var(--line, #f1f5f9)', background: i % 2 ? '#fbfcfd' : '#fff' }}>
+                          <td style={{ padding: '11px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', background: '#e7efff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                                {initialsOf(l.name, l.email)}
+                              </div>
+                              <span style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{l.name || '—'}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            {l.email ? <a href={`mailto:${l.email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{l.email}</a> : '—'}
+                          </td>
+                          <td style={{ padding: '11px 14px', color: '#475569' }}>{l.phone || '—'}</td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: '#eef2f7', color: '#374151' }}>{l.source || '—'}</span>
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, color: st.color, background: st.bg, textTransform: 'capitalize' }}>{l.status || '—'}</span>
+                          </td>
+                          <td style={{ padding: '11px 14px', maxWidth: 280 }}>
+                            {noteText ? (
+                              <span title={noteText} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>
+                                {noteText.length > 70 ? `${noteText.slice(0, 70)}…` : noteText}
+                              </span>
+                            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                          </td>
+                          <td style={{ padding: '11px 14px', whiteSpace: 'nowrap', color: '#475569' }}>{l.created_at ? new Date(l.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '10px 14px', borderTop: '1px solid var(--line, #e2e8f0)', fontSize: 11.5, color: '#64748b', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <span>{crmLeads.length} lead{crmLeads.length === 1 ? '' : 's'}</span>
+                <span>{withEmail} with email</span>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980, fontSize: 12 }}>
-              <thead>
-                <tr style={{ background: '#f8fafc' }}>
-                  {['Lead', 'Source', 'Reply / answers', 'NGO', 'Station', 'AI', 'Actions'].map((heading) => (
-                    <th key={heading} style={{ textAlign: 'left', padding: '9px 14px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)', borderBottom: '1px solid var(--line, #e2e8f0)' }}>{heading}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((lead) => {
-                  const ngo = ngoOfLead(lead);
-                  const platform = platformMeta(platformOf(lead));
-                  const station = lead.placed_station || lead.suggested_station;
-                  const owner = lead.placed_fro_name || lead.station_owner_name;
-                  const noOwner = tab === 'inbox' && lead.suggested_station && !lead.station_owner_name;
-                  return (
-                    <tr key={lead.id} style={{ borderTop: '1px solid var(--line, #f1f5f9)' }}>
-                      <td style={{ padding: '10px 14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 999, background: accountHue(ngo) }} />
-                          <div>
-                            <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{lead.name || formatPhone(lead.phone) || '—'}</div>
-                            <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Phone size={11} /> {formatPhone(lead.phone) || '—'}
-                              <span style={{ opacity: .45 }}>·</span>
-                              {formatTime(lead.created_at)}
+        <>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            {NGOS.map((item) => {
+              const active = ngoFilter === item.key;
+              const count = item.key === 'all' ? sourceLeads.length : (counts.byNgo[source][item.key] || 0);
+              const color = item.color || 'var(--ink-soft, #64748b)';
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setNgoFilter(item.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: `1px solid ${active ? color : 'var(--line, #e2e8f0)'}`, background: active ? `${color}14` : 'transparent', color: active ? color : 'var(--ink-soft, #64748b)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {item.color && <span style={{ width: 7, height: 7, borderRadius: 999, background: color }} />}
+                  {item.label}
+                  <span style={{ fontWeight: 800, opacity: .75 }}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            {[
+              { key: 'inbox', label: 'Inbox', count: inboxLeads.length },
+              { key: 'queue', label: 'On station', count: queueLeads.length },
+            ].map((item) => {
+              const active = tab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setTab(item.key)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, border: `1px solid ${active ? 'var(--sage)' : 'var(--line, #e2e8f0)'}`, background: active ? 'var(--sage)' : 'var(--bg, #fff)', color: active ? '#fff' : 'var(--ink-soft, #64748b)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {item.key === 'inbox' ? <Inbox size={13} style={{ opacity: .8 }} /> : <CheckCircle2 size={13} style={{ opacity: .8 }} />}
+                  {item.label}
+                  <span style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: active ? 'rgba(255,255,255,.25)' : 'var(--line, #e2e8f0)', color: active ? '#fff' : 'var(--ink-soft, #64748b)' }}>{item.count}</span>
+                </button>
+              );
+            })}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)' }}>
+                <Search size={14} style={{ color: 'var(--ink-soft, #64748b)' }} />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name or phone"
+                  style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: 190, color: 'var(--ink, #0f172a)' }}
+                />
+              </div>
+              {tab === 'inbox' && shown.length > 0 && (
+                <button
+                  onClick={addAllShown}
+                  disabled={bulkBusy}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: bulkBusy ? 'default' : 'pointer', opacity: bulkBusy ? .7 : 1 }}
+                >
+                  <Plus size={14} />
+                  {bulkBusy ? 'Adding…' : `Add all shown (${Math.min(shown.length, 50)})`}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{error}</div>}
+          {notice && <div style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', borderRadius: 10, padding: '9px 13px', fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>{notice}</div>}
+
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980, fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['Lead', 'Source', 'Reply / answers', 'NGO', 'Station', 'AI', 'Actions'].map((heading) => (
+                      <th key={heading} style={{ textAlign: 'left', padding: '9px 14px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft, #64748b)', borderBottom: '1px solid var(--line, #e2e8f0)' }}>{heading}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((lead) => {
+                    const ngo = ngoOfLead(lead);
+                    const platform = platformMeta(platformOf(lead));
+                    const station = lead.placed_station || lead.suggested_station;
+                    const owner = lead.placed_fro_name || lead.station_owner_name;
+                    const noOwner = tab === 'inbox' && lead.suggested_station && !lead.station_owner_name;
+                    return (
+                      <tr key={lead.id} style={{ borderTop: '1px solid var(--line, #f1f5f9)' }}>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 999, background: accountHue(ngo) }} />
+                            <div>
+                              <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)' }}>{lead.name || formatPhone(lead.phone) || '—'}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Phone size={11} /> {formatPhone(lead.phone) || '—'}
+                                <span style={{ opacity: .45 }}>·</span>
+                                {formatTime(lead.created_at)}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: platform.color, background: platform.bg, padding: '2px 8px', borderRadius: 999 }}>
-                          {activeSource.key === 'whatsapp' ? <MessageSquareText size={11} /> : activeSource.key === 'meta' ? <Megaphone size={11} /> : <Mail size={11} />}
-                          {isMetaLead(lead) ? platform.label : 'WhatsApp'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px', maxWidth: 300 }}>
-                        <div style={{ color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                          {parseNotes(lead.notes).message || '—'}
-                        </div>
-                        {parseNotes(lead.notes).campaign && (
-                          <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)', marginTop: 2 }}>
-                            <Tag size={10} /> {parseNotes(lead.notes).campaign.slice(0, 28)}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: platform.color, background: platform.bg, padding: '2px 8px', borderRadius: 999 }}>
+                            {activeSource.key === 'whatsapp' ? <MessageSquareText size={11} /> : activeSource.key === 'meta' ? <Megaphone size={11} /> : <Mail size={11} />}
+                            {isMetaLead(lead) ? platform.label : 'WhatsApp'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', maxWidth: 300 }}>
+                          <div style={{ color: 'var(--ink, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {parseNotes(lead.notes).message || '—'}
                           </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 800, color: accountHue(ngo), background: `${accountHue(ngo)}14`, border: `1px solid ${accountHue(ngo)}33`, padding: '2px 8px', borderRadius: 999 }}>
-                          {ngo}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)', fontSize: 11.5 }}>{station || '—'}</div>
-                        {owner
-                          ? <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)' }}><User size={10} /> {owner}</div>
-                          : noOwner ? <div style={{ fontSize: 10.5, color: '#b45309', fontWeight: 700 }}>No owner assigned</div> : null}
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>{suggestionPill(lead.suggestion)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {tab === 'inbox' ? (
+                          {parseNotes(lead.notes).campaign && (
+                            <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)', marginTop: 2 }}>
+                              <Tag size={10} /> {parseNotes(lead.notes).campaign.slice(0, 28)}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 800, color: accountHue(ngo), background: `${accountHue(ngo)}14`, border: `1px solid ${accountHue(ngo)}33`, padding: '2px 8px', borderRadius: 999 }}>
+                            {ngo}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--ink, #0f172a)', fontSize: 11.5 }}>{station || '—'}</div>
+                          {owner
+                            ? <div style={{ fontSize: 10.5, color: 'var(--ink-soft, #64748b)' }}><User size={10} /> {owner}</div>
+                            : noOwner ? <div style={{ fontSize: 10.5, color: '#b45309', fontWeight: 700 }}>No owner assigned</div> : null}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>{suggestionPill(lead.suggestion)}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {tab === 'inbox' ? (
+                            <button
+                              onClick={() => addToStation(lead)}
+                              disabled={adding === lead.id}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--sage)', background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 700, cursor: adding === lead.id ? 'default' : 'pointer', opacity: adding === lead.id ? .7 : 1 }}
+                            >
+                              <Plus size={12} />
+                              {adding === lead.id ? 'Adding…' : 'Add to station'}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>On station</span>
+                          )}
                           <button
-                            onClick={() => addToStation(lead)}
-                            disabled={adding === lead.id}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--sage)', background: 'var(--sage)', color: '#fff', fontSize: 11.5, fontWeight: 700, cursor: adding === lead.id ? 'default' : 'pointer', opacity: adding === lead.id ? .7 : 1 }}
+                            onClick={() => remove(lead.id)}
+                            disabled={deleting === lead.id}
+                            title="Delete lead"
+                            style={{ marginLeft: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#b91c1c', cursor: deleting === lead.id ? 'default' : 'pointer' }}
                           >
-                            <Plus size={12} />
-                            {adding === lead.id ? 'Adding…' : 'Add to station'}
+                            <Trash2 size={13} />
                           </button>
-                        ) : (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>On station</span>
-                        )}
-                        <button
-                          onClick={() => remove(lead.id)}
-                          disabled={deleting === lead.id}
-                          title="Delete lead"
-                          style={{ marginLeft: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#b91c1c', cursor: deleting === lead.id ? 'default' : 'pointer' }}
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!shown.length && (
+                    <tr>
+                      <td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
+                        {loading ? 'Loading leads…' : tab === 'inbox' ? 'Inbox is clear for this filter.' : 'Nothing on station for this filter yet.'}
                       </td>
                     </tr>
-                  );
-                })}
-                {!shown.length && (
-                  <tr>
-                    <td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
-                      {loading ? 'Loading leads…' : tab === 'inbox' ? 'Inbox is clear for this filter.' : 'Nothing on station for this filter yet.'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line, #f1f5f9)', background: '#f8fafc', fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <span>{shown.length} shown · {tab === 'inbox' ? inboxLeads.length : queueLeads.length} in this queue</span>
+              <span>Stations: {activeSource.label} → B/A/M-{activeSource.label}-Leads</span>
+            </div>
           </div>
-          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line, #f1f5f9)', background: '#f8fafc', fontSize: 11, color: 'var(--ink-soft, #64748b)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <span>{shown.length} shown · {tab === 'inbox' ? inboxLeads.length : queueLeads.length} in this queue</span>
-            <span>Stations: {activeSource.label} → B/A/M-{activeSource.label}-Leads</span>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

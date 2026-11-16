@@ -26,6 +26,7 @@ import {
   recordUnsubscribe,
   verifyUnsubscribeToken,
 } from '../services/bulkEmailUnsubscribe.js';
+import { pollBulkEmailReplies } from '../services/bulkEmailReplyImporter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EMAIL_ASSET_DIR = path.resolve(__dirname, '../../uploads/email-assets');
@@ -393,5 +394,14 @@ export async function deleteTemplate(req, res) {
     return res.json({ message: 'Template deleted' });
   } catch (error) {
     return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function pollReplies(req, res) {
+  try {
+    const result = await pollBulkEmailReplies();
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 }

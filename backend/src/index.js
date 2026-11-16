@@ -1237,6 +1237,17 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/bulk-email-replies', requireCronAuth, async (req, res) => {
+      try {
+        const { pollBulkEmailReplies } = await import('./services/bulkEmailReplyImporter.js');
+        const result = await pollBulkEmailReplies();
+        res.json(result);
+      } catch (error) {
+        console.error('Bulk email replies cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
     app.post('/api/cron/razorpay-sync', requireCronAuth, async (req, res) => {
       try {
         const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');

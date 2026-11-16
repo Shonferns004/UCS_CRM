@@ -250,6 +250,34 @@ export async function createBulkEmailCampaign({ subject, text, html, source, rec
     );
   }
 
+  // Mirror each recipient as a CRM lead so bulk-email audiences show up in the
+  // Leads list (Accounts + UFS Admin). Dedup by (email, source) so re-sends do
+  // not create duplicate lead rows.
+  try {
+    const { data: existing } = await db
+      .from('leads')
+      .select('email')
+      .eq('source', 'Bulk Email');
+    const existingEmails = new Set((existing || []).map((r) => String(r.email || '').toLowerCase().trim()).filter(Boolean));
+    const newLeads = sendable
+      .filter((r) => !existingEmails.has(String(r.email || '').toLowerCase().trim()))
+      .map((r) => ({
+        name: r.name ? String(r.name).trim() : String(r.email).split('@')[0],
+        email: r.email,
+        phone: null,
+        source: 'Bulk Email',
+        status: 'new',
+        notes: `Bulk email campaign #${campaignId}: ${String(subject).trim()}`,
+        created_by: null,
+        created_by_name: createdBy || null,
+      }));
+    if (newLeads.length) {
+      await db.from('leads').insert(newLeads);
+    }
+  } catch (e) {
+    console.error('Bulk email lead creation failed:', e?.message || e);
+  }
+
   return {
     id: campaignId,
     status: inserted[0].status,

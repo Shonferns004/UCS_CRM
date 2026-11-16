@@ -122,6 +122,24 @@ export async function ensureBulkEmailSchema() {
     );
   `);
 
+  // Inbound replies to bulk campaigns. One row per processed email so the IMAP
+  // poller never turns the same reply into a duplicate lead. Kept separate from
+  // email_import_log because the bank-alert importer also logs this inbox and
+  // would otherwise mark a reply as processed.
+  await db._pool.query(`
+    CREATE TABLE IF NOT EXISTS bulk_email_replies (
+      message_id TEXT PRIMARY KEY,
+      campaign_id BIGINT,
+      lead_id BIGINT,
+      from_email TEXT,
+      from_name TEXT,
+      subject TEXT,
+      received_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_email_replies_campaign ON bulk_email_replies(campaign_id);`);
+
   await db._pool.query(`
     INSERT INTO bulk_email_templates (name, subject, body, created_by)
     VALUES
