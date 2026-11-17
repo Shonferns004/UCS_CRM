@@ -176,6 +176,7 @@ import { ensureCampaignSchema } from './bootstrap/ensureCampaignSchema.js';
 import { ensureMetaAdsSchema } from './bootstrap/ensureMetaAdsSchema.js';
 import { loadMetaConfigFromDb } from './services/metaAdsConfigStore.js';
 import { ensureBulkEmailSchema } from './bootstrap/ensureBulkEmailSchema.js';
+import { ensureLeadAlertSchema } from './bootstrap/ensureLeadAlertSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config({ override: true });
@@ -1447,6 +1448,7 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
       .then((m) => m.recoverInterruptedWhatsAppCampaigns?.())
       .catch(e => console.error('recoverInterruptedWhatsAppCampaigns failed:', e?.message || e));
     await ensureBulkEmailSchema().catch(e => console.error('ensureBulkEmailSchema failed:', e?.message || e));
+    await ensureLeadAlertSchema().catch(e => console.error('ensureLeadAlertSchema failed:', e?.message || e));
     await import('./services/bulkEmailService.js')
       .then((m) => m.recoverInterruptedBulkEmails?.())
       .catch(e => console.error('recoverInterruptedBulkEmails failed:', e?.message || e));

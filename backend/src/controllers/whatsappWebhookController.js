@@ -5,7 +5,8 @@ import { applyRouting } from '../services/routingService.js';
 import { scheduleAutoRetry } from '../services/messageRetryScheduler.js';
 import { normalizeDonorPhone, phoneVariantsFor } from '../services/whatsappScope.js';
 import { createLead } from '../models/leadModel.js';
-import { qualifySsReply, shouldAiCheckSsReply, materializeReplyLead } from '../services/ssLeadService.js';
+import { qualifySsReply, shouldAiCheckSsReply, scoreSsReply } from '../services/ssLeadService.js';
+import { placeLeadIfValuable } from '../services/leadIntakeService.js';
 import { aiScoreSsReply, SS_AI_VERSION } from '../services/ssLeadAiService.js';
 
 // Read at request time, not module load: this module is imported before
@@ -333,8 +334,8 @@ export async function whatsappWebhookEntry(req, res) {
               // Explicit interest → straight into SS-<NGO>. Junk/auto-replies
               // stay in the admin inbox for a human decision.
               if (created && qualifySsReply(bodyText || '')) {
-                const placed = await materializeReplyLead(created, {});
-                if (!placed.ok) console.warn('SS auto-place skipped:', placed.reason);
+                const placed = await placeLeadIfValuable(created, { score: scoreSsReply(created.notes).score });
+                if (!placed.placed) console.warn('SS auto-place skipped:', placed.reason);
               } else if (created && shouldAiCheckSsReply(bodyText || '')) {
                 // Rules could not classify free text ("I wanted to donate now,
                 // how should I"). Ask the model in the background and place the
@@ -356,8 +357,8 @@ export async function whatsappWebhookEntry(req, res) {
                     }).eq('id', created.id);
 
                     if (ai.label === 'interested' && ai.score >= 70) {
-                      const placed = await materializeReplyLead(created, {});
-                      if (!placed.ok) console.warn('SS AI place skipped:', placed.reason);
+                      const placed = await placeLeadIfValuable(created, { score: ai.score });
+                      if (!placed.placed) console.warn('SS AI place skipped:', placed.reason);
                     }
                   } catch (e) {
                     console.error('SS AI fallback failed:', e?.message || e);
@@ -383,8 +384,8 @@ export async function whatsappWebhookEntry(req, res) {
               };
 
               if (qualifySsReply(bodyText || '')) {
-                const placed = await materializeReplyLead(freshReply, {});
-                if (!placed.ok) console.warn('SS repeat-reply place skipped:', placed.reason);
+                const placed = await placeLeadIfValuable(freshReply, { score: scoreSsReply(freshReply.notes).score });
+                if (!placed.placed) console.warn('SS repeat-reply place skipped:', placed.reason);
               } else if (shouldAiCheckSsReply(bodyText || '')) {
                 void (async () => {
                   try {
@@ -402,8 +403,8 @@ export async function whatsappWebhookEntry(req, res) {
                     }).eq('id', existingLead.id);
 
                     if (ai.label === 'interested' && ai.score >= 70) {
-                      const placed = await materializeReplyLead(freshReply, {});
-                      if (!placed.ok) console.warn('SS AI repeat place skipped:', placed.reason);
+                      const placed = await placeLeadIfValuable(freshReply, { score: ai.score });
+                      if (!placed.placed) console.warn('SS AI repeat place skipped:', placed.reason);
                     }
                   } catch (e) {
                     console.error('SS AI repeat fallback failed:', e?.message || e);

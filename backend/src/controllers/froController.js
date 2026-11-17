@@ -5,6 +5,7 @@ import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt, isBlankSuspenseValue, canonicalProject, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { receiptsForDonor } from '../services/receiptLookup.js';
 import { ALL_LEAD_STATIONS } from '../services/ssLeadService.js';
+import { listLeadAlerts, leadAlertCounts, markLeadAlertSeen as markLeadAlertSeenRow, markAlertsAttended } from '../services/leadAlertService.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
@@ -4563,6 +4564,8 @@ export const createDonorLogHandler = async (req, res) => {
       // Any logged interaction means the worker attempted this donor — clear
       // the NEW flag so it stops counting/pinning as fresh data.
       await db.from('fro_assignments').update({ is_new: false }).eq('id', assignment.id);
+      // The bell alert is done the moment the lead is actually worked.
+      void markAlertsAttended(assignment.id).catch(() => {});
 
       // Update donor profile fields if provided
       const updateFields = {};
@@ -8172,6 +8175,40 @@ export const getWhatsAppLeads = async (req, res) => {
 // Remove an SS lead from the FRO's queue. Soft-delete only: the assignment is
 // parked as 'reassigned' so the donor, its history and the admin's audit stay
 // intact, and the backfill script knows this reply was deliberately dropped.
+
+// ── Lead alerts (topbar bell) ───────────────────────────────────────────────
+// Durable per-FRO "new lead" rows written at placement time. The badge reads
+// these, not notification_log (which is retired), so it survives a refresh.
+export const getLeadAlerts = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const [alerts, counts] = await Promise.all([
+      listLeadAlerts(workerId, { limit: req.query.limit }),
+      leadAlertCounts(workerId),
+    ]);
+    return res.json({ alerts, counts });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getLeadAlertCount = async (req, res) => {
+  try {
+    return res.json(await leadAlertCounts(req.user.id));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const markLeadAlertSeen = async (req, res) => {
+  try {
+    const row = await markLeadAlertSeenRow(req.user.id, req.params.id);
+    return res.json({ ok: true, already: !row, alert: row || null });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteSsLead = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -8207,6 +8244,7 @@ export const deleteSsLead = async (req, res) => {
       `update fro_assignments set status = 'reassigned', updated_at = now() where id = $1`,
       [assignmentId],
     );
+    void markAlertsAttended(assignmentId).catch(() => {});
     // Put the inbox row back so the admin sees the reply again and can decide
     // whether to re-route it or delete it for good.
     const leadId = (String(row.notes || '').match(/\[Lead:([^\]]+)\]/) || [])[1] || null;

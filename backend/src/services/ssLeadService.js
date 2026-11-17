@@ -95,8 +95,57 @@ export function shouldAiCheckSsReply(text) {
 // Output: { score 0-100, label, reasons[] }.
 const SERVICE_TEXT = /(receipt|80\s*g|pan\s*number|wrong\s*name|address\s*change|already\s*donated)/i;
 
+// Meta Instant Forms answers are free text chosen by the advertiser, so the same
+// intent arrives under different keys ("How would you like to help?",
+// "make_a_donation"). Scoring the VALUE, not the key, is what stops a paid lead
+// from sitting in the inbox as "Low 25% - no buying signal".
+// Meta answers arrive slug-cased ("make_a_donation", "learn_more_about_our_ngo"),
+// so the separators have to accept underscore and hyphen as well as whitespace.
+const SEP = '[\\s_-]*';
+const META_INTENT_RULES = [
+  { re: new RegExp(`make${SEP}a${SEP}donation|donate${SEP}now|want${SEP}to${SEP}donate|wish(?:es)?${SEP}to${SEP}donate`, 'i'), score: 95, reason: 'Asked to donate' },
+  { re: /sponsor|csr|corporate|partnership/i, score: 85, reason: 'Sponsorship / CSR interest' },
+  { re: /volunteer/i, score: 60, reason: 'Volunteer interest' },
+  { re: new RegExp(`learn${SEP}more|more${SEP}information|know${SEP}more|interested`, 'i'), score: 65, reason: 'Wants more information' },
+];
+
+// Geography and CRM bookkeeping are not buying signals.
+const META_ANSWER_SKIP = /^(state|inbox url|city|town|platform|campaign|form|account|meta lead|lead|page|ad|adset)$/i;
+
+export function scoreMetaLead(notes) {
+  const text = String(notes || '');
+  const answers = [];
+  for (const line of text.split('\n')) {
+    const match = /^([^:[\]]{2,120}):\s*(.+)$/.exec(line.trim());
+    if (!match) continue;
+    if (META_ANSWER_SKIP.test(match[1].trim())) continue;
+    answers.push(match[2].trim());
+  }
+
+  let score = 35;
+  let reason = answers.length ? 'No buying signal in the form answers' : 'Form had no custom answers';
+  let best = null;
+  for (const value of answers) {
+    for (const rule of META_INTENT_RULES) {
+      if (!rule.re.test(value)) continue;
+      if (!best || rule.score > best.score) best = rule;
+      break;
+    }
+  }
+  if (best) {
+    score = best.score;
+    reason = best.reason;
+  }
+
+  const label = score >= 70 ? 'interested' : score >= 40 ? 'review' : 'low';
+  return { score, label, reasons: [reason], button: null };
+}
+
 export function scoreSsReply(notes) {
   const text = String(notes || '');
+  // Meta lead ads carry enumerated answers, not a chat reply. Route them to the
+  // answer scorer before the button/free-text rules can mislabel them.
+  if (/\[Meta Lead:/i.test(text)) return scoreMetaLead(text);
   const button = (text.match(/\[(?:Button|Reply):\s*([^\]]+)\]/i) || [])[1] || '';
   const body = text
     .split('\n')
@@ -244,7 +293,7 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
 
   // one live row per (donor, ngo)
   const { rows: existingRows } = await run(
-    `select id, station, notes
+    `select id, station, notes, fro_worker_id
        from fro_assignments
       where donor_id = $1 and ngo_id = $2
         and (status is null or status <> 'reassigned')
@@ -290,6 +339,7 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
       ngoName,
       merged: true,
       movedToFro: onOwnStation && !!ownerId,
+      froWorkerId: onOwnStation ? (ownerId || row.fro_worker_id || null) : null,
       reason: onOwnStation ? null : `Donor already has a live lead on ${row.station}`,
     };
   }
@@ -312,5 +362,6 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
     ngoName,
     merged: false,
     movedToFro: !!ownerId,
+    froWorkerId: ownerId || null,
   };
 }

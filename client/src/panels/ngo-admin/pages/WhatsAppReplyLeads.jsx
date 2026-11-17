@@ -39,11 +39,15 @@ const platformOf = (lead) => {
   return isMetaLead(lead) ? 'meta' : 'whatsapp';
 };
 
-const platformMeta = (platform) => {
+const platformMeta = (platform, sourceKey) => {
+  // The channel decides the badge. Meta's Graph API returns 'fb' / 'ig', which
+  // used to miss every branch here and fall through to the WhatsApp default —
+  // so every Meta lead rendered as a WhatsApp reply.
+  if (sourceKey === 'whatsapp') return { label: 'WhatsApp', color: '#128C7E', bg: '#dcfce7' };
+  if (sourceKey === 'email') return { label: 'Email', color: '#7c3aed', bg: '#ede9fe' };
   const p = String(platform || '').toLowerCase();
-  if (p.includes('instagram')) return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
-  if (p.includes('facebook') || p === 'meta') return { label: 'Meta', color: '#0866FF', bg: '#e7f0ff' };
-  return { label: 'WhatsApp', color: '#128C7E', bg: '#dcfce7' };
+  if (p === 'ig' || p.includes('instagram')) return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
+  return { label: 'Facebook', color: '#0866FF', bg: '#e7f0ff' };
 };
 
 function ngoNameOf(account) {
@@ -160,7 +164,10 @@ export default function WhatsAppReplyLeads() {
   useEffect(() => { load(); }, []);
 
   const sourceKeyOf = (lead) => {
-    const src = String(lead?.lead_source || '').toLowerCase();
+    // Backend sends `source_key`; `lead_source` stays as a fallback for older
+    // payloads. Reading only `lead_source` left this undefined, so the whole tab
+    // fell back to platform sniffing and mislabelled Meta rows.
+    const src = String(lead?.source_key || lead?.lead_source || '').toLowerCase();
     if (src === 'meta' || src === 'whatsapp' || src === 'email') return src;
     return platformOf(lead) === 'whatsapp' ? 'whatsapp' : 'meta';
   };

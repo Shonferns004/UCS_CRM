@@ -11,6 +11,7 @@ import {
   ngoToAccount,
   setSyncState,
 } from './metaAdsService.js';
+import { placeLeadIfValuable } from './leadIntakeService.js';
 
 // ---------------------------------------------------------------------------
 // Meta Lead Ads → CRM inbox.
@@ -190,11 +191,22 @@ export async function ingestMetaLead(leadgenId, { payload = null, source = 'webh
     payload,
   });
 
+  // Auto-place high-intent leads on their NGO's Meta station. Placement never
+  // fails the ingest: a lead without a mapping or a valid mobile simply stays in
+  // the admin inbox, exactly as before.
+  const placed = await placeLeadIfValuable(created).catch((e) => {
+    console.error('Meta auto-place failed:', e?.message || e);
+    return null;
+  });
+
   return {
     ok: true,
     lead: created,
     mapped: Boolean(mapping?.ngo),
     unmapped: !mapping?.ngo,
+    placed: Boolean(placed?.placed),
+    station: placed?.station || null,
+    alerted: Boolean(placed?.alerted),
     source,
   };
 }
