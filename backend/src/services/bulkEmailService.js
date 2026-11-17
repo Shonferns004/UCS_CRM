@@ -10,10 +10,16 @@ import {
 } from './bulkEmailUnsubscribe.js';
 import { buildInlineImageAttachments } from './emailImageAssets.js';
 
-// Bulk-email campaigns use a Gmail SMTP account configured through the
+// Bulk-email campaigns use a dedicated Gmail SMTP account configured through the
 // environment. The app password is never stored in source.
+//
+// This sender is deliberately *not* defaulted to another account: the library
+// module sends from library.sevak@gmail.com with its own hardcoded credential
+// (sevakLibrary/services/email.service.js). Falling back to it here would make a
+// misconfigured bulk campaign go out as the library account, so an unset
+// GMAIL_USER is treated as a configuration error instead.
 function gmailUser() {
-  return process.env.GMAIL_USER || 'library.sevak@gmail.com';
+  return String(process.env.GMAIL_USER || '').trim();
 }
 
 function gmailAppPassword() {
@@ -33,7 +39,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 let transport;
 
 function getTransport() {
+  const user = gmailUser();
   const password = gmailAppPassword();
+  if (!user) {
+    throw new Error('Bulk email sender is not configured - GMAIL_USER is missing');
+  }
   if (!password) {
     throw new Error('Gmail app password is not configured - email not sent');
   }
