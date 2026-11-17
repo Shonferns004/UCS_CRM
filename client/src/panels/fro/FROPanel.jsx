@@ -9,7 +9,7 @@ import { getMyDashboard, getMyStations } from './api/donors'
 import { getMyTarget } from './api/target'
 import DataUsageModal from './components/DataUsageModal'
 import { useRealtime } from '../../hooks/useRealtime'
-import { onFroAction, onFroBroadcast, onFroTeamBroadcast, onFroForceLogout } from '../../lib/socket'
+import { onFroAction, onFroBroadcast, onFroTeamBroadcast, onFroForceLogout, onLeadAlert } from '../../lib/socket'
 // Acting FRO (work-as) retired: the FRO-side entry helpers above were removed
 // with it. releaseWorkAs/exitImpersonation stay so a session started before the
 // retirement can still exit cleanly via the banner below.
@@ -34,6 +34,8 @@ import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
 import LeadWhatsAppPickerHost from './components/LeadWhatsAppPickerHost'
+import LeadAlertsBell from './components/LeadAlertsBell'
+import LeadAlertToast from './components/LeadAlertToast'
 import WhatsAppIcon from './components/WhatsAppIcon'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
@@ -587,6 +589,7 @@ function Sidebar({ open, onClose, si }) {
 export default function FROPanel() {
   const { user, logout } = useUcs()
   const location = useLocation()
+  const navigate = useNavigate()
   const isMobile = useIsMobile()
   const si = useSpecialIncentive()
   const [showMenu, setShowMenu] = useState(false)
@@ -779,35 +782,134 @@ export default function FROPanel() {
     return () => clearInterval(poll);
   }, [user?.id]);
 
-  // Poll for newly assigned WhatsApp leads so the FRO gets a toast even if the
-  // live socket event was missed (e.g. tab was backgrounded or reconnecting).
-  const waLeadCountRef = useRef(0);
-  const waLeadInitRef = useRef(false);
+  // ── New-lead bell ────────────────────────────────────────────────────────
+  // Durable alerts (one row per assignment) drive the badge. The socket only
+  // makes it pulse; a 30s count poll is the fallback when the socket is down.
+  const [leadAlerts, setLeadAlerts] = useState([])
+  const [alertCounts, setAlertCounts] = useState({ pending: 0, unseen: 0 })
+  const [alertLoading, setAlertLoading] = useState(false)
+  const [alertError, setAlertError] = useState('')
+  const [alertPulse, setAlertPulse] = useState(false)
+  const [toastAlert, setToastAlert] = useState(null)
+  const [toastMore, setToastMore] = useState(0)
+  const toastVisibleRef = useRef(false)
+  const toastMoreRef = useRef(0)
+  const knownAlertIdsRef = useRef(new Set())
+  const poppedAlertIdsRef = useRef(new Set())
+  const countsRef = useRef({ pending: 0, unseen: 0 })
+  const firstLoadRef = useRef(true)
+
+  const popAlertToast = useCallback((alert, more = 0) => {
+    if (!alert) return
+    // If the card fires while the tab is hidden the FRO never sees it, so do
+    // not record it as "already popped" — the visibility handler will show it
+    // again when they come back.
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      poppedAlertIdsRef.current.add(alert.id)
+    }
+    toastMoreRef.current = more
+    setToastMore(more)
+    toastVisibleRef.current = true
+    setToastAlert(alert)
+    showDesktopNotification('New lead received', alert.body || '', '/fro/my-leads')
+  }, [])
+
+  const loadLeadAlerts = useCallback(async ({ notify = false } = {}) => {
+    if (!user?.id) return
+    setAlertLoading(true)
+    setAlertError('')
+    try {
+      const data = await api('/fro/lead-alerts', { _prefix: 'ucs' })
+      const alerts = Array.isArray(data?.alerts) ? data.alerts : []
+      const fresh = alerts.filter((a) => !knownAlertIdsRef.current.has(a.id))
+      alerts.forEach((a) => knownAlertIdsRef.current.add(a.id))
+      setLeadAlerts(alerts)
+      const counts = {
+        pending: Number(data?.counts?.pending) || 0,
+        unseen: Number(data?.counts?.unseen) || 0,
+      }
+      countsRef.current = counts
+      setAlertCounts(counts)
+      // Socket is the fast path; this is the fallback for a dropped socket or a
+      // tab that was in the background when the lead arrived. The first load of
+      // a session never pops — only leads that appear while the screen is open.
+      if (notify && !firstLoadRef.current && fresh.length) {
+        setAlertPulse(true)
+        setTimeout(() => setAlertPulse(false), 1600)
+        popAlertToast(fresh[0], fresh.length - 1)
+      }
+      firstLoadRef.current = false
+    } catch (e) {
+      setAlertError(e?.message || 'Alerts could not be loaded.')
+    } finally {
+      setAlertLoading(false)
+    }
+  }, [user?.id, popAlertToast])
+
+  const refreshAlertCount = useCallback(async () => {
+    if (!user?.id) return
+    try {
+      const c = await api('/fro/lead-alerts/count', { _prefix: 'ucs' })
+      const next = { pending: Number(c?.pending) || 0, unseen: Number(c?.unseen) || 0 }
+      const prev = countsRef.current
+      countsRef.current = next
+      setAlertCounts(next)
+      // Count went up but no socket event arrived — pull the list and pop the
+      // card, so the FRO still sees the lead was assigned.
+      if (next.pending > prev.pending) loadLeadAlerts({ notify: true })
+    } catch {
+      // Socket is the primary path; keep the last known count on a failed poll.
+    }
+  }, [user?.id, loadLeadAlerts])
+
   useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const data = await api('/fro/whatsapp-leads', { _prefix: 'ucs' });
-        const list = Array.isArray(data) ? data : (data?.data || []);
-        const count = list.length;
-        if (!waLeadInitRef.current) {
-          waLeadInitRef.current = true;
-          waLeadCountRef.current = count;
-          return;
-        }
-        if (count > waLeadCountRef.current) {
-          const diff = count - waLeadCountRef.current;
-          toast(`${diff} new lead${diff > 1 ? 's' : ''} assigned to you`, 'info');
-          showDesktopNotification('New WhatsApp Lead Assigned', `${diff} new lead${diff > 1 ? 's' : ''} assigned to you`, '/fro/my-leads');
-        }
-        waLeadCountRef.current = count;
-      } catch (e) { /* ignore */ }
-    };
-    check();
-    const poll = setInterval(check, 15000);
-    return () => { cancelled = true; clearInterval(poll); };
-  }, [user?.id]);
+    knownAlertIdsRef.current = new Set()
+    firstLoadRef.current = true
+    loadLeadAlerts()
+    const poll = setInterval(refreshAlertCount, 30000)
+    return () => clearInterval(poll)
+  }, [loadLeadAlerts, refreshAlertCount])
+
+  useEffect(() => onLeadAlert((alert) => {
+    if (!alert) return
+    if (knownAlertIdsRef.current.has(alert.id)) return
+    knownAlertIdsRef.current.add(alert.id)
+    setLeadAlerts((prev) => [alert, ...prev.filter((a) => a.id !== alert.id)])
+    setAlertCounts((prev) => {
+      const next = { pending: (Number(prev.pending) || 0) + 1, unseen: (Number(prev.unseen) || 0) + 1 }
+      countsRef.current = next
+      return next
+    })
+    setAlertPulse(true)
+    setTimeout(() => setAlertPulse(false), 1600)
+    popAlertToast(alert, toastVisibleRef.current ? toastMoreRef.current + 1 : 0)
+  }), [popAlertToast])
+
+  // Coming back to a backgrounded tab: the card may have fired and expired
+  // while the FRO was not looking. Pop the newest unseen alert once per lead.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (toastVisibleRef.current) return
+      const newest = leadAlerts.find((a) => !a.seen_at && !poppedAlertIdsRef.current.has(a.id))
+      if (newest) popAlertToast(newest, 0)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [leadAlerts, popAlertToast])
+
+  const openLeadAlert = useCallback((alert) => {
+    if (!alert) return
+    toastVisibleRef.current = false
+    toastMoreRef.current = 0
+    setToastMore(0)
+    setToastAlert(null)
+    const wasUnseen = !alert.seen_at
+    setLeadAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, seen_at: a.seen_at || new Date().toISOString() } : a)))
+    setAlertCounts((prev) => ({ ...prev, unseen: Math.max(0, (Number(prev.unseen) || 0) - (wasUnseen ? 1 : 0)) }))
+    api(`/fro/lead-alerts/${alert.id}/seen`, { method: 'POST', _prefix: 'ucs' }).catch(() => {})
+    navigate(`/fro/my-leads?alert=${alert.assignment_id}`)
+  }, [navigate])
 
 // An idle warning reaches this panel on the `fro:action` socket: either an admin
 // pressed Warn on the Telecaller Performance board, or the server's idle sweep
@@ -1017,6 +1119,16 @@ useEffect(() => onFroAction((action) => {
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <LeadAlertsBell
+              alerts={leadAlerts}
+              counts={alertCounts}
+              loading={alertLoading}
+              error={alertError}
+              pulse={alertPulse}
+              onOpen={openLeadAlert}
+              onViewAll={() => navigate('/fro/my-leads')}
+              onRefresh={loadLeadAlerts}
+            />
             <BirthdayPopup />
             <WorkAnniversaryPopup />
             <div onClick={openAki} title="Aaj Ka Incentive (AKI)" style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s' }}>
@@ -1068,6 +1180,12 @@ useEffect(() => onFroAction((action) => {
              onThemeChange={(key) => setThemeName(key)}
           />
         </header>
+        <LeadAlertToast
+          alert={toastAlert}
+          more={toastMore}
+          onOpen={openLeadAlert}
+          onDismiss={() => { toastVisibleRef.current = false; toastMoreRef.current = 0; setToastMore(0); setToastAlert(null) }}
+        />
         {impersonating && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>

@@ -10,6 +10,7 @@ import db from '../config/db.js';
 import { getLeadById } from '../models/leadModel.js';
 import { materializeReplyLead, scoreSsReply, stationFor, SS_STATIONS, ALL_LEAD_STATIONS, sourceKeyOf } from '../services/ssLeadService.js';
 import { aiScoreSsReply, SS_AI_VERSION } from '../services/ssLeadAiService.js';
+import { createLeadAlert } from '../services/leadAlertService.js';
 import { META_LEAD_SOURCE, ngoToAccount } from '../services/metaAdsService.js';
 
 // Both inbox sources share the same triage screen: a WhatsApp template reply
@@ -174,6 +175,24 @@ export const addSsReplyLeadToStation = async (req, res) => {
 
     const placed = await materializeReplyLead(placementLead, {});
     if (!placed.ok) return res.status(400).json({ message: placed.reason });
+
+    // A manual "Add to station" is the same event for the FRO as an automatic
+    // placement: ring the bell once, on a new assignment only.
+    if (!placed.merged && placed.froWorkerId) {
+      const rule = scoreSsReply(placementLead.notes);
+      await createLeadAlert({
+        workerId: placed.froWorkerId,
+        assignmentId: placed.assignmentId,
+        leadId: lead.id,
+        ngoId: placed.ngoId,
+        station: placed.station,
+        source: lead.source,
+        score: rule.score,
+        label: rule.label,
+        name: lead.name,
+        phone: lead.phone,
+      }).catch(() => {});
+    }
 
     return res.json({
       ...placed,

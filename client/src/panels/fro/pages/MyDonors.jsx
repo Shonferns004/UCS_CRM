@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue, getMyLeadLoans, getMyLeadLoanItems, getDataVisibility } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
@@ -425,18 +425,98 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
   const [selectedNgo, setSelectedNgo] = useState(savedView?.selectedNgo || null);
   // MY LEADS list view: the currently opened lead (null = showing the list).
   const [activeDonor, setActiveDonor] = useState(null);
+  // Deep link from the topbar bell: /fro/my-leads?alert=<assignmentId>.
+  // Opens that exact lead once the queue has loaded, then clears the param so a
+  // refresh does not reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // Whether the MY LEADS list includes donors the backend flagged as suppressed
   // (DND, donated this month, or already worked/closed). Default OFF so
   // the working stack stays clean, but every one of those donors is reachable in
   // one click and always counted — nothing is silently missing.
   const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
+
   // Filter icon next to the search box: hides the New/Old/SS + NGO/station row
   // until the FRO asks for it, so the header stays one clean line.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [waLeads, setWaLeads] = useState([]);
   const [showWaLeads, setShowWaLeads] = useState(false);
   const [waSource, setWaSource] = useState('whatsapp');
+
+  // Deep link from the topbar bell: /fro/my-leads?alert=<assignmentId>.
+  // Station leads (WhatsApp / Meta / Email) live in waLeads, not the normal
+  // donor queue, so the station list is fetched directly — the current tab
+  // filter must not hide the lead the FRO just clicked.
+  const handledAlertRef = useRef(null);
+  useEffect(() => {
+    const alertAssignment = Number(searchParams.get('alert'));
+    if (!alertAssignment) {
+      handledAlertRef.current = null;
+      return;
+    }
+    if (handledAlertRef.current === alertAssignment) return;
+    handledAlertRef.current = alertAssignment;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api('/fro/whatsapp-leads', { _prefix: 'ucs' });
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        const lead = list.find((x) => Number(x.id) === alertAssignment);
+
+        if (lead) {
+          setWaLeads(list);
+          setShowWaLeads(true);
+          setWaSource(lead.source || 'whatsapp');
+          setActiveDonor({
+            id: lead.donor_id,
+            ngo_id: lead.ngo_id,
+            donor_name: lead.name || '—',
+            donor_mobile: lead.phone,
+            station: lead.station || '',
+            status: 'pending',
+            is_new: true,
+            ngo_name: lead.ngo_name || '',
+            notes: lead.notes,
+            donor_city: '',
+            donor_type: '',
+            donor_email: '',
+            donor_address: '',
+            donor_pan: '',
+            donor_dob: '',
+            assignment_id: lead.id,
+          });
+          setSelected(null);
+          setNotes('');
+          setLeadAmount('');
+          return;
+        }
+
+        // Not a station lead: fall back to the normal donor queue.
+        const row = donors.find((d) => Number(d.assignment_id) === alertAssignment);
+        if (row) {
+          const found = donors.indexOf(row);
+          if (found >= 0) setIndex(found);
+          setActiveDonor({ ...row, _fromList: listView });
+          setSelected(null);
+          setNotes('');
+          setLeadAmount('');
+        }
+      } catch {
+        // Silent: the FRO still lands on My Leads and can find the lead.
+      } finally {
+        if (!cancelled) {
+          const next = new URLSearchParams(searchParams);
+          next.delete('alert');
+          setSearchParams(next, { replace: true });
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [searchParams, setSearchParams]);
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   // Leads-tab fallback: when (and only when) the whole pending queue is empty,
@@ -2103,20 +2183,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
       setSelected(null); setNotes(''); setLeadAmount('');
     };
 
-    // SS Leads tab: remove this lead from the FRO's own queue. Soft-delete —
-    // the donor record, the reply and its history stay intact; the assignment is
-    // parked as 'reassigned' so it never comes back on its own.
-    const removeSsLead = async (assignmentId) => {
-      if (!window.confirm('Remove this lead from your SS queue?')) return;
-      try {
-        await api(`/fro/ss-leads/${assignmentId}`, { method: 'DELETE', _prefix: 'ucs' });
-        setWaLeads((prev) => prev.filter((x) => x.id !== assignmentId));
-        toast('Lead removed', 'success');
-      } catch (e) {
-        toast(e?.message || 'Could not remove lead', 'error');
-      }
-    };
-
     return (
       <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(embedded ? { border: 'none' } : {}) }}>
         {/* Filter bar */}
@@ -2376,15 +2442,6 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                         <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: l.status === 'assigned' ? '#16a34a' : '#b45309', background: l.status === 'assigned' ? '#16a34a1a' : '#b453091a' }}>
                           {l.status === 'assigned' ? 'Assigned' : 'New'}
                         </span>
-                        <button
-                          type="button"
-                          title="Delete this lead from my SS queue"
-                          aria-label="Delete lead"
-                          onClick={(e) => { e.stopPropagation(); removeSsLead(l.id); }}
-                          style={{ width: 27, height: 27, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card-bg)', color: '#dc2626', display: 'inline-grid', placeItems: 'center', cursor: 'pointer' }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                        </button>
                       </div>
                     </div>
                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg)', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid var(--line)' }}>

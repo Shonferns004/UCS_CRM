@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import db from '../config/db.js';
+import { markAlertsSeenForDonor } from '../services/leadAlertService.js';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import {
   listFroSuspense, resolveSuspenseEntry, searchFroDispositions,
@@ -41,6 +42,9 @@ import {
   searchDonors,
   getMyDisposedLeads,
   getWhatsAppLeads,
+  getLeadAlerts,
+  getLeadAlertCount,
+  markLeadAlertSeen,
   deleteSsLead,
   updateLiveStatus,
   getLiveStatuses,
@@ -135,6 +139,11 @@ router.get('/queue/current', (req, res, next) => {
 });
 router.get('/transferred-leads', getTransferredLeads);
 router.get('/whatsapp-leads', getWhatsAppLeads);
+// Topbar bell: durable new-lead alerts for this FRO. /count is the cheap poll
+// fallback when the realtime socket is down.
+router.get('/lead-alerts', getLeadAlerts);
+router.get('/lead-alerts/count', getLeadAlertCount);
+router.post('/lead-alerts/:id/seen', markLeadAlertSeen);
 router.delete('/ss-leads/:id', deleteSsLead);
 router.put('/donors/:id/status', updateDonorStatus);
 router.put('/donors/:id/donor-type', updateDonorType);
@@ -152,6 +161,9 @@ router.put('/donors/:id/mark-seen', async (req, res) => {
     if (ngo_id) query = query.eq('ngo_id', ngo_id);
     const { error } = await query;
     if (error) throw error;
+    // Opening a lead from the queue is the same "seen" as opening it from the
+    // bell, so the alert badge clears either way.
+    void markAlertsSeenForDonor(req.user.id, donorId).catch(() => {});
     return res.json({ message: 'Marked as seen' });
   } catch (error) {
     return res.status(500).json({ message: error.message });

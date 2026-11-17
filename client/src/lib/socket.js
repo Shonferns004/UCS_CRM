@@ -272,6 +272,13 @@ export function onFroResume(handler) {
   s.on('fro:resume', handler)
   return () => s.off('fro:resume', handler)
 }
+// Targeted "a new lead just landed on your station" event. The server emits it
+// to `worker:<id>`, so only the owning FRO's bell rings.
+export function onLeadAlert(handler) {
+  const s = getSocket()
+  s.on('lead:new', handler)
+  return () => s.off('lead:new', handler)
+}
 export function onSocketConnect(handler) {
   const s = getSocket()
   s.on('connect', handler)
