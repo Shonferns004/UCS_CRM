@@ -8,11 +8,12 @@ import { AppError } from '../middleware/errorHandler.js'
 // preserving the edge function's semantics exactly, including its per-member
 // sent/error result shape that the admin panel branches on.
 
-// Credentials are intentionally hardcoded (team decision: no env vars for the
-// Gmail user/password). Fill in the 16-character app password below to enable
-// sends.
-const GMAIL_USER = 'library.sevak@gmail.com'
-const GMAIL_APP_PASSWORD = 'rxfbyualivpoayeo'
+// Sevak Library sends from its own Gmail account, deliberately separate from the
+// bulk-email sender (GMAIL_USER / GMAIL_APP_PASSWORD), which is the NGO
+// fundraising account. The literals below are the team-agreed defaults; the
+// LIBRARY_* env vars override them per environment without touching code.
+const GMAIL_USER = process.env.LIBRARY_GMAIL_USER || 'library.sevak@gmail.com'
+const GMAIL_APP_PASSWORD = process.env.LIBRARY_GMAIL_APP_PASSWORD || 'rxfbyualivpoayeo'
 const APP_URL = process.env.SEVAK_APP_URL || 'https://api.beingsevak.org/sevak-library'
 
 const transport = nodemailer.createTransport({

@@ -794,6 +794,7 @@ export default function FROPanel() {
   const [toastMore, setToastMore] = useState(0)
   const toastVisibleRef = useRef(false)
   const toastMoreRef = useRef(0)
+  const bellOpenRef = useRef(false)
   const knownAlertIdsRef = useRef(new Set())
   const poppedAlertIdsRef = useRef(new Set())
   const countsRef = useRef({ pending: 0, unseen: 0 })
@@ -833,7 +834,7 @@ export default function FROPanel() {
       // Socket is the fast path; this is the fallback for a dropped socket or a
       // tab that was in the background when the lead arrived. The first load of
       // a session never pops — only leads that appear while the screen is open.
-      if (notify && !firstLoadRef.current && fresh.length) {
+      if (notify && !firstLoadRef.current && fresh.length && !bellOpenRef.current) {
         setAlertPulse(true)
         setTimeout(() => setAlertPulse(false), 1600)
         popAlertToast(fresh[0], fresh.length - 1)
@@ -882,7 +883,9 @@ export default function FROPanel() {
     })
     setAlertPulse(true)
     setTimeout(() => setAlertPulse(false), 1600)
-    popAlertToast(alert, toastVisibleRef.current ? toastMoreRef.current + 1 : 0)
+    if (!bellOpenRef.current) {
+      popAlertToast(alert, toastVisibleRef.current ? toastMoreRef.current + 1 : 0)
+    }
   }), [popAlertToast])
 
   // Coming back to a backgrounded tab: the card may have fired and expired
@@ -890,7 +893,7 @@ export default function FROPanel() {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
-      if (toastVisibleRef.current) return
+      if (toastVisibleRef.current || bellOpenRef.current) return
       const newest = leadAlerts.find((a) => !a.seen_at && !poppedAlertIdsRef.current.has(a.id))
       if (newest) popAlertToast(newest, 0)
     }
@@ -1128,6 +1131,7 @@ useEffect(() => onFroAction((action) => {
               onOpen={openLeadAlert}
               onViewAll={() => navigate('/fro/my-leads')}
               onRefresh={loadLeadAlerts}
+              onOpenChange={(v) => { bellOpenRef.current = v }}
             />
             <BirthdayPopup />
             <WorkAnniversaryPopup />

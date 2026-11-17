@@ -39,7 +39,7 @@ export default function LeadAlertToast({ alert, more = 0, onOpen, onDismiss }) {
     <div
       role="status"
       style={{
-        position: 'fixed', top: 64, right: 16, zIndex: 960, width: 300, maxWidth: 'calc(100vw - 24px)',
+        position: 'fixed', top: 76, right: 16, zIndex: 3100, width: 300, maxWidth: 'calc(100vw - 24px)',
         background: 'var(--card-bg, #fff)', border: '1px solid var(--line, #e2e8f0)', borderRadius: 12,
         boxShadow: '0 18px 40px rgba(15,23,42,.18)', padding: '11px 12px',
         transformOrigin: 'top right',

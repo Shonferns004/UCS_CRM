@@ -17,6 +17,7 @@ import { API_BASE } from '../../../lib/apiBase';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { CONNECTED_QUICK, NOT_CONNECTED_QUICK, OTHERS_ID, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 import { istDateString, istDateTimeToIso } from '../utils/time';
+import { parseLeadNotes } from '../../../utils/leadNotes';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -2392,14 +2393,13 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                   <div style={{ fontSize: 12 }}>When the admin places a lead on your {waSource === 'meta' ? 'Meta' : waSource === 'email' ? 'Email' : 'WhatsApp'} station it appears here.</div>
                 </div>
               ) : shown.map((l) => {
-                const raw = String(l.notes || '');
-                const replyLines = raw.split('\n')
-                  .filter((x) => !x.startsWith('[Template:') && !x.startsWith('[Account:') && !x.startsWith('[Lead:'))
-                  .map((x) => x.trim())
-                  .filter(Boolean);
-                const msg = replyLines.length ? replyLines[replyLines.length - 1] : '';
-                const earlierCount = Math.max(0, replyLines.length - 1);
-                const acct = (raw.match(/\[Account:\s*([^\]]+)\]/) || [])[1] || '';
+                const parsed = parseLeadNotes(l.notes);
+                // Meta: every chosen answer, no question label and no inbox URL.
+                // WhatsApp: keep the latest reply plus the earlier-reply count.
+                const bodyLines = parsed.message.split('\n').map((x) => x.trim()).filter(Boolean);
+                const msg = parsed.isMeta ? parsed.message : (bodyLines[bodyLines.length - 1] || '');
+                const earlierCount = parsed.isMeta ? 0 : Math.max(0, bodyLines.length - 1);
+                const acct = parsed.account;
                 const acctName = l.ngo_name || (String(acct || '').toLowerCase().startsWith('bsct') ? 'BSCT' : String(acct || '').toLowerCase().startsWith('aflf') ? 'AFLF' : String(acct || '').toLowerCase().startsWith('mann') ? 'MANN' : (acct || ''));
                 const phone = String(l.phone || '').replace(/[^0-9]/g, '');
                  return (
@@ -2782,20 +2782,19 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               </div>
             </div>
 
-            {/^SS-/i.test(String(donor.station || '')) && donor.notes && (() => {
-              const lines = String(donor.notes)
-                .split('\n')
-                .filter((x) => !/^\[(Template|Account|Lead):/i.test(x.trim()))
-                .map((x) => x.trim())
-                .filter(Boolean);
-              const latest = lines[lines.length - 1] || '—';
-              const earlier = lines.slice(0, -1);
+            {(/^SS-/i.test(String(donor.station || '')) || /-Leads$/i.test(String(donor.station || ''))) && donor.notes && (() => {
+              const parsed = parseLeadNotes(donor.notes);
+              // Meta shows the chosen answer only; WhatsApp keeps the latest
+              // reply plus the earlier ones.
+              const lines = parsed.message.split('\n').map((x) => x.trim()).filter(Boolean);
+              const latest = parsed.isMeta ? parsed.message : (lines[lines.length - 1] || '—');
+              const earlier = parsed.isMeta ? [] : lines.slice(0, -1);
               return (
                 <div style={{ margin: '8px 12px 0', padding: '9px 11px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontSize: 11.5, lineHeight: 1.45 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', marginBottom: 3, opacity: .8 }}>
-                    WhatsApp reply{earlier.length ? ' · latest' : ''}
+                    {parsed.isMeta ? 'Form answer' : `WhatsApp reply${earlier.length ? ' · latest' : ''}`}
                   </div>
-                  <div style={{ fontWeight: 700 }}>{latest}</div>
+                  <div style={{ fontWeight: 700, whiteSpace: 'pre-wrap' }}>{latest}</div>
                   {earlier.length > 0 && (
                     <div style={{ marginTop: 4, fontSize: 10.5, opacity: .65 }}>
                       Earlier: {earlier.join(' · ')}

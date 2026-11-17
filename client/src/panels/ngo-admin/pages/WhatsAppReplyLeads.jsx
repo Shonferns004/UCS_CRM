@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles, Mail, Megaphone } from 'lucide-react';
 import { api } from '../../../api/auth';
+import { parseLeadNotes } from '../../../utils/leadNotes';
 
 const ACCOUNT_HUES = {
   bsct: '#2563eb', bsct2: '#2563eb', bsct3: '#2563eb',
@@ -15,18 +16,15 @@ const SUGGESTION = {
 };
 
 function parseNotes(notes) {
-  const text = String(notes || '');
-  const message = text
-    .split('\n')
-    .filter((l) => !/^\[(Template|Account|Lead|Meta Lead|Platform|Campaign|Form):/i.test(l.trim()))
-    .join('\n')
-    .trim();
-  const template = (text.match(/\[Template:\s*([^\]]+)\]/i) || [])[1] || '';
-  const account = (text.match(/\[Account:\s*([^\]]+)\]/i) || [])[1] || 'unknown';
-  const platform = (text.match(/\[Platform:\s*([^\]]+)\]/i) || [])[1] || '';
-  const campaign = (text.match(/\[Campaign:\s*([^\]]+)\]/i) || [])[1] || '';
-  const form = (text.match(/\[Form:\s*([^\]]+)\]/i) || [])[1] || '';
-  return { message, template, account, platform, campaign, form };
+  const parsed = parseLeadNotes(notes);
+  return {
+    message: parsed.message,
+    template: parsed.template,
+    account: parsed.account,
+    platform: parsed.platform,
+    campaign: parsed.campaign,
+    form: parsed.form,
+  };
 }
 
 const isMetaLead = (lead) => lead?.source === 'Meta Lead Ad';

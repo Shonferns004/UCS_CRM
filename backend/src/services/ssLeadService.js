@@ -110,28 +110,55 @@ const META_INTENT_RULES = [
 ];
 
 // Geography and CRM bookkeeping are not buying signals.
-const META_ANSWER_SKIP = /^(state|inbox url|city|town|platform|campaign|form|account|meta lead|lead|page|ad|adset)$/i;
+const META_ANSWER_SKIP = /^(state|inbox url|inbox_url|inboxurl|city|town|platform|campaign|form|account|meta lead|lead|page|ad|adset)$/i;
+
+const META_YES = /^(yes|y|haan|ha|sure|ok|okay)$/i;
+const META_NO = /^(no|n|nahi|not\s*interested|maybe\s*later)$/i;
+// A question can ask about donating without using one of the option slugs
+// ("Would you like to donate today?"). Receipt/document questions are not new
+// donations, so they are excluded.
+const META_DONATION_QUESTION = /\bdonat(e|ion|ing)\b/i;
+const META_SERVICE_QUESTION = /receipt|80\s*g|pan\s*number|already\s*donated|address/i;
 
 export function scoreMetaLead(notes) {
   const text = String(notes || '');
-  const answers = [];
+  // Keep the pair together: the question tells us what a bare "Yes" means.
+  const pairs = [];
   for (const line of text.split('\n')) {
     const match = /^([^:[\]]{2,120}):\s*(.+)$/.exec(line.trim());
     if (!match) continue;
     if (META_ANSWER_SKIP.test(match[1].trim())) continue;
-    answers.push(match[2].trim());
+    pairs.push({ question: match[1].trim(), answer: match[2].trim() });
   }
 
   let score = 35;
-  let reason = answers.length ? 'No buying signal in the form answers' : 'Form had no custom answers';
+  let reason = pairs.length ? 'No buying signal in the form answers' : 'Form had no custom answers';
   let best = null;
-  for (const value of answers) {
+  const consider = (rule) => {
+    if (!best || rule.score > best.score) best = rule;
+  };
+
+  for (const { question, answer } of pairs) {
+    let matched = false;
     for (const rule of META_INTENT_RULES) {
-      if (!rule.re.test(value)) continue;
-      if (!best || rule.score > best.score) best = rule;
+      if (!rule.re.test(answer)) continue;
+      consider(rule);
+      matched = true;
       break;
     }
+    if (matched) continue;
+
+    // A form can ask "Would you like to donate?" and the answer is just "Yes".
+    // Without the question, that answer carries no signal at all.
+    const questionRule = META_INTENT_RULES.find((rule) => rule.re.test(question))
+      || (META_DONATION_QUESTION.test(question) && !META_SERVICE_QUESTION.test(question)
+        ? META_INTENT_RULES[0]
+        : null);
+    if (!questionRule) continue;
+    if (META_YES.test(answer)) consider(questionRule);
+    else if (META_NO.test(answer)) consider({ score: 15, reason: 'Declined in the form' });
   }
+
   if (best) {
     score = best.score;
     reason = best.reason;
