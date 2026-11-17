@@ -40,6 +40,8 @@ const SKIP_ANSWER_FIELDS = new Set([
   'last_name', 'last name', 'lastname', 'phone_number', 'phone', 'phone no',
   'mobile', 'mobile_number', 'whatsapp_number', 'whatsapp', 'contact_number',
   'contact', 'email', 'email_address', 'e-mail',
+  // The Facebook business inbox link is not an answer and the FRO cannot use it.
+  'inbox_url', 'inbox url', 'inboxurl',
 ]);
 
 export function buildMetaLeadNotes(leadData = {}, mapping = null) {

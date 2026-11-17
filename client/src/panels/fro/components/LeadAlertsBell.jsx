@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Inbox, RefreshCw } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -99,14 +100,42 @@ export default function LeadAlertsBell({
   onOpen,
   onViewAll,
   onRefresh,
+  onOpenChange,
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const panelRef = useRef(null);
+  const [pos, setPos] = useState({ top: 0, right: 16 });
+
+  // Anchor the panel to the button's real bottom edge. The old absolute
+  // `calc(100% + 8px)` was measured against the 32px button, so the panel
+  // started inside the 64px topbar and covered the navigation.
+  const placePanel = useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setPos({ top: Math.round(r.bottom + 8), right: Math.max(8, Math.round(window.innerWidth - r.right)) });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    placePanel();
+    const reposition = () => placePanel();
+    window.addEventListener('resize', reposition);
+    // Capture catches scrolls inside the content area too, not just the window.
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [open, placePanel]);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+      const target = e.target;
+      if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
@@ -117,6 +146,11 @@ export default function LeadAlertsBell({
     };
   }, [open]);
 
+  // Let the panel suppress its own arrival card while the list is already open.
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
+
   const unseen = Number(counts?.unseen) || 0;
   const pending = Number(counts?.pending) || 0;
   const badge = unseen > 0 ? unseen : pending;
@@ -124,11 +158,13 @@ export default function LeadAlertsBell({
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button
+        ref={btnRef}
         type="button"
         aria-label="New lead alerts"
         title="New leads"
         onClick={() => {
           const next = !open;
+          if (next) placePanel();
           setOpen(next);
           if (next) onRefresh?.();
         }}
@@ -142,11 +178,14 @@ export default function LeadAlertsBell({
         {badge > 0 && <Badge value={badge} color={unseen > 0 ? '#dc2626' : '#b45309'} />}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
+          ref={panelRef}
           style={{
-            position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 360,
-            maxWidth: '92vw', maxHeight: 420, overflowY: 'auto', zIndex: 950,
+            position: 'fixed', top: pos.top, right: pos.right, width: 360,
+            maxWidth: 'calc(100vw - 16px)',
+            maxHeight: `calc(100vh - ${pos.top + 12}px)`,
+            overflowY: 'auto', zIndex: 3000,
             background: 'var(--card-bg, #fff)', border: '1px solid var(--line, #e2e8f0)',
             borderRadius: 12, boxShadow: '0 18px 40px rgba(15,23,42,.16)',
           }}
@@ -205,7 +244,8 @@ export default function LeadAlertsBell({
           >
             View all in My Leads →
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <style>{`

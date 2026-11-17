@@ -79,6 +79,24 @@ test('a joined answer takes the strongest intent', () => {
   assert.equal(scoreMetaLead(metaNotes('make_a_donation|learn_more_about_our_ngo')).score, 95);
 });
 
+test('a bare Yes/No answer is read against its question', () => {
+  const withQuestion = (question, answer) => metaNotes('')
+    .replace(/How Would.*\n?/, `${question}: ${answer}\n`);
+
+  assert.equal(scoreMetaLead(withQuestion('Would you like to donate today?', 'Yes')).score, 95);
+  assert.equal(scoreMetaLead(withQuestion('Would you like to donate today?', 'No')).score, 15);
+  assert.equal(scoreMetaLead(withQuestion('Can we call you for volunteering?', 'Yes')).score, 60);
+  // A receipt / 80G question is service, not a new donation.
+  assert.equal(scoreMetaLead(withQuestion('Do you need an 80G receipt?', 'Yes')).score, 35);
+});
+
+test('the inbox URL never counts as an answer', () => {
+  const notes = metaNotes('').replace(/How Would.*\n?/, '');
+  const result = scoreMetaLead(notes);
+  assert.equal(result.score, 35);
+  assert.equal(result.reasons[0], 'Form had no custom answers');
+});
+
 test('geography and bookkeeping lines never score as intent', () => {
   const notes = metaNotes('').replace(/How Would.*\n?/, '');
   assert.equal(scoreMetaLead(notes).score, 35);
