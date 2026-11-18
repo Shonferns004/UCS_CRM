@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 import db from '../config/db.js';
 import crypto from 'crypto';
+import { isValidIndianMobile } from '../utils/phone.js';
 
 // Legacy station names. Kept so an un-migrated row still resolves while the
 // rename is rolling out; new placements use LEAD_STATIONS only.
@@ -120,9 +121,8 @@ const META_NO = /^(no|n|nahi|not\s*interested|maybe\s*later)$/i;
 const META_DONATION_QUESTION = /\bdonat(e|ion|ing)\b/i;
 const META_SERVICE_QUESTION = /receipt|80\s*g|pan\s*number|already\s*donated|address/i;
 
-export function scoreMetaLead(notes) {
+export function metaAnswerPairs(notes) {
   const text = String(notes || '');
-  // Keep the pair together: the question tells us what a bare "Yes" means.
   const pairs = [];
   for (const line of text.split('\n')) {
     const match = /^([^:[\]]{2,120}):\s*(.+)$/.exec(line.trim());
@@ -130,6 +130,12 @@ export function scoreMetaLead(notes) {
     if (META_ANSWER_SKIP.test(match[1].trim())) continue;
     pairs.push({ question: match[1].trim(), answer: match[2].trim() });
   }
+  return pairs;
+}
+
+export function scoreMetaLead(notes) {
+  // Keep the pair together: the question tells us what a bare "Yes" means.
+  const pairs = metaAnswerPairs(notes);
 
   let score = 35;
   let reason = pairs.length ? 'No buying signal in the form answers' : 'Form had no custom answers';
@@ -258,8 +264,8 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
   const ngoName = ngoFromAccount(lead.notes);
   if (!ngoName) return { ok: false, reason: 'Reply has no NGO [Account:] tag' };
 
+  if (!isValidIndianMobile(lead.phone)) return { ok: false, reason: 'Reply has no valid Indian mobile' };
   const mobile = m10(lead.phone);
-  if (mobile.length !== 10) return { ok: false, reason: 'Reply has no valid 10-digit mobile' };
 
   const station = stationFor(ngoName, lead.source) || SS_STATIONS[ngoName];
   const { rows: ngoRows } = await run('select id from ngos where upper(name) = $1 limit 1', [ngoName]);

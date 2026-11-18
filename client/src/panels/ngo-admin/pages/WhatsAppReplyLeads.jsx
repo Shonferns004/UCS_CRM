@@ -48,6 +48,13 @@ const platformMeta = (platform, sourceKey) => {
   return { label: 'Facebook', color: '#0866FF', bg: '#e7f0ff' };
 };
 
+const isValidIndianMobile = (value) => {
+  const digits = String(value || '').replace(/[^0-9]/g, '');
+  return digits.length === 10
+    || (digits.length === 12 && digits.startsWith('91'))
+    || (digits.length === 11 && digits.startsWith('0'));
+};
+
 function ngoNameOf(account) {
   const key = String(account || '').toLowerCase();
   if (key.startsWith('bsct')) return 'BSCT';
@@ -99,6 +106,7 @@ export default function WhatsAppReplyLeads() {
   const [ngoFilter, setNgoFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  const [placingUnplaced, setPlacingUnplaced] = useState(false);
   const [tab, setTab] = useState('inbox');
   // Bulk-email campaigns live in the normal leads table, not the station queue,
   // so that tab has its own loader, search and reply poll.
@@ -241,6 +249,25 @@ export default function WhatsAppReplyLeads() {
     }
   };
 
+  const placeUnplacedMeta = async () => {
+    if (placingUnplaced) return;
+    setPlacingUnplaced(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await api('/meta-ads/leads/place-unplaced', {
+        method: 'POST',
+        body: JSON.stringify({ days: 180, limit: 500 }),
+      });
+      await load();
+      setNotice(`Placed ${res.placed || 0} lead(s)${res.skipped ? ` · ${res.skipped} skipped (invalid phone)` : ''}`);
+    } catch (e) {
+      setError(e?.message || 'Could not place leads');
+    } finally {
+      setPlacingUnplaced(false);
+    }
+  };
+
   const runAi = async () => {
     if (aiBusy) return;
     setAiBusy(true);
@@ -362,6 +389,17 @@ export default function WhatsAppReplyLeads() {
                   <Sparkles size={14} />
                   {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
                 </button>
+                {source === 'meta' && (
+                  <button
+                    onClick={placeUnplacedMeta}
+                    disabled={placingUnplaced}
+                    title="Place every Meta lead that is not on a station yet (valid phone only)"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: placingUnplaced ? 'default' : 'pointer', color: 'var(--ink, #0f172a)', opacity: placingUnplaced ? .7 : 1 }}
+                  >
+                    <Plus size={14} />
+                    {placingUnplaced ? 'Placing…' : 'Place unplaced'}
+                  </button>
+                )}
                 <button
                   onClick={load}
                   disabled={loading}
@@ -600,7 +638,7 @@ export default function WhatsAppReplyLeads() {
                   style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: 190, color: 'var(--ink, #0f172a)' }}
                 />
               </div>
-              {tab === 'inbox' && shown.length > 0 && (
+              {tab === 'inbox' && shown.length > 0 && source !== 'meta' && (
                 <button
                   onClick={addAllShown}
                   disabled={bulkBusy}
@@ -678,7 +716,7 @@ export default function WhatsAppReplyLeads() {
                         </td>
                         <td style={{ padding: '10px 14px' }}>{suggestionPill(lead.suggestion)}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {tab === 'inbox' ? (
+                          {tab === 'inbox' && leadSource !== 'meta' ? (
                             <button
                               onClick={() => addToStation(lead)}
                               disabled={adding === lead.id}
@@ -687,6 +725,16 @@ export default function WhatsAppReplyLeads() {
                               <Plus size={12} />
                               {adding === lead.id ? 'Adding…' : 'Add to station'}
                             </button>
+                          ) : leadSource === 'meta' && !lead.in_station ? (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999,
+                              fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap',
+                              color: isValidIndianMobile(lead.phone) ? '#b45309' : '#b91c1c',
+                              background: isValidIndianMobile(lead.phone) ? '#fef3c7' : '#fee2e2',
+                              border: `1px solid ${isValidIndianMobile(lead.phone) ? '#fcd34d' : '#fca5a5'}`,
+                            }}>
+                              {isValidIndianMobile(lead.phone) ? 'Auto-place pending' : 'Invalid phone'}
+                            </span>
                           ) : (
                             <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>On station</span>
                           )}
@@ -705,7 +753,11 @@ export default function WhatsAppReplyLeads() {
                   {!shown.length && (
                     <tr>
                       <td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft, #64748b)' }}>
-                        {loading ? 'Loading leads…' : tab === 'inbox' ? 'Inbox is clear for this filter.' : 'Nothing on station for this filter yet.'}
+                        {loading ? 'Loading leads…' : tab === 'inbox'
+                          ? (source === 'meta'
+                            ? 'No Meta leads waiting. Every valid number is placed automatically; only invalid phone numbers stay here.'
+                            : 'Inbox is clear for this filter.')
+                          : 'Nothing on station for this filter yet.'}
                       </td>
                     </tr>
                   )}
