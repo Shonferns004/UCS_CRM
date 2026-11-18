@@ -22,6 +22,7 @@ import {
   normalizePageIds,
   ngoFromName,
   leadAnswers,
+  resolveCampaignNames,
   setSyncState,
   subscribePageWebhook,
   syncInsights,
@@ -39,6 +40,9 @@ import {
   pollMetaLeadForms,
   processMetaWebhookPayload,
 } from '../services/metaLeadIngestService.js';
+import { placeUnplacedMetaLeads } from '../services/leadIntakeService.js';
+import { metaAnswerPairs, scoreSsReply } from '../services/ssLeadService.js';
+import { istDateString } from '../utils/ist.js';
 
 const daysOf = (value, fallback = 30) => Math.min(Math.max(parseInt(value, 10) || fallback, 1), 365);
 
@@ -183,11 +187,86 @@ export async function listMetaCampaigns(req, res) {
       }));
     }
 
-    return res.json(perf.map((p) => ({
+    // No ad account / no insight rows: build the campaign list from the leads
+    // we actually ingested, so the table is not empty and the counts match.
+    const { rows: leadRows } = await db._pool.query(
+      `select l.meta_campaign_id as campaign_id,
+              max(nullif(l.meta_campaign_name, '')) as lead_name,
+              max(nullif(e.campaign_name, '')) as event_name,
+              count(*)::int as crm_leads
+         from leads l
+         left join meta_lead_events e on e.meta_lead_id = l.meta_lead_id
+        where l.source = $1
+          and l.meta_campaign_id is not null
+          and l.created_at >= now() - ($2::int || ' days')::interval
+        group by 1`,
+      [META_LEAD_SOURCE, days],
+    );
+
+    const byId = new Map();
+    for (const p of perf) byId.set(String(p.campaign_id), { ...p });
+    for (const row of leadRows) {
+      const id = String(row.campaign_id);
+      const cur = byId.get(id) || {
+        campaign_id: id,
+        campaign_name: '',
+        status: null,
+        spend: null,
+        impressions: null,
+        clicks: null,
+        ctr: null,
+        cpc: null,
+        cpl: null,
+        meta_leads: 0,
+        crm_leads: 0,
+      };
+      cur.campaign_name = cur.campaign_name || row.lead_name || row.event_name || '';
+      cur.crm_leads = Math.max(Number(cur.crm_leads) || 0, Number(row.crm_leads) || 0);
+      if (!cur.meta_leads) cur.meta_leads = cur.crm_leads;
+      byId.set(id, cur);
+    }
+
+    const rowsOut = [...byId.values()];
+    // Last resort: ask Graph for the name of any campaign still showing an id.
+    // Silent without ads_read; the id stays as the label.
+    const missing = rowsOut
+      .filter((r) => !r.campaign_name || /^\d+$/.test(String(r.campaign_name)))
+      .map((r) => r.campaign_id);
+    if (missing.length) {
+      const names = await resolveCampaignNames(missing);
+      for (const row of rowsOut) {
+        const name = names.get(String(row.campaign_id));
+        if (name) row.campaign_name = name;
+      }
+      // Persist what Graph just told us so the next load is instant and the
+      // lead stream / FRO notes pick the name up too.
+      const entries = [...names.entries()];
+      if (entries.length) {
+        const values = entries.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::text)`).join(',');
+        const params = entries.flat();
+        await db._pool.query(
+          `update leads l set meta_campaign_name = v.name
+             from (values ${values}) as v(campaign_id, name)
+            where l.meta_campaign_id = v.campaign_id
+              and coalesce(l.meta_campaign_name, '') = ''`,
+          params,
+        ).catch(() => {});
+        await db._pool.query(
+          `update meta_lead_events e set campaign_name = v.name
+             from (values ${values}) as v(campaign_id, name)
+            where e.campaign_id = v.campaign_id
+              and coalesce(e.campaign_name, '') = ''`,
+          params,
+        ).catch(() => {});
+      }
+    }
+
+    return res.json(rowsOut.map((p) => ({
       ...p,
       id: p.campaign_id,
-      name: p.campaign_name,
-      status: null,
+      name: p.campaign_name || String(p.campaign_id),
+      campaign_name: p.campaign_name || String(p.campaign_id),
+      status: p.status || null,
     })));
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -362,7 +441,32 @@ export async function saveMetaForm(req, res) {
     if (error) throw error;
 
     const remapped = await remapFormLeads(formId, account);
-    return res.json({ ...data, mapped: Boolean(ngo), remapped });
+
+    // A mapping change must move the form's existing unplaced leads too, or the
+    // admin still has to place them by hand after mapping. Silent: these can be
+    // old leads and should not ring every FRO's bell.
+    let placed = 0;
+    if (ngo && active) {
+      const result = await placeUnplacedMetaLeads({ formId, days: 180, limit: 200, silent: true })
+        .catch(() => ({ placed: 0 }));
+      placed = Number(result?.placed) || 0;
+    }
+
+    return res.json({ ...data, mapped: Boolean(ngo), remapped, placed });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function placeUnplacedMetaLeadsHandler(req, res) {
+  try {
+    const result = await placeUnplacedMetaLeads({
+      formId: req.body?.form_id ? String(req.body.form_id) : null,
+      days: daysOf(req.body?.days, 90),
+      limit: Math.min(Math.max(parseInt(req.body?.limit, 10) || 500, 1), 2000),
+      silent: true,
+    });
+    return res.json(result);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -536,6 +640,131 @@ export async function autoMapMetaForms(req, res) {
 // One row per captured Meta lead, with the custom form answers flattened so the
 // panel can show what the CSV export shows: state, association choice, inbox
 // link. Filters are optional and additive.
+// Lead-first analytics for the ads panel. Spend/impressions/clicks only exist
+// when an ad account is connected; leads, answers, intent and station placement
+// always do. Aggregating here keeps the UI honest on a lead-only account.
+export async function getMetaLeadAnalytics(req, res) {
+  try {
+    const days = daysOf(req.query.days, 30);
+    const { rows } = await db._pool.query(
+      `select l.id, l.created_at,
+              lower(coalesce(l.meta_platform, '')) as platform,
+              l.meta_campaign_id, l.meta_campaign_name, l.meta_form_id, l.notes,
+              f.form_name, f.ngo,
+              exists (
+                select 1 from fro_assignments a
+                 where a.notes like '%[Lead:' || l.id::text || ']%'
+                   and (a.status is null or a.status <> 'reassigned')
+              ) as placed
+         from leads l
+         left join meta_lead_forms f on f.form_id = l.meta_form_id
+        where l.source = $1
+          and l.created_at >= now() - ($2::int || ' days')::interval
+        order by l.created_at asc`,
+      [META_LEAD_SOURCE, days],
+    );
+
+    const totals = {
+      leads: 0, facebook: 0, instagram: 0, unknown_platform: 0,
+      interested: 0, review: 0, low: 0,
+      placed: 0, mapped: 0, avg_score: 0,
+    };
+    const byDate = new Map();
+    const byCampaign = new Map();
+    const byForm = new Map();
+    const byNgo = new Map();
+    const byAnswer = new Map();
+    let scoreSum = 0;
+
+    const bump = (map, key, init) => {
+      let cur = map.get(key);
+      if (!cur) { cur = init(); map.set(key, cur); }
+      return cur;
+    };
+
+    for (const row of rows) {
+      const score = scoreSsReply(row.notes);
+      const label = ['interested', 'review', 'low'].includes(score.label) ? score.label : 'review';
+      const platform = row.platform === 'fb' ? 'facebook' : row.platform === 'ig' ? 'instagram' : 'unknown_platform';
+      const date = istDateString(row.created_at ? new Date(row.created_at) : new Date());
+      const placed = row.placed ? 1 : 0;
+      const campaignId = String(row.meta_campaign_id || '');
+      const formId = String(row.meta_form_id || '');
+
+      totals.leads += 1;
+      totals[platform] += 1;
+      totals[label] += 1;
+      totals.placed += placed;
+      scoreSum += Number(score.score) || 0;
+      if (row.ngo) totals.mapped += 1;
+
+      const day = bump(byDate, date, () => ({ date, leads: 0, hot: 0, placed: 0, facebook: 0, instagram: 0 }));
+      day.leads += 1;
+      if (label === 'interested') day.hot += 1;
+      day.placed += placed;
+      if (platform === 'facebook') day.facebook += 1;
+      if (platform === 'instagram') day.instagram += 1;
+
+      if (campaignId) {
+        const cur = bump(byCampaign, campaignId, () => ({
+          campaign_id: campaignId,
+          campaign_name: row.meta_campaign_name || '',
+          leads: 0, hot: 0, placed: 0,
+        }));
+        if (!cur.campaign_name && row.meta_campaign_name) cur.campaign_name = row.meta_campaign_name;
+        cur.leads += 1;
+        if (label === 'interested') cur.hot += 1;
+        cur.placed += placed;
+      }
+
+      if (formId) {
+        const cur = bump(byForm, formId, () => ({
+          form_id: formId, form_name: row.form_name || '', ngo: row.ngo || '',
+          leads: 0, hot: 0, placed: 0,
+        }));
+        cur.leads += 1;
+        if (label === 'interested') cur.hot += 1;
+        cur.placed += placed;
+      }
+
+      const ngoKey = row.ngo || 'Unmapped';
+      const ngoRow = bump(byNgo, ngoKey, () => ({ ngo: ngoKey, leads: 0, placed: 0 }));
+      ngoRow.leads += 1;
+      ngoRow.placed += placed;
+
+      for (const { question, answer } of metaAnswerPairs(row.notes)) {
+        if (!answer) continue;
+        const cur = bump(byAnswer, `${question}|${answer}`, () => ({ question, answer, count: 0 }));
+        cur.count += 1;
+      }
+    }
+
+    totals.avg_score = totals.leads ? Math.round((scoreSum / totals.leads) * 10) / 10 : 0;
+
+    // Fill every day in the window so the chart has a continuous x-axis.
+    const series = [];
+    const today = new Date();
+    for (let i = days - 1; i >= 0; i -= 1) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = istDateString(d);
+      series.push(byDate.get(key) || { date: key, leads: 0, hot: 0, placed: 0, facebook: 0, instagram: 0 });
+    }
+
+    return res.json({
+      days,
+      totals,
+      series,
+      by_campaign: [...byCampaign.values()].sort((a, b) => b.leads - a.leads),
+      by_form: [...byForm.values()].sort((a, b) => b.leads - a.leads),
+      by_ngo: [...byNgo.values()].sort((a, b) => b.leads - a.leads),
+      by_answer: [...byAnswer.values()].sort((a, b) => b.count - a.count).slice(0, 15),
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
 export async function listMetaLeads(req, res) {
   try {
     const days = daysOf(req.query.days, 30);
@@ -567,7 +796,7 @@ export async function listMetaLeads(req, res) {
     const { rows } = await db._pool.query(
       `select l.id, l.name, l.phone, l.email, l.notes, l.meta_platform, l.meta_form_id,
               l.meta_campaign_id, l.meta_campaign_name, l.meta_lead_id, l.created_at,
-              f.form_name, f.ngo, f.account, e.payload,
+              f.form_name, f.ngo, f.account, e.payload, e.campaign_name as event_campaign_name,
               count(*) over()::int as total
          from leads l
          left join meta_lead_forms f on f.form_id = l.meta_form_id
@@ -587,6 +816,13 @@ export async function listMetaLeads(req, res) {
       total: rows[0]?.total || 0,
       rows: rows.map((r) => {
         const answers = leadAnswers(r.payload, r.notes);
+        // Older ingests stored only the campaign id; fall back through the
+        // event row and the notes tag before giving up.
+        const notesCampaign = (String(r.notes || '').match(/\[Campaign:\s*([^\]]+)\]/i) || [])[1] || '';
+        const campaignName = r.meta_campaign_name
+          || r.event_campaign_name
+          || (/^\d+$/.test(notesCampaign.trim()) ? '' : notesCampaign.trim())
+          || '';
         return {
           id: r.id,
           name: r.name || '',
@@ -596,7 +832,7 @@ export async function listMetaLeads(req, res) {
           form_id: r.meta_form_id || '',
           form_name: r.form_name || '',
           campaign_id: r.meta_campaign_id || r.payload?.campaign_id || '',
-          campaign_name: r.meta_campaign_name || '',
+          campaign_name: campaignName,
           ad_id: r.payload?.ad_id || '',
           is_organic: r.payload?.is_organic == null
             ? null

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '../api/auth';
 import { API_BASE } from '../../../lib/apiBase';
+import { humanizeAnswer } from '../../../utils/leadNotes';
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
 
 const NGOS = ['BSCT', 'AFLF', 'MANN'];
@@ -182,6 +183,7 @@ export default function MetaAdsTab() {
   const [status, setStatus] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
   const [funnel, setFunnel] = useState(null);
   const [forms, setForms] = useState([]);
   const [drafts, setDrafts] = useState({});
@@ -212,7 +214,7 @@ export default function MetaAdsTab() {
     setLoading(true);
     setError('');
     try {
-      const [st, cm, sm, fn, fm, wp, mc] = await Promise.all([
+      const [st, cm, sm, fn, fm, wp, mc, an] = await Promise.all([
         safeGet('/meta-ads/status', null),
         safeGet(`/meta-ads/campaigns?days=${days}`, []),
         safeGet(`/meta-ads/insights/summary?days=${days}`, null),
@@ -220,11 +222,13 @@ export default function MetaAdsTab() {
         safeGet('/meta-ads/forms', []),
         safeGet('/meta-ads/webhook/pages', { pages: [] }),
         safeGet('/meta-ads/config', null),
+        safeGet(`/meta-ads/analytics?days=${days}`, null),
       ]);
       setStatus(st);
       setCampaigns(Array.isArray(cm) ? cm : []);
       setSummary(sm);
       setFunnel(fn);
+      setAnalytics(an);
       setForms(Array.isArray(fm) ? fm : []);
       setWebhookPages(Array.isArray(wp?.pages) ? wp.pages : []);
       setMetaConfig(mc);
@@ -277,12 +281,55 @@ export default function MetaAdsTab() {
   useEffect(() => { loadWebhookEvents(); }, [loadWebhookEvents]);
 
   const totals = summary?.totals || {};
-  const series = useMemo(() => (Array.isArray(summary?.series) ? summary.series : []).map((r) => ({
-    date: String(r.date || '').slice(5),
-    spend: n(r.spend),
-    meta_leads: n(r.meta_leads),
-    crm_leads: n(r.crm_leads),
-  })), [summary]);
+  const analyticsTotals = analytics?.totals || {};
+  const analyticsSeries = useMemo(
+    () => (Array.isArray(analytics?.series) ? analytics.series : []),
+    [analytics],
+  );
+  const topAnswers = useMemo(
+    () => (Array.isArray(analytics?.by_answer) ? analytics.by_answer : []),
+    [analytics],
+  );
+  const analyticsByCampaign = useMemo(() => {
+    const map = new Map();
+    for (const row of analytics?.by_campaign || []) map.set(String(row.campaign_id), row);
+    return map;
+  }, [analytics]);
+  const analyticsByNgo = useMemo(
+    () => (Array.isArray(analytics?.by_ngo) ? analytics.by_ngo : []),
+    [analytics],
+  );
+
+  // Leads come from the analytics endpoint every day, so the chart is useful
+  // even on a lead-only account. Spend is overlaid when insights exist.
+  const series = useMemo(() => {
+    const spendByDate = new Map(
+      (Array.isArray(summary?.series) ? summary.series : []).map((r) => [String(r.date || '').slice(0, 10), r]),
+    );
+    const base = analyticsSeries.length
+      ? analyticsSeries.map((r) => ({
+        date: String(r.date),
+        leads: n(r.leads),
+        hot: n(r.hot),
+        placed: n(r.placed),
+      }))
+      : (Array.isArray(summary?.series) ? summary.series : []).map((r) => ({
+        date: String(r.date || '').slice(0, 10),
+        leads: n(r.crm_leads),
+        hot: 0,
+        placed: 0,
+      }));
+    return base.map((r) => {
+      const spent = spendByDate.get(String(r.date)) || {};
+      return {
+        date: String(r.date).slice(5),
+        spend: n(spent.spend),
+        leads: n(r.leads),
+        hot: n(r.hot),
+        placed: n(r.placed),
+      };
+    });
+  }, [summary, analyticsSeries]);
 
   const runAction = async (label, path, body = {}) => {
     if (busy) return;
@@ -302,6 +349,24 @@ export default function MetaAdsTab() {
       await loadLeads();
     } catch (e) {
       setError(e?.message || 'Action failed');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const placeUnplaced = async () => {
+    if (busy) return;
+    setBusy('place');
+    setError('');
+    setNotice('');
+    try {
+      const res = await apiPost('/meta-ads/leads/place-unplaced', { days, limit: 500 });
+      const skipped = Number(res.skipped) || 0;
+      setNotice(`Placed ${res.placed || 0} unplaced lead(s)${skipped ? `, ${skipped} skipped (invalid phone)` : ''}.`);
+      await load();
+      await loadLeads();
+    } catch (e) {
+      setError(e?.message || 'Could not place unplaced leads');
     } finally {
       setBusy('');
     }
@@ -561,45 +626,79 @@ export default function MetaAdsTab() {
     .slice(0, 6), [forms, leadCountByForm]);
 
   const campaignRows = useMemo(() => {
-    if (campaigns.length) return campaigns;
-    const map = new Map();
-    for (const lead of leadRows) {
-      const id = lead.campaign_id || 'unknown';
-      const row = map.get(id) || {
-        campaign_id: id,
-        campaign_name: lead.campaign_name || '',
-        meta_leads: 0,
-        crm_leads: 0,
-      };
-      row.meta_leads += 1;
-      row.crm_leads += 1;
-      map.set(id, row);
+    let base = campaigns;
+    if (!base.length) {
+      const map = new Map();
+      for (const lead of leadRows) {
+        const id = lead.campaign_id || 'unknown';
+        const row = map.get(id) || {
+          campaign_id: id,
+          campaign_name: lead.campaign_name || '',
+          meta_leads: 0,
+          crm_leads: 0,
+        };
+        row.meta_leads += 1;
+        row.crm_leads += 1;
+        map.set(id, row);
+      }
+      base = [...map.values()];
     }
-    return [...map.values()];
-  }, [campaigns, leadRows]);
+    return base.map((row) => {
+      const a = analyticsByCampaign.get(String(row.campaign_id || row.id)) || {};
+      const leads = Number(a.leads) || Number(row.crm_leads) || 0;
+      const hot = Number(a.hot) || 0;
+      const placed = Number(a.placed) || 0;
+      return {
+        ...row,
+        hot,
+        placed,
+        leads,
+        place_rate: leads > 0 ? placed / leads : 0,
+      };
+    });
+  }, [campaigns, leadRows, analyticsByCampaign]);
 
   const fbPct = leadStats.total ? Math.round((leadStats.facebook / leadStats.total) * 1000) / 10 : 0;
   const igPct = leadStats.total ? Math.round((leadStats.instagram / leadStats.total) * 1000) / 10 : 0;
-  const funnelMax = Math.max(
-    funnel?.impressions || 0,
-    funnel?.clicks || 0,
-    funnel?.meta_leads || 0,
-    funnel?.crm_leads || 0,
-    funnel?.placed_leads || 0,
-    1,
-  );
+  const analyticsLeads = Number(analyticsTotals.leads) || leadStats.total;
+  const analyticsPlaced = Number(analyticsTotals.placed) || Number(funnel?.placed_leads) || 0;
+  const funnelMax = insightsReady
+    ? Math.max(
+      funnel?.impressions || 0,
+      funnel?.clicks || 0,
+      funnel?.meta_leads || 0,
+      funnel?.crm_leads || 0,
+      funnel?.placed_leads || 0,
+      1,
+    )
+    : Math.max(analyticsLeads, Number(analyticsTotals.interested) || 0, analyticsPlaced, 1);
   const mappedForms = Number(status?.counts?.mapped_forms) || 0;
   const totalForms = Number(status?.counts?.forms) || 0;
   const routePct = totalForms ? Math.round((mappedForms / totalForms) * 100) : 0;
   const unmappedLeads = leadRows.filter((lead) => !lead.ngo).length;
 
-  const funnelSteps = [
-    { label: 'Creative impressions', value: funnel?.impressions || 0, color: '#93c5fd', note: insightsReady ? 'Meta reported' : 'Needs an ad account' },
-    { label: 'Ad clicks', value: funnel?.clicks || 0, color: '#60a5fa', note: funnel?.clicks ? `${pct(rate(funnel.clicks, funnel.impressions) * 100)} CTR` : '—' },
-    { label: 'Meta lead submits', value: funnel?.meta_leads || leadStats.total, color: '#2563eb', note: `${leadStats.total} ingested` },
-    { label: 'CRM webhook ingestion', value: leadStats.total, color: '#059669', note: `${leadStats.today} today` },
-    { label: 'Placed in SS station', value: funnel?.placed_leads || 0, color: '#4f46e5', note: 'Operator reviewed' },
-  ];
+  const funnelSteps = insightsReady
+    ? [
+      { label: 'Creative impressions', value: funnel?.impressions || 0, color: '#93c5fd', note: 'Meta reported' },
+      { label: 'Ad clicks', value: funnel?.clicks || 0, color: '#60a5fa', note: funnel?.clicks ? `${pct(rate(funnel.clicks, funnel.impressions) * 100)} CTR` : '—' },
+      { label: 'Meta lead submits', value: funnel?.meta_leads || leadStats.total, color: '#2563eb', note: `${num(leadStats.total)} ingested` },
+      { label: 'CRM webhook ingestion', value: leadStats.total, color: '#059669', note: `${num(leadStats.today)} today` },
+      { label: 'Placed in SS station', value: funnel?.placed_leads || analyticsPlaced, color: '#4f46e5', note: 'Operator reviewed' },
+    ]
+    : [
+      { label: 'Leads captured', value: analyticsLeads, color: '#2563eb', note: `${num(leadStats.today)} today` },
+      { label: 'Interested (hot)', value: Number(analyticsTotals.interested) || 0, color: '#059669', note: `${pct(rate(analyticsTotals.interested, analyticsLeads) * 100)} of leads` },
+      { label: 'Placed in station', value: analyticsPlaced, color: '#4f46e5', note: `${pct(rate(analyticsPlaced, analyticsLeads) * 100)} placement` },
+    ];
+
+  const qualityTotal = (Number(analyticsTotals.interested) || 0)
+    + (Number(analyticsTotals.review) || 0)
+    + (Number(analyticsTotals.low) || 0);
+  const qualityPct = (v) => (qualityTotal ? Math.round(((Number(v) || 0) / qualityTotal) * 100) : 0);
+  const placePct = analyticsLeads ? Math.round((analyticsPlaced / analyticsLeads) * 1000) / 10 : 0;
+  const topAnswer = topAnswers[0] || null;
+  const ngoTotal = analyticsByNgo.reduce((sum, row) => sum + (Number(row.leads) || 0), 0) || 1;
+  const answerTotal = topAnswers.reduce((sum, row) => sum + (Number(row.count) || 0), 0) || 1;
 
   const card = {
     background: '#fff',
@@ -642,6 +741,9 @@ export default function MetaAdsTab() {
           </select>
           <button className="wa-btn wa-btn-outline" onClick={() => runAction('leads', '/meta-ads/leads/sync', { sinceDays: 7 })} disabled={!!busy || !status?.lead_capture}>
             {busy === 'leads' ? 'Syncing…' : 'Sync leads'}
+          </button>
+          <button className="wa-btn wa-btn-outline" onClick={placeUnplaced} disabled={!!busy}>
+            {busy === 'place' ? 'Placing…' : 'Place unplaced'}
           </button>
           <button className="wa-btn wa-btn-outline" onClick={() => runAction('insights', '/meta-ads/insights/sync', { days })} disabled={!!busy || !hasAccount}>
             {busy === 'insights' ? 'Syncing…' : 'Sync insights'}
@@ -791,16 +893,95 @@ export default function MetaAdsTab() {
         </div>
       </div>
 
+      {/* Lead analytics that work without an ad account: intent mix, station
+          placement, the answers people chose, and NGO distribution. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+        <div style={{ ...card, padding: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: '#64748b' }}>Lead quality</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
+            <span style={{ fontSize: 30, fontWeight: 800, color: '#0b1c30', letterSpacing: -1 }}>{num(analyticsTotals.interested)}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '2px 8px', borderRadius: 999 }}>Hot</span>
+          </div>
+          <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', background: '#f1f5f9', marginTop: 12 }}>
+            <div style={{ width: `${qualityPct(analyticsTotals.interested)}%`, background: '#059669' }} />
+            <div style={{ width: `${qualityPct(analyticsTotals.review)}%`, background: '#f59e0b' }} />
+            <div style={{ width: `${qualityPct(analyticsTotals.low)}%`, background: '#cbd5e1' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#64748b', marginTop: 6 }}>
+            <span>Hot {num(analyticsTotals.interested)}</span>
+            <span>Review {num(analyticsTotals.review)}</span>
+            <span>Low {num(analyticsTotals.low)}</span>
+          </div>
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f1f5f9', fontSize: 10.5, color: '#64748b' }}>
+            Average score {n(analyticsTotals.avg_score)}%
+          </div>
+        </div>
+
+        <div style={{ ...card, padding: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: '#64748b' }}>Station placement</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
+            <span style={{ fontSize: 30, fontWeight: 800, color: '#0b1c30', letterSpacing: -1 }}>{num(analyticsPlaced)}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#4338ca', background: '#eef2ff', border: '1px solid #c7d2fe', padding: '2px 8px', borderRadius: 999 }}>{placePct}% placed</span>
+          </div>
+          <div style={{ marginTop: 12, height: 8, borderRadius: 999, overflow: 'hidden', background: '#f1f5f9' }}>
+            <div style={{ width: `${Math.min(100, placePct)}%`, height: '100%', background: '#4f46e5' }} />
+          </div>
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f1f5f9', fontSize: 10.5, color: '#64748b' }}>
+            {num(analyticsLeads)} leads · {num(analyticsTotals.mapped)} mapped to an NGO
+          </div>
+        </div>
+
+        <div style={{ ...card, padding: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: '#64748b' }}>Top form answer</div>
+          {topAnswer ? (
+            <>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#0b1c30', marginTop: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={humanizeAnswer(topAnswer.answer)}>
+                {humanizeAnswer(topAnswer.answer)}
+              </div>
+              <div style={{ fontSize: 11, color: '#047857', fontWeight: 700, marginTop: 4 }}>{num(topAnswer.count)} lead(s)</div>
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f1f5f9', fontSize: 10.5, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={topAnswer.question}>
+                {topAnswer.question}
+              </div>
+            </>
+          ) : (
+            <div style={{ marginTop: 12, fontSize: 11.5, color: '#64748b' }}>No custom answers captured yet.</div>
+          )}
+        </div>
+
+        <div style={{ ...card, padding: 18 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: '#64748b' }}>NGO split</div>
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {analyticsByNgo.slice(0, 3).map((row) => {
+              const share = Math.round(((Number(row.leads) || 0) / ngoTotal) * 100);
+              return (
+                <div key={row.ngo}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                    <span style={{ fontWeight: 700, color: '#334155' }}>{row.ngo}</span>
+                    <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{num(row.leads)} · {share}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 999, background: '#f1f5f9', overflow: 'hidden' }}>
+                    <div style={{ width: `${share}%`, height: '100%', background: row.ngo === 'Unmapped' ? '#f59e0b' : '#2563eb' }} />
+                  </div>
+                </div>
+              );
+            })}
+            {!analyticsByNgo.length && <div style={{ fontSize: 11.5, color: '#64748b' }}>No leads in this window.</div>}
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 7fr) minmax(280px, 5fr)', gap: 16 }}>
         <div style={{ ...card, padding: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
             <div>
-              <div style={{ ...sectionTitle, fontSize: 14 }}>Spend vs inbound leads</div>
+              <div style={{ ...sectionTitle, fontSize: 14 }}>Daily leads vs spend</div>
               <div style={sectionSub}>{insightsReady ? `Meta spend ${money(totals.spend)} against captured leads` : 'Lead-only view — spend appears once an ad account is connected'}</div>
             </div>
             <div style={{ display: 'flex', gap: 12, fontSize: 11, fontWeight: 600 }}>
               <span style={{ color: '#1d4ed8' }}>● Spend</span>
               <span style={{ color: '#047857' }}>● Leads</span>
+              <span style={{ color: '#f59e0b' }}>● Hot</span>
+              <span style={{ color: '#4f46e5' }}>● Placed</span>
             </div>
           </div>
           {series.length ? (
@@ -813,14 +994,15 @@ export default function MetaAdsTab() {
                   <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} />
                   <Tooltip />
                   <Bar yAxisId="left" dataKey="spend" name="Spend" fill="#0050cd" radius={[4, 4, 0, 0]} />
-                  <Line yAxisId="right" type="monotone" dataKey="meta_leads" name="Meta leads" stroke="#059669" strokeWidth={2.5} dot={false} />
-                  <Line yAxisId="right" type="monotone" dataKey="crm_leads" name="CRM leads" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="leads" name="Leads" stroke="#059669" strokeWidth={2.5} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="hot" name="Hot" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="placed" name="Placed" stroke="#4f46e5" strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <div style={{ padding: '36px 0', textAlign: 'center', color: '#64748b', fontSize: 12 }}>
-              No daily spend yet. Press <b>Sync insights</b> after assigning an ad account.
+              No leads in this window yet.
             </div>
           )}
           <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 10, paddingTop: 8, fontSize: 10.5, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
@@ -833,7 +1015,7 @@ export default function MetaAdsTab() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
             <div>
               <div style={{ ...sectionTitle, fontSize: 14 }}>Lead funnel</div>
-              <div style={sectionSub}>Impressions down to SS station placement</div>
+              <div style={sectionSub}>{insightsReady ? 'Impressions down to SS station placement' : 'Captured leads down to SS station placement'}</div>
             </div>
           </div>
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -854,11 +1036,49 @@ export default function MetaAdsTab() {
             })}
           </div>
           <div style={{ marginTop: 'auto', paddingTop: 10, borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#64748b' }}>
-            <span>Meta → CRM: <b style={{ color: '#047857' }}>{leadStats.total ? '100%' : '—'}</b></span>
-            <span>Placed: <b style={{ color: '#4f46e5' }}>{num(funnel?.placed_leads || 0)}</b></span>
+            <span>Meta → CRM: <b style={{ color: '#047857' }}>{analyticsLeads ? '100%' : '—'}</b></span>
+            <span>Placed: <b style={{ color: '#4f46e5' }}>{num(analyticsPlaced)}</b> · {placePct}%</span>
           </div>
         </div>
       </div>
+
+      {topAnswers.length > 0 && (
+        <div style={{ ...card, padding: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
+            <div>
+              <div style={{ ...sectionTitle, fontSize: 14 }}>Chosen form answers</div>
+              <div style={sectionSub}>What people actually selected on the lead forms (last {days} days)</div>
+            </div>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', padding: '2px 8px', borderRadius: 999 }}>
+              {num(answerTotal)} answers
+            </span>
+          </div>
+          <div style={{ overflowX: 'auto', marginTop: 10 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  {['Answer', 'Question', 'Leads', 'Share'].map((heading) => (
+                    <th key={heading} style={{ textAlign: heading === 'Leads' || heading === 'Share' ? 'right' : 'left', padding: '8px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>{heading}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {topAnswers.map((row) => {
+                  const share = Math.round(((Number(row.count) || 0) / answerTotal) * 100);
+                  return (
+                    <tr key={`${row.question}|${row.answer}`} style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#0b1c30' }}>{humanizeAnswer(row.answer)}</td>
+                      <td style={{ padding: '9px 12px', color: '#64748b', maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.question}>{row.question}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700 }}>{num(row.count)}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', fontFamily: 'monospace', color: '#64748b' }}>{share}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div style={{ ...card, padding: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
@@ -982,7 +1202,7 @@ export default function MetaAdsTab() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860, fontSize: 12 }}>
             <thead>
               <tr style={{ background: '#f8fafc' }}>
-                {['Campaign', 'Status', 'Spend', 'Impressions', 'Clicks', 'Meta leads', 'CRM leads', 'CPL', 'CTR'].map((heading) => (
+                {['Campaign', 'Status', 'Spend', 'Impressions', 'Clicks', 'Meta leads', 'CRM leads', 'Hot', 'Placed', 'Place %', 'CPL', 'CTR'].map((heading) => (
                   <th key={heading} style={{ textAlign: heading === 'Campaign' ? 'left' : 'right', padding: '9px 14px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>{heading}</th>
                 ))}
               </tr>
@@ -1006,12 +1226,15 @@ export default function MetaAdsTab() {
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace' }}>{row.clicks != null ? num(row.clicks) : '—'}</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700 }}>{num(row.meta_leads)}</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#047857' }}>{num(row.crm_leads)}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#b45309' }}>{num(row.hot)}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#4338ca' }}>{num(row.placed)}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace' }}>{row.place_rate ? pct(row.place_rate * 100) : '—'}</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace' }}>{row.cpl ? money(row.cpl) : '—'}</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace' }}>{row.ctr ? pct(row.ctr) : '—'}</td>
                 </tr>
               ))}
               {!campaignRows.length && (
-                <tr><td colSpan={9} style={{ padding: 18, textAlign: 'center', color: '#64748b' }}>No campaigns yet.</td></tr>
+                <tr><td colSpan={12} style={{ padding: 18, textAlign: 'center', color: '#64748b' }}>No campaigns yet.</td></tr>
               )}
             </tbody>
           </table>

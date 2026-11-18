@@ -164,6 +164,10 @@ export const addSsReplyLeadToStation = async (req, res) => {
     if (!SS_INBOX_SOURCES.includes(lead.source)) {
       return res.status(400).json({ message: 'Only inbox reply leads can be placed' });
     }
+    // Meta leads route themselves; there is no admin placement step for them.
+    if (lead.source === META_LEAD_SOURCE) {
+      return res.status(400).json({ message: 'Meta leads are placed automatically' });
+    }
 
     let placementLead = lead;
     if (!ngoOf(lead.notes) && lead.meta_form_id) {

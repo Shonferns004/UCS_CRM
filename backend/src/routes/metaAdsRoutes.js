@@ -6,7 +6,9 @@ import {
   listMetaCampaigns,
   getMetaCampaignInsights,
   getMetaInsightsSummary,
+  getMetaLeadAnalytics,
   getMetaFunnelHandler,
+  placeUnplacedMetaLeadsHandler,
   syncMetaInsights,
   syncMetaLeads,
   listMetaForms,
@@ -31,12 +33,14 @@ router.get('/campaigns', authenticateRole(...READ_ROLES), listMetaCampaigns);
 router.get('/campaigns/:id/insights', authenticateRole(...READ_ROLES), getMetaCampaignInsights);
 
 router.get('/insights/summary', authenticateRole(...READ_ROLES), getMetaInsightsSummary);
+router.get('/analytics', authenticateRole(...READ_ROLES), getMetaLeadAnalytics);
 router.get('/funnel', authenticateRole(...READ_ROLES), getMetaFunnelHandler);
 
 // Captured leads with flattened form answers (state, association choice, inbox).
 router.get('/leads', authenticateRole(...READ_ROLES), listMetaLeads);
 router.post('/insights/sync', authenticateRole(...WRITE_ROLES), syncMetaInsights);
 router.post('/leads/sync', authenticateRole(...WRITE_ROLES), syncMetaLeads);
+router.post('/leads/place-unplaced', authenticateRole(...WRITE_ROLES), placeUnplacedMetaLeadsHandler);
 
 router.get('/forms', authenticateRole(...READ_ROLES), listMetaForms);
 router.post('/forms', authenticateRole(...WRITE_ROLES), saveMetaForm);

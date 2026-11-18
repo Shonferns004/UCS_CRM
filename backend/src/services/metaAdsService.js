@@ -352,6 +352,25 @@ export async function fetchCampaigns() {
   }, { pages: 5 });
 }
 
+// Read-time name resolution for campaigns whose stored name is missing (older
+// ingests ran before names were fetched, or the lead webhook carried only the
+// id). Bounded by the caller to the rows actually missing a name, and silent on
+// failure: without ads_read the table keeps its id fallback instead of erroring.
+export async function resolveCampaignNames(ids = []) {
+  const out = new Map();
+  if (!isMetaLeadCaptureConfigured()) return out;
+  const unique = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  await Promise.all(unique.map(async (id) => {
+    try {
+      const res = await graphRequest(id, { fields: 'name' });
+      if (res?.name) out.set(id, res.name);
+    } catch {
+      // Campaign not visible to this token — leave it to the caller's fallback.
+    }
+  }));
+  return out;
+}
+
 export async function fetchLeadDetails(leadgenId) {
   const data = await graphRequest(leadgenId, {
     fields: 'id,created_time,field_data,form_id,page_id,platform,ad_id,adset_id,campaign_id,is_organic',
