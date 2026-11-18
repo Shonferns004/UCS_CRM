@@ -66,6 +66,7 @@ import webhookRoutes from './routes/webhookRoutes.js';
 import bankStatementRoutes from './routes/bankStatementRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
 import metaAdsRoutes from './routes/metaAdsRoutes.js';
+import googleAdsRoutes from './routes/googleAdsRoutes.js';
 import eventHeadRoutes from './routes/eventHeadRoutes.js';
 import importantDaysRoutes from './routes/importantDaysRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
@@ -175,6 +176,8 @@ import { ensureWhatsAppBulkSchema } from './bootstrap/ensureWhatsAppBulkSchema.j
 import { ensureCampaignSchema } from './bootstrap/ensureCampaignSchema.js';
 import { ensureMetaAdsSchema } from './bootstrap/ensureMetaAdsSchema.js';
 import { loadMetaConfigFromDb } from './services/metaAdsConfigStore.js';
+import { ensureGoogleAdsSchema } from './bootstrap/ensureGoogleAdsSchema.js';
+import { loadGoogleAdsConfigFromDb } from './services/googleAdsConfigStore.js';
 import { ensureBulkEmailSchema } from './bootstrap/ensureBulkEmailSchema.js';
 import { ensureLeadAlertSchema } from './bootstrap/ensureLeadAlertSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
@@ -362,6 +365,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/meta-ads', metaAdsRoutes);
+app.use('/api/google-ads', googleAdsRoutes);
 app.use('/api/whatsapp', whatsappEnhancementsRoutes);
 app.use('/api/whatsapp/automation', whatsappAutomationRoutes);
 app.use('/api/whatsapp/accounts', whatsappAccountsRoutes);
@@ -1433,11 +1437,18 @@ await ensureSsLeadAiSchema().catch(e => console.error('ensureSsLeadAiSchema fail
     await ensureWhatsAppBulkSchema().catch(e => console.error('ensureWhatsAppBulkSchema failed:', e?.message || e));
   await ensureCampaignSchema().catch(e => console.error('ensureCampaignSchema failed:', e?.message || e));
   await ensureMetaAdsSchema().catch(e => console.error('ensureMetaAdsSchema failed:', e?.message || e));
+  await ensureGoogleAdsSchema().catch(e => console.error('ensureGoogleAdsSchema failed:', e?.message || e));
   // Credentials saved from the panel live in `settings`; copy them into the
   // process env before the pollers below decide whether they can start.
   await loadMetaConfigFromDb()
     .then((keys) => { if (keys.length) console.log(`[meta] config loaded from settings: ${keys.join(', ')}`); })
     .catch(e => console.error('loadMetaConfigFromDb failed:', e?.message || e));
+  await loadGoogleAdsConfigFromDb()
+    .then((keys) => { if (keys.length) console.log(`[google-ads] config loaded from settings: ${keys.join(', ')}`); })
+    .catch(e => console.error('loadGoogleAdsConfigFromDb failed:', e?.message || e));
+  await import('./services/googleAdsService.js')
+    .then((m) => m.startGoogleAdsSyncScheduler?.())
+    .catch(e => console.error('startGoogleAdsSyncScheduler failed:', e?.message || e));
   await import('./services/metaLeadIngestService.js')
     .then((m) => m.startMetaLeadPoller?.())
     .catch(e => console.error('startMetaLeadPoller failed:', e?.message || e));
