@@ -3,11 +3,14 @@ import multer from 'multer';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
   cancelCampaign,
+  createSender,
   createTemplate,
+  deleteSender,
   deleteTemplate,
   getLog,
   getTemplate,
   getTemplateAttachment,
+  listSenders,
   listTemplateAttachments,
   listLogs,
   listRecipients,
@@ -17,6 +20,8 @@ import {
   previewTemplate,
   resumeCampaign,
   send,
+  testSender,
+  updateSender,
   updateTemplate,
   uploadAsset,
 } from '../controllers/bulkEmailController.js';
@@ -49,6 +54,11 @@ const handleImageUpload = (req, res, next) => {
 };
 
 router.get('/recipients', roles, listRecipients);
+router.get('/senders', roles, listSenders);
+router.post('/senders', roles, createSender);
+router.post('/senders/:id/test', roles, testSender);
+router.put('/senders/:id', roles, updateSender);
+router.delete('/senders/:id', roles, deleteSender);
 router.get('/templates', roles, listTemplates);
 router.post('/templates/preview', roles, previewTemplate);
 router.get('/templates/:id/attachment', roles, getTemplateAttachment);

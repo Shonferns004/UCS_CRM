@@ -2365,10 +2365,11 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             </div>
           )}
           {showWaLeads && (() => {
-            const bySource = { whatsapp: 0, meta: 0, email: 0 };
+            const bySource = { whatsapp: 0, meta: 0, email: 0, google: 0 };
             for (const lead of waLeads) bySource[lead.source || 'whatsapp'] += 1;
             const shown = waLeads.filter((lead) => (lead.source || 'whatsapp') === waSource);
-            const TABS = [['whatsapp', 'WhatsApp'], ['meta', 'Meta'], ['email', 'Email']];
+            const TABS = [['whatsapp', 'WhatsApp'], ['meta', 'Meta'], ['email', 'Email'], ['google', 'Google']];
+            const sourceLabel = (TABS.find(([key]) => key === waSource) || TABS[0])[1];
             return (
             <div style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2389,8 +2390,8 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               {shown.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-soft)' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 32, opacity: .4 }}>mark_email_unread</span>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No {waSource === 'meta' ? 'Meta' : waSource === 'email' ? 'Email' : 'WhatsApp'} leads yet</div>
-                  <div style={{ fontSize: 12 }}>When the admin places a lead on your {waSource === 'meta' ? 'Meta' : waSource === 'email' ? 'Email' : 'WhatsApp'} station it appears here.</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>No {sourceLabel} leads yet</div>
+                  <div style={{ fontSize: 12 }}>When the admin places a lead on your {sourceLabel} station it appears here.</div>
                 </div>
               ) : shown.map((l) => {
                 const parsed = parseLeadNotes(l.notes);

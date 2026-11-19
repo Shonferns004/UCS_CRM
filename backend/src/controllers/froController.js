@@ -8142,6 +8142,7 @@ export const getWhatsAppLeads = async (req, res) => {
       const value = String(station || '').toLowerCase();
       if (value.includes('-meta-leads')) return 'meta';
       if (value.includes('-email-leads')) return 'email';
+      if (value.includes('-google-leads')) return 'google';
       if (value.includes('-whatsapp-leads')) return 'whatsapp';
       if (String(notes || '').includes('[Meta Lead:')) return 'meta';
       return 'whatsapp';

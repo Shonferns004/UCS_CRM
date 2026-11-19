@@ -38,6 +38,50 @@ export async function ensureBulkEmailSchema() {
 
   await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_email_logs_status ON bulk_email_logs(status);`);
 
+  // Sender mailboxes for bulk campaigns. Each row is one Gmail account plus its
+  // app password, so a campaign can go out from any of the NGO's accounts
+  // without touching environment variables. Kept separate from
+  // email_import_accounts (bank-alert IMAP polling) on purpose.
+  await db._pool.query(`
+    CREATE TABLE IF NOT EXISTS bulk_email_senders (
+      id BIGSERIAL PRIMARY KEY,
+      display_name TEXT,
+      email TEXT NOT NULL UNIQUE,
+      app_password TEXT NOT NULL,
+      smtp_host TEXT NOT NULL DEFAULT 'smtp.gmail.com',
+      smtp_port INT NOT NULL DEFAULT 465,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_email_senders_active ON bulk_email_senders(is_active);`);
+
+  // Which sender a campaign went out from, so history and Resume stay correct
+  // even after the account is edited.
+  await db._pool.query(`
+    ALTER TABLE bulk_email_logs
+      ADD COLUMN IF NOT EXISTS sender_id BIGINT,
+      ADD COLUMN IF NOT EXISTS sender_email TEXT;
+  `);
+
+  // One-time hand-off from the old env-only sender. Runs only while the table is
+  // empty, so removing GMAIL_USER/GMAIL_APP_PASSWORD later makes it a no-op.
+  const seedEmail = String(process.env.GMAIL_USER || '').trim().toLowerCase();
+  const seedPassword = String(process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
+  if (seedEmail && seedPassword) {
+    const { rows: seedRows } = await db._pool.query('SELECT COUNT(*)::int AS count FROM bulk_email_senders');
+    if (!seedRows[0]?.count) {
+      await db._pool.query(
+        `INSERT INTO bulk_email_senders (display_name, email, app_password)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO NOTHING`,
+        ['Being Sevak Charitable Trust', seedEmail, seedPassword],
+      );
+      console.log('[bulkEmail] Seeded the initial sender from GMAIL_USER env.');
+    }
+  }
+
   // Multiple attachments per campaign/template. Stored as one row per file so
   // large binaries never bloat the parent row and streaming stays cheap.
   await db._pool.query(`

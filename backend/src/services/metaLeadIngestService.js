@@ -11,7 +11,7 @@ import {
   ngoToAccount,
   setSyncState,
 } from './metaAdsService.js';
-import { placeLeadIfValuable } from './leadIntakeService.js';
+import { placeLeadIfValuable, placeUnplacedMetaLeads } from './leadIntakeService.js';
 
 // ---------------------------------------------------------------------------
 // Meta Lead Ads → CRM inbox.
@@ -324,8 +324,27 @@ export async function pollMetaLeadForms({ sinceDays = 7 } = {}) {
 }
 
 let pollerStarted = false;
+let sweepStarted = false;
+
+// Placement is a DB-only job, so it must run even when the Graph token is
+// missing. It clears leads that were ingested before the auto-place policy
+// existed (or failed a transient placement) without anyone opening the panel.
+function startPlacementSweep() {
+  if (sweepStarted) return;
+  sweepStarted = true;
+
+  const sweep = () => placeUnplacedMetaLeads({ days: 90, limit: 200, silent: true })
+    .then((result) => {
+      if (result?.placed) console.info(`Meta placement sweep: ${result.placed} lead(s) placed`);
+    })
+    .catch((e) => console.error('Meta placement sweep failed:', e?.message || e));
+
+  cron.schedule('*/10 * * * *', sweep);
+  setTimeout(sweep, 25000);
+}
 
 export function startMetaLeadPoller() {
+  startPlacementSweep();
   if (pollerStarted) return;
   if (!isMetaLeadCaptureConfigured()) return;
   pollerStarted = true;

@@ -3,6 +3,7 @@ import { simpleParser } from 'mailparser';
 import db from '../config/db.js';
 import emailConfig from '../config/emailConfig.js';
 import { getActiveAccounts } from '../models/emailAccountModel.js';
+import { listActiveSenders } from '../models/bulkEmailSenderModel.js';
 
 // Polls the bulk-email sender inbox and turns replies to a campaign into CRM
 // leads. Matching is by sender address (a campaign recipient replying) with the
@@ -218,6 +219,29 @@ export async function pollBulkEmailReplies() {
     accounts = await getActiveAccounts();
   } catch {
     accounts = [];
+  }
+
+  // Bulk sender mailboxes are polled too: a campaign can go out from any of
+  // them, so the reply can land in any of those inboxes. Dedupe by address so
+  // an account that exists in both places is only opened once.
+  try {
+    const senders = await listActiveSenders();
+    const known = new Set(accounts.map((account) => normalizeEmail(account.email)));
+    for (const sender of senders) {
+      const email = normalizeEmail(sender.email);
+      if (!email || known.has(email)) continue;
+      known.add(email);
+      accounts.push({
+        id: `sender-${sender.id}`,
+        name: sender.display_name || sender.email,
+        email: sender.email,
+        app_password: sender.app_password,
+        imap_host: 'imap.gmail.com',
+        imap_port: 993,
+      });
+    }
+  } catch (error) {
+    console.error('[bulkEmailReplies] could not load sender mailboxes:', error?.message || error);
   }
 
   if (!accounts || accounts.length === 0) {

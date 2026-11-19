@@ -4,6 +4,7 @@ import {
   isGa4Configured,
   isGoogleAdsConfigured,
 } from './googleAdsConfigStore.js';
+import { placeLeadIfValuable, placeUnplacedGoogleLeads } from './leadIntakeService.js';
 
 // ---------------------------------------------------------------------------
 // Google Ads + GA4 read path.
@@ -148,6 +149,9 @@ export function clearTokenCache() {
 let syncTimer = null;
 
 export function startGoogleAdsSyncScheduler({ intervalMs = 6 * 60 * 60 * 1000 } = {}) {
+  // Leads have their own 5-minute scheduler; start it even when the metrics
+  // timer is already running (e.g. after a credentials save).
+  startGoogleAdsLeadSyncScheduler();
   if (syncTimer || !isGoogleAdsConfigured()) return false;
   const run = () => {
     syncGoogleAdsMetrics({ days: 30 }).catch((e) => {
@@ -204,6 +208,26 @@ export async function adsSearch(query, { pageLimit = 20 } = {}) {
     if (!pageToken) break;
   }
   return results;
+}
+
+// Campaign names for ids that only appear in a lead-form export. Used by the
+// CSV import so the Leads tab shows "Being Sevak..." instead of a raw id.
+export async function fetchGoogleAdsCampaignNames(ids = []) {
+  const numeric = [...new Set((ids || []).map((id) => String(id || '').trim()).filter((id) => /^\d+$/.test(id)))].slice(0, 200);
+  if (!numeric.length || !isGoogleAdsConfigured()) return new Map();
+  try {
+    const rows = await adsSearch(
+      `SELECT campaign.id, campaign.name FROM campaign WHERE campaign.id IN (${numeric.join(',')})`,
+    );
+    const out = new Map();
+    for (const row of rows) {
+      const id = String(row?.campaign?.id || '');
+      if (id) out.set(id, row.campaign?.name || '');
+    }
+    return out;
+  } catch {
+    return new Map();
+  }
 }
 
 export async function fetchGoogleAdsCustomer() {
@@ -279,15 +303,41 @@ async function fetchGeoLabels(ids) {
   }
 }
 
+// Google returns one row per campaign/segment, but the cache is keyed by
+// (customer, scope, dimension, date). Device and geo therefore arrive as
+// several rows for the same key — Postgres rejects that inside one INSERT with
+// "ON CONFLICT DO UPDATE cannot affect row a second time". Merge them first.
+function mergeMetricRows(rows) {
+  const merged = new Map();
+  for (const row of rows || []) {
+    const key = `${row.customerId}|${row.scope}|${row.dimensionId}|${row.date}`;
+    const cur = merged.get(key);
+    if (!cur) {
+      merged.set(key, { ...row });
+      continue;
+    }
+    cur.spend += Number(row.spend) || 0;
+    cur.impressions += Number(row.impressions) || 0;
+    cur.clicks += Number(row.clicks) || 0;
+    cur.conversions += Number(row.conversions) || 0;
+    cur.conversionValue += Number(row.conversionValue) || 0;
+    cur.budget = Math.max(Number(cur.budget) || 0, Number(row.budget) || 0);
+    if (!cur.dimensionLabel && row.dimensionLabel) cur.dimensionLabel = row.dimensionLabel;
+    if (!cur.status && row.status) cur.status = row.status;
+  }
+  return [...merged.values()];
+}
+
 async function replaceScope(customerId, scope, from, to, rows) {
   await db._pool.query(
     `DELETE FROM google_ads_metrics_daily
       WHERE customer_id = $1 AND scope = $2 AND metric_date BETWEEN $3 AND $4`,
     [customerId, scope, from, to],
   );
+  const deduped = mergeMetricRows(rows);
   const chunkSize = 400;
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const chunk = rows.slice(i, i + chunkSize);
+  for (let i = 0; i < deduped.length; i += chunkSize) {
+    const chunk = deduped.slice(i, i + chunkSize);
     const params = [];
     const values = chunk.map((row, index) => {
       const base = index * 12;
@@ -489,6 +539,197 @@ export async function syncGoogleAdsMetrics({ days = 30 } = {}) {
     errors: detail.errors,
     rowCount: Object.values(detail.scopes).reduce((sum, n) => sum + num(n), 0),
   };
+}
+
+// ---- Lead form submissions ------------------------------------------------
+// Google Ads lead form assets are available as a first-class GAQL resource in
+// v23+ (`lead_form_submission_data`). This is the live path: every sync pulls
+// the submissions and stores them in `leads` with gclid/campaign attribution.
+
+function parseSubmissionDate(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const parsed = new Date(text.replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function mapLeadFormSubmission(row) {
+  const data = row?.leadFormSubmissionData || {};
+  const fields = {};
+  for (const field of data.leadFormSubmissionFields || []) {
+    const key = String(field?.fieldType || '').toUpperCase();
+    const value = String(field?.fieldValue || '').trim();
+    if (key && value) fields[key] = value;
+  }
+  const answers = (data.customLeadFormSubmissionFields || [])
+    .map((field) => ({
+      question: String(field?.questionText || '').trim(),
+      answer: String(field?.fieldValue || '').trim(),
+    }))
+    .filter((entry) => entry.answer);
+
+  const campaignId = String(row?.campaign?.id || '').trim();
+  const name = fields.FULL_NAME
+    || [fields.FIRST_NAME, fields.LAST_NAME].filter(Boolean).join(' ')
+    || '';
+  return {
+    googleLeadId: String(data.id || data.resourceName || data.gclid || '').trim(),
+    gclid: String(data.gclid || '').trim(),
+    name,
+    email: fields.EMAIL || fields.WORK_EMAIL || '',
+    phone: String(fields.PHONE_NUMBER || '').replace(/[^0-9]/g, ''),
+    city: fields.CITY || '',
+    answers,
+    campaignId,
+    campaignName: row?.campaign?.name || (campaignId ? `Campaign ${campaignId}` : ''),
+    createdAt: parseSubmissionDate(data.submissionDateTime),
+  };
+}
+
+export async function fetchGoogleAdsLeadForms({ days = 30 } = {}) {
+  const range = buildRange(days);
+  const query = `
+    SELECT
+      lead_form_submission_data.id,
+      lead_form_submission_data.gclid,
+      lead_form_submission_data.campaign,
+      lead_form_submission_data.ad_group,
+      lead_form_submission_data.submission_date_time,
+      lead_form_submission_data.lead_form_submission_fields,
+      lead_form_submission_data.custom_lead_form_submission_fields,
+      campaign.id,
+      campaign.name
+    FROM lead_form_submission_data
+    WHERE lead_form_submission_data.submission_date_time >= '${range.from}'
+      AND lead_form_submission_data.submission_date_time <= '${range.to}'
+  `;
+  const rows = await adsSearch(query, { pageLimit: 50 });
+  return rows
+    .map(mapLeadFormSubmission)
+    .filter((row) => row.googleLeadId || row.gclid);
+}
+
+export async function syncGoogleAdsLeadForms({ days = 30, limit = 1000 } = {}) {
+  if (!isGoogleAdsConfigured()) {
+    throw new Error('Google Ads is not connected. Add the OAuth credentials in the Connection tab first.');
+  }
+
+  const all = await fetchGoogleAdsLeadForms({ days });
+  const slice = all.slice(0, clampInt(limit, 1, 5000, 1000));
+
+  const ids = [...new Set(slice.map((lead) => lead.googleLeadId).filter(Boolean))];
+  const gclids = [...new Set(slice.map((lead) => lead.gclid).filter(Boolean))];
+  const seen = new Set();
+  if (ids.length || gclids.length) {
+    const { rows } = await db._pool.query(
+      `SELECT google_lead_id, gclid FROM leads
+        WHERE google_lead_id = ANY($1::text[]) OR gclid = ANY($2::text[])`,
+      [ids, gclids],
+    );
+    for (const row of rows) {
+      if (row.google_lead_id) seen.add(`id:${row.google_lead_id}`);
+      if (row.gclid) seen.add(`g:${row.gclid}`);
+    }
+  }
+
+  let ingested = 0;
+  let duplicates = 0;
+  let skipped = 0;
+  const errors = [];
+
+  for (const lead of slice) {
+    const idKey = lead.googleLeadId ? `id:${lead.googleLeadId}` : '';
+    const gclidKey = lead.gclid ? `g:${lead.gclid}` : '';
+    if ((idKey && seen.has(idKey)) || (gclidKey && seen.has(gclidKey))) {
+      duplicates += 1;
+      continue;
+    }
+    if (!lead.phone && !lead.email) {
+      skipped += 1;
+      continue;
+    }
+
+    const notes = [
+      `[Google Lead: ${lead.googleLeadId || lead.gclid || lead.phone || lead.email}]`,
+      lead.campaignName ? `[Campaign: ${lead.campaignName}]` : '',
+      lead.city ? `[City: ${lead.city}]` : '',
+      ...lead.answers.map(({ question, answer }) => (question ? `${question}: ${answer}` : answer)),
+    ].filter(Boolean).join('\n');
+
+    try {
+      const { rows: inserted } = await db._pool.query(
+        `INSERT INTO leads
+           (name, phone, email, source, status, notes, gclid,
+            google_campaign_id, google_campaign_name, google_lead_id, created_at)
+         VALUES ($1,$2,$3,'Google Ads Lead Form','new',$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [
+          lead.name || lead.phone || lead.email,
+          lead.phone || null,
+          lead.email || null,
+          notes,
+          lead.gclid || null,
+          lead.campaignId || null,
+          lead.campaignName || null,
+          lead.googleLeadId || null,
+          lead.createdAt || new Date(),
+        ],
+      );
+      ingested += 1;
+      if (idKey) seen.add(idKey);
+      if (gclidKey) seen.add(gclidKey);
+
+      // Google leads go straight to their station, any score. Placement is
+      // best-effort: a missing phone or an unmapped NGO must not fail the pull.
+      const created = inserted[0];
+      if (created) {
+        await placeLeadIfValuable(created, { ignoreScore: true }).catch((e) => {
+          if (errors.length < 3) errors.push(`place: ${e.message}`);
+        });
+      }
+    } catch (e) {
+      if (errors.length < 3) errors.push(e.message);
+    }
+  }
+
+  // Heal rows inserted before auto-place existed, or where a placement failed
+  // transiently. Bounded and silent; invalid phones are excluded by the query.
+  const healed = await placeUnplacedGoogleLeads({ days, limit: 200, silent: true })
+    .catch(() => ({ placed: 0 }));
+
+  return {
+    ok: true,
+    range: buildRange(days),
+    scanned: all.length,
+    ingested,
+    duplicates,
+    skipped,
+    backfilled: Number(healed?.placed) || 0,
+    errors,
+  };
+}
+
+let leadSyncTimer = null;
+
+export function startGoogleAdsLeadSyncScheduler({ intervalMs = 5 * 60 * 1000 } = {}) {
+  if (leadSyncTimer || !isGoogleAdsConfigured()) return false;
+  const run = () => {
+    // A week is enough for the recurring poll; the manual button can ask for 30.
+    syncGoogleAdsLeadForms({ days: 7 }).catch((e) => {
+      console.warn('[google-ads] lead form sync failed:', e?.message || e);
+    });
+  };
+  const kickoff = setTimeout(run, 90 * 1000);
+  if (typeof kickoff.unref === 'function') kickoff.unref();
+  leadSyncTimer = setInterval(run, intervalMs);
+  if (typeof leadSyncTimer.unref === 'function') leadSyncTimer.unref();
+  return true;
+}
+
+export function stopGoogleAdsLeadSyncScheduler() {
+  if (!leadSyncTimer) return;
+  clearInterval(leadSyncTimer);
+  leadSyncTimer = null;
 }
 
 // ---- GA4 -----------------------------------------------------------------

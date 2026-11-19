@@ -13,10 +13,11 @@ import {
   stationFor,
 } from './ssLeadService.js';
 
-test('source keys collapse the three lead sources', () => {
+test('source keys collapse the four lead sources', () => {
   assert.equal(sourceKeyOf('WhatsApp Bulk Reply'), 'whatsapp');
   assert.equal(sourceKeyOf('Meta Lead Ad'), 'meta');
   assert.equal(sourceKeyOf('Email Lead'), 'email');
+  assert.equal(sourceKeyOf('Google Ads Lead Form'), 'google');
   assert.equal(sourceKeyOf(''), 'whatsapp');
   assert.equal(sourceKeyOf(null), 'whatsapp');
 });
@@ -25,9 +26,11 @@ test('each NGO + source has its own station', () => {
   assert.equal(stationFor('BSCT', 'WhatsApp Bulk Reply'), 'B-WhatsApp-Leads');
   assert.equal(stationFor('BSCT', 'Meta Lead Ad'), 'B-Meta-Leads');
   assert.equal(stationFor('BSCT', 'Email Lead'), 'B-Email-Leads');
+  assert.equal(stationFor('BSCT', 'Google Ads Lead Form'), 'B-Google-Leads');
   assert.equal(stationFor('AFLF', 'Meta Lead Ad'), 'A-Meta-Leads');
   assert.equal(stationFor('MANN', 'WhatsApp Bulk Reply'), 'M-WhatsApp-Leads');
   assert.equal(stationFor('mann', 'Email Lead'), 'M-Email-Leads');
+  assert.equal(stationFor('AFLF', 'Google Ads Lead Form'), 'A-Google-Leads');
 });
 
 test('unknown NGO or source falls back instead of throwing', () => {
@@ -44,10 +47,10 @@ test('legacy SS stations stay resolvable for un-migrated rows', () => {
   assert.equal(new Set(ALL_LEAD_STATIONS).size, ALL_LEAD_STATIONS.length);
 });
 
-test('the matrix is complete: 3 NGOs x 3 sources', () => {
+test('the matrix is complete: 3 NGOs x 4 sources', () => {
   assert.deepEqual(Object.keys(LEAD_STATIONS).sort(), ['AFLF', 'BSCT', 'MANN']);
   for (const ngo of Object.keys(LEAD_STATIONS)) {
-    assert.deepEqual(Object.keys(LEAD_STATIONS[ngo]).sort(), ['email', 'meta', 'whatsapp']);
+    assert.deepEqual(Object.keys(LEAD_STATIONS[ngo]).sort(), ['email', 'google', 'meta', 'whatsapp']);
   }
 });
 

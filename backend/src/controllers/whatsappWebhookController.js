@@ -46,11 +46,33 @@ export function shouldApplyStatus(current, incoming) {
 }
 
 export function verifyWhatsAppWebhook(req, res) {
-  const mode = req.query['hub.mode'];
+  const mode = req.query['hub.mode'] || req.query.hub_mode;
   const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+  const challenge = req.query['hub.challenge'] || req.query.hub_challenge;
   const expectedToken = getVerifyToken();
-  if (mode === 'subscribe' && expectedToken && token === expectedToken) {
+
+  // Two verification shapes arrive here.
+  //
+  // 1. Standard app-level callback: hub.mode + hub.verify_token + hub.challenge.
+  //    The token must match WHATSAPP_VERIFY_TOKEN, which is what keeps the
+  //    public endpoint from answering arbitrary callers.
+  //
+  // 2. WABA-level callback override (POST /{WABA_ID}/subscribed_apps with
+  //    override_callback_uri): Meta sends hub.mode/hub.challenge AND duplicate
+  //    underscore spellings, and NO verify token at all. Requiring the token
+  //    for this shape made every override fail with HTTP 403 -- which is
+  //    exactly what kept a number whose callback belonged to another
+  //    integration from being pointed back at this CRM.
+  //
+  // The override branch is safe: it only echoes a challenge, so it discloses
+  // nothing and grants no access. The token-checked flow is unchanged.
+  const overrideStyle = !token
+    && req.query.hub_mode === 'subscribe'
+    && Boolean(req.query.hub_challenge);
+
+  const tokenOk = Boolean(expectedToken) && token === expectedToken;
+
+  if (mode === 'subscribe' && challenge && (tokenOk || overrideStyle)) {
     res.status(200).send(challenge);
   } else {
     res.status(403).send('Forbidden');

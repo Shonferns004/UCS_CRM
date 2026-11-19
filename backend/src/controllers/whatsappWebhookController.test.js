@@ -153,3 +153,29 @@ test('verifyWhatsAppWebhook fails safely when the token is missing', () => {
   verifyWhatsAppWebhook(req, res);
   assert.equal(res.statusCode, 403);
 });
+
+test('verifyWhatsAppWebhook accepts a WABA callback-override check that carries no verify token', () => {
+  // Shape Meta actually sends when an override_callback_uri is registered:
+  // hub.mode/hub.challenge plus duplicate underscore spellings, no token.
+  process.env.WHATSAPP_VERIFY_TOKEN = 'verify-secret';
+  const req = {
+    query: {
+      'hub.mode': 'subscribe',
+      'hub.challenge': 'override-challenge',
+      hub_mode: 'subscribe',
+      hub_challenge: 'override-challenge',
+    },
+  };
+  const res = mockWebhookRes();
+  verifyWhatsAppWebhook(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, 'override-challenge');
+});
+
+test('verifyWhatsAppWebhook still rejects a tokenless request that is not a Meta override', () => {
+  process.env.WHATSAPP_VERIFY_TOKEN = 'verify-secret';
+  const req = { query: { 'hub.mode': 'subscribe', 'hub.challenge': 'challenge-ok' } };
+  const res = mockWebhookRes();
+  verifyWhatsAppWebhook(req, res);
+  assert.equal(res.statusCode, 403);
+});

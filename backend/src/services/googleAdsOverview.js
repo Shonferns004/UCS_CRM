@@ -496,7 +496,9 @@ export async function getGoogleAdsOverview({ days = 30, sample = false } = {}) {
     trend: { current: trendCurrent, previous: trendPrevious },
     campaigns,
     devices,
-    geo,
+    geo: geo
+      .filter((row) => num(row.spend) > 0 || num(row.clicks) > 0 || num(row.conversions) > 0)
+      .slice(0, 8),
     keywords: keywords.slice(0, 20),
     insights: buildInsights({ campaigns, devices, trend: trendCurrent, currency }),
     ga4,
