@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import db from '../config/db.js';
 import { applyPersonalization } from './emailTemplateRenderer.js';
@@ -9,61 +8,22 @@ import {
   getUnsubscribedSet,
 } from './bulkEmailUnsubscribe.js';
 import { buildInlineImageAttachments } from './emailImageAssets.js';
+import {
+  buildSenderFromHeader,
+  getTransportForSender,
+} from './bulkEmailSenderService.js';
+import {
+  getSenderByEmail,
+  getSenderById,
+  listActiveSenders,
+} from '../models/bulkEmailSenderModel.js';
 
-// Bulk-email campaigns use a dedicated Gmail SMTP account configured through the
-// environment. The app password is never stored in source.
-//
-// This sender is deliberately *not* defaulted to another account: the library
-// module sends from library.sevak@gmail.com with its own hardcoded credential
-// (sevakLibrary/services/email.service.js). Falling back to it here would make a
-// misconfigured bulk campaign go out as the library account, so an unset
-// GMAIL_USER is treated as a configuration error instead.
-function gmailUser() {
-  return String(process.env.GMAIL_USER || '').trim();
-}
-
-function gmailAppPassword() {
-  return process.env.GMAIL_APP_PASSWORD || '';
-}
-
-function smtpHost() {
-  return process.env.SMTP_HOST || 'smtp.gmail.com';
-}
-
-function smtpPort() {
-  return Number(process.env.SMTP_PORT || 465);
-}
+// Bulk-email campaigns send from a row in bulk_email_senders (email + app
+// password stored in the database), picked in the Bulk Email UI. The library
+// module keeps its own separate account
+// (sevakLibrary/services/email.service.js) and is not involved here.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-let transport;
-
-function getTransport() {
-  const user = gmailUser();
-  const password = gmailAppPassword();
-  if (!user) {
-    throw new Error('Bulk email sender is not configured - GMAIL_USER is missing');
-  }
-  if (!password) {
-    throw new Error('Gmail app password is not configured - email not sent');
-  }
-  if (!transport) {
-    // Pool keeps a few SMTP connections open and reuses them across the whole
-    // campaign. Without it every single message opened a fresh connection,
-    // which made 300-400 recipient sends slow enough to hit the request
-    // timeout and Gmail's connection throttling.
-    transport = nodemailer.createTransport({
-      host: smtpHost(),
-      port: smtpPort(),
-      secure: smtpPort() === 465,
-      auth: { user: gmailUser(), pass: password },
-      pool: true,
-      maxConnections: Math.min(10, Math.max(1, Number(process.env.SMTP_MAX_CONNECTIONS) || 3)),
-      maxMessages: 100,
-    });
-  }
-  return transport;
-}
 
 // A campaign sends in small parallel batches with a pause between them so a
 // 300-400 email blast does not trip Gmail's rate limits. Defaults match the
@@ -104,6 +64,44 @@ export function normalizeRecipients(list) {
     });
   }
   return out;
+}
+
+function assertUsableSender(sender) {
+  if (!sender) throw new Error('Select a sender email before sending');
+  if (sender.is_active === false) {
+    throw new Error(`Sender ${sender.email} is inactive. Activate it or choose another sender.`);
+  }
+  if (!sender.app_password) {
+    throw new Error(`App password is missing for ${sender.email}`);
+  }
+  return sender;
+}
+
+/** Sender picked in the UI when a campaign is queued. */
+async function resolveSenderForSend(senderId) {
+  if (!senderId) throw new Error('Select a sender email before sending');
+  const sender = await getSenderById(senderId);
+  return assertUsableSender(sender);
+}
+
+/**
+ * Sender used when a campaign actually runs. Resume reads the sender stored on
+ * the campaign. A campaign whose sender was deleted fails loudly instead of
+ * quietly switching accounts; only campaigns queued before sender selection
+ * existed fall back to the first active sender.
+ */
+async function resolveSenderForCampaign(campaign) {
+  if (campaign.sender_id) {
+    const byId = await getSenderById(campaign.sender_id);
+    if (byId) return assertUsableSender(byId);
+  }
+  if (campaign.sender_email) {
+    const byEmail = await getSenderByEmail(campaign.sender_email);
+    if (byEmail) return assertUsableSender(byEmail);
+    throw new Error(`Sender ${campaign.sender_email} is no longer available. Add it again or start a new campaign.`);
+  }
+  const [first] = await listActiveSenders();
+  return assertUsableSender(first || null);
 }
 
 async function fetchSource(source, search, limit) {
@@ -214,10 +212,14 @@ async function finishCampaign(id, recipients, status, lastError = null) {
  * so a crash or restart cannot lose the record of the campaign. Sending itself
  * happens in the background via runBulkEmailCampaign().
  */
-export async function createBulkEmailCampaign({ subject, text, html, source, recipients, attachments, createdBy } = {}) {
+export async function createBulkEmailCampaign({ subject, text, html, source, recipients, attachments, createdBy, senderId } = {}) {
   const requested = normalizeRecipients(recipients);
   if (!requested.length) throw new Error('No valid recipients selected');
   if (!String(subject || '').trim()) throw new Error('Subject is required');
+
+  // Fail before creating the campaign row: a queued campaign must always have a
+  // usable sender, otherwise Resume would keep failing.
+  const sender = await resolveSenderForSend(senderId);
 
   const unsubscribed = await getUnsubscribedSet();
   const sendable = requested.filter((recipient) => !unsubscribed.has(recipient.email));
@@ -234,8 +236,8 @@ export async function createBulkEmailCampaign({ subject, text, html, source, rec
   const { rows: inserted } = await db._pool.query(
     `INSERT INTO bulk_email_logs
        (subject, body, html, source, total_recipients, sent_count, failed_count,
-        processed_count, recipients, created_by, status)
-     VALUES ($1, $2, $3, $4, $5, 0, 0, 0, $6::jsonb, $7, 'queued')
+        processed_count, recipients, created_by, status, sender_id, sender_email)
+     VALUES ($1, $2, $3, $4, $5, 0, 0, 0, $6::jsonb, $7, 'queued', $8, $9)
      RETURNING id, status, total_recipients, created_at`,
     [
       String(subject).trim(),
@@ -245,6 +247,8 @@ export async function createBulkEmailCampaign({ subject, text, html, source, rec
       rows.length,
       JSON.stringify(rows),
       createdBy || null,
+      sender.id,
+      sender.email,
     ],
   );
 
@@ -333,7 +337,18 @@ export async function runBulkEmailCampaign(id, { unsubscribeBaseUrl } = {}) {
       return { status: 'completed' };
     }
 
-    const transporter = getTransport();
+    const sender = await resolveSenderForCampaign(campaign);
+    // Keep the log pointing at the sender actually used, including campaigns
+    // queued before sender selection existed.
+    if (String(campaign.sender_id || '') !== String(sender.id) || campaign.sender_email !== sender.email) {
+      await db._pool.query(
+        `UPDATE bulk_email_logs SET sender_id = $2, sender_email = $3 WHERE id = $1::bigint`,
+        [id, sender.id, sender.email],
+      );
+    }
+
+    const transporter = getTransportForSender(sender);
+    const fromHeader = buildSenderFromHeader(sender);
     const inline = campaign.html
       ? await buildInlineImageAttachments(campaign.html)
       : { html: campaign.html, attachments: [] };
@@ -394,7 +409,7 @@ export async function runBulkEmailCampaign(id, { unsubscribeBaseUrl } = {}) {
           : textToHtml(personalizedText);
 
         await transporter.sendMail({
-          from: `Being Sevak Charitable Trust <${gmailUser()}>`,
+          from: fromHeader,
           to: recipient.email,
           subject: personalize(campaign.subject, recipient),
           text: appendUnsubscribeText(personalizedText, unsubscribeUrl),
@@ -485,7 +500,8 @@ export async function listBulkEmailLogs({ page = 1, limit = 20 } = {}) {
   const [{ rows }, { rows: countRows }] = await Promise.all([
     db._pool.query(
       `SELECT id, subject, source, status, total_recipients, sent_count, failed_count,
-              processed_count, created_by, created_at, started_at, finished_at
+              processed_count, created_by, created_at, started_at, finished_at,
+              sender_id, sender_email
          FROM bulk_email_logs
         ORDER BY created_at DESC
         LIMIT $1 OFFSET $2`,
@@ -505,7 +521,8 @@ export async function listBulkEmailLogs({ page = 1, limit = 20 } = {}) {
 export async function getBulkEmailLog(id) {
   const { rows } = await db._pool.query(
     `SELECT id, subject, body, source, status, total_recipients, sent_count, failed_count,
-            processed_count, recipients, created_by, created_at, started_at, finished_at, last_error
+            processed_count, recipients, created_by, created_at, started_at, finished_at, last_error,
+            sender_id, sender_email
        FROM bulk_email_logs
       WHERE id = $1::bigint`,
     [id],

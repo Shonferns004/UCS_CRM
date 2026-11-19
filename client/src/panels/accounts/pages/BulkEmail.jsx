@@ -46,6 +46,7 @@ const TABS = [
 ];
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const SENDER_STORAGE_KEY = 'bulkEmail.senderId';
 
 function parseManualEmails(value) {
   const found = String(value || '').match(EMAIL_RE) || [];
@@ -101,6 +102,19 @@ const [sending, setSending] = useState(false);
   const [htmlBody, setHtmlBody] = useState('');
   const pollTimer = useRef(null);
 
+  // Sender mailbox picker (bulk_email_senders)
+  const [senders, setSenders] = useState([]);
+  const [sendersLoading, setSendersLoading] = useState(true);
+  const [senderId, setSenderId] = useState('');
+  const [showSenderForm, setShowSenderForm] = useState(false);
+  const [showSenderList, setShowSenderList] = useState(false);
+  const [senderForm, setSenderForm] = useState({ display_name: '', email: '', app_password: '' });
+  const [senderSaving, setSenderSaving] = useState(false);
+  const [senderError, setSenderError] = useState(null);
+  const [senderNotice, setSenderNotice] = useState(null);
+  const [senderTest, setSenderTest] = useState(null);
+  const [showSenderPassword, setShowSenderPassword] = useState(false);
+
   const stopPolling = useCallback(() => {
     if (pollTimer.current) {
       clearTimeout(pollTimer.current);
@@ -109,6 +123,35 @@ const [sending, setSending] = useState(false);
   }, []);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
+
+  const loadSenders = useCallback(async () => {
+    setSendersLoading(true);
+    try {
+      const data = await apiGet('/accounts/bulk-email/senders');
+      const list = Array.isArray(data?.senders) ? data.senders : Array.isArray(data) ? data : [];
+      setSenders(list);
+      setSenderId((prev) => {
+        const saved = String(prev || (typeof localStorage !== 'undefined' ? localStorage.getItem(SENDER_STORAGE_KEY) : '') || '');
+        const match = list.find((sender) => String(sender.id) === saved);
+        return match ? String(match.id) : (list[0] ? String(list[0].id) : '');
+      });
+    } catch (e) {
+      setSenderError(e?.message || 'Could not load sender emails.');
+    } finally {
+      setSendersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadSenders(); }, [loadSenders]);
+
+  useEffect(() => {
+    if (senderId) localStorage.setItem(SENDER_STORAGE_KEY, senderId);
+  }, [senderId]);
+
+  const selectedSender = useMemo(
+    () => senders.find((sender) => String(sender.id) === String(senderId)) || null,
+    [senders, senderId],
+  );
 
   const handleExcelUpload = async (file) => {
     if (!file) return;
@@ -482,8 +525,77 @@ if (!mediaFiles.length) form.append('remove_attachments', 'true');
     setSelectedTemplateId('');
   };
 
+  const resetSenderForm = () => {
+    setSenderForm({ display_name: '', email: '', app_password: '' });
+    setShowSenderPassword(false);
+    setSenderError(null);
+    setShowSenderForm(false);
+  };
+
+  const addSender = async () => {
+    const email = senderForm.email.trim();
+    const password = senderForm.app_password.trim();
+    setSenderNotice(null);
+    setSenderError(null);
+
+    if (!email) { setSenderError('Email address is required.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSenderError('Enter a valid email address.'); return; }
+    if (!password) { setSenderError('App password is required.'); return; }
+
+    setSenderSaving(true);
+    try {
+      const created = await apiPost('/accounts/bulk-email/senders', {
+        display_name: senderForm.display_name.trim(),
+        email,
+        app_password: password,
+      }, 120000);
+      setSenderForm({ display_name: '', email: '', app_password: '' });
+      setShowSenderPassword(false);
+      setShowSenderForm(false);
+      await loadSenders();
+      if (created?.id) setSenderId(String(created.id));
+      setSenderNotice(
+        created?.verified === false
+          ? `Sender saved, but the login could not be verified. ${created?.verify_message || ''}`.trim()
+          : 'Sender added and login verified.',
+      );
+    } catch (e) {
+      setSenderError(e?.message || 'Could not add the sender.');
+    } finally {
+      setSenderSaving(false);
+    }
+  };
+
+  const testSenderLogin = async (sender) => {
+    setSenderTest({ id: sender.id, status: 'testing', message: '' });
+    try {
+      const result = await apiPost(`/accounts/bulk-email/senders/${sender.id}/test`, {}, 120000);
+      setSenderTest({
+        id: sender.id,
+        status: result?.ok ? 'ok' : 'fail',
+        message: result?.message || (result?.ok ? 'Login verified.' : 'Login failed.'),
+      });
+    } catch (e) {
+      setSenderTest({ id: sender.id, status: 'fail', message: e?.message || 'Login check failed.' });
+    }
+  };
+
+  const removeSender = async (sender) => {
+    if (!window.confirm(`Delete sender "${sender.email}"? Campaigns already sent from it stay in history.`)) return;
+    setSenderNotice(null);
+    setSenderError(null);
+    try {
+      await apiDelete(`/accounts/bulk-email/senders/${sender.id}`);
+      await loadSenders();
+      setSenderNotice('Sender removed.');
+    } catch (e) {
+      setSenderError(e?.message || 'Could not delete the sender.');
+    }
+  };
+
   const send = async () => {
     const chosen = recipients.filter((r) => selected.has(r.email));
+    if (!senderId) { setError('Select a sender email before sending.'); return; }
     if (!subject.trim()) { setError('Subject is required.'); return; }
     if (!body.trim() && !htmlBody) { setError('Message body is required.'); return; }
     if (!chosen.length) { setError('Select at least one recipient.'); return; }
@@ -494,6 +606,7 @@ if (!mediaFiles.length) form.append('remove_attachments', 'true');
     setProgress(null);
     try {
       const form = new FormData();
+form.append('sender_id', senderId);
 form.append('subject', subject.trim());
 form.append('text', body);
 if (htmlBody) form.append('html', htmlBody);
@@ -777,6 +890,156 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
             </div>
           </div>
 
+          <div className="be-sender">
+            <div className="be-sender-head">
+              <span className="be-sender-label">Send from</span>
+              {!sendersLoading && (
+                <div className="be-sender-links">
+                  <button
+                    type="button"
+                    className="be-link-btn"
+                    onClick={() => {
+                      setShowSenderForm((v) => !v);
+                      setSenderError(null);
+                      setSenderNotice(null);
+                    }}
+                  >
+                    {showSenderForm ? 'Close' : '+ Add sender'}
+                  </button>
+                  {senders.length > 0 && (
+                    <button type="button" className="be-link-btn" onClick={() => setShowSenderList((v) => !v)}>
+                      {showSenderList ? 'Hide list' : `Manage (${senders.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {sendersLoading ? (
+              <select className="be-select" disabled>
+                <option>Loading senders…</option>
+              </select>
+            ) : senders.length === 0 ? (
+              <div className="be-sender-empty">
+                <AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
+                <span>No sender email added yet. Add one to send bulk email.</span>
+                <button
+                  type="button"
+                  className="be-btn-small"
+                  onClick={() => { setShowSenderForm(true); setSenderError(null); setSenderNotice(null); }}
+                >
+                  + Add sender
+                </button>
+              </div>
+            ) : (
+              <select
+                className="be-select"
+                value={senderId}
+                onChange={(e) => setSenderId(e.target.value)}
+              >
+                <option value="">Select a sender email…</option>
+                {senders.map((sender) => (
+                  <option key={sender.id} value={sender.id}>
+                    {sender.email}{sender.display_name ? ` — ${sender.display_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {senders.length > 0 && (
+              <div className="be-hint" style={{ margin: '6px 0 0' }}>
+                The campaign is sent from the selected account.
+              </div>
+            )}
+
+            {senderError && <div className="be-alert" style={{ margin: '10px 0 0' }}>{senderError}</div>}
+            {senderNotice && <div className="be-sender-notice">{senderNotice}</div>}
+
+            {showSenderList && senders.length > 0 && (
+              <div className="be-sender-list">
+                {senders.map((sender) => {
+                  const test = senderTest?.id === sender.id ? senderTest : null;
+                  return (
+                    <div key={sender.id} className="be-sender-row">
+                      <div className="be-sender-row-text">
+                        <strong>{sender.email}</strong>
+                        <span>{sender.display_name || 'No display name'} · Password ••••••••</span>
+                      </div>
+                      <div className="be-sender-row-actions">
+                        <button
+                          type="button"
+                          className="be-link-btn"
+                          onClick={() => testSenderLogin(sender)}
+                          disabled={test?.status === 'testing'}
+                        >
+                          {test?.status === 'testing' ? 'Testing…' : 'Test'}
+                        </button>
+                        <button type="button" className="be-link-btn be-danger-link" onClick={() => removeSender(sender)}>
+                          Delete
+                        </button>
+                      </div>
+                      {test && test.status !== 'testing' && (
+                        <div className={`be-sender-test ${test.status === 'ok' ? 'is-ok' : 'is-fail'}`}>{test.message}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {showSenderForm && (
+              <div className="be-sender-form">
+                <div className="be-row">
+                  <label className="be-field" style={{ flex: '1 1 200px' }}>
+                    <span>Display name (optional)</span>
+                    <input
+                      className="be-input"
+                      value={senderForm.display_name}
+                      onChange={(e) => setSenderForm((p) => ({ ...p, display_name: e.target.value }))}
+                      placeholder="Being Sevak Charitable Trust"
+                    />
+                  </label>
+                  <label className="be-field" style={{ flex: '1 1 220px' }}>
+                    <span>Email address</span>
+                    <input
+                      className="be-input"
+                      type="email"
+                      value={senderForm.email}
+                      onChange={(e) => setSenderForm((p) => ({ ...p, email: e.target.value }))}
+                      placeholder="you@example.com"
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
+                <label className="be-field">
+                  <span>
+                    App password
+                    <button type="button" className="be-link-btn" onClick={() => setShowSenderPassword((v) => !v)}>
+                      {showSenderPassword ? 'Hide' : 'Show'}
+                    </button>
+                  </span>
+                  <input
+                    className="be-input"
+                    type={showSenderPassword ? 'text' : 'password'}
+                    value={senderForm.app_password}
+                    onChange={(e) => setSenderForm((p) => ({ ...p, app_password: e.target.value }))}
+                    placeholder="16-character Gmail app password"
+                    autoComplete="new-password"
+                  />
+                </label>
+                <div className="be-hint" style={{ margin: '-4px 0 10px' }}>
+                  Gmail: Google Account → Security → 2-Step Verification → App passwords.
+                </div>
+                <div className="be-sender-form-actions">
+                  <button type="button" className="be-btn-small" onClick={addSender} disabled={senderSaving}>
+                    {senderSaving ? 'Saving…' : 'Save sender'}
+                  </button>
+                  <button type="button" className="be-link-btn" onClick={resetSenderForm}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="be-template-bar">
             <label className="be-field" style={{ flex: 1, marginBottom: 0 }}>
               <span>Ready-made template</span>
@@ -915,8 +1178,9 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
                 <span className="be-send-count">{selected.size}</span>
                 <span>recipient{selected.size === 1 ? '' : 's'} selected</span>
               </div>
-{(htmlBody || mediaFiles.length > 0) && (
+{(selectedSender || htmlBody || mediaFiles.length > 0) && (
   <div className="be-send-tags">
+    {selectedSender && <span className="be-tag"><Mail size={12} strokeWidth={2} /> From {selectedSender.email}</span>}
     {htmlBody && <span className="be-tag"><LayoutTemplate size={12} strokeWidth={2} /> HTML design</span>}
     {mediaFiles.length > 0 && <span className="be-tag"><Paperclip size={12} strokeWidth={2} /> {mediaFiles.length} attachment{mediaFiles.length === 1 ? '' : 's'}</span>}
                 </div>
@@ -926,7 +1190,7 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
               type="button"
               className="be-send"
               onClick={send}
-              disabled={sending || !subject.trim() || (!body.trim() && !htmlBody) || selected.size === 0}
+              disabled={sending || !senderId || !subject.trim() || (!body.trim() && !htmlBody) || selected.size === 0}
             >
               {sending ? <><span className="be-spinner" />Sending…</> : <><Send size={16} strokeWidth={2} /> Send to {selected.size} recipient{selected.size === 1 ? '' : 's'}</>}
             </button>
@@ -984,7 +1248,10 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
               {logs.map((log) => (
                 <tr key={log.id}>
                   <td>{log.created_at ? new Date(log.created_at).toLocaleString() : '-'}</td>
-                  <td className="be-table-subject">{log.subject}</td>
+                  <td className="be-table-subject">
+                    {log.subject}
+                    {log.sender_email ? <span className="be-table-from">From {log.sender_email}</span> : null}
+                  </td>
                   <td>{SOURCE_LABEL[log.source] || log.source || '-'}</td>
                   <td>
                     <span className={`be-status-badge be-status-${log.status || 'completed'}`}>
@@ -1148,6 +1415,7 @@ mediaFiles.forEach((m) => form.append('attachments', m.file));
                 <div className="be-modal-sub">
                   {selectedLog.created_at ? new Date(selectedLog.created_at).toLocaleString() : ''}
                   {selectedLog.created_by ? ` · ${selectedLog.created_by}` : ''}
+                  {selectedLog.sender_email ? ` · From ${selectedLog.sender_email}` : ''}
                   {selectedLog.status && (
                     <span className={`be-status-badge be-status-${selectedLog.status}`}>
                       {STATUS_LABEL[selectedLog.status] || selectedLog.status}

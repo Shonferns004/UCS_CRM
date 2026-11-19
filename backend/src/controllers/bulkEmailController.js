@@ -28,6 +28,20 @@ import {
   verifyUnsubscribeToken,
 } from '../services/bulkEmailUnsubscribe.js';
 import { pollBulkEmailReplies } from '../services/bulkEmailReplyImporter.js';
+import {
+  createSender as createSenderRecord,
+  deleteSender as deleteSenderRecord,
+  getSenderById,
+  listPublicSenders,
+  updateSender as updateSenderRecord,
+} from '../models/bulkEmailSenderModel.js';
+import {
+  isValidSenderEmail,
+  maskSenderPassword,
+  normalizeAppPassword,
+  normalizeSenderEmail,
+  verifySenderLogin,
+} from '../services/bulkEmailSenderService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EMAIL_ASSET_DIR = path.resolve(__dirname, '../../uploads/email-assets');
@@ -65,7 +79,7 @@ export async function listRecipients(req, res) {
 
 export async function send(req, res) {
   try {
-    const { subject, text, html, source } = req.body || {};
+    const { subject, text, html, source, sender_id } = req.body || {};
     let { recipients } = req.body || {};
     if (typeof recipients === 'string') {
       try {
@@ -87,6 +101,7 @@ const campaign = await createBulkEmailCampaign({
   source,
   attachments,
   createdBy,
+  senderId: sender_id,
 });
 
     // Send in the background and reply immediately. A 300-400 recipient
@@ -416,5 +431,109 @@ export async function listReplies(req, res) {
     return res.json(replies);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sender mailboxes (bulk_email_senders). The app password is write-only: it is
+// accepted here, stored in the database and never returned to the client.
+// ---------------------------------------------------------------------------
+
+export async function listSenders(req, res) {
+  try {
+    const senders = await listPublicSenders();
+    return res.json({ senders });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function createSender(req, res) {
+  try {
+    const { display_name, email, app_password, smtp_host, smtp_port } = req.body || {};
+    const normalizedEmail = normalizeSenderEmail(email);
+    if (!normalizedEmail) return res.status(400).json({ message: 'Email address is required' });
+    if (!isValidSenderEmail(normalizedEmail)) return res.status(400).json({ message: 'Enter a valid email address' });
+    const password = normalizeAppPassword(app_password);
+    if (!password) return res.status(400).json({ message: 'App password is required' });
+
+    const sender = await createSenderRecord({
+      display_name,
+      email: normalizedEmail,
+      app_password: password,
+      smtp_host,
+      smtp_port,
+    });
+    // Saved first, then verified: a temporary SMTP outage must not lose the
+    // account, but the UI still needs to know the login was not confirmed.
+    const verification = await verifySenderLogin(sender);
+
+    return res.status(201).json({
+      ...sender,
+      app_password: maskSenderPassword(sender.app_password),
+      verified: verification.ok,
+      verify_message: verification.message,
+    });
+  } catch (error) {
+    const message = String(error.message || 'Could not add the sender');
+    if (message.includes('already added')) return res.status(409).json({ message });
+    return res.status(400).json({ message });
+  }
+}
+
+export async function updateSender(req, res) {
+  try {
+    const { display_name, email, app_password, smtp_host, smtp_port, is_active } = req.body || {};
+    if (email !== undefined && !isValidSenderEmail(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    }
+
+    const sender = await updateSenderRecord(req.params.id, {
+      display_name,
+      email,
+      app_password,
+      smtp_host,
+      smtp_port,
+      is_active,
+    });
+    if (!sender) return res.status(404).json({ message: 'Sender not found' });
+
+    const passwordChanged = app_password !== undefined && String(app_password || '').trim() !== '';
+    const verification = passwordChanged
+      ? await verifySenderLogin(sender)
+      : { ok: true, message: 'Saved' };
+
+    return res.json({
+      ...sender,
+      app_password: maskSenderPassword(sender.app_password),
+      verified: verification.ok,
+      verify_message: verification.message,
+    });
+  } catch (error) {
+    const message = String(error.message || 'Could not update the sender');
+    if (message.includes('already added')) return res.status(409).json({ message });
+    return res.status(400).json({ message });
+  }
+}
+
+export async function deleteSender(req, res) {
+  try {
+    const removed = await deleteSenderRecord(req.params.id);
+    if (!removed) return res.status(404).json({ message: 'Sender not found' });
+    return res.json({ message: 'Sender deleted' });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+}
+
+export async function testSender(req, res) {
+  try {
+    const sender = await getSenderById(req.params.id);
+    if (!sender) return res.status(404).json({ message: 'Sender not found' });
+    // Always 200 with an ok flag: a failed login is a result, not a bad request.
+    const verification = await verifySenderLogin(sender);
+    return res.json({ ok: verification.ok, message: verification.message });
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
   }
 }
