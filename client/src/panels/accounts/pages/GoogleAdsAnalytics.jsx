@@ -9,6 +9,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { apiDelete, apiGet, apiPost } from '../api/auth';
+import { useRealtime } from '../../../hooks/useRealtime';
 import { toast } from '../../../components/Toast';
 import './googleAds.css';
 
@@ -689,8 +690,34 @@ function leadTone(status) {
   return 'gads-badge-grey';
 }
 
-function LeadsTab({ overview, reloadLeads, loadingLeads }) {
+function LeadsTab({ overview, reloadLeads, loadingLeads, days }) {
   const leads = overview?.leads || { rows: [], total: 0 };
+  const [syncing, setSyncing] = useState(false);
+
+  const syncLeads = async () => {
+    setSyncing(true);
+    try {
+      const result = await apiPost('/google-ads/leads/sync', { days: Number(days) || 30 });
+      const skipped = Number(result.skipped) || 0;
+      const duplicates = Number(result.duplicates) || 0;
+      if (result.ok === false) {
+        toast(result.error || 'Could not fetch leads from Google Ads', 'error');
+      } else {
+        toast(
+          `Fetched ${result.ingested || 0} new lead(s)`
+          + (result.backfilled ? ` · ${result.backfilled} placed` : '')
+          + (duplicates ? ` · ${duplicates} already present` : '')
+          + (skipped ? ` · ${skipped} skipped` : ''),
+          'success',
+        );
+      }
+      await reloadLeads();
+    } catch (e) {
+      toast(e?.message || 'Could not fetch leads from Google Ads', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <div className="gads-card">
@@ -698,11 +725,15 @@ function LeadsTab({ overview, reloadLeads, loadingLeads }) {
         <div>
           <div className="gads-card-title">Google-attributed leads</div>
           <div className="gads-card-sub">
-            Leads whose source mentions Google, or that carry a gclid / campaign attribution
+            Live lead-form submissions from the Google Ads API, plus leads carrying a gclid / campaign attribution
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span className="gads-badge gads-badge-blue">{fmtNum(leads.total)} in window</span>
+          <button type="button" className="gads-btn gads-btn-sm" onClick={syncLeads} disabled={syncing}>
+            <RefreshCw size={13} strokeWidth={2} className={syncing ? 'gads-spin' : ''} aria-hidden="true" />
+            {syncing ? 'Fetching…' : 'Fetch leads'}
+          </button>
           <button type="button" className="gads-btn gads-btn-sm" onClick={reloadLeads} disabled={loadingLeads}>
             <RefreshCw size={13} strokeWidth={2} className={loadingLeads ? 'gads-spin' : ''} aria-hidden="true" />
             Refresh
@@ -718,7 +749,7 @@ function LeadsTab({ overview, reloadLeads, loadingLeads }) {
       {!leads.rows?.length ? (
         <EmptyState
           title="No attributed leads yet"
-          text="The leads table is ready for gclid, campaign and keyword attribution (columns are created automatically). Once your landing page posts those fields, this list fills in."
+          text="Press Fetch leads to pull lead-form submissions from the Google Ads API. They also land automatically every 5 minutes once Google Ads is connected."
         />
       ) : (
         <div className="gads-table-wrap">
@@ -728,6 +759,7 @@ function LeadsTab({ overview, reloadLeads, loadingLeads }) {
                 <th>Contact</th>
                 <th>Source</th>
                 <th>Campaign</th>
+                <th>Answer</th>
                 <th>Keyword</th>
                 <th>Created</th>
                 <th>Status</th>
@@ -743,6 +775,7 @@ function LeadsTab({ overview, reloadLeads, loadingLeads }) {
                   </td>
                   <td><span className="gads-badge gads-badge-blue">{lead.source || 'Google Ads'}</span></td>
                   <td>{lead.campaign || <span className="gads-muted">—</span>}</td>
+                  <td>{lead.answer || <span className="gads-muted">—</span>}</td>
                   <td>
                     {lead.keyword ? (
                       <span className="gads-code" title={lead.keyword}>{lead.keyword}</span>
@@ -1437,7 +1470,7 @@ export default function GoogleAdsAnalytics() {
     }
   };
 
-  const reloadLeads = async () => {
+  const reloadLeads = useCallback(async () => {
     setLoadingLeads(true);
     try {
       const result = await apiGet(`/google-ads/leads?days=${days}&limit=100`);
@@ -1447,7 +1480,22 @@ export default function GoogleAdsAnalytics() {
     } finally {
       setLoadingLeads(false);
     }
-  };
+  }, [days]);
+
+  // Live list: the backend pulls lead-form submissions every 5 minutes and the
+  // new rows arrive on the socket, so the tab updates without pressing Fetch.
+  // The 60s poll is the fallback for a dropped socket.
+  useEffect(() => {
+    const timer = setInterval(() => { reloadLeads(); }, 60000);
+    return () => clearInterval(timer);
+  }, [reloadLeads]);
+
+  useRealtime('leads', {
+    event: 'INSERT',
+    onInsert: (row) => {
+      if (/google/i.test(String(row?.source || ''))) reloadLeads();
+    },
+  });
 
   const exportCsv = (kind) => {
     setShowExport(false);
@@ -1606,16 +1654,35 @@ export default function GoogleAdsAnalytics() {
 
       {error && <div className="gads-note is-bad"><XCircle size={15} /> {error}</div>}
 
-      {status?.last_sync?.errors?.length > 0 && (
-        <div className="gads-note is-warn">
-          <AlertTriangle size={15} />
-          <span>
-            Last sync reported {status.last_sync.errors.length} scope problem{status.last_sync.errors.length === 1 ? '' : 's'}:
-            {' '}
-            {status.last_sync.errors.slice(0, 3).map((entry) => `${entry.scope}: ${entry.message}`).join(' · ')}
-          </span>
-        </div>
-      )}
+      {(() => {
+        const syncErrors = status?.last_sync?.errors || [];
+        if (!syncErrors.length) return null;
+        const accessIssue = syncErrors.some((entry) => /test accounts|does not have permission|Explorer|Basic|Standard access/i.test(entry?.message || ''));
+        return (
+          <div className="gads-note is-warn">
+            <AlertTriangle size={15} />
+            <span>
+              {accessIssue ? (
+                <>
+                  <b>Google Ads API access is still at test level for this Cloud project.</b>{' '}
+                  The OAuth keys are working; the project itself needs Explorer/Basic access before it can read the real ad account.{' '}
+                  <a href="https://console.cloud.google.com/google/ads-apis/overview" target="_blank" rel="noreferrer">
+                    Apply for access
+                  </a>{' '}
+                  with the manager account that owns this customer id, then press <b>Sync now</b>.
+                  {' '}Until approval lands, use <b>Sample</b> to preview the dashboard.
+                </>
+              ) : (
+                <>
+                  Last sync reported {syncErrors.length} scope problem{syncErrors.length === 1 ? '' : 's'}:
+                  {' '}
+                  {syncErrors.slice(0, 3).map((entry) => `${entry.scope}: ${entry.message}`).join(' · ')}
+                </>
+              )}
+            </span>
+          </div>
+        );
+      })()}
 
       <div className="gads-tabs" role="tablist" aria-label="Google Ads sections">
         {TABS.map((name) => (
@@ -1703,7 +1770,7 @@ export default function GoogleAdsAnalytics() {
           setStatusFilter={setStatusFilter}
         />
       ) : tab === 'Leads' ? (
-        <LeadsTab overview={overview} reloadLeads={reloadLeads} loadingLeads={loadingLeads} />
+        <LeadsTab overview={overview} reloadLeads={reloadLeads} loadingLeads={loadingLeads} days={days} />
       ) : tab === 'GA4' ? (
         <Ga4Panel ga4={overview?.ga4} />
       ) : (

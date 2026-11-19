@@ -23,17 +23,22 @@ import { isValidIndianMobile } from '../utils/phone.js';
 export const SS_STATIONS = { BSCT: 'SS-BSCT', AFLF: 'SS-AFLF', MANN: 'SS-MANN' };
 
 // One station per (NGO, source). The source prefix is what tells a station owner
-// whether they are working WhatsApp replies, Meta lead ads or email leads.
+// whether they are working WhatsApp replies, Meta lead ads, email leads or
+// Google lead-form submissions.
+export const GOOGLE_LEAD_SOURCE = 'Google Ads Lead Form';
+
 export const LEAD_STATIONS = {
-  BSCT: { whatsapp: 'B-WhatsApp-Leads', meta: 'B-Meta-Leads', email: 'B-Email-Leads' },
-  AFLF: { whatsapp: 'A-WhatsApp-Leads', meta: 'A-Meta-Leads', email: 'A-Email-Leads' },
-  MANN: { whatsapp: 'M-WhatsApp-Leads', meta: 'M-Meta-Leads', email: 'M-Email-Leads' },
+  BSCT: { whatsapp: 'B-WhatsApp-Leads', meta: 'B-Meta-Leads', email: 'B-Email-Leads', google: 'B-Google-Leads' },
+  AFLF: { whatsapp: 'A-WhatsApp-Leads', meta: 'A-Meta-Leads', email: 'A-Email-Leads', google: 'A-Google-Leads' },
+  MANN: { whatsapp: 'M-WhatsApp-Leads', meta: 'M-Meta-Leads', email: 'M-Email-Leads', google: 'M-Google-Leads' },
 };
 
-// 'Meta Lead Ad' -> meta, 'Email Lead' -> email, everything else is a reply.
+// 'Meta Lead Ad' -> meta, 'Google Ads Lead Form' -> google, 'Email Lead' -> email,
+// everything else is a WhatsApp reply.
 export function sourceKeyOf(source) {
   const value = String(source || '').toLowerCase();
   if (value.includes('meta')) return 'meta';
+  if (value.includes('google')) return 'google';
   if (value.includes('email')) return 'email';
   return 'whatsapp';
 }
@@ -54,6 +59,7 @@ export const STATIONS_BY_SOURCE = {
   whatsapp: Object.values(LEAD_STATIONS).map((s) => s.whatsapp),
   meta: Object.values(LEAD_STATIONS).map((s) => s.meta),
   email: Object.values(LEAD_STATIONS).map((s) => s.email),
+  google: Object.values(LEAD_STATIONS).map((s) => s.google),
   legacy: Object.values(SS_STATIONS),
 };
 

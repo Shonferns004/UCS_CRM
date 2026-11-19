@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 import db from '../config/db.js';
 import { getLeadById } from '../models/leadModel.js';
-import { materializeReplyLead, scoreSsReply, stationFor, SS_STATIONS, ALL_LEAD_STATIONS, sourceKeyOf } from '../services/ssLeadService.js';
+import { materializeReplyLead, scoreSsReply, stationFor, SS_STATIONS, ALL_LEAD_STATIONS, sourceKeyOf, GOOGLE_LEAD_SOURCE } from '../services/ssLeadService.js';
 import { aiScoreSsReply, SS_AI_VERSION } from '../services/ssLeadAiService.js';
 import { createLeadAlert } from '../services/leadAlertService.js';
 import { META_LEAD_SOURCE, ngoToAccount } from '../services/metaAdsService.js';
@@ -16,7 +16,7 @@ import { META_LEAD_SOURCE, ngoToAccount } from '../services/metaAdsService.js';
 // Both inbox sources share the same triage screen: a WhatsApp template reply
 // and a Meta Lead Ad lead both carry a mobile + [Account:] tag and both are
 // placed with materializeReplyLead().
-const SS_INBOX_SOURCES = ['WhatsApp Bulk Reply', META_LEAD_SOURCE, 'Email Lead'];
+const SS_INBOX_SOURCES = ['WhatsApp Bulk Reply', META_LEAD_SOURCE, 'Email Lead', GOOGLE_LEAD_SOURCE];
 
 const parseReply = (notes) => {
   const text = String(notes || '');
@@ -39,6 +39,17 @@ const normalizeNgo = (value) => {
 };
 
 const ngoOf = (notes) => normalizeNgo((notes || '').match(/\[Account:\s*([^\]]+)\]/)?.[1]);
+
+// A placed lead's station is also a reliable NGO marker (B-/A-/M-), which
+// matters for Google leads whose [Account:] tag is added at placement time but
+// not written back to the lead row.
+const ngoFromStation = (station) => {
+  const s = String(station || '').toUpperCase();
+  if (s.startsWith('B-')) return 'BSCT';
+  if (s.startsWith('A-')) return 'AFLF';
+  if (s.startsWith('M-')) return 'MANN';
+  return null;
+};
 
 const metaAccountForForm = async (formId) => {
   if (!formId) return '';
@@ -113,11 +124,13 @@ export const listSsReplyLeads = async (req, res) => {
     const ngoFilter = normalizeNgo(req.query.ngo);
 
     const result = (leads || []).map((l) => {
-      const ngo = ngoOf(l.notes) || normalizeNgo(formAccountBy.get(l.meta_form_id));
-      // Source decides the station: WhatsApp replies, Meta lead ads and email
-      // leads each have their own queue per NGO.
-      const suggestedStation = ngo ? (stationFor(ngo, l.source) || SS_STATIONS[ngo]) : null;
       const placed = placedBy.get(l.id) || null;
+      const ngo = ngoOf(l.notes)
+        || normalizeNgo(formAccountBy.get(l.meta_form_id))
+        || ngoFromStation(placed?.station);
+      // Source decides the station: WhatsApp replies, Meta lead ads, email leads
+      // and Google lead forms each have their own queue per NGO.
+      const suggestedStation = ngo ? (stationFor(ngo, l.source) || SS_STATIONS[ngo]) : null;
       const owner = suggestedStation ? ownerBy.get(`${ngo}|${suggestedStation}`) : null;
       const rule = scoreSsReply(l.notes);
       const suggestion = (l.ai_label && l.ai_at)
@@ -164,9 +177,9 @@ export const addSsReplyLeadToStation = async (req, res) => {
     if (!SS_INBOX_SOURCES.includes(lead.source)) {
       return res.status(400).json({ message: 'Only inbox reply leads can be placed' });
     }
-    // Meta leads route themselves; there is no admin placement step for them.
-    if (lead.source === META_LEAD_SOURCE) {
-      return res.status(400).json({ message: 'Meta leads are placed automatically' });
+    // Meta and Google leads route themselves; there is no admin placement step.
+    if (lead.source === META_LEAD_SOURCE || lead.source === GOOGLE_LEAD_SOURCE) {
+      return res.status(400).json({ message: 'This lead source is placed automatically' });
     }
 
     let placementLead = lead;

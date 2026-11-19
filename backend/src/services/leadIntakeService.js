@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { materializeReplyLead, scoreSsReply } from './ssLeadService.js';
+import { materializeReplyLead, scoreSsReply, GOOGLE_LEAD_SOURCE } from './ssLeadService.js';
 import { createLeadAlert } from './leadAlertService.js';
 import { ngoToAccount } from './metaAdsService.js';
 import { isValidIndianMobile } from '../utils/phone.js';
@@ -27,6 +27,7 @@ export function autoPlaceMinScore() {
 const META_SOURCE = 'Meta Lead Ad';
 
 const isMetaLead = (lead) => String(lead?.source || '') === META_SOURCE;
+const isGoogleLead = (lead) => String(lead?.source || '') === GOOGLE_LEAD_SOURCE;
 
 // Kept as a re-export so the intake tests and any older caller keep one import.
 export { isValidIndianMobile };
@@ -37,6 +38,14 @@ export function metaAutoPlaceAll() {
 
 export function metaDefaultNgo() {
   return String(process.env.META_DEFAULT_NGO || 'BSCT').trim().toUpperCase();
+}
+
+export function googleAutoPlaceAll() {
+  return String(process.env.GOOGLE_AUTO_PLACE_ALL ?? 'true').toLowerCase() !== 'false';
+}
+
+export function googleDefaultNgo() {
+  return String(process.env.GOOGLE_ADS_DEFAULT_NGO || process.env.META_DEFAULT_NGO || 'BSCT').trim().toUpperCase();
 }
 
 const labelOf = (score) => (score >= 70 ? 'interested' : score >= 40 ? 'review' : 'low');
@@ -68,6 +77,9 @@ async function resolveAccountTag(lead) {
   if (isMetaLead(lead)) {
     return { lead: { ...lead, notes: `${lead.notes || ''}\n[Account: ${metaDefaultNgo().toLowerCase()}]` } };
   }
+  if (isGoogleLead(lead)) {
+    return { lead: { ...lead, notes: `${lead.notes || ''}\n[Account: ${googleDefaultNgo().toLowerCase()}]` } };
+  }
   return { lead };
 }
 
@@ -91,7 +103,8 @@ export async function placeLeadIfValuable(lead, { score = null, ignoreScore = fa
   const numericScore = Number.isFinite(Number(rule.score)) ? Math.round(Number(rule.score)) : 0;
 
   const meta = isMetaLead(lead);
-  const skipScore = ignoreScore || (meta && metaAutoPlaceAll());
+  const google = isGoogleLead(lead);
+  const skipScore = ignoreScore || (meta && metaAutoPlaceAll()) || (google && googleAutoPlaceAll());
 
   if (!isValidIndianMobile(lead.phone)) {
     return { placed: false, reason: 'invalid phone', score: numericScore, label: rule.label };
@@ -149,13 +162,16 @@ export async function placeLeadIfValuable(lead, { score = null, ignoreScore = fa
  * existing leads follow the new route) and by the manual backfill action.
  * Silent by default: these are old leads and must not ring every FRO's bell.
  */
-export async function placeUnplacedMetaLeads({ formId = null, days = 90, limit = 500, silent = true } = {}) {
+export async function placeUnplacedLeads({ source, formId = null, days = 90, limit = 500, silent = true } = {}) {
+  if (!source) return { scanned: 0, placed: 0, skipped: 0, reasons: {} };
   const span = Math.min(Math.max(Number(days) || 90, 1), 365);
   const size = Math.min(Math.max(Number(limit) || 500, 1), 2000);
 
-  const sqlParams = [META_SOURCE, span];
+  const sqlParams = [source, span];
   let sqlWhere = `l.source = $1
       and l.created_at >= now() - ($2::int || ' days')::interval
+      and regexp_replace(coalesce(l.phone, ''), '[^0-9]', '', 'g')
+          ~ '^([0-9]{10}|91[0-9]{10}|0[0-9]{10})$'
       and not exists (
         select 1 from fro_assignments a
          where a.notes like '%[Lead:' || l.id::text || ']%'
@@ -183,8 +199,13 @@ export async function placeUnplacedMetaLeads({ formId = null, days = 90, limit =
   let placed = 0;
   let skipped = 0;
   const reasons = {};
+  const RECENT_MS = 24 * 60 * 60 * 1000;
   for (const row of rows) {
-    const result = await placeLeadIfValuable(row, { ignoreScore: true, silent });
+    // Backfill is silent for old leads, but a lead from the last day still
+    // deserves the owner's bell.
+    const age = Date.now() - new Date(row.created_at || Date.now()).getTime();
+    const silentRow = Boolean(silent) && age > RECENT_MS;
+    const result = await placeLeadIfValuable(row, { ignoreScore: true, silent: silentRow });
     if (result.placed) {
       placed += 1;
     } else {
@@ -196,3 +217,6 @@ export async function placeUnplacedMetaLeads({ formId = null, days = 90, limit =
 
   return { scanned: rows.length, placed, skipped, reasons };
 }
+
+export const placeUnplacedMetaLeads = (options = {}) => placeUnplacedLeads({ source: META_SOURCE, ...options });
+export const placeUnplacedGoogleLeads = (options = {}) => placeUnplacedLeads({ source: GOOGLE_LEAD_SOURCE, ...options });

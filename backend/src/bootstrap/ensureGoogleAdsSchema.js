@@ -56,11 +56,17 @@ export async function ensureGoogleAdsSchema() {
   await db._pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS google_ad_group_id TEXT`);
   await db._pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS google_keyword TEXT`);
   await db._pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS google_match_type TEXT`);
+  await db._pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS google_lead_id TEXT`);
 
   await db._pool.query(`
     CREATE INDEX IF NOT EXISTS idx_leads_google_click
       ON leads (gclid)
       WHERE gclid IS NOT NULL
+  `);
+  await db._pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_google_lead_id
+      ON leads (google_lead_id)
+      WHERE google_lead_id IS NOT NULL
   `);
 }
 

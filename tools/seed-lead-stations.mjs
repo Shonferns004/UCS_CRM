@@ -17,9 +17,9 @@ const pool = new Pool({
 });
 
 const STATIONS = {
-  BSCT: ['B-WhatsApp-Leads', 'B-Meta-Leads', 'B-Email-Leads'],
-  AFLF: ['A-WhatsApp-Leads', 'A-Meta-Leads', 'A-Email-Leads'],
-  MANN: ['M-WhatsApp-Leads', 'M-Meta-Leads', 'M-Email-Leads'],
+  BSCT: ['B-WhatsApp-Leads', 'B-Meta-Leads', 'B-Email-Leads', 'B-Google-Leads'],
+  AFLF: ['A-WhatsApp-Leads', 'A-Meta-Leads', 'A-Email-Leads', 'A-Google-Leads'],
+  MANN: ['M-WhatsApp-Leads', 'M-Meta-Leads', 'M-Email-Leads', 'M-Google-Leads'],
 };
 
 const apply = String(process.argv[2] || '').toLowerCase() === 'apply';

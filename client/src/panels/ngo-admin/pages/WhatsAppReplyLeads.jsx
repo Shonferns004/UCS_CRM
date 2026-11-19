@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles, Mail, Megaphone } from 'lucide-react';
+import { RefreshCw, MessageSquareText, Phone, User, Tag, Inbox, Trash2, Search, Plus, CheckCircle2, Sparkles, Mail, Megaphone, Globe } from 'lucide-react';
 import { api } from '../../../api/auth';
 import { parseLeadNotes } from '../../../utils/leadNotes';
 
@@ -43,6 +43,7 @@ const platformMeta = (platform, sourceKey) => {
   // so every Meta lead rendered as a WhatsApp reply.
   if (sourceKey === 'whatsapp') return { label: 'WhatsApp', color: '#128C7E', bg: '#dcfce7' };
   if (sourceKey === 'email') return { label: 'Email', color: '#7c3aed', bg: '#ede9fe' };
+  if (sourceKey === 'google') return { label: 'Google', color: '#EA4335', bg: '#fee2e2' };
   const p = String(platform || '').toLowerCase();
   if (p === 'ig' || p.includes('instagram')) return { label: 'Instagram', color: '#C13584', bg: '#fce7f3' };
   return { label: 'Facebook', color: '#0866FF', bg: '#e7f0ff' };
@@ -107,6 +108,7 @@ export default function WhatsAppReplyLeads() {
   const [query, setQuery] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [placingUnplaced, setPlacingUnplaced] = useState(false);
+  const [fetchingGoogle, setFetchingGoogle] = useState(false);
   const [tab, setTab] = useState('inbox');
   // Bulk-email campaigns live in the normal leads table, not the station queue,
   // so that tab has its own loader, search and reply poll.
@@ -174,7 +176,7 @@ export default function WhatsAppReplyLeads() {
     // payloads. Reading only `lead_source` left this undefined, so the whole tab
     // fell back to platform sniffing and mislabelled Meta rows.
     const src = String(lead?.source_key || lead?.lead_source || '').toLowerCase();
-    if (src === 'meta' || src === 'whatsapp' || src === 'email') return src;
+    if (src === 'meta' || src === 'whatsapp' || src === 'email' || src === 'google') return src;
     return platformOf(lead) === 'whatsapp' ? 'whatsapp' : 'meta';
   };
 
@@ -190,8 +192,13 @@ export default function WhatsAppReplyLeads() {
   const aiPending = leads.filter((lead) => !lead.in_station && !lead.ai_at).length;
 
   const counts = useMemo(() => {
-    const bySource = { whatsapp: 0, meta: 0, email: crmLeads.length };
-    const byNgo = { whatsapp: { BSCT: 0, AFLF: 0, MANN: 0 }, meta: { BSCT: 0, AFLF: 0, MANN: 0 }, email: { BSCT: 0, AFLF: 0, MANN: 0 } };
+    const bySource = { whatsapp: 0, meta: 0, email: crmLeads.length, google: 0 };
+    const byNgo = {
+      whatsapp: { BSCT: 0, AFLF: 0, MANN: 0 },
+      meta: { BSCT: 0, AFLF: 0, MANN: 0 },
+      email: { BSCT: 0, AFLF: 0, MANN: 0 },
+      google: { BSCT: 0, AFLF: 0, MANN: 0 },
+    };
     leads.forEach((lead) => {
       const s = sourceKeyOf(lead);
       const n = ngoOfLead(lead);
@@ -268,6 +275,25 @@ export default function WhatsAppReplyLeads() {
     }
   };
 
+  const fetchGoogleLeads = async () => {
+    if (fetchingGoogle) return;
+    setFetchingGoogle(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await api('/google-ads/leads/sync', {
+        method: 'POST',
+        body: JSON.stringify({ days: 30 }),
+      });
+      await load();
+      setNotice(`Fetched ${res.ingested || 0} Google lead(s)${res.backfilled ? ` · ${res.backfilled} placed` : ''}${res.duplicates ? ` · ${res.duplicates} already present` : ''}`);
+    } catch (e) {
+      setError(e?.message || 'Could not fetch Google leads');
+    } finally {
+      setFetchingGoogle(false);
+    }
+  };
+
   const runAi = async () => {
     if (aiBusy) return;
     setAiBusy(true);
@@ -329,6 +355,7 @@ export default function WhatsAppReplyLeads() {
     { key: 'whatsapp', label: 'WhatsApp', icon: MessageSquareText, color: '#128C7E' },
     { key: 'meta', label: 'Meta', icon: Megaphone, color: '#0866FF' },
     { key: 'email', label: 'Email', icon: Mail, color: '#7c3aed' },
+    { key: 'google', label: 'Google', icon: Globe, color: '#EA4335' },
   ];
   const NGOS = [
     { key: 'all', label: 'All NGOs' },
@@ -389,6 +416,17 @@ export default function WhatsAppReplyLeads() {
                   <Sparkles size={14} />
                   {aiBusy ? 'AI scoring…' : `Run AI (${aiPending})`}
                 </button>
+                {source === 'google' && (
+                  <button
+                    onClick={fetchGoogleLeads}
+                    disabled={fetchingGoogle}
+                    title="Pull lead-form submissions from Google Ads now"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'var(--bg, #fff)', fontSize: 12, fontWeight: 600, cursor: fetchingGoogle ? 'default' : 'pointer', color: 'var(--ink, #0f172a)', opacity: fetchingGoogle ? .7 : 1 }}
+                  >
+                    <Globe size={14} />
+                    {fetchingGoogle ? 'Fetching…' : 'Fetch leads'}
+                  </button>
+                )}
                 {source === 'meta' && (
                   <button
                     onClick={placeUnplacedMeta}
@@ -638,7 +676,7 @@ export default function WhatsAppReplyLeads() {
                   style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: 190, color: 'var(--ink, #0f172a)' }}
                 />
               </div>
-              {tab === 'inbox' && shown.length > 0 && source !== 'meta' && (
+              {tab === 'inbox' && shown.length > 0 && source !== 'meta' && source !== 'google' && (
                 <button
                   onClick={addAllShown}
                   disabled={bulkBusy}
@@ -716,7 +754,7 @@ export default function WhatsAppReplyLeads() {
                         </td>
                         <td style={{ padding: '10px 14px' }}>{suggestionPill(lead.suggestion)}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {tab === 'inbox' && leadSource !== 'meta' ? (
+                          {tab === 'inbox' && leadSource !== 'meta' && leadSource !== 'google' ? (
                             <button
                               onClick={() => addToStation(lead)}
                               disabled={adding === lead.id}
@@ -725,7 +763,7 @@ export default function WhatsAppReplyLeads() {
                               <Plus size={12} />
                               {adding === lead.id ? 'Adding…' : 'Add to station'}
                             </button>
-                          ) : leadSource === 'meta' && !lead.in_station ? (
+                          ) : (leadSource === 'meta' || leadSource === 'google') && !lead.in_station ? (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999,
                               fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap',
@@ -756,7 +794,9 @@ export default function WhatsAppReplyLeads() {
                         {loading ? 'Loading leads…' : tab === 'inbox'
                           ? (source === 'meta'
                             ? 'No Meta leads waiting. Every valid number is placed automatically; only invalid phone numbers stay here.'
-                            : 'Inbox is clear for this filter.')
+                            : source === 'google'
+                              ? 'No Google leads waiting. Every valid number is placed automatically; only invalid phone numbers stay here.'
+                              : 'Inbox is clear for this filter.')
                           : 'Nothing on station for this filter yet.'}
                       </td>
                     </tr>

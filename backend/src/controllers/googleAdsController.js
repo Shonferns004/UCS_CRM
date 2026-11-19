@@ -18,9 +18,11 @@ import {
 import {
   clearGa4Cache,
   clearTokenCache,
+  fetchGoogleAdsCampaignNames,
   getGoogleAccessToken,
   getLastSync,
   startGoogleAdsSyncScheduler,
+  syncGoogleAdsLeadForms,
   syncGoogleAdsMetrics,
   testGoogleConnection,
 } from '../services/googleAdsService.js';
@@ -265,7 +267,23 @@ export async function syncGoogleAds(req, res) {
     const days = clampInt(req.body?.days ?? req.query?.days, 1, 180, 30);
     const result = await syncGoogleAdsMetrics({ days });
     clearGa4Cache();
-    return res.json({ ...result, last_sync: await readLastSync() });
+    // Lead forms are a separate API resource; a failure there must not hide the
+    // metrics that already landed.
+    const leads = await syncGoogleAdsLeadForms({ days }).catch((e) => ({
+      ok: false,
+      error: e?.message || String(e),
+    }));
+    return res.json({ ...result, leads, last_sync: await readLastSync() });
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
+}
+
+export async function syncGoogleAdsLeadsHandler(req, res) {
+  try {
+    const days = clampInt(req.body?.days ?? req.query?.days, 1, 180, 30);
+    const result = await syncGoogleAdsLeadForms({ days });
+    return res.json(result);
   } catch (e) {
     return res.status(400).json({ message: e.message });
   }
@@ -280,6 +298,147 @@ export async function getGoogleAdsOverviewHandler(req, res) {
       ? { total: 0, rows: [], note: 'Sample preview does not include CRM leads.' }
       : await loadRecentLeads({ days, limit: 25 }).catch((e) => ({ total: 0, rows: [], error: e?.message || String(e) }));
     return res.json({ ...overview, leads });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+function leadHeaderKey(header) {
+  return String(header || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const LEAD_SHEET_KEYS = new Set([
+  'submittimeutc', 'submittime', 'submissiontime', 'submittedat',
+  'gclid', 'campaignid', 'adgroupid', 'creativeid',
+  'fullname', 'firstname', 'lastname', 'name',
+  'email', 'phonenumber', 'phonenumberverified', 'phone', 'mobile',
+  'city', 'leadstage', 'leadsource', 'id', 'submissionid',
+]);
+
+function parseSheetDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'number' && value > 20000 && value < 80000) {
+    // Excel serial date (1900 epoch).
+    return new Date(Math.round((value - 25569) * 86400 * 1000));
+  }
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/.exec(text);
+  if (slash) {
+    const [, month, day, year, hour, minute] = slash;
+    return new Date(Date.UTC(+year, +month - 1, +day, +hour, +minute));
+  }
+  const parsed = new Date(text.includes(' ') ? text.replace(' ', 'T') : text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Import the Google Ads lead-form export (CSV / XLSX from the Ads UI) into the
+// leads table. The Google Ads API sync is the live path; this is the bridge for
+// the sheet an operator already has.
+export async function importGoogleAdsLeads(req, res) {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) return res.status(400).json({ message: 'No file uploaded' });
+
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) return res.status(400).json({ message: 'The file has no sheets' });
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+    if (!rows.length) return res.status(400).json({ message: 'No rows found in the first sheet' });
+
+    const parsed = rows.map((row) => {
+      const known = {};
+      const answers = [];
+      for (const [header, raw] of Object.entries(row)) {
+        const key = leadHeaderKey(header);
+        const value = String(raw ?? '').trim();
+        if (!value) continue;
+        if (LEAD_SHEET_KEYS.has(key)) known[key] = raw;
+        else answers.push({ question: String(header).trim(), answer: value });
+      }
+      const name = String(known.fullname || known.name || '').trim()
+        || [known.firstname, known.lastname].map((v) => String(v || '').trim()).filter(Boolean).join('');
+      const phone = String(known.phonenumber || known.phone || known.mobile || '').replace(/[^0-9]/g, '');
+      const email = String(known.email || '').trim();
+      return {
+        name,
+        phone,
+        email,
+        gclid: String(known.gclid || '').trim(),
+        campaignId: String(known.campaignid || '').trim(),
+        city: String(known.city || '').trim(),
+        leadStage: String(known.leadstage || '').trim(),
+        leadSource: String(known.leadsource || '').trim(),
+        answers,
+        created: parseSheetDate(known.submittimeutc || known.submittime || known.submissiontime || known.submittedat),
+      };
+    }).filter((row) => row.name || row.phone || row.email);
+
+    if (!parsed.length) {
+      return res.status(400).json({ message: 'No rows with a name, phone or email were found' });
+    }
+
+    let nameById = new Map();
+    if (isGoogleAdsConfigured()) {
+      const ids = [...new Set(parsed.map((row) => row.campaignId).filter(Boolean))];
+      nameById = await fetchGoogleAdsCampaignNames(ids).catch(() => new Map());
+    }
+
+    const gclids = [...new Set(parsed.map((row) => row.gclid).filter(Boolean))];
+    const existingGclids = new Set();
+    if (gclids.length) {
+      const { rows: have } = await db._pool.query(
+        `SELECT gclid FROM leads WHERE gclid = ANY($1::text[])`,
+        [gclids],
+      );
+      for (const row of have) existingGclids.add(row.gclid);
+    }
+
+    let imported = 0;
+    let duplicates = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (const lead of parsed) {
+      if (!lead.phone && !lead.email) { skipped += 1; continue; }
+      if (lead.gclid && existingGclids.has(lead.gclid)) { duplicates += 1; continue; }
+
+      const campaignName = nameById.get(lead.campaignId)
+        || (lead.campaignId ? `Campaign ${lead.campaignId}` : '');
+      const notes = [
+        `[Google Lead: ${lead.gclid || lead.phone || lead.email}]`,
+        campaignName ? `[Campaign: ${campaignName}]` : '',
+        lead.city ? `[City: ${lead.city}]` : '',
+        ...lead.answers.map(({ question, answer }) => `${question}: ${answer}`),
+        lead.leadStage ? `[Lead Stage: ${lead.leadStage}]` : '',
+        lead.leadSource ? `[Lead Source: ${lead.leadSource}]` : '',
+      ].filter(Boolean).join('\n');
+
+      try {
+        await db._pool.query(
+          `INSERT INTO leads
+             (name, phone, email, source, status, notes, gclid, google_campaign_id, google_campaign_name, created_at)
+           VALUES ($1,$2,$3,'Google Ads Lead Form','new',$4,$5,$6,$7,$8)`,
+          [
+            lead.name || lead.phone || lead.email,
+            lead.phone || null,
+            lead.email || null,
+            notes,
+            lead.gclid || null,
+            lead.campaignId || null,
+            campaignName || null,
+            lead.created || new Date(),
+          ],
+        );
+        imported += 1;
+        if (lead.gclid) existingGclids.add(lead.gclid);
+      } catch (e) {
+        if (errors.length < 3) errors.push(e.message);
+      }
+    }
+
+    return res.json({ scanned: rows.length, imported, duplicates, skipped, errors });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -305,45 +464,65 @@ async function loadRecentLeads({ days, limit }) {
 
   try {
     const where = `
-      created_at >= NOW() - ($1::text || ' days')::interval
+      l.created_at >= NOW() - ($1::text || ' days')::interval
       AND (
-        source ILIKE '%google%'
-        OR source ILIKE '%adwords%'
-        OR gclid IS NOT NULL
-        OR google_campaign_name IS NOT NULL
+        l.source ILIKE '%google%'
+        OR l.source ILIKE '%adwords%'
+        OR l.gclid IS NOT NULL
+        OR l.google_campaign_name IS NOT NULL
       )
     `;
 
     const [rowsRes, countRes] = await Promise.all([
       db._pool.query(
-        `SELECT id, name, phone, email, source, status, created_at, assigned_to,
-                gclid, google_campaign_name, google_keyword, google_match_type
-           FROM leads
+        `SELECT l.id, l.name, l.phone, l.email, l.source, l.status, l.created_at,
+                l.recruiter_id, l.notes, fa.fro_worker_id, w.name AS fro_name,
+                l.gclid, l.google_campaign_name, l.google_keyword, l.google_match_type
+           FROM leads l
+           LEFT JOIN LATERAL (
+             SELECT a.fro_worker_id
+               FROM fro_assignments a
+              WHERE a.notes LIKE '%[Lead:' || l.id::text || ']%'
+                AND (a.status IS NULL OR a.status <> 'reassigned')
+              LIMIT 1
+           ) fa ON TRUE
+           LEFT JOIN workers w ON w.id = fa.fro_worker_id
           WHERE ${where}
-          ORDER BY created_at DESC
+          ORDER BY l.created_at DESC
           LIMIT $2`,
         [safeDays, safeLimit],
       ),
       db._pool.query(
-        `SELECT COUNT(*)::int AS total FROM leads WHERE ${where}`,
+        `SELECT COUNT(*)::int AS total FROM leads l WHERE ${where}`,
         [safeDays],
       ),
     ]);
 
-    const rows = (rowsRes.rows || []).map((row) => ({
-      id: row.id,
-      name: row.name || 'Unnamed contact',
-      phone: row.phone || '',
-      email: row.email || '',
-      source: row.source || 'Google Ads',
-      status: row.status || 'new',
-      createdAt: row.created_at,
-      owner: row.assigned_to == null ? '' : String(row.assigned_to),
-      campaign: row.google_campaign_name || '',
-      keyword: row.google_keyword || '',
-      matchType: row.google_match_type || '',
-      gclid: row.gclid || '',
-    }));
+    const rows = (rowsRes.rows || []).map((row) => {
+      const notes = String(row.notes || '');
+      const answerLine = notes
+        .split('\n')
+        .map((line) => line.trim())
+        .find((line) => /^[^:[\]]{2,}:\s*.+/.test(line) && !/^\[(Campaign|City|Lead Stage|Lead Source|Google Lead):/i.test(line));
+      const answer = answerLine ? answerLine.slice(answerLine.indexOf(':') + 1).trim() : '';
+      return {
+        id: row.id,
+        name: row.name || 'Unnamed contact',
+        phone: row.phone || '',
+        email: row.email || '',
+        source: row.source || 'Google Ads',
+        status: row.status || 'new',
+        createdAt: row.created_at,
+        // The leads table has no assigned_to column; ownership is the FRO on the
+        // live assignment, or the recruiter id for recruitment leads.
+        owner: row.fro_name || (row.recruiter_id == null ? '' : String(row.recruiter_id)),
+        campaign: row.google_campaign_name || '',
+        keyword: row.google_keyword || '',
+        matchType: row.google_match_type || '',
+        gclid: row.gclid || '',
+        answer,
+      };
+    });
 
     return {
       total: countRes.rows?.[0]?.total || rows.length,
@@ -351,7 +530,7 @@ async function loadRecentLeads({ days, limit }) {
       available: true,
       note: rows.length
         ? null
-        : 'No Google-attributed leads in this window. Add a gclid (or source containing “Google”) when your landing page creates the lead.',
+        : 'No Google-attributed leads in this window. Press Fetch leads to pull lead-form submissions from Google Ads, or let your landing page post gclid.',
     };
   } catch (e) {
     return {
