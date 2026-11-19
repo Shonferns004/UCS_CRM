@@ -321,6 +321,26 @@ const SEARCH_DEBOUNCE_MS = 600;
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_MIN_DIGITS = 3;
 
+const DISPOSITION_TONE = {
+  green: ['done', 'lead_done', 'donation_collected', 'visit_donate'],
+  red: ['not_interested', 'not_interested_now', 'rejected', 'wrong_number', 'invalid_number', 'dnd', 'payment_rejected'],
+  amber: ['scheduled', 'callback', 'call_back', 'follow_up', 'promise_to_pay', 'will_donate_online', 'payment_pending', 'csr_inquiry'],
+  grey: ['busy', 'ringing', 'unreachable', 'switched_off', 'out_of_coverage', 'call_waiting', 'wrong_person', 'language_barrier', 'already_donated'],
+};
+
+// The card badge shows the lead's last disposition (what the FRO actually did),
+// not just "Assigned". A lead with no disposition yet stays Pending/New.
+const dispositionPill = (value, fallback) => {
+  const v = String(value || '').toLowerCase();
+  if (!v) return fallback;
+  const label = v.replace(/_/g, ' ');
+  if (DISPOSITION_TONE.green.includes(v)) return { label, color: '#16a34a', background: '#dcfce7' };
+  if (DISPOSITION_TONE.red.includes(v)) return { label, color: '#dc2626', background: '#fee2e2' };
+  if (DISPOSITION_TONE.amber.includes(v)) return { label, color: '#b45309', background: '#fef3c7' };
+  if (DISPOSITION_TONE.grey.includes(v)) return { label, color: '#475569', background: '#f1f5f9' };
+  return { label, color: '#1d4ed8', background: '#e7efff' };
+};
+
 export default function MyDonors({ embedded = false, portalEl = null, onDetailStateChange }) {
   const isMobile = useIsMobile()
   const isCompact = useIsMobile(480)
@@ -481,6 +501,10 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
             is_new: true,
             ngo_name: lead.ngo_name || '',
             notes: lead.notes,
+            reply_notes: lead.reply_notes || lead.notes,
+            lead_source: lead.lead_source || null,
+            campaign: lead.campaign || '',
+            received_at: lead.received_at || null,
             donor_city: '',
             donor_type: '',
             donor_email: '',
@@ -2394,12 +2418,29 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                   <div style={{ fontSize: 12 }}>When the admin places a lead on your {sourceLabel} station it appears here.</div>
                 </div>
               ) : shown.map((l) => {
-                const parsed = parseLeadNotes(l.notes);
-                // Meta: every chosen answer, no question label and no inbox URL.
+                const parsed = parseLeadNotes(l.reply_notes || l.notes);
+                // Meta/Google: every chosen answer, no question label and no inbox URL.
                 // WhatsApp: keep the latest reply plus the earlier-reply count.
+                const isForm = l.source === 'meta' || l.source === 'google';
                 const bodyLines = parsed.message.split('\n').map((x) => x.trim()).filter(Boolean);
-                const msg = parsed.isMeta ? parsed.message : (bodyLines[bodyLines.length - 1] || '');
-                const earlierCount = parsed.isMeta ? 0 : Math.max(0, bodyLines.length - 1);
+                const msg = isForm ? parsed.message : (bodyLines[bodyLines.length - 1] || '');
+                const earlierCount = isForm ? 0 : Math.max(0, bodyLines.length - 1);
+                const replyLabel = l.source === 'meta'
+                  ? 'Meta form answer'
+                  : l.source === 'google'
+                    ? 'Google lead answer'
+                    : l.source === 'email'
+                      ? 'Email reply'
+                      : 'WhatsApp reply';
+                const receivedText = l.received_at
+                  ? new Date(l.received_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  : '';
+                const pill = dispositionPill(
+                  l.last_disposition,
+                  l.status === 'assigned'
+                    ? { label: 'Pending', color: '#b45309', background: '#fef3c7' }
+                    : { label: 'New', color: '#1d4ed8', background: '#e7efff' },
+                );
                 const acct = parsed.account;
                 const acctName = l.ngo_name || (String(acct || '').toLowerCase().startsWith('bsct') ? 'BSCT' : String(acct || '').toLowerCase().startsWith('aflf') ? 'AFLF' : String(acct || '').toLowerCase().startsWith('mann') ? 'MANN' : (acct || ''));
                 const phone = String(l.phone || '').replace(/[^0-9]/g, '');
@@ -2415,6 +2456,10 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                        is_new: true,
                        ngo_name: acctName,
                         notes: l.notes,
+                       reply_notes: l.reply_notes || l.notes,
+                       lead_source: l.lead_source || null,
+                       campaign: l.campaign || '',
+                       received_at: l.received_at || null,
                        donor_city: '',
                        donor_type: '',
                        donor_email: '',
@@ -2437,21 +2482,29 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
                               <span style={{ padding: '1px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, background: 'var(--line)', color: 'var(--ink-soft)' }}>{acctName}</span>
                             )}
                           </div>
+                          {(l.campaign || receivedText) && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 10.5, color: 'var(--ink-soft)' }}>
+                              {l.campaign && (
+                                <span title={l.campaign} style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  <b>Campaign:</b> {l.campaign}
+                                </span>
+                              )}
+                              {receivedText && <span><b>Received:</b> {receivedText}</span>}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: l.status === 'assigned' ? '#16a34a' : '#b45309', background: l.status === 'assigned' ? '#16a34a1a' : '#b453091a' }}>
-                          {l.status === 'assigned' ? 'Assigned' : 'New'}
+                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', color: pill.color, background: pill.background }}>
+                          {pill.label}
                         </span>
                       </div>
                     </div>
                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg)', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid var(--line)' }}>
-                       {earlierCount > 0 && (
-                         <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 3 }}>
-                           Latest reply · {earlierCount} earlier
-                         </div>
-                       )}
-                       {msg || '—'}
+                       <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: 'var(--ink-soft)', marginBottom: 3 }}>
+                         {replyLabel}{earlierCount > 0 ? ` · ${earlierCount} earlier` : ''}
+                       </div>
+                       <div>{msg || 'No answer captured'}</div>
                      </div>
                    </div>
                 );
@@ -2783,19 +2836,41 @@ export default function MyDonors({ embedded = false, portalEl = null, onDetailSt
               </div>
             </div>
 
-            {(/^SS-/i.test(String(donor.station || '')) || /-Leads$/i.test(String(donor.station || ''))) && donor.notes && (() => {
-              const parsed = parseLeadNotes(donor.notes);
-              // Meta shows the chosen answer only; WhatsApp keeps the latest
+            {(/^SS-/i.test(String(donor.station || '')) || /-Leads$/i.test(String(donor.station || ''))) && (donor.reply_notes || donor.notes) && (() => {
+              const parsed = parseLeadNotes(donor.reply_notes || donor.notes);
+              const stationKey = String(donor.station || '').toLowerCase();
+              const sourceKey = String(donor.lead_source || '').toLowerCase();
+              const isMeta = parsed.isMeta || stationKey.includes('-meta-leads') || sourceKey.includes('meta');
+              const isGoogle = stationKey.includes('-google-leads') || sourceKey.includes('google');
+              const isEmail = stationKey.includes('-email-leads') || sourceKey.includes('email');
+              const isForm = isMeta || isGoogle;
+              // Forms show the chosen answer only; WhatsApp keeps the latest
               // reply plus the earlier ones.
               const lines = parsed.message.split('\n').map((x) => x.trim()).filter(Boolean);
-              const latest = parsed.isMeta ? parsed.message : (lines[lines.length - 1] || '—');
-              const earlier = parsed.isMeta ? [] : lines.slice(0, -1);
+              const latest = isForm ? parsed.message : (lines[lines.length - 1] || '');
+              const earlier = isForm ? [] : lines.slice(0, -1);
+              const label = isMeta
+                ? 'Meta form answer'
+                : isGoogle
+                  ? 'Google lead answer'
+                  : isEmail
+                    ? 'Email reply'
+                    : 'WhatsApp reply';
+              const receivedText = donor.received_at
+                ? new Date(donor.received_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : '';
               return (
                 <div style={{ margin: '8px 12px 0', padding: '9px 11px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontSize: 11.5, lineHeight: 1.45 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', marginBottom: 3, opacity: .8 }}>
-                    {parsed.isMeta ? 'Form answer' : `WhatsApp reply${earlier.length ? ' · latest' : ''}`}
+                    {label}{earlier.length ? ' · latest' : ''}
                   </div>
-                  <div style={{ fontWeight: 700, whiteSpace: 'pre-wrap' }}>{latest}</div>
+                  <div style={{ fontWeight: 700, whiteSpace: 'pre-wrap' }}>{latest || 'No answer captured'}</div>
+                  {(donor.campaign || receivedText) && (
+                    <div style={{ marginTop: 5, fontSize: 10, opacity: .8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {donor.campaign && <span title={donor.campaign}>Campaign: {donor.campaign}</span>}
+                      {receivedText && <span>Received: {receivedText}</span>}
+                    </div>
+                  )}
                   {earlier.length > 0 && (
                     <div style={{ marginTop: 4, fontSize: 10.5, opacity: .65 }}>
                       Earlier: {earlier.join(' · ')}

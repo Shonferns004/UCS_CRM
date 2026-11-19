@@ -8117,10 +8117,38 @@ export const getWhatsAppLeads = async (req, res) => {
       `select a.id, a.donor_id, a.ngo_id, a.station, a.status, a.notes,
               a.assigned_at, a.fro_worker_id, a.batch_type,
               dp.name, dp.mobile_number as phone,
-              n.name as ngo_name
+              n.name as ngo_name,
+              ld.created_at as lead_created_at,
+              ld.notes as lead_notes,
+              ld.source as lead_source,
+              ld.meta_campaign_name,
+              ld.google_campaign_name,
+              ld.event_campaign_name,
+              dl.disposition_detail as last_disposition,
+              dl.disposition_category as last_disposition_category,
+              dl.created_at as last_disposition_at
          from fro_assignments a
          join donor_profiles dp on dp.id = a.donor_id
          left join ngos n on n.id = a.ngo_id
+         left join lateral (
+           select l.created_at, l.notes, l.source,
+                  l.meta_campaign_name, l.google_campaign_name,
+                  (select e.campaign_name
+                     from meta_lead_events e
+                    where e.meta_lead_id = l.meta_lead_id
+                    limit 1) as event_campaign_name
+             from leads l
+            where a.notes like '%[Lead:' || l.id::text || ']%'
+            limit 1
+         ) ld on true
+         left join lateral (
+           select d.disposition_detail, d.disposition_category, d.created_at
+             from fro_donor_logs d
+            where d.assignment_id = a.id
+              and d.action = 'disposition'
+            order by d.created_at desc
+            limit 1
+         ) dl on true
         where a.station = any($2::text[])
           and (a.status is null or a.status <> 'reassigned')
           and (
@@ -8148,6 +8176,14 @@ export const getWhatsAppLeads = async (req, res) => {
       return 'whatsapp';
     };
 
+    const campaignOf = (row) => {
+      const explicit = String(
+        row.meta_campaign_name || row.event_campaign_name || row.google_campaign_name || '',
+      ).trim();
+      if (explicit) return explicit;
+      return (String(row.lead_notes || row.notes || '').match(/\[Campaign:\s*([^\]]+)\]/i) || [])[1]?.trim() || '';
+    };
+
     const requestedSource = String(req.query.source || '').trim().toLowerCase();
     const payload = (rows || []).map((r) => ({
       id: r.id, // assignment id — what the delete button removes
@@ -8160,6 +8196,16 @@ export const getWhatsAppLeads = async (req, res) => {
       station: r.station,
       status: r.fro_worker_id ? 'assigned' : 'new',
       notes: r.notes,
+      // The assignment notes lose the [Meta Lead:]/[Campaign:] tags during
+      // materialisation, so the original lead row is what the FRO card must
+      // parse for the answer. It also carries the submission time and campaign.
+      reply_notes: r.lead_notes || r.notes,
+      lead_source: r.lead_source || null,
+      campaign: campaignOf(r),
+      received_at: r.lead_created_at || r.assigned_at || null,
+      last_disposition: r.last_disposition || null,
+      last_disposition_category: r.last_disposition_category || null,
+      last_disposition_at: r.last_disposition_at || null,
       assigned_at: r.assigned_at,
       batch_type: r.batch_type,
       source: sourceOf(r.station, r.notes),

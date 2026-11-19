@@ -297,6 +297,26 @@ export async function materializeReplyLead(lead, { froId = null, client = null }
     ownerId = owner[0]?.fro_worker_id || null;
   }
 
+  // A new source station (Google) starts unowned. Reuse an owner already working
+  // another lead station for the same NGO, so the lead is assigned and the FRO
+  // gets the live bell alert instead of the lead sitting invisible in a queue.
+  // LEAD_FALLBACK_STATION_OWNER=false keeps orphan stations inactive.
+  if (!ownerId && String(process.env.LEAD_FALLBACK_STATION_OWNER ?? 'true').toLowerCase() !== 'false') {
+    const { rows: fallback } = await run(
+      `select fro_worker_id
+         from fro_station_assignments
+        where ngo_id = $1 and fro_worker_id is not null and station like '%Leads'
+        order by case
+          when station ilike '%meta%' then 0
+          when station ilike '%whatsapp%' then 1
+          else 2
+        end
+        limit 1`,
+      [ngoId],
+    );
+    ownerId = fallback[0]?.fro_worker_id || null;
+  }
+
   // donor profile
   const { rows: existingProfile } = await run(
     `select id, name from donor_profiles
